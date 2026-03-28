@@ -1,0 +1,172 @@
+# Academic Literature Review for CAEM: Confidence-Aware Episodic Memory with Self-Improvement
+
+This comprehensive literature review supports a thesis on reducing hallucinations in Large Language Models through verified rejection sampling and iterative fine-tuning. The CAEM system addresses one of the most pressing challenges in LLM deployment: **large models produce plausible-sounding but factually incorrect outputs at rates between 3-40%** depending on task and model, with larger models sometimes performing worse on truthfulness benchmarks—a phenomenon called inverse scaling. The research spans foundational work on hallucinations, verification methods, confidence estimation, memory-augmented architectures, and continual learning, establishing both the theoretical basis and practical components for implementing CAEM.
+
+---
+
+## The hallucination problem: definitions, prevalence, and the case for architectural innovation
+
+LLM hallucinations have been systematically categorized across multiple comprehensive surveys. **Ji et al. (2023)** published the first major survey in *ACM Computing Surveys*, defining hallucination as "generation of nonsensical or unfaithful content to source input" and establishing a foundational taxonomy distinguishing **intrinsic hallucinations** (contradicting source material) from **extrinsic hallucinations** (unverifiable claims). This work, "Survey of Hallucination in Natural Language Generation," covered summarization, dialogue, and data-to-text generation tasks, establishing the conceptual framework that subsequent LLM-specific research builds upon.
+
+**Huang et al. (2024)** extended this taxonomy specifically for LLMs in "A Survey on Hallucination in Large Language Models: Principles, Taxonomy, Challenges, and Open Questions" (*ACM Transactions on Information Systems*). Their framework distinguishes **factuality hallucinations** (conflicting with verifiable world knowledge) from **faithfulness hallucinations** (contradicting user input or context). Critically, they identify three causal stages where hallucinations originate: data collection, training methodology, and inference—suggesting that mitigation requires intervention at multiple points, precisely what CAEM's architecture addresses through verified memory storage and iterative refinement.
+
+Quantitative prevalence varies dramatically by task and model. The **Vectara Hallucination Leaderboard** reports document summarization hallucination rates ranging from **3% (GPT-4)** to **27.2% (Google PaLM 2 Chat)**. Medical literature studies by **Chelli et al. (2024, *JMIR*)** found reference hallucination rates of **39.6% for GPT-3.5**, **28.6% for GPT-4**, and a striking **91.4% for Google Bard**. Google's FACTS benchmark suite (2025) shows even leading models achieve below 70% overall accuracy, with **6.4% hallucination rates** persisting in legal information tasks for top-performing systems.
+
+The **TruthfulQA** benchmark provides the most direct measurement of hallucination tendencies. **Lin, Hilton, and Evans (2022)**, in "TruthfulQA: Measuring How Models Mimic Human Falsehoods" (*ACL 2022*, pages 3214-3252), introduced 817 questions across 38 categories specifically designed to elicit "imitative falsehoods"—false answers learned from imitating human misconceptions in training data. Their critical finding establishes the theoretical motivation for CAEM: **larger models were generally less truthful**, with GPT-3-175B achieving only 25-30% truthfulness compared to 94% human performance. This inverse scaling phenomenon demonstrates that architectural innovation—not simply scaling—is required for truthful generation.
+
+**FActScore** (**Min et al., EMNLP 2023**, pages 12076-12100) complements TruthfulQA by providing fine-grained atomic fact evaluation. The methodology decomposes long-form outputs into atomic claims and computes the percentage supported by authoritative sources, achieving <2% error versus human evaluation. ChatGPT achieved only **58% FActScore** on biography generation, establishing that even capable models produce substantial proportions of unsupported atomic facts—precisely the units CAEM's episodic memory should verify and store.
+
+---
+
+## Verification methods: from chain-of-thought to semantic entropy
+
+### Chain-of-thought prompting establishes interpretable reasoning foundations
+
+**Wei et al. (2022)** introduced chain-of-thought (CoT) prompting in "Chain-of-Thought Prompting Elicits Reasoning in Large Language Models" (*NeurIPS 2022*, pages 24824-24837). By augmenting few-shot prompts with intermediate reasoning steps, CoT achieved state-of-the-art results on mathematical reasoning benchmarks using PaLM 540B. The technique exhibits an **emergent ability threshold**—only effective with models exceeding approximately 100 billion parameters. For CAEM, CoT provides interpretable reasoning traces that can be independently verified before memory storage, enabling error diagnosis and explanation of verification decisions.
+
+### Self-consistency provides confidence through answer agreement
+
+**Wang et al. (2023)** built on CoT with "Self-Consistency Improves Chain of Thought Reasoning in Language Models" (*ICLR 2023*). Rather than greedy decoding, their sample-and-marginalize procedure generates diverse reasoning paths and selects answers by majority vote. The core insight: complex problems typically admit multiple valid reasoning paths leading to the same correct answer.
+
+Quantitative improvements with PaLM-540B demonstrate the method's power:
+
+- **GSM8K** (math word problems): +17.9% absolute accuracy improvement
+- **SVAMP** (arithmetic): +11.0% improvement
+- **AQuA** (algebra): +12.2% improvement
+- **StrategyQA** (commonsense): +6.4% improvement
+
+For CAEM, consistency scores—the proportion of reasoning paths agreeing on an answer—provide a computationally lightweight confidence measure requiring no additional training. High consistency indicates reliable outputs suitable for episodic memory storage.
+
+### Semantic entropy detects confabulation at the meaning level
+
+**Farquhar, Kossen, Kuhn, and Gal (2024)** published "Detecting hallucinations in large language models using semantic entropy" in *Nature* (volume 630, pages 625-630), representing the most rigorous treatment of uncertainty-based hallucination detection. Their key innovation addresses a fundamental limitation of token-level entropy: "Paris" and "It's Paris" have identical meaning but different token probabilities.
+
+The semantic entropy methodology:
+1. Sample M output sequences from the LLM
+2. Cluster sequences by meaning using **bidirectional entailment** (if A entails B and B entails A, they share semantic meaning)
+3. Compute entropy over semantic equivalence classes rather than token sequences
+
+Using DeBERTa-Large-MNLI for entailment detection, semantic entropy achieves **AUROC of 0.790** for confabulation detection, substantially outperforming naive entropy (0.691) and P(True) methods (0.698). Performance remains robust across LLaMA 2 (7B-70B), Falcon (7B-40B), and Mistral (7B) model families. For CAEM, high semantic entropy indicates confabulation risk warranting rejection from episodic memory, while low semantic entropy signals consistent meaning suitable for storage.
+
+### NLI provides explicit evidence-based verification
+
+The **FEVER** dataset (**Thorne et al., NAACL 2018**, pages 809-819) formulates fact verification as natural language inference. Given 185,445 claims generated from Wikipedia, systems must classify claim-evidence relationships as SUPPORTS, REFUTES, or NOT ENOUGH INFO. This three-way classification maps directly to CAEM's memory storage decisions: supported claims merit storage, refuted claims should be rejected, and insufficient evidence triggers uncertainty flagging.
+
+---
+
+## Confidence estimation: from Bayesian approximation to calibrated uncertainty
+
+### MC Dropout provides theoretically grounded uncertainty estimation
+
+**Gal and Ghahramani (2016)** established the theoretical foundation for practical uncertainty estimation in "Dropout as a Bayesian Approximation: Representing Model Uncertainty in Deep Learning" (*ICML 2016*, pages 1050-1059). Their key contribution: dropout during training can be interpreted as approximate Bayesian inference, enabling uncertainty estimation by maintaining dropout at inference and computing variance across multiple stochastic forward passes.
+
+This approach distinguishes **epistemic uncertainty** (reducible uncertainty about model parameters) from **aleatoric uncertainty** (irreducible data noise). For CAEM, high epistemic uncertainty indicates the model is uncertain about its knowledge—triggering memory verification rather than confident storage.
+
+### Temperature scaling enables post-hoc calibration without retraining
+
+**Guo et al. (2017)** discovered a critical problem in "On Calibration of Modern Neural Networks" (*ICML 2017*): modern deep networks are systematically **overconfident**, with confidence scores exceeding actual accuracy rates. They introduced **Expected Calibration Error (ECE)** as the standard metric and demonstrated that a remarkably simple solution—**temperature scaling**—provides effective post-hoc calibration.
+
+Temperature scaling divides logits by a learned scalar T > 0 optimized on a validation set. Despite using only a single parameter, it outperforms histogram binning, isotonic regression, and Bayesian methods. Critically, it preserves classification accuracy (argmax unchanged) while calibrating probabilities. For CAEM, temperature scaling can calibrate confidence scores from any trained model before making memory storage decisions.
+
+### LLMs exhibit systematic overconfidence requiring multiple confidence signals
+
+**Kadavath et al. (2022)** from Anthropic explored self-evaluation in "Language Models (Mostly) Know What They Know" (*NeurIPS 2022*). They introduced **P(True)**—having models evaluate probability their own answers are correct—and **P(IK)** ("I Know")—predicting confidence before generating answers. Larger models showed improved calibration on multiple-choice questions, but RLHF training often degraded calibration, suggesting a tension between helpfulness training and truthfulness.
+
+**Geng et al. (2024)** provided a comprehensive taxonomy in "A Survey of Confidence Estimation and Calibration in Large Language Models" (*NAACL 2024*), categorizing methods as white-box (token logits, sequence probability) or black-box (verbalized confidence, consistency-based). Their key finding: even best methods achieve only **AUROC 0.5-0.6** for distinguishing correct from incorrect responses, indicating that **uncertainty estimation in LLMs remains an open challenge**—motivating CAEM's multi-signal approach combining semantic entropy, token probability, and self-evaluation.
+
+---
+
+## Memory-augmented architectures: from Neural Turing Machines to RAG
+
+### Foundational memory architectures establish differentiable read/write mechanisms
+
+**Graves, Wayne, and Danihelka (2014)** introduced Neural Turing Machines (arXiv:1410.5401), establishing the paradigm of differentiable external memory. The architecture combines a controller network with an addressable memory matrix supporting both content-based (cosine similarity) and location-based addressing. NTMs successfully learned algorithmic tasks—copying, sorting, associative recall—demonstrating neural networks can learn to use memory for complex operations.
+
+**Weston, Chopra, and Bordes (2015)** introduced Memory Networks at *ICLR 2015*, scaling to millions of memory slots and demonstrating multi-hop reasoning over stored facts. **Sukhbaatar et al. (2015)** extended this with End-to-End Memory Networks (*NeurIPS*, pages 2440-2448), removing the need for strong supervision on retrieval through continuous attention. Their iterative refinement through multiple memory hops directly informs CAEM's progressive reasoning over stored knowledge.
+
+**Graves et al. (2016)** presented the Differentiable Neural Computer in *Nature* (volume 538, pages 471-476), extending NTMs with dynamic memory allocation, temporal links recording write order, and multiple read/write heads. DNCs achieved **3.8% mean error** on bAbI QA tasks (versus 6.4% for Memory Networks) and demonstrated graph traversal and inference capabilities—supporting CAEM's need for sophisticated memory management.
+
+### RAG demonstrates hybrid parametric and non-parametric knowledge
+
+**Lewis et al. (2020)** introduced Retrieval-Augmented Generation in "Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks" (*NeurIPS*, pages 9459-9474). RAG combines BART's parametric memory (400M parameters) with a non-parametric dense vector index of Wikipedia (21M documents), retrieving via Dense Passage Retrieval with FAISS.
+
+Key benchmark results demonstrate RAG's effectiveness:
+
+| Task | RAG Score | Prior SOTA |
+|------|-----------|------------|
+| Natural Questions (EM) | 44.5 | 41.5 |
+| TriviaQA | 68.0 | 60.5 |
+| WebQuestions | 45.5 | 44.7 |
+
+Crucially, RAG generates "more specific, diverse and factual language" and supports **index hot-swapping**—achieving 70% accuracy when updating world knowledge by replacing the document index. This demonstrates that non-parametric memory can be updated without retraining, directly supporting CAEM's self-improvement through verified memory updates.
+
+### FAISS and Sentence-BERT enable scalable semantic retrieval
+
+**Johnson, Douze, and Jégou (2019)** developed FAISS for "Billion-Scale Similarity Search with GPUs" (*IEEE Transactions on Big Data*, volume 7, pages 535-547). The library achieves **8.5x speedup** over prior GPU methods through novel k-selection algorithms operating at 55% theoretical peak performance. FAISS enables sub-linear search over billion-scale vector databases—essential for CAEM's real-time memory retrieval.
+
+**Reimers and Gurevych (2019)** introduced "Sentence-BERT: Sentence Embeddings using Siamese BERT-Networks" (*EMNLP-IJCNLP*, pages 3982-3992). Using siamese and triplet network structures on pre-trained BERT, SBERT produces semantically meaningful sentence embeddings. The efficiency gain is dramatic: finding most similar pairs in 10,000 sentences drops from **65 hours (BERT cross-encoding) to 5 seconds (SBERT)**. For CAEM, SBERT provides the embedding foundation for encoding verified knowledge into episodic memory, while FAISS enables efficient similarity-based retrieval.
+
+---
+
+## Self-improvement and continual learning: preventing catastrophic forgetting
+
+### Elastic Weight Consolidation enables iterative refinement without forgetting
+
+**Kirkpatrick et al. (2017)** introduced EWC in "Overcoming catastrophic forgetting in neural networks" (*PNAS*, volume 114, pages 3521-3526). The algorithm uses the Fisher Information Matrix to estimate parameter importance from previous tasks, then applies quadratic penalties to important parameters during new task learning:
+
+**L_total = L_new_task + λ Σ F_i(θ_i - θ*_previous)²**
+
+EWC maintained ~90% of single-task performance when sequentially learning 10 Atari games, compared to significant degradation with standard SGD. For CAEM, EWC provides the mechanism to iteratively fine-tune on verified examples while preserving previously learned knowledge through importance-weighted regularization.
+
+### Learning from noisy labels addresses verification uncertainty
+
+**Natarajan et al. (2013)** provided theoretical foundations in "Learning with Noisy Labels" (*NeurIPS*, pages 1196-1204). Their unbiased estimator method constructs proxy loss functions that recover optimal classifiers despite corrupted labels, achieving >88% accuracy even with 40% label corruption. This framework is essential for CAEM's iterative self-improvement: confidence-filtered pseudo-labels may contain noise, and provably noise-tolerant training enables robust learning despite imperfect verification.
+
+### Self-training and bootstrapping enable iterative improvement
+
+**Zelikman et al. (2022)** introduced STaR (Self-Taught Reasoner) in "STaR: Bootstrapping Reasoning With Reasoning" (*NeurIPS 2022*). The iterative loop generates rationales, fine-tunes on correct answers, and uses "rationalization" (generating rationales given correct answers) for failed problems. STaR achieved **+35.9% over few-shot baseline** on CommonsenseQA. This bootstrap pattern directly parallels CAEM's approach: generate predictions → verify → fine-tune on verified examples → repeat.
+
+Recent work on iterative self-correction has identified critical challenges. **Kamoi et al. (2024)** found in "When Can LLMs Actually Correct Their Own Mistakes?" (*TACL*) that intrinsic self-correction often fails or degrades performance—the bottleneck is **reliable feedback generation**. CAEM's confidence-aware filtering addresses precisely this gap, providing the missing reliable verification signal that enables successful iterative improvement.
+
+---
+
+## Benchmark evaluation framework for CAEM
+
+Four benchmarks provide complementary evaluation of hallucination reduction:
+
+**HotpotQA** (**Yang et al., EMNLP 2018**, pages 2369-2380) tests multi-hop reasoning with 113,000 question-answer pairs requiring reasoning across multiple Wikipedia documents. Human F1 reaches 91.40% versus best models at 58.99% (distractor setting), establishing substantial headroom. The sentence-level supporting fact annotations enable evaluation of evidence grounding—critical for CAEM's memory-based approach.
+
+**StrategyQA** (**Geva et al., TACL 2021**, volume 9, pages 346-361) presents 2,780 questions requiring implicit reasoning—the decomposition steps are not mentioned in questions. Human accuracy reaches 87% versus ~66% for best models. Short questions mask underlying complexity, testing whether confidence calibration can identify uncertainty in implicit reasoning tasks.
+
+**FEVER** (**Thorne et al., NAACL 2018**, pages 809-819) provides 185,445 claims for three-way fact verification (SUPPORTS, REFUTES, NOT ENOUGH INFO). The NotEnoughInfo class is particularly relevant for CAEM—calibrating when to express uncertainty rather than hallucinating.
+
+**TruthfulQA** (**Lin et al., ACL 2022**, pages 3214-3252) directly measures avoidance of imitative falsehoods across 38 categories including health, law, and finance. The inverse scaling finding—larger models are less truthful—establishes that architectural innovations like CAEM are necessary beyond simple scaling.
+
+---
+
+## Model architecture: encoder-decoder advantages for CAEM
+
+**Chung et al. (2022/2024)** introduced Flan-T5 in "Scaling Instruction-Finetuned Language Models" (*JMLR*, volume 25). Instruction tuning on 1,836 tasks yields dramatic improvements: Flan-T5-XL (3B parameters) achieves **52.4% on MMLU**, surpassing GPT-3 175B's 43.9%. The encoder-decoder architecture provides several advantages for CAEM:
+
+- **Bidirectional encoding** enables deep understanding of input context and retrieved memory
+- **Cross-attention** naturally retrieves from encoded memory during generation
+- **Superior finetuning performance** compared to decoder-only architectures after instruction tuning
+- **Natural separation** of understanding (encoder) and generation (decoder) components
+
+Recent architectural comparisons (arXiv:2510.26622) confirm encoder-decoder models provide superior finetuning performance and running efficiency, while decoder-only models excel at zero/few-shot learning. For CAEM's iterative fine-tuning approach, encoder-decoder architectures like Flan-T5 represent the optimal foundation.
+
+---
+
+## Synthesis: how the literature informs CAEM design
+
+The reviewed literature establishes both the urgency and the technical foundations for CAEM. Hallucination rates of 3-40% across models and domains, combined with inverse scaling on truthfulness benchmarks, demonstrate that parametric scaling alone cannot solve the hallucination problem. The solution requires architectural innovation combining multiple components:
+
+**Verification pipeline**: Chain-of-thought provides interpretable reasoning traces. Self-consistency provides lightweight confidence measures. Semantic entropy detects confabulation at the meaning level. NLI verification grounds claims in retrieved evidence.
+
+**Memory architecture**: Sentence-BERT embeddings encode verified knowledge. FAISS enables billion-scale similarity search. RAG's hybrid architecture demonstrates effective integration of parametric and non-parametric knowledge. Memory Networks and DNCs establish differentiable read/write mechanisms.
+
+**Self-improvement mechanism**: EWC prevents catastrophic forgetting during iterative fine-tuning. Noise-tolerant learning handles imperfect verification. The STaR bootstrap loop demonstrates successful self-improvement through verified examples.
+
+**Evaluation framework**: TruthfulQA directly measures hallucination reduction. HotpotQA tests multi-hop reasoning with evidence grounding. FEVER evaluates fact verification capability. StrategyQA tests implicit reasoning under uncertainty.
+
+CAEM's contribution lies in the principled integration of these components: storing only high-confidence, semantically consistent, evidence-supported outputs in episodic memory, then using importance-weighted continual learning to iteratively refine model behavior—directly addressing the central challenge identified across this literature of enabling self-improvement while maintaining knowledge integrity and avoiding confirmation bias.
