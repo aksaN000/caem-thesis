@@ -15,6 +15,99 @@
 
 ---
 
+## Session 14 — 2026-03-29
+
+**Scope:** PostGenerationConfidenceEstimator (Stage 4a, Tier 2 efficiency gate).
+
+**Files created this session:**
+```
+caem/confidence/post_generation.py
+tests/test_post_generation.py
+```
+
+**Test result:** 130/130 passing (35 new post-generation tests + 95 from prior sessions).
+
+---
+
+### Module: `caem/confidence/post_generation.py`
+
+**Purpose:** Compute û (post-generation confidence) for answers produced by Tier 2. Acts as an **efficiency gate** — not a quality gate. If û < 0.60, the answer is escalated to Tier 3 (full RAG) before committing to the expensive verification pipeline (Stage 5, ~2–4 s).
+
+**Four signals:**
+
+| Signal | Method | Source | Value range |
+|--------|--------|---------|-------------|
+| u_token | Geometric mean of per-token log-probs on the full generated answer | [LIT] | [0, 1] |
+| u_dropout | 1 / (1 + Var[K=5 MC Dropout passes]) | [LIT] Gal & Ghahramani 2016 | [0, 1] |
+| u_consistency | Average pairwise cosine sim of M=3 independent chain-of-thought generations | [LIT] Wang et al. 2022 | [0, 1] |
+| u_entropy | 1 − H_semantic/log2(K), K=10 samples at T=1.0, bidirectional NLI clustering | [LIT] Farquhar et al. 2024 | [0, 1] |
+
+**Combined:** û = 0.25·u_token + 0.25·u_dropout + 0.25·u_consistency + 0.25·u_entropy (initial equal weights — post-calibration weights come from Cycle 1 ablation, projected 0.20/0.20/0.20/0.40).
+
+---
+
+**Key design decision — equal initial weights (0.25 each), NOT projected weights:**
+
+> The thesis projects post-calibration weights of 0.20/0.20/0.20/0.40 (SE upweighted per Farquhar et al. 2024 AUROC ≈ 0.79). We do NOT initialise at these values.
+>
+> **Why start equal?** The projected weights are a calibration hypothesis, not ground truth. Starting equal avoids baking in assumptions that the calibration set might contradict. The actual weights are fitted on 500 samples after Cycle 1 and reported in Chapter 5.
+>
+> | Option | Description | Verdict |
+> |--------|-------------|---------|
+> | 0.25/0.25/0.25/0.25 ✓ | Equal — unbiased start | **Chosen** |
+> | 0.20/0.20/0.20/0.40 | Pre-bake projected weights | Rejected — premature |
+>
+> See: `CAEMConfig.u_hat_weight_*` fields; test `test_initial_weights_equal` enforces this.
+
+---
+
+**Key design decision — NLI surface fallback when RoBERTa is unavailable:**
+
+> `_compute_u_entropy` requires a RoBERTa-Large-MNLI model for semantic clustering. During development (before the model is downloaded), passing `nli_model=None` activates a surface-level fallback: groups samples by exact string match after normalisation.
+>
+> **Why allow the fallback?** Prevents a hard RoBERTa dependency at import time. The estimator can be instantiated and tested without a 1.4 GB model download. The fallback is documented as [DES-fallback] and produces valid [0,1] output — it is less accurate than NLI clustering for paraphrases but does not crash or return garbage.
+>
+> | Option | Description | Verdict |
+> |--------|-------------|---------|
+> | Surface fallback (string match) | Lightweight, always available | **Chosen** for dev |
+> | Hard dependency (fail without NLI model) | Accurate, no graceful degrade | Rejected |
+> | Return 0.5 (neutral) when NLI absent | Simplest | Rejected — loses all signal |
+
+---
+
+**Key design decision — MC Dropout eval() restored in `finally` block:**
+
+> `_compute_u_dropout` switches `model.train()` to activate dropout, runs K=5 forward passes, then must restore `model.eval()`. The restore is placed in a `finally` block so it executes even if `generate()` raises an exception (e.g. GPU OOM).
+>
+> **Why finally?** If eval() is skipped after an exception, every subsequent inference call (including Stage 5 NLI, SBERT encoding, etc.) would run with dropout active — producing stochastic, unreproducible outputs silently. This is a hard correctness requirement, not a nicety. The test `test_eval_mode_restored_on_exception` verifies this explicitly.
+
+---
+
+**Key design decision — u_token in post_generation differs from pre_routing:**
+
+> Both Stage 3 (pre-routing) and Stage 4a (post-generation) compute u_token. They are NOT the same:
+>
+> | Stage | Input to model | Answer scored | Purpose |
+> |-------|---------------|---------------|---------|
+> | Stage 3 (PreRouting) | Query | Short greedy prefix (max 32 tokens, fast) | Quick routing decision |
+> | Stage 4a (PostGen) | Query | Full generated answer, token-by-token | Faithful confidence estimate |
+>
+> Stage 4a uses `model(input_ids, labels=answer_ids)` to score the actual full answer rather than a short probe. More expensive, but more accurate — acceptable because Stage 4a only runs on Tier 2 queries, which are a subset.
+
+---
+
+**Test bugs found and fixed during Session 14:**
+
+1. **`SimpleNamespace` tokenizer mock had no `.items()` method.** `_tokenize()` calls `inputs.items()` for device transfer. Fixed: replaced `SimpleNamespace` return value with a `MagicMock` that explicitly mocks both `.input_ids` attribute and `.items()`.
+
+2. **`model.generate` mock always returned `SimpleNamespace` (not subscriptable).** `_compute_u_consistency` and `_compute_u_entropy` call `out[0]` on the plain tensor returned when `return_dict_in_generate` is not set. Fixed: replaced `model.generate.return_value` with a `side_effect` that returns a `SimpleNamespace` for dropout calls (which set `return_dict_in_generate=True`) and a plain tensor for consistency/entropy calls.
+
+3. **`nli_tok.return_value` was a plain `dict` with no `.to()` method.** `_semantic_entropy_nli` calls `.to(device)` on the tokenizer output before passing it to the NLI model. Fixed: introduced `_DictWithTo(dict)` — a dict subclass that adds `.to(device)` returning `self` for chaining, while preserving `**`-unpacking behaviour.
+
+4. **`test_two_equal_clusters` used wrong call-count mapping.** The test assumed 12 NLI calls (2 per pair, 6 pairs), but Python's `and` short-circuits: if the forward direction returns CONTRADICTION, the reverse is never called. With 4 samples and CONT for cross-cluster pairs, only 8 calls occur. Fixed: updated entailment call numbers from `(1,2,11,12)` to `(1,2,7,8)` with a comment explaining the short-circuit logic.
+
+---
+
 ## Session 13 — 2026-03-29
 
 **Scope:** AdaptiveRouter (Stage 3 dispatch).
