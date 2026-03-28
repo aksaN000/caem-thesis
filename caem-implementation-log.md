@@ -15,6 +15,57 @@
 
 ---
 
+## Session 12 — 2026-03-29
+
+**Scope:** PreRoutingConfidenceEstimator (Stage 3). Auto-push + version control setup.
+
+**Files created this session:**
+```
+caem/confidence/__init__.py
+caem/confidence/pre_routing.py
+tests/test_pre_routing.py
+.caem-config          (gitignored — stores GitHub token for auto-push)
+README.md
+.gitignore
+```
+**Deleted:** `git-sync.sh` (replaced by auto-push from `.caem-config`).
+
+**Test result:** 60/60 passing (23 new pre-routing tests + 37 from Session 11).
+
+---
+
+### Module: `caem/confidence/pre_routing.py`
+
+**Purpose:** Compute `u_pre` before routing, from two fast signals requiring only a single forward pass. Feeds the OR-condition safety check and the routing score formula.
+
+**Key design decision — C_conv encoder adaptation:**
+
+> **Thesis spec (Nandakishor 2025):** C_conv was designed for decoder hidden states in decoder-only models (GPT-style).
+>
+> **CAEM adaptation:** Applied to Flan-T5's *encoder* hidden states. The encoder processes the query and produces contextual representations across 12 layers. If early layers (1–6) have higher variance than late layers (7–12), the model has not settled on a stable query representation — a signal of low comprehension confidence *before generation begins*.
+>
+> **Must be stated in Chapter 4:** "We adapt C_conv to the encoder context: whereas Nandakishor (2025) applied it to decoder states, CAEM uses encoder layer variance ratios to measure pre-generation query understanding confidence." See: writing-suggestions.md C4-03b.
+
+**Key design decision — fail direction on errors:**
+
+> **Signal 1 (u_token):** If `generate()` raises (OOM, device error), returns `0.0` — *pessimistic*. A low u_token pushes toward Tier 3, which is the safe fallback. Better to over-route to Tier 3 than to confidently retrieve a wrong answer.
+>
+> **Signal 2 (c_conv):** If the encoder forward pass raises, returns `0.0` — *optimistic* (c_conv=0 → conf_cconv=1.0). Since c_conv is the secondary signal (weight 0.40), u_token alone governs. The fail-open choice avoids cascading failures when the encoder is temporarily unavailable.
+>
+> **Alternatives considered:** Return 0.5 for both on error. Rejected because it obscures which signal failed and produces an ambiguous middle value that neither routes to Tier 3 reliably nor passes the OR-condition clearly.
+
+**Key design decision — short greedy decode for u_token:**
+
+> **max_new_tokens = 32.** Only 32 tokens are decoded for the u_token signal — not a full answer. This keeps Stage 3 latency under ~100 ms on GPU (within the 400 ms Tier 1 budget). The confidence proxy from 32 tokens is empirically sufficient; longer decodes add latency without meaningful signal gain for this purpose.
+>
+> **Alternative considered:** Use the full generation (until EOS). Rejected because: Stage 3 runs on *every* query regardless of tier — adding full generation latency to every Tier 1 query would exceed the 400 ms target. Tier 2 and Tier 3 generate their own full answers anyway.
+
+**Key design decision — sequential batch estimation:**
+
+> Batched generation with `output_scores=True` requires careful alignment of token IDs across padded sequences. Sequential calls are safer and the per-query overhead is negligible at inference. Batching can be added later if calibration speed is a bottleneck.
+
+---
+
 ## Session 11 — 2026-03-29
 
 **Scope:** Episodic memory module (Sessions 1–10 completed design; Session 11 begins implementation.)
@@ -170,8 +221,8 @@ Recency = exp(−0.01 · age_in_seconds)
 | Module | Stage | Dataset needed? | Status |
 |---|---|---|---|
 | `caem/memory/` | — | No | ✅ Session 11 |
-| `caem/confidence/pre_routing.py` | Stage 3 | No (model only) | 🔨 Session 12 |
-| `caem/routing/router.py` | Stage 3→dispatch | No | ⬜ |
+| `caem/confidence/pre_routing.py` | Stage 3 | No (model only) | ✅ Session 12 |
+| `caem/routing/router.py` | Stage 3→dispatch | No | 🔨 Session 13 |
 | `caem/confidence/post_generation.py` | Stage 4a | No (model only) | ⬜ |
 | `caem/verification/verifier.py` | Stage 5 | ⚠️ NLI layer needs ground truth | ⬜ |
 | `caem/retrieval/rag.py` | Stage 6 (Tier 3) | Yes — Wikipedia passages | ⬜ |
