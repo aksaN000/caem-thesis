@@ -15,6 +15,49 @@
 
 ---
 
+## Session 13 — 2026-03-29
+
+**Scope:** AdaptiveRouter (Stage 3 dispatch).
+
+**Files created this session:**
+```
+caem/routing/__init__.py
+caem/routing/router.py
+tests/test_router.py
+```
+
+**Test result:** 95/95 passing (35 new router tests + 60 from prior sessions).
+
+---
+
+### Module: `caem/routing/router.py`
+
+**Purpose:** Dispatch every query to exactly one of Tier 1, 2, or 3 based on `u_pre` and the episodic memory search result. Zero model calls — pure logic.
+
+**Key design decision — two mechanisms, not one formula:**
+
+> The routing uses two ENTIRELY SEPARATE mechanisms that share no arithmetic:
+>
+> **Mechanism 1 — OR-condition (hard veto):** `if u_pre < 0.60 → Tier 3, safety_override=True`. Evaluated FIRST. No memory result involved.
+>
+> **Mechanism 2 — Routing score:** `0.70·sim + 0.30·û_stored`. Only runs if Mechanism 1 did not fire.
+>
+> **Why separate?** Combining them into one formula (e.g. `0.70·sim + 0.30·û_stored + 0.X·u_pre`) would allow a high `û_stored` to arithmetically compensate for a dangerously low `u_pre`. A high-quality memory match to a query the model doesn't understand would still route to Tier 1. Keeping them separate makes memory quality and model readiness *both mandatory*, not tradeable.
+>
+> **Test coverage:** `TestORCondition.test_u_pre_not_in_routing_score` explicitly verifies that two queries with different `u_pre` values (but same sim/û_stored) produce identical routing scores. See: writing-suggestions.md C4-10b.
+
+**Key design decision — empty memory falls through to Tier 3 naturally:**
+
+> When the store is empty, `search()` returns `[]`. The router sets `similarity=0.0` and `û_stored=0.0`. Routing score = 0.0 < 0.90, similarity 0.0 ≤ 0.75 → Tier 3, `safety_override=False`.
+>
+> **No special-casing needed.** The formula handles empty memory correctly without an explicit branch. This simplifies the code and ensures consistent logging (the routing score is always recorded, even when 0.0).
+
+**Key design decision — floating-point threshold comparison:**
+
+> The Tier 1 condition uses `routing_score >= tier1_combined_threshold` (strict ≥). At exact boundary values computed by algebraic inversion (e.g. `sim = (0.90 - 0.30·u) / 0.70`), floating-point arithmetic can produce `0.8999...` instead of `0.9000`. This is not a bug in the router — it is expected IEEE 754 behaviour. Tests account for this with a small epsilon guard on algebraically-derived boundary values.
+
+---
+
 ## Session 12 — 2026-03-29
 
 **Scope:** PreRoutingConfidenceEstimator (Stage 3). Auto-push + version control setup.
@@ -222,8 +265,8 @@ Recency = exp(−0.01 · age_in_seconds)
 |---|---|---|---|
 | `caem/memory/` | — | No | ✅ Session 11 |
 | `caem/confidence/pre_routing.py` | Stage 3 | No (model only) | ✅ Session 12 |
-| `caem/routing/router.py` | Stage 3→dispatch | No | 🔨 Session 13 |
-| `caem/confidence/post_generation.py` | Stage 4a | No (model only) | ⬜ |
+| `caem/routing/router.py` | Stage 3→dispatch | No | ✅ Session 13 |
+| `caem/confidence/post_generation.py` | Stage 4a | No (model only) | 🔨 Session 14 |
 | `caem/verification/verifier.py` | Stage 5 | ⚠️ NLI layer needs ground truth | ⬜ |
 | `caem/retrieval/rag.py` | Stage 6 (Tier 3) | Yes — Wikipedia passages | ⬜ |
 | `caem/training/self_improvement.py` | Stage 8 | ✅ Yes — all 4 benchmarks | ⬜ |
