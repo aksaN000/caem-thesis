@@ -15,6 +15,62 @@
 
 ---
 
+## Session 16 — 2026-03-29
+
+**Scope:** Tier 3 RAG — PassageStore + TierThreeRAG (Stage 6).
+
+**Files created this session:**
+```
+caem/retrieval/__init__.py
+caem/retrieval/rag.py
+tests/test_rag.py
+```
+**Config additions:** `rag_top_k=5`, `rag_max_context_tokens=384`, `rag_max_new_tokens=128`, `rag_do_sample=False`.
+
+**Test result:** 195/195 passing (34 new RAG tests + 161 from prior sessions).
+
+---
+
+### Module: `caem/retrieval/rag.py`
+
+**Two classes:**
+
+`PassageStore` — thin FAISS wrapper (IndexFlatIP, 384-dim, same as EpisodicMemoryStore). Static at inference: passages are never modified. Supports save/load for offline corpus builds.
+
+`TierThreeRAG` — retrieves top-k passages, builds numbered-context prompt, generates with Flan-T5. Falls back to query-only generation if the passage store is empty.
+
+---
+
+**Key design decision — Wikipedia only (not the full internet):**
+
+> All three evaluation benchmarks (HotpotQA, TruthfulQA, FEVER) ground their answers in Wikipedia. Every published RAG and retrieval baseline (DPR, FiD, Atlas) uses the same DPR Wikipedia split. Using a broader corpus would make results incomparable to all prior work.
+>
+> The `PassageStore` interface is corpus-agnostic — it takes any list of strings + embeddings. The Wikipedia restriction is a thesis experimental choice, not an architectural one.
+
+**Key design decision — numbered-context prompt format:**
+
+> Prompt format:
+> ```
+> Context:
+> [1] <passage>
+> [2] <passage>
+> ...
+> Question: <query>
+> Answer:
+> ```
+> This matches the FLAN instruction-tuning style (Wei et al. 2022). Flan-T5 was trained on tasks formatted this way, so its learned priors align with the structure. Arbitrary delimiters or flat concatenation would degrade generation quality.
+
+**Key design decision — greedy decoding for RAG (do_sample=False):**
+
+> Tier 2 uses sampling (temperature=0.7) for diversity when generating chains. Tier 3 uses greedy decoding for reproducibility — the retrieved context already provides factual grounding, so sampling diversity is unnecessary and adds noise. The answer should be the most likely completion given the context, not a sampled one.
+>
+> | Option | Verdict |
+> |--------|---------|
+> | Sampling T=0.7 | Rejected — adds noise when context already grounds the answer |
+> | Greedy (do_sample=False) ✓ | **Chosen** — deterministic, reproducible |
+
+---
+
 ## Session 15 — 2026-03-29
 
 **Scope:** MultiLayerVerifier (Stage 5, quality gate).

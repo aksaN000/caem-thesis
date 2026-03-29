@@ -118,6 +118,24 @@ class CAEMConfig:
     u_stored_weight_se: float = 0.20   # applied as (1 - h_norm)
 
     # ------------------------------------------------------------------ #
+    # Tier 3 RAG (Stage 6)                                                 #
+    # ------------------------------------------------------------------ #
+    # [DES] Number of passages retrieved from the Wikipedia corpus.
+    # k=5 is standard in DPR (Karpukhin et al. 2020); gives good recall
+    # without overloading the Flan-T5 context window.
+    rag_top_k: int = 5
+    # [DES] Max tokens allocated for retrieved context in the model prompt.
+    # Flan-T5-Large has a 512-token encoder limit; 384 leaves room for the
+    # question and instruction prefix.
+    rag_max_context_tokens: int = 384
+    # [DES] Max new tokens for RAG generation (longer than Tier 2 because
+    # the model now has supporting context to draw from).
+    rag_max_new_tokens: int = 128
+    # [DES] Sampling for RAG generation: greedy (do_sample=False) for
+    # reproducibility; no temperature needed.
+    rag_do_sample: bool = False
+
+    # ------------------------------------------------------------------ #
     # Fine-tuning / Self-improvement loop (Stage 8)                        #
     # ------------------------------------------------------------------ #
     # L2 regularisation (NOT full EWC): Loss += (λ/2)·||θ − θ_prev||²
