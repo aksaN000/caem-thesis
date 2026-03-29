@@ -15,6 +15,61 @@
 
 ---
 
+## Session 15 — 2026-03-29
+
+**Scope:** MultiLayerVerifier (Stage 5, quality gate).
+
+**Files created this session:**
+```
+caem/verification/__init__.py
+caem/verification/verifier.py
+tests/test_verifier.py
+```
+
+**Test result:** 161/161 passing (31 new verifier tests + 130 from prior sessions).
+
+---
+
+### Module: `caem/verification/verifier.py`
+
+**Purpose:** Quality gate — determines whether a Tier 2 answer is trustworthy enough to store in episodic memory and at what û_stored value. Runs after Stage 4a (efficiency gate). Stage 4a screens fast; Stage 5 measures factual reliability with precision.
+
+**Three signals and weights:**
+
+| Signal | Method | Weight |
+|--------|--------|--------|
+| p_entail | P(ENTAILMENT) softmax prob, averaged over M=3 chains | 0.50 [DES] |
+| s_avg | Avg pairwise SBERT cosine sim of M=3 chains | 0.30 [LIT] Wang et al. 2022 |
+| h_norm | Normalised semantic entropy (NLI clustering, K=10) | 0.20 [LIT] Farquhar et al. 2024 |
+
+û_stored = 0.50·p_entail + 0.30·s_avg + 0.20·(1 − h_norm)
+
+---
+
+**Key design decision — p_entail uses softmax probability, NOT argmax label:**
+
+> Stage 4a uses argmax (0/1/2) for binary cluster membership. Stage 5 uses softmax P(ENTAILMENT) for a graded [0,1] signal that propagates calibrated uncertainty into û_stored.
+>
+> | Option | Verdict |
+> |--------|---------|
+> | argmax label | Rejected — loses calibration |
+> | softmax P(ENTAILMENT) ✓ | **Chosen** — graded, propagates uncertainty |
+
+**Key design decision — p_entail averages NLI over M chains, not over (query, answer) directly:**
+
+> NLI(query, answer) is ill-posed for factual QA — questions don't logically entail answers. Instead: generate M=3 independent chains from the query, compute NLI(chain_i → answer) for each, average. This checks that the model's own reasoning supports the answer.
+>
+> | Option | Verdict |
+> |--------|---------|
+> | NLI(query, answer) directly | Rejected — ill-posed framing |
+> | NLI(chain_i, answer) averaged ✓ | **Chosen** — principled reliability measure |
+
+**Key design decision — Stage 4a vs Stage 5 are deliberately separate modules:**
+
+> Both stages compute similar signals. Key distinction: Stage 4a is calibrated for recall (avoid false negatives); Stage 5 is calibrated for precision (avoid storing junk). Merging would force a single threshold to serve both purposes — impossible to calibrate correctly.
+
+---
+
 ## Session 14 — 2026-03-29
 
 **Scope:** PostGenerationConfidenceEstimator (Stage 4a, Tier 2 efficiency gate).
