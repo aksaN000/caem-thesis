@@ -258,6 +258,48 @@ class EpisodicMemoryStore:
 
         return results
 
+    def search_with_ids(
+        self,
+        embedding: np.ndarray,
+        k: int = 1,
+    ) -> List[Tuple[EpisodicEntry, int, float]]:
+        """Like search(), but also returns the entry_id for each result.
+
+        Returns
+        -------
+        list of (EpisodicEntry, entry_id, similarity)
+            entry_id is the integer FAISS external ID — the same value used
+            by update_u_stored(), update_retrieval_stats(), and remove().
+
+        Use this instead of search() whenever downstream code needs to call
+        back into the store (e.g. update_retrieval_stats) — avoids scanning
+        _metadata to recover IDs.
+        """
+        if self.is_empty:
+            return []
+        if self._index is None:
+            return []
+
+        k_actual = min(k, self.size)
+        vec = self._to_faiss_matrix(embedding)
+
+        similarities, ids = self._index.search(vec, k_actual)
+        similarities = similarities[0]
+        ids = ids[0]
+
+        results = []
+        for sim, eid in zip(similarities, ids):
+            if eid == -1:
+                continue
+            eid_int = int(eid)
+            entry = self._metadata.get(eid_int)
+            if entry is None:
+                logger.warning("FAISS returned ID %d not found in metadata — skipping.", eid_int)
+                continue
+            results.append((entry, eid_int, float(sim)))
+
+        return results
+
     def get(self, entry_id: int) -> Optional[EpisodicEntry]:
         """Return the episode with the given entry_id, or None if not found."""
         return self._metadata.get(entry_id)

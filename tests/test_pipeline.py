@@ -31,8 +31,8 @@ Coverage
   - Storage: duplicate → not stored
   - Storage: û_stored below threshold → not stored
   - Storage: verification failure → not stored
-  - Tier 1 retrieval stats update
-  - Tier 1 u_stored upward update
+  - Tier 1 retrieval stats update (count increment)
+  - Tier 1 stored_confidence populated from entry scores (no re-verification)
   - Pipeline repr
   - memory_summary delegates to store
   - current_cycle recorded in stored entry
@@ -360,6 +360,16 @@ class TestTier1Path:
         r = p.answer("Who wrote Hamlet?")
         assert r.escalated is False
 
+    def test_stored_confidence_populated(self):
+        """Tier 1: stored_confidence is reconstructed from entry scores — no verifier call."""
+        p = self._make_tier1_pipeline(u_stored_memory=0.82)
+        r = p.answer("Who wrote Hamlet?")
+        assert r.stored_confidence is not None
+        # u_stored is taken directly from the memory entry — verifier is NOT called
+        assert r.stored_confidence.u_stored == pytest.approx(0.82)
+        # Verify the verifier was never called for this Tier 1 hit
+        p.verifier.verify.assert_not_called()
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Tier 3 path (safety override)
@@ -466,17 +476,22 @@ class TestTier1RetrievalStats:
         p.answer("Who wrote Hamlet?")
         assert entry.retrieval_count == 1
 
-    def test_u_stored_updated_upward_on_tier1(self):
-        """If verification produces a higher û_stored, update the stored entry."""
+    def test_u_stored_not_changed_by_retrieval(self):
+        """Tier 1 fast path skips verification — u_stored is NOT updated upward.
+
+        Rationale: the verifier (MultiLayerVerifier) generates M=3 chains which
+        would violate the Tier-1 '<400 ms, no generation' contract. The stored
+        u_stored from the original storage cycle is trusted as-is.
+        """
         store = EpisodicMemoryStore()
         entry = make_episodic_entry(seed=0, u_stored=0.60)
         store.add(entry)
 
-        # Verifier returns a higher score
         p = _build_pipeline(tier=1, memory_store=store, u_stored=0.90)
         p.answer("Who wrote Hamlet?")
-        # u_stored should be updated upward
-        assert entry.u_stored == pytest.approx(0.90)
+        # u_stored should be unchanged — the verifier was never called
+        assert entry.u_stored == pytest.approx(0.60)
+        p.verifier.verify.assert_not_called()
 
 
 # ─────────────────────────────────────────────────────────────────────────────

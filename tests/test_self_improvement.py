@@ -219,12 +219,19 @@ class TestCollectEpisodes:
         assert loop._collect_episodes(store) == []
 
     def test_returns_qa_pairs(self):
+        """_collect_episodes uses reasoning_chain as the QAPair answer target.
+
+        Thesis §4.3: training target is the verified reasoning chain, not the
+        short answer string. This teaches the model *how* to reason, not just
+        what the final answer is.
+        """
         loop, _ = make_loop()
         store = make_store_with_entries([make_entry("Who?", "Me", u_stored=0.9)])
         pairs = loop._collect_episodes(store)
         assert isinstance(pairs[0], QAPair)
         assert pairs[0].question == "Who?"
-        assert pairs[0].answer   == "Me"
+        # The answer field carries reasoning_chain ("Because."), not entry.answer ("Me")
+        assert pairs[0].answer == "Because."
 
 
 # ─────────────────────────────────────────────────────────────────────────────

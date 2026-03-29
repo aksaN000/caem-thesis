@@ -23,23 +23,43 @@ CAEM is an **architectural intervention**, not post-hoc detection. It prevents u
 
 ```
 caem/
-  config.py                  ← CAEMConfig: all hyperparameters, annotated [LIT]/[DES]/[CAL]
+  config.py                      ← CAEMConfig: all hyperparameters, annotated [LIT]/[DES]/[CAL]
+  pipeline.py                    ← CAEMPipeline — full 8-stage orchestrator
   memory/
-    entry.py                 ← EpisodicEntry + 3 confidence dataclasses + RoutingDecision
-    encoder.py               ← QueryEncoder (Sentence-BERT all-mpnet-base-v2, 384-dim)
-    store.py                 ← EpisodicMemoryStore (FAISS IndexIDMap + IndexFlatIP)
-  confidence/                ← (coming) PreRoutingConfidenceEstimator, PostGenerationConfidenceEstimator
-  routing/                   ← (coming) AdaptiveRouter
-  verification/              ← (coming) MultiLayerVerifier
-  training/                  ← (coming) SelfImprovementLoop
+    entry.py                     ← EpisodicEntry + confidence dataclasses + RoutingDecision
+    encoder.py                   ← QueryEncoder (Sentence-BERT all-mpnet-base-v2, 384-dim)
+    store.py                     ← EpisodicMemoryStore (FAISS IndexIDMap + IndexFlatIP)
+  confidence/
+    pre_routing.py               ← Stage 3a — PreRoutingConfidenceEstimator (u_pre)
+    post_generation.py           ← Stage 4a — PostGenerationConfidenceEstimator (û, Tier 2)
+  routing/
+    router.py                    ← Stage 3b — AdaptiveRouter (Tier 1/2/3 dispatch)
+  verification/
+    verifier.py                  ← Stage 5 — MultiLayerVerifier (NLI + SC + SE → û_stored)
+  retrieval/
+    rag.py                       ← Stage 6 — TierThreeRAG (DPR + FAISS passage store)
+  training/
+    self_improvement.py          ← Stage 8 — SelfImprovementLoop (3-cycle fine-tuning)
+
+eval/
+  metrics.py                     ← EM, F1, FEVER acc, hallucination rate, bootstrap CI, McNemar
+  benchmarks.py                  ← HotpotQA / TruthfulQA / FEVER / StrategyQA loaders
+  harness.py                     ← EvalHarness — run, score, save JSON
 
 tests/
-  test_episodic_memory.py    ← 37 unit tests (no GPU required)
+  test_episodic_memory.py        ← Memory store + search_with_ids
+  test_confidence.py             ← Pre- and post-generation confidence estimators
+  test_routing.py                ← AdaptiveRouter + RoutingDecision
+  test_verifier.py               ← MultiLayerVerifier
+  test_rag.py                    ← TierThreeRAG
+  test_pipeline.py               ← Full CAEMPipeline (Tier 1/2/3 paths)
+  test_self_improvement.py       ← SelfImprovementLoop
+  test_eval.py                   ← eval/ metrics, benchmarks, harness
 
-caem-implementation-log.md  ← Authoritative record of all design decisions + alternatives
-caem-unified-plan-v3.tex    ← Full thesis plan and system spec
-hyperparameter-reference.md ← Three-category hyperparameter breakdown [LIT]/[DES]/[CAL]
-writing-suggestions.md      ← Chapter-by-chapter corrections and thesis writing guidance
+caem-implementation-log.md      ← Authoritative record of all design decisions + alternatives
+caem-unified-plan-v3.tex        ← Full thesis plan and system spec
+hyperparameter-reference.md     ← Three-category hyperparameter breakdown [LIT]/[DES]/[CAL]
+writing-suggestions.md          ← Chapter-by-chapter corrections and thesis writing guidance
 ```
 
 ---
@@ -58,24 +78,31 @@ writing-suggestions.md      ← Chapter-by-chapter corrections and thesis writin
 ## Quick start
 
 ```bash
-pip install faiss-cpu sentence-transformers torch transformers pytest
+pip install faiss-cpu sentence-transformers torch transformers datasets pytest scipy
 
-# Run unit tests (no GPU needed)
+# Run all unit tests (no GPU required)
 python -m pytest tests/ -v
+# Expected: 361 passed
 ```
 
 ---
 
 ## Implementation status
 
+**Implementation phase: COMPLETE.** All 8 pipeline stages and the full evaluation harness are implemented. Next phase: experiments.
+
 | Module | Stage | Status |
 |---|---|---|
-| `caem/memory/` | Episodic store | ✅ Complete (Session 11) |
-| `caem/confidence/pre_routing.py` | Stage 3 pre-routing | 🔨 Next |
-| `caem/routing/router.py` | Adaptive dispatch | ⬜ Pending |
-| `caem/confidence/post_generation.py` | Stage 4a Tier-2 gate | ⬜ Pending |
-| `caem/verification/verifier.py` | Multi-layer verifier | ⬜ Pending |
-| `caem/training/self_improvement.py` | 3-cycle training loop | ⬜ Pending |
+| `caem/memory/` | Episodic store (FAISS) | ✅ Sessions 11, 20 |
+| `caem/confidence/pre_routing.py` | Stage 3a — u_pre | ✅ Session 12 |
+| `caem/routing/router.py` | Stage 3b — Tier dispatch | ✅ Session 13 |
+| `caem/confidence/post_generation.py` | Stage 4a — û (Tier 2) | ✅ Session 14 |
+| `caem/verification/verifier.py` | Stage 5 — MultiLayerVerifier | ✅ Session 15 |
+| `caem/retrieval/rag.py` | Stage 6 — Tier 3 RAG | ✅ Session 16 |
+| `caem/training/self_improvement.py` | Stage 8 — Fine-tune loop | ✅ Sessions 17, 20 |
+| `caem/pipeline.py` | Full orchestrator | ✅ Sessions 18, 20 |
+| `eval/` | Metrics + benchmarks + harness | ✅ Sessions 19, 20 |
+| Calibration harness | Post-Cycle 0 temperature scaling | 🔬 Experiment phase |
 
 ---
 

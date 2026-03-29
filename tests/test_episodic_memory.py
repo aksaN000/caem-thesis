@@ -209,6 +209,52 @@ class TestStoreBasicOps:
         sims = [s for _, s in results]
         assert sims == sorted(sims, reverse=True)
 
+    # ── search_with_ids ───────────────────────────────────────────────── #
+
+    def test_search_with_ids_returns_three_tuple(self):
+        store = make_store()
+        v = random_unit_vec(0)
+        store.add(make_entry(embedding=v))
+        results = store.search_with_ids(v, k=1)
+        assert len(results) == 1
+        entry, eid, sim = results[0]
+        assert isinstance(eid, int)
+        assert isinstance(sim, float)
+        assert entry.question is not None
+
+    def test_search_with_ids_id_matches_add_return(self):
+        store = make_store()
+        v = random_unit_vec(7)
+        returned_id = store.add(make_entry(embedding=v))
+        results = store.search_with_ids(v, k=1)
+        _, found_id, _ = results[0]
+        assert found_id == returned_id
+
+    def test_search_with_ids_empty_store_returns_empty(self):
+        store = make_store()
+        results = store.search_with_ids(random_unit_vec(0), k=1)
+        assert results == []
+
+    def test_search_with_ids_sim_matches_search(self):
+        """search_with_ids returns same similarity as search() for same query."""
+        store = make_store()
+        v = random_unit_vec(3)
+        store.add(make_entry(embedding=v, seed=3))
+        plain = store.search(v, k=1)
+        with_ids = store.search_with_ids(v, k=1)
+        _, _, sim_with_id = with_ids[0]
+        _, sim_plain = plain[0]
+        assert sim_with_id == pytest.approx(sim_plain, abs=1e-5)
+
+    def test_search_with_ids_entry_matches_search(self):
+        """search_with_ids and search() return the same entry object."""
+        store = make_store()
+        v = random_unit_vec(4)
+        store.add(make_entry(embedding=v, seed=4))
+        plain_entry, _ = store.search(v, k=1)[0]
+        with_id_entry, _, _ = store.search_with_ids(v, k=1)[0]
+        assert plain_entry.question == with_id_entry.question
+
     def test_add_full_raises(self):
         store = make_store(max_size=2)
         store.add(make_entry(seed=0))

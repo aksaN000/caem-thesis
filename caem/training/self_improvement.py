@@ -318,12 +318,33 @@ class SelfImprovementLoop:
     # ------------------------------------------------------------------ #
 
     def _collect_episodes(self, memory_store: EpisodicMemoryStore) -> List[QAPair]:
-        """Return QAPairs from memory entries that meet the quality threshold."""
+        """Return QAPairs from memory entries that meet the quality threshold.
+
+        Training target is `reasoning_chain`, NOT `answer`.
+
+        Rationale (thesis §4.3 — Chain-of-Thought Supervision):
+        EpisodicEntry stores a `reasoning_chain` field — the full chain-of-
+        thought trace associated with the verified answer. Fine-tuning on the
+        reasoning chain teaches the model *how* to reason toward the correct
+        answer, not just to memorise answer strings. This matches the thesis
+        claim of "verified reasoning-chain supervision" and is the key
+        distinction from standard QA fine-tuning.
+
+        Note: in the current pipeline, `reasoning_chain` is set equal to the
+        model's full generation output (which may or may not include explicit
+        CoT steps depending on prompting). When a dedicated CoT prompting
+        strategy is added, `reasoning_chain` and `answer` will diverge, and
+        this training target will automatically benefit from richer supervision
+        without any code change here.
+        """
         threshold = self.config.min_u_stored_for_training
         pairs = []
         for entry in memory_store.all_entries():
             if entry.u_stored >= threshold:
-                pairs.append(QAPair(question=entry.question, answer=entry.answer))
+                # Use reasoning_chain as the seq2seq target — not answer.
+                # This aligns training with the chain-of-thought supervision
+                # described in the thesis methodology.
+                pairs.append(QAPair(question=entry.question, answer=entry.reasoning_chain))
         return pairs
 
     def _mix(
@@ -497,12 +518,14 @@ class SelfImprovementLoop:
         ckpt_dir = self.output_dir / f"cycle_{cycle_num}"
         ckpt_dir.mkdir(parents=True, exist_ok=True)
 
-        # Save model weights (post-cycle if accepted; θ_prev if aborted)
-        weights_to_save = (
-            {n: p.data for n, p in self.model.named_parameters()}
-            if not aborted
-            else {f"param_{i}": p for i, p in enumerate(theta_prev or [])}
-        )
+        # Save model weights.
+        # INVARIANT: at this point self.model always holds the correct state:
+        #   - not aborted → fine-tuned weights (training just completed)
+        #   - aborted     → _restore_weights(theta_prev) was already called
+        #                   before this method, so state_dict() == theta_prev
+        # Saving self.model.state_dict() is therefore always correct.
+        # Do NOT compute a separate dict from theta_prev here — that would
+        # save tensors without proper parameter names, breaking load_state_dict.
         torch.save(self.model.state_dict(), str(ckpt_dir / "model.pt"))
 
         # Save metadata

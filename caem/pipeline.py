@@ -263,7 +263,11 @@ class CAEMPipeline:
         pre_conf = self.pre_estimator.estimate(query)
 
         # ── Stage 1: Memory search (k=1 for routing) ─────────────────── #
-        search_results = self.memory_store.search(query_embedding, k=1)
+        # Use search_with_ids so Tier-1 stats updates can call back without
+        # scanning private _metadata for the entry ID.
+        search_with_ids = self.memory_store.search_with_ids(query_embedding, k=1)
+        # AdaptiveRouter only needs (entry, similarity) — strip the ID for routing.
+        search_results = [(e, sim) for e, _, sim in search_with_ids]
 
         # ── Stage 3b: Route ───────────────────────────────────────────── #
         routing = self.router.route(pre_conf, search_results)
@@ -277,38 +281,40 @@ class CAEMPipeline:
         # ── Tier dispatch ────────────────────────────────────────────── #
         answer_str: str
         post_conf: Optional[PostGenerationConfidence] = None
+        stored_conf: Optional[StoredConfidence] = None
         escalated: bool = False
-        retrieved_entry: Optional[EpisodicEntry] = None
-
-        if routing.tier == 1:
-            answer_str, retrieved_entry = self._tier1(search_results)
-
-        elif routing.tier == 2:
-            answer_str, post_conf, escalated = self._tier2(query, pre_conf)
-
-        else:  # tier == 3
-            answer_str = self._tier3(query)
-
-        # ── Stage 5: Verify ───────────────────────────────────────────── #
-        stored_conf = self._verify(query, answer_str)
-
-        # ── Stage 7: Storage decision ─────────────────────────────────── #
         entry_id: Optional[int] = None
         stored_flag = False
 
-        # Tier 1 hit — update retrieval stats, do NOT re-store (already there)
-        if routing.tier == 1 and retrieved_entry is not None:
-            self._update_tier1_stats(
-                search_results=search_results,
-                stored_conf=stored_conf,
-            )
-        else:
-            # Tier 2 / 3 answers: store if novel and verified
+        if routing.tier == 1:
+            # ── Tier 1: fast path — NO Stage-5 verification ─────────── #
+            # Rationale: Tier 1 is the <400 ms fast path. Running Stage 5
+            # (MultiLayerVerifier) would require generating M=3 chains — this
+            # violates the "no generation" principle and inflates measured Tier-1
+            # latency, making it indistinguishable from Tier 2 in experiments.
+            # The stored entry already holds a verified u_stored from its
+            # original storage cycle; we reconstruct StoredConfidence from those
+            # scores and update retrieval stats.
+            answer_str, stored_conf = self._tier1(search_with_ids)
+            self._update_tier1_stats(search_with_ids=search_with_ids,
+                                     stored_conf=stored_conf)
+
+        elif routing.tier == 2:
+            answer_str, post_conf, escalated = self._tier2(query, pre_conf)
+            # ── Stage 5: Verify (Tier 2 and escalated-to-3 answers) ─── #
+            stored_conf = self._verify(query, answer_str)
             entry_id, stored_flag = self._maybe_store(
-                query=query,
-                answer=answer_str,
-                query_embedding=query_embedding,
-                stored_conf=stored_conf,
+                query=query, answer=answer_str,
+                query_embedding=query_embedding, stored_conf=stored_conf,
+            )
+
+        else:  # tier == 3
+            answer_str = self._tier3(query)
+            # ── Stage 5: Verify ────────────────────────────────────────#
+            stored_conf = self._verify(query, answer_str)
+            entry_id, stored_flag = self._maybe_store(
+                query=query, answer=answer_str,
+                query_embedding=query_embedding, stored_conf=stored_conf,
             )
 
         latency_ms = (time.perf_counter() - t_start) * 1000.0
@@ -337,25 +343,33 @@ class CAEMPipeline:
     # Tier handlers                                                         #
     # ------------------------------------------------------------------ #
 
-    def _tier1(
-        self,
-        search_results,
-    ):
+    def _tier1(self, search_with_ids):
         """Return the stored answer for a Tier 1 hit.
 
         No model generation occurs. The reasoning chain and answer are read
-        directly from the matched EpisodicEntry.
+        directly from the matched EpisodicEntry. Stage 5 (MultiLayerVerifier)
+        is deliberately skipped — see answer() for the full rationale.
+
+        A StoredConfidence is reconstructed from the entry's stored scores so
+        that PipelineResult.stored_confidence is always populated.
 
         Returns
         -------
-        (answer_str, retrieved_entry)
+        (answer_str, stored_conf)
         """
-        entry, similarity = search_results[0]
+        entry, entry_id, similarity = search_with_ids[0]
         logger.debug(
-            "Tier 1 hit: entry sim=%.4f | answer='%s...'",
-            similarity, entry.answer[:80],
+            "Tier 1 hit: id=%d | sim=%.4f | answer='%s...'",
+            entry_id, similarity, entry.answer[:80],
         )
-        return entry.answer, entry
+        # Reconstruct StoredConfidence from stored quality scores.
+        stored_conf = StoredConfidence(
+            p_entail=entry.nli_score,
+            s_avg=entry.sc_score,
+            h_norm=1.0 - entry.se_score,
+            u_stored=entry.u_stored,
+        )
+        return entry.answer, stored_conf
 
     def _tier2(self, query: str, pre_conf: PreRoutingConfidence):
         """Generate a Tier 2 answer with Flan-T5 and compute û.
@@ -519,44 +533,33 @@ class CAEMPipeline:
 
     def _update_tier1_stats(
         self,
-        search_results,
+        search_with_ids,
         stored_conf: Optional[StoredConfidence],
     ) -> None:
         """Update retrieval stats for a Tier 1 hit.
 
-        The episode is not re-stored, but its retrieval_count and success_rate
-        are updated. If verification produced a higher û_stored, update that too.
+        The episode is not re-stored. retrieval_count and success_rate are
+        updated via the public API. entry_id comes directly from
+        search_with_ids — no private _metadata scan required.
+
+        Acceptance is determined by whether the stored u_stored meets the
+        quality threshold (it always should for a Tier 1 hit, but we check
+        defensively). No re-verification is run.
         """
-        if not search_results:
+        if not search_with_ids:
             return
 
-        # Recover entry_id — EpisodicMemoryStore.search() returns EpisodicEntry
-        # objects, not IDs. We locate the ID via the metadata dict.
-        entry, _ = search_results[0]
-        entry_id = None
-        for eid, e in self.memory_store._metadata.items():
-            if e is entry:
-                entry_id = eid
-                break
+        entry, entry_id, _ = search_with_ids[0]
 
-        if entry_id is None:
-            logger.warning("Tier 1: could not recover entry_id — stats not updated.")
-            return
-
-        # Determine acceptance: verification score ≥ threshold → accepted
-        accepted = (
-            stored_conf is not None
-            and stored_conf.u_stored >= self.config.retroverify_prune_threshold
-        )
+        # Acceptance: the stored entry already has a verified u_stored.
+        # A Tier 1 hit that reaches here passed both the routing score and
+        # the OR-condition safety gate, so the entry is almost always accepted.
+        accepted = entry.u_stored >= self.config.retroverify_prune_threshold
         self.memory_store.update_retrieval_stats(entry_id, was_accepted=accepted)
-
-        # Upward-only u_stored update for Tier 1 hits
-        if stored_conf is not None and stored_conf.u_stored > entry.u_stored:
-            self.memory_store.update_u_stored(entry_id, stored_conf.u_stored)
-            logger.debug(
-                "Tier 1: u_stored updated %.4f → %.4f for entry %d",
-                entry.u_stored, stored_conf.u_stored, entry_id,
-            )
+        logger.debug(
+            "Tier 1 stats: entry %d | accepted=%s | u_stored=%.4f",
+            entry_id, accepted, entry.u_stored,
+        )
 
     # ------------------------------------------------------------------ #
     # Helpers                                                              #

@@ -15,6 +15,147 @@
 
 ---
 
+## Session 20 — 2026-03-29
+
+**Scope:** Coverage fixes across 6 modules. No new features — every change either closes a correctness gap, removes dead code, or aligns implementation with the thesis methodology.
+
+### Fixes and decisions
+
+#### Fix 1 — `caem/memory/store.py`: `search_with_ids()` added
+
+**Problem:** `_update_tier1_stats()` in `pipeline.py` identified the entry's FAISS ID by scanning `self.memory_store._metadata.items()` for an object whose identity matched the retrieved entry. This is an O(N) traversal coupled to private internals.
+
+**Fix:** Added `search_with_ids() → List[Tuple[EpisodicEntry, int, float]]` between `search()` and `get()`. The pipeline now uses this to thread the ID directly without scanning `_metadata`.
+
+#### Fix 2 — `caem/pipeline.py`: Tier-1 fast path restructured
+
+**Problem:** The old Tier-1 path called `_verify()` (Stage 5: MultiLayerVerifier), which generates M=3 chains. This violates the thesis claim that Tier 1 is a "<400 ms, no-generation" fast path — the measured latency would be indistinguishable from Tier 2.
+
+**Fix:**
+- Tier 1 now skips Stage 5 entirely.
+- `StoredConfidence` is reconstructed from the stored entry's quality scores (`nli_score`, `sc_score`, `se_score`, `u_stored`) so `PipelineResult.stored_confidence` is always populated.
+- `_update_tier1_stats()` accepts `search_with_ids` directly; acceptance is determined by `entry.u_stored ≥ retroverify_prune_threshold` (already verified at storage time).
+
+#### Fix 3 — `caem/pipeline.py`: `search_with_ids()` threaded through `answer()`
+
+`answer()` now calls `search_with_ids(query_embedding, k=1)`, strips IDs for `AdaptiveRouter` (which only needs `(entry, sim)` pairs), and passes the full tuple to `_tier1()` and `_update_tier1_stats()`.
+
+#### Fix 4 — `caem/training/self_improvement.py`: checkpoint dead code removed
+
+**Problem:** `_save_checkpoint()` computed a `weights_to_save` dict using a conditional expression, but the `torch.save()` call always used `self.model.state_dict()` directly — `weights_to_save` was never read. Dead code.
+
+**Invariant:** `_restore_weights(theta_prev)` is always called before `_save_checkpoint()` on the abort path, so `self.model.state_dict()` is always in the correct state. Removed `weights_to_save` and added a comment documenting the invariant.
+
+#### Fix 5 — `caem/training/self_improvement.py`: reasoning-chain supervision
+
+**Problem:** `_collect_episodes()` was building `QAPair(question=entry.question, answer=entry.answer)`. The thesis §4.3 claims "verified reasoning-chain supervision" — training on short answer strings does not fulfil this.
+
+**Fix:** Changed to `QAPair(question=entry.question, answer=entry.reasoning_chain)`. The reasoning chain is the full Flan-T5 generation output (which includes the answer and any chain-of-thought). When a dedicated CoT prompting strategy is added later, this training target will automatically benefit without any further code change.
+
+#### Fix 6 — `eval/benchmarks.py`: FEVER constrained prompt + StrategyQA added
+
+**Problem (FEVER):** The prompt `"Is the following claim true, false, or uncertain? Claim: ..."` produces free-form output requiring brittle keyword heuristics for label extraction.
+
+**Fix:** Constrained prompt — `"Answer with one of: supports, refutes, not enough info. Claim: ..."` — enumerates the three valid labels explicitly. Consistent with instruction-tuning evaluation practice (Wei et al. 2022, FLAN).
+
+**StrategyQA (IQ-03 resolved):** Official dataset is discontinued. Using HuggingFace `wics/strategy-qa` (mirrors original, 490 test questions). Constrained boolean prompt: `"Answer yes or no. Question: ..."`. Fallback to `validation` split if `test` is unavailable.
+
+#### Fix 7 — `eval/harness.py`: StrategyQA scoring path
+
+Added StrategyQA branch to `_score()`: EM on "yes"/"no" after normalisation; F1 = EM (binary labels).
+
+#### Fix 8 — `eval/metrics.py`: `bootstrap_ci()` and `mcnemar_test()` added
+
+Added for Chapter 5 statistical significance reporting:
+- `bootstrap_ci(scores, n_bootstrap=1000, ci=0.95)` — non-parametric; pure Python, no scipy.
+- `mcnemar_test(scores_a, scores_b)` — chi-squared with Edwards continuity correction; requires scipy (experiment-phase dependency, not required for implementation).
+
+### Accepted-with-justification (no fix needed)
+
+| # | Item | Decision |
+|---|---|---|
+| A1 | Hallucination rate proxy | Operational definition (EM=0 AND û_stored<0.50) is a proxy, not a ground-truth oracle. Accepted: documented explicitly in `metrics.py` docstring; thesis §5.3 will discuss the limitation. |
+| A2 | Calibration harness | Temperature scaling (L-BFGS on ECE) deferred to experiment phase — calibration requires a validation split which is not available until Cycle 0 completes. Placeholder exists in plan. |
+| A3 | Purity validation | `VE2PurityValidator` requires the 38-category TruthfulQA misconception list. Deferred to experiment phase. |
+| A4 | Ablation runner | `run_ablation.py` script deferred — depends on a live trained model and dataset. Deferred to experiment phase. |
+
+### Tests updated
+
+| File | Change |
+|---|---|
+| `tests/test_pipeline.py` | Removed stale `test_u_stored_updated_upward_on_tier1`; replaced with `test_u_stored_not_changed_by_retrieval` (verifier not called) + `test_stored_confidence_populated` (StoredConfidence from entry scores) |
+| `tests/test_self_improvement.py` | `test_returns_qa_pairs` now expects `reasoning_chain` ("Because.") not `answer` ("Me") |
+| `tests/test_eval.py` | Added StrategyQA synthetic tests; FEVER constrained prompt assertion; StrategyQA scoring path tests; `bootstrap_ci` and `mcnemar_test` test classes |
+| `tests/test_episodic_memory.py` | Added `TestSearchWithIds` with 5 tests covering return type, ID correctness, empty store, and consistency with `search()` |
+
+**Test suite: 361 passed, 0 failed.**
+
+---
+
+## Session 19 — 2026-03-29
+
+**Scope:** Evaluation harness (`eval/`) — metrics, dataset loaders, EvalHarness orchestrator.
+
+**Files created/modified:**
+```
+eval/__init__.py
+eval/metrics.py
+eval/benchmarks.py
+eval/harness.py
+tests/test_eval.py
+```
+
+**Test result:** 336/336 passing (71 new eval tests + 265 from prior sessions).
+
+---
+
+### Module: `eval/metrics.py`
+
+**Metrics per benchmark:**
+
+| Benchmark | EM | F1 |
+|---|---|---|
+| HotpotQA | exact_match (normalised) | token_f1 |
+| TruthfulQA | any_match_em (any gold) | best_token_f1 |
+| FEVER | fever_accuracy (label match) | same as EM |
+
+Normalisation matches SQuAD / HotpotQA official: lowercase → strip punctuation → remove articles (a/an/the) → collapse whitespace.
+
+**Hallucination rate** (operational proxy): `EM=0 AND û_stored < 0.50`. Not a ground-truth oracle — correlates with confabulated outputs. Reported alongside accuracy in Chapter 5 ablations.
+
+**Routing distribution:** `{tier1_frac, tier2_frac, tier3_frac}` — shows memory utilisation growth across cycles. Expected: ~0% Tier 1 at cycle 0; growing Tier 1 fraction at cycles 1-3.
+
+---
+
+### Module: `eval/benchmarks.py`
+
+| Benchmark | Split | Samples | Gold format |
+|---|---|---|---|
+| HotpotQA | validation | 7405 | Single string |
+| TruthfulQA | validation | 817 | List of acceptable answers |
+| FEVER | paper_dev | ~19k | SUPPORTS / REFUTES / NOT ENOUGH INFO |
+
+FEVER prompt template: "Is the following claim true, false, or uncertain? Claim: {claim}" — frames claim-verification as a natural-language question for Flan-T5. Label is extracted from free-form output via `extract_fever_label()`.
+
+`make_synthetic_samples()` generates reproducible samples with no network access, used by all unit tests.
+
+**Coverage gaps:** not all questions have answers in the Dec-2018 Wikipedia corpus. When retrieval fails: irrelevant passages → low-confidence answer → û_stored < 0.50 → not stored → EM=0. This is the expected failure mode; self-improvement accumulates verified episodes to correct these over cycles.
+
+---
+
+### Module: `eval/harness.py`
+
+`EvalHarness.run(benchmark, samples, cycle) → EvalResult` iterates samples, calls `pipeline.answer()`, scores each, aggregates, optionally saves JSON.
+
+Saved JSON structure:
+```json
+{"meta": {"em": 0.31, "cycle": 1, ...}, "samples": [{...}, ...]}
+```
+
+`fail_on_error=False` (default) catches per-sample pipeline exceptions → EM=0, run continues.
+
+---
+
 ## Session 18 — 2026-03-29
 
 **Scope:** `CAEMPipeline` (end-to-end orchestrator) tying all 8 stages.
@@ -548,20 +689,26 @@ Recency = exp(−0.01 · age_in_seconds)
 
 ## Pipeline Implementation Roadmap
 
-**Status legend:** ✅ Done | 🔨 Next | ⬜ Pending
+**Status legend:** ✅ Done | 🔬 Experiment phase | ⬜ Pending
 
 | Module | Stage | Dataset needed? | Status |
 |---|---|---|---|
-| `caem/memory/` | — | No | ✅ Session 11 |
-| `caem/confidence/pre_routing.py` | Stage 3 | No (model only) | ✅ Session 12 |
-| `caem/routing/router.py` | Stage 3→dispatch | No | ✅ Session 13 |
-| `caem/confidence/post_generation.py` | Stage 4a | No (model only) | 🔨 Session 14 |
-| `caem/verification/verifier.py` | Stage 5 | ⚠️ NLI layer needs ground truth | ⬜ |
-| `caem/retrieval/rag.py` | Stage 6 (Tier 3) | Yes — Wikipedia passages | ⬜ |
-| `caem/training/self_improvement.py` | Stage 8 | ✅ Yes — all 4 benchmarks | ⬜ |
-| Dataset loaders | — | Yes — HotpotQA/StrategyQA/FEVER/TruthfulQA | ⬜ |
-| Calibration harness | Post-Cycle 1 | Yes — 500-sample calibration set | ⬜ |
-| Evaluation harness | Post-cycle | Yes — test splits | ⬜ |
+| `caem/memory/entry.py` | Episodic entry schema | No | ✅ Session 11 |
+| `caem/memory/store.py` | Stage 1 — FAISS store + `search_with_ids()` | No | ✅ Sessions 11, 20 |
+| `caem/confidence/pre_routing.py` | Stage 3a — u_pre | No (model only) | ✅ Session 12 |
+| `caem/routing/router.py` | Stage 3b — tier dispatch | No | ✅ Session 13 |
+| `caem/confidence/post_generation.py` | Stage 4a — û (Tier 2) | No (model only) | ✅ Session 14 |
+| `caem/verification/verifier.py` | Stage 5 — MultiLayerVerifier | No (model only; NLI optional) | ✅ Session 15 |
+| `caem/retrieval/rag.py` | Stage 6 — Tier 3 RAG | Yes — Wikipedia passage index | ✅ Session 16 |
+| `caem/training/self_improvement.py` | Stage 8 — fine-tune loop | No (uses stored episodes) | ✅ Sessions 17, 20 |
+| `caem/pipeline.py` | Full orchestrator (all stages) | No | ✅ Sessions 18, 20 |
+| `caem/config.py` | All thresholds and hyperparameters | No | ✅ Session 11 |
+| `eval/metrics.py` | EM, F1, FEVER acc, bootstrap CI, McNemar | No | ✅ Sessions 19, 20 |
+| `eval/benchmarks.py` | HotpotQA/TruthfulQA/FEVER/StrategyQA loaders | Yes (HuggingFace) | ✅ Sessions 19, 20 |
+| `eval/harness.py` | EvalHarness — run, score, save JSON | No | ✅ Sessions 19, 20 |
+| Calibration harness | Temperature scaling (L-BFGS on ECE) | Yes — Cycle 0 validation set | 🔬 Experiment phase |
+| Purity validator | VE2PurityValidator (misconception filter) | Yes — TruthfulQA misconception list | 🔬 Experiment phase |
+| Ablation runner | `run_ablation.py` | Yes — trained model + datasets | 🔬 Experiment phase |
 
 ---
 
@@ -585,6 +732,6 @@ Recency = exp(−0.01 · age_in_seconds)
 |---|---|---|
 | IQ-01 | How to handle Tier 3 RAG retrieval? DPR vs BM25 vs simple TF-IDF? | Stage 6 |
 | IQ-02 | Temperature scaling calibration: L-BFGS on ECE — use `netcal` library or implement from scratch? | Post-Cycle 1 |
-| IQ-03 | StrategyQA: use the official dataset (discontinued) or HuggingFace `boolq` substitute? | Dataset loading |
+| ~~IQ-03~~ | ~~StrategyQA: official dataset discontinued~~ | ✅ Resolved Session 20: using `wics/strategy-qa` on HuggingFace |
 | IQ-04 | VE2 misconception list: scrape from TruthfulQA repo or hardcode the 38 categories? | Verifier |
 | IQ-05 | Multi-GPU: is the 15–19 GB VRAM budget for a single A100, or distributed? | Training loop |
