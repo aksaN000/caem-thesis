@@ -262,6 +262,15 @@ class EpisodicMemoryStore:
         """Return the episode with the given entry_id, or None if not found."""
         return self._metadata.get(entry_id)
 
+    def all_entries(self) -> list:
+        """Return all EpisodicEntry objects currently in the store.
+
+        Used by SelfImprovementLoop to collect training data. Returns a
+        snapshot list — mutations to the store after this call are not
+        reflected in the returned list.
+        """
+        return list(self._metadata.values())
+
     # ------------------------------------------------------------------ #
     # Mutable field updates                                                #
     # ------------------------------------------------------------------ #

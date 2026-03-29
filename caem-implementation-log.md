@@ -15,6 +15,45 @@
 
 ---
 
+## Session 17 — 2026-03-29
+
+**Scope:** SelfImprovementLoop (Stage 8) + `all_entries()` on EpisodicMemoryStore.
+
+**Files created/modified:**
+```
+caem/training/__init__.py
+caem/training/self_improvement.py
+caem/memory/store.py          (added all_entries())
+tests/test_self_improvement.py
+```
+
+**Test result:** 226/226 passing (31 new Stage 8 tests + 195 from prior sessions).
+
+---
+
+### Module: `caem/training/self_improvement.py`
+
+**Cycle steps:** collect episodes (u_stored ≥ 0.75) → mix with 10% general data → snapshot θ_prev → fine-tune with L2 regularisation → forgetting check → save checkpoint (or restore θ_prev on failure).
+
+**Key design decision — L2 regularisation, NOT full EWC:**
+
+> Full EWC requires computing the Fisher information matrix — ~1 extra epoch of compute. CAEM uses uniform L2: `Loss += (λ/2)·||θ − θ_prev||²`. Valid approximation when Fisher is roughly uniform across parameters (reasonable for diverse QA pre-training).
+>
+> | Option | Verdict |
+> |--------|---------|
+> | Full EWC (FIM-weighted L2) | Rejected — ~2× compute, marginal gain at this scale |
+> | Uniform L2 ✓ | **Chosen** — principled approximation, documented as [DES] |
+
+**Key design decision — forgetting check uses conservative exact-match:**
+
+> Exact string match (lowercased) on held-out general pairs. Conservative (F1 would be more forgiving) but appropriate as a safety guard. If retention < 0.93, θ_prev is restored in-place and cycle marked `aborted=True`. Checkpoint still saved for auditability.
+
+**Key design decision — cycle-isolated checkpoints:**
+
+> Each cycle writes independently to `outputs/cycle_{n}/`. Old cycles are never overwritten; any cycle can be rolled back without retraining from scratch.
+
+---
+
 ## Session 16 — 2026-03-29
 
 **Scope:** Tier 3 RAG — PassageStore + TierThreeRAG (Stage 6).
