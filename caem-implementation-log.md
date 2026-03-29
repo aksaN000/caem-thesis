@@ -15,6 +15,60 @@
 
 ---
 
+## Session 21 — 2026-03-29
+
+**Scope:** Experiment-phase scaffolding recovery and repository hygiene. Restored deleted scripts, tracked the experiments notebook despite global notebook ignore rules, validated Python environment dependencies, and re-ran the full unit test suite.
+
+### Actions completed
+
+#### Action 1 — Repository recovery: `scripts/` restored
+
+**Problem:** The `scripts/` directory disappeared from the working tree during branch/rebase cleanup and reset operations.
+
+**Fix:** Restored `scripts/` from commit `b467f13` and re-added:
+- `scripts/hardware.py`
+- `scripts/run_experiment.py`
+- `scripts/run_ablation.py`
+- `scripts/run_calibration.py`
+- `scripts/run_purity_validation.py`
+- `scripts/__init__.py`
+
+#### Action 2 — Notebook tracking: `CAEM_Experiments.ipynb`
+
+**Problem:** The notebook was not appearing on GitHub because `.gitignore` contains `*.ipynb`.
+
+**Fix:** Staged notebook with force-add (`git add -f CAEM_Experiments.ipynb`) and pushed in commit `b49a77b` with restored scripts.
+
+#### Action 3 — Environment verification
+
+Installed/verified in `.venv`:
+- `faiss-cpu`
+- `sentence-transformers`
+- `torch`
+- `transformers`
+- `datasets`
+- `pytest`
+- `scipy`
+
+Also resolved editor diagnostic (`Import "pytest" could not be resolved`) by ensuring the workspace interpreter points to `.venv` and confirming import success.
+
+#### Action 4 — Full unit test execution
+
+Executed full suite with project interpreter:
+
+```
+python -m pytest
+```
+
+**Result:** `361 passed, 0 failed` (3 deprecation warnings from SWIG/FAISS internals).
+
+### Commit/push notes
+
+- Removed unintended co-author trailer from prior commit via amend + force-with-lease.
+- Pushed experiment scaffolding commit: `b49a77b` (scripts + notebook).
+
+---
+
 ## Session 20 — 2026-03-29
 
 **Scope:** Coverage fixes across 6 modules. No new features — every change either closes a correctness gap, removes dead code, or aligns implementation with the thesis methodology.
