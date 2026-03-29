@@ -250,17 +250,41 @@ def split_calibration_sets(
 
     Returns
     -------
-    purity_samples  : dict[bm → first 500]
-    calib_samples   : dict[bm → next 500]
+    purity_samples  : dict[bm → first purity_size (or half of available)]
+    calib_samples   : dict[bm → next calib_size (or quarter of available)]
     eval_samples    : dict[bm → remainder]
 
     These sets are non-overlapping — critical for theory validation (§5.3).
+
+    Notes
+    -----
+    TruthfulQA has only 817 questions total. Using fixed 500+500 would leave
+    zero samples for eval. For benchmarks where total < purity_size + calib_size,
+    we scale splits proportionally (plan §5.3 specifies 250/250/317 for TruthfulQA).
     """
     purity, calib, evl = {}, {}, {}
     for bm, slist in samples.items():
-        purity[bm] = slist[:purity_size]
-        calib[bm] = slist[purity_size: purity_size + calib_size]
-        evl[bm] = slist[purity_size + calib_size:]
+        total = len(slist)
+        effective_purity = purity_size
+        effective_calib = calib_size
+
+        # Scale down proportionally when the dataset is too small to fit both
+        # purity + calibration windows (e.g. TruthfulQA: 817 < 500+500).
+        if total < purity_size + calib_size:
+            # Use ≈30% for purity, ≈30% for calibration, ≈40% for eval —
+            # roughly matching the 250/250/317 ratio the plan specifies.
+            effective_purity = total // 3
+            effective_calib = total // 3
+            logger.warning(
+                "  %s: only %d samples — scaling splits to "
+                "%d purity / %d calibration / %d eval (plan §5.3)",
+                bm, total, effective_purity, effective_calib,
+                total - effective_purity - effective_calib,
+            )
+
+        purity[bm] = slist[:effective_purity]
+        calib[bm] = slist[effective_purity: effective_purity + effective_calib]
+        evl[bm] = slist[effective_purity + effective_calib:]
         logger.info(
             "  %s: %d purity | %d calibration | %d eval",
             bm, len(purity[bm]), len(calib[bm]), len(evl[bm]),
