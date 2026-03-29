@@ -584,9 +584,27 @@ def run_ablation(ns: argparse.Namespace) -> None:
     baseline_cot = CoTBaseline(model, tokenizer, device)
     all_baseline_results["cot"] = eval_baseline("cot", baseline_cot, samples, output_dir)
 
-    # A2 — RAG-only (passage_store=None → falls back to zero-shot when no index built)
+    # A2 — RAG-only: load passage store from disk.
+    # passage_store=None causes TierThreeRAG to fall back to query-only generation
+    # (identical to zero-shot) — which would make this ablation meaningless.
+    # Load from disk when available; warn clearly when not.
     logger.info("A2: RAG-only baseline …")
-    baseline_rag = RAGOnlyBaseline(model, tokenizer, encoder, None, config, device)
+    _passage_index_path = Path(ns.passage_index)
+    if _passage_index_path.exists():
+        from caem.retrieval.rag import PassageStore as _PassageStore
+        _rag_passage_store = _PassageStore.load(str(_passage_index_path))
+        logger.info("RAG baseline: loaded %d passages from %s.",
+                    _rag_passage_store.size, _passage_index_path)
+    else:
+        _rag_passage_store = None
+        logger.warning(
+            "RAG baseline: passage index not found at %s. "
+            "RAG-only ablation will degrade to zero-shot generation — "
+            "build the index first with: "
+            "python -m scripts.build_passage_index --output_dir %s",
+            _passage_index_path, _passage_index_path,
+        )
+    baseline_rag = RAGOnlyBaseline(model, tokenizer, encoder, _rag_passage_store, config, device)
     all_baseline_results["rag_only"] = eval_baseline("rag_only", baseline_rag, samples, output_dir)
 
     # A3 — Self-consistency
@@ -678,6 +696,16 @@ def _parse_args() -> argparse.Namespace:
                    help="Questions per benchmark for ablation eval.")
     p.add_argument("--smoke_test", action="store_true",
                    help="Use synthetic data (no download needed).")
+    p.add_argument(
+        "--passage_index",
+        default="data/passage_index",
+        help=(
+            "Path to pre-built PassageStore directory (passages.faiss + passages.pkl). "
+            "Built by scripts/build_passage_index.py. "
+            "Required for the RAG-only baseline to be genuine RAG; "
+            "without it the baseline degrades to zero-shot."
+        ),
+    )
     return p.parse_args()
 
 

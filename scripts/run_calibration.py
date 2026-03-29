@@ -246,6 +246,7 @@ def collect_calibration_data(
     u_pre_logits: List[float] = []
     u_pre_labels: List[int] = []
     signal_matrix: List[List[float]] = []
+    signal_labels: List[int] = []  # labels *only* for Tier-2 samples (mirrors signal_matrix rows)
 
     logger.info("Collecting calibration signals …")
 
@@ -275,6 +276,9 @@ def collect_calibration_data(
                 # Signal matrix — only available for Tier 2 (post-generation conf)
                 # PostGenerationConfidence fields: u_token, u_dropout,
                 # u_consistency (NOT u_sc), u_entropy (NOT h_entropy_norm)
+                # IMPORTANT: signal_labels must be co-indexed with signal_matrix.
+                # Appending here (not above) ensures len(signal_matrix) == len(signal_labels)
+                # even when Tier-1 / Tier-3 samples are present in the calibration set.
                 if result.post_confidence is not None:
                     pc = result.post_confidence
                     signals = [
@@ -284,6 +288,7 @@ def collect_calibration_data(
                         getattr(pc, "u_entropy", 0.5),       # correct field name (already 1-H)
                     ]
                     signal_matrix.append(signals)
+                    signal_labels.append(int(em))  # label for this Tier-2 sample only
 
             except Exception as exc:
                 logger.debug("Calibration sample skipped: %s", exc)
@@ -296,7 +301,11 @@ def collect_calibration_data(
         sum(u_pre_labels),
         len(u_pre_labels),
     )
-    return u_pre_logits, u_pre_labels, signal_matrix, u_pre_labels
+    assert len(signal_matrix) == len(signal_labels), (
+        f"signal_matrix/signal_labels length mismatch: "
+        f"{len(signal_matrix)} vs {len(signal_labels)}"
+    )
+    return u_pre_logits, u_pre_labels, signal_matrix, signal_labels
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -432,8 +441,13 @@ def _parse_args() -> argparse.Namespace:
                    help="Directory containing cycle0 JSON result files.")
     p.add_argument("--output_dir", default="outputs/calibration",
                    help="Where to save calibration results.")
-    p.add_argument("--n_calib", type=int, default=500,
-                   help="Number of samples per benchmark for calibration.")
+    p.add_argument("--n_calib", type=int, default=1000,
+                   help=(
+                       "Samples to load per benchmark. The script uses "
+                       "indices [500:1000] as the calibration window "
+                       "(indices 0-499 are the purity validation set per §5.3). "
+                       "Default 1000 ensures the window is non-empty."
+                   ))
     return p.parse_args()
 
 
@@ -460,13 +474,24 @@ if __name__ == "__main__":
     )
     pipeline = build_pipeline(config, ns, m)
 
-    # Load small calibration sample
+    # Load calibration window: indices [500:n_calib] per benchmark.
+    # Indices 0-499 are the purity validation set (§5.3) — never used for calibration.
+    # TruthfulQA has only 817 questions total; load all 817 and take [500:] to get 317.
     from eval.benchmarks import load_hotpotqa, load_truthfulqa, load_fever, load_strategyqa
-    calib = {
-        "hotpotqa":   load_hotpotqa(n=args.n_calib)[500:1000],
-        "truthfulqa": load_truthfulqa(n=args.n_calib)[500:1000],
-        "fever":      load_fever(n=args.n_calib)[500:1000],
-        "strategyqa": load_strategyqa(n=args.n_calib)[500:1000],
-    }
+    calib = {}
+    for bm_name, loader in [
+        ("hotpotqa",   load_hotpotqa),
+        ("truthfulqa", load_truthfulqa),
+        ("fever",      load_fever),
+        ("strategyqa", load_strategyqa),
+    ]:
+        all_samples = loader(n=args.n_calib)
+        calib[bm_name] = all_samples[500:]   # skip purity window; take the rest
+        if len(calib[bm_name]) == 0:
+            logger.warning(
+                "%s: calibration window is empty (loaded %d samples, "
+                "need > 500 for [500:] slice). Increase --n_calib.",
+                bm_name, len(all_samples),
+            )
 
     calibrate_pipeline(pipeline, calib, config, Path(args.output_dir))
