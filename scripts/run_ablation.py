@@ -97,9 +97,10 @@ class CoTBaseline:
 class RAGOnlyBaseline:
     """A2: Retrieval-augmented generation without episodic memory or verification."""
 
-    def __init__(self, model, tokenizer, passage_store, config, device: str):
+    def __init__(self, model, tokenizer, encoder, passage_store, config, device: str):
         self.model = model
         self.tokenizer = tokenizer
+        self.encoder = encoder          # QueryEncoder — required by TierThreeRAG
         self.passage_store = passage_store
         self.config = config
         self.device = device
@@ -114,11 +115,12 @@ class RAGOnlyBaseline:
                 out = self.model.generate(**inputs, max_new_tokens=64, do_sample=False)
             return self.tokenizer.decode(out[0], skip_special_tokens=True)
 
-        # Retrieve top-k passages
+        # TierThreeRAG constructor: model, tokenizer, passage_encoder, passage_store, config, device
         from caem.retrieval.rag import TierThreeRAG
         rag = TierThreeRAG(
             model=self.model,
             tokenizer=self.tokenizer,
+            passage_encoder=self.encoder,
             passage_store=self.passage_store,
             config=self.config,
             device=self.device,
@@ -259,17 +261,18 @@ def build_no_verification_pipeline(base_pipeline):
     from caem.verification.verifier import MultiLayerVerifier
 
     class PassthroughVerifier(MultiLayerVerifier):
-        def verify(self, question: str, answer: str, gold_answers=None):
-            """Always pass at u_stored=0.5 (neutral confidence)."""
+        def verify(self, query: str, answer: str, input_ids=None):
+            """Always pass at u_stored=0.5 (neutral confidence).
+
+            StoredConfidence fields: p_entail, s_avg, h_norm, u_stored.
+            No passed_verification or trigger flags — those don't exist.
+            """
             from caem.memory.entry import StoredConfidence
             return StoredConfidence(
-                nli_score=0.5,
-                sc_score=0.5,
-                se_score=0.5,
+                p_entail=0.5,
+                s_avg=0.5,
+                h_norm=0.5,
                 u_stored=0.5,
-                passed_verification=True,
-                ve1_triggered=False,
-                ve2_triggered=False,
             )
 
     new_pipeline = _clone_pipeline(base_pipeline)
@@ -504,8 +507,9 @@ def run_ablation(ns: argparse.Namespace) -> None:
     output_dir = Path(ns.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    from scripts.hardware import print_hardware_summary
+    from scripts.hardware import print_hardware_summary, apply_memory_flags
     profile = print_hardware_summary()
+    apply_memory_flags(profile)
 
     # ── Load model and dependencies ─────────────────────────────────────── #
     import torch
@@ -580,9 +584,9 @@ def run_ablation(ns: argparse.Namespace) -> None:
     baseline_cot = CoTBaseline(model, tokenizer, device)
     all_baseline_results["cot"] = eval_baseline("cot", baseline_cot, samples, output_dir)
 
-    # A2 — RAG-only
+    # A2 — RAG-only (passage_store=None → falls back to zero-shot when no index built)
     logger.info("A2: RAG-only baseline …")
-    baseline_rag = RAGOnlyBaseline(model, tokenizer, None, config, device)
+    baseline_rag = RAGOnlyBaseline(model, tokenizer, encoder, None, config, device)
     all_baseline_results["rag_only"] = eval_baseline("rag_only", baseline_rag, samples, output_dir)
 
     # A3 — Self-consistency

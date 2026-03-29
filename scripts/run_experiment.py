@@ -132,19 +132,26 @@ def build_pipeline(config, ns, m) -> "CAEMPipeline":
     -------
     CAEMPipeline — ready for inference
     """
-    torch = m["torch"]
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    logger.info("Device: %s", device)
+    from scripts.hardware import print_hardware_summary, apply_memory_flags
+    hw = print_hardware_summary()
+    apply_memory_flags(hw)
+    device = hw.device
+    logger.info("Device: %s | GPU: %s | VRAM: %.1f GB",
+                device, hw.gpu_name or "n/a", hw.vram_gb)
 
     # ── Flan-T5-Large ───────────────────────────────────────────────────── #
     logger.info("Loading Flan-T5-Large …")
+    torch = m["torch"]
     tokenizer = m["AutoTokenizer"].from_pretrained("google/flan-t5-large")
-    model = m["T5ForConditionalGeneration"].from_pretrained(
-        "google/flan-t5-large"
-    ).to(device)
-    model.eval()
-    logger.info("Flan-T5-Large loaded (%.0f M params)", sum(
-        p.numel() for p in model.parameters()) / 1e6)
+    model = m["T5ForConditionalGeneration"].from_pretrained("google/flan-t5-large")
+    if hw.use_bf16:
+        model = model.to(torch.bfloat16)
+    elif hw.use_fp16:
+        model = model.to(torch.float16)
+    model = model.to(device).eval()
+    logger.info("Flan-T5-Large loaded (%.0f M params, precision=%s)",
+                sum(p.numel() for p in model.parameters()) / 1e6,
+                "bf16" if hw.use_bf16 else "fp16" if hw.use_fp16 else "fp32")
 
     # ── SBERT encoder ────────────────────────────────────────────────────── #
     logger.info("Loading SBERT encoder (all-mpnet-base-v2) …")
@@ -349,45 +356,34 @@ def retroactive_reverification(pipeline, cycle: int, config) -> Dict:
 
     This is §4.7 (retroactive re-verification) of the thesis plan.
 
+    Uses EpisodicMemoryStore.retroverify(verify_fn, threshold) — the store's
+    own method that iterates entries, calls verify_fn on each, and handles
+    pruning + u_stored upgrades atomically.
+
     Returns
     -------
     dict with keys: total, updated, pruned
     """
     store = pipeline.memory_store
-    all_entries = list(store._metadata.values())
+    total_before = len(store.all_entries())
 
-    total = len(all_entries)
-    updated = 0
-    pruned = 0
+    logger.info("Retroactive re-verification: %d episodes …", total_before)
 
-    logger.info("Retroactive re-verification: %d episodes …", total)
+    # verify_fn: (EpisodicEntry) → StoredConfidence
+    # Uses the pipeline's verifier so re-verification benefits from the
+    # updated model weights after this cycle's fine-tuning.
+    verify_fn = lambda e: pipeline.verifier.verify(e.question, e.answer)
 
-    for entry in all_entries:
-        # Re-generate confidence signals using the updated model
-        # (The verifier uses the model's generation, so re-running it
-        #  on the stored question gives the post-cycle score.)
-        try:
-            result = pipeline.answer(entry.question)
-            new_u_stored = (
-                result.stored_confidence.u_stored
-                if result.stored_confidence
-                else entry.u_stored
-            )
-            if new_u_stored < config.retroverify_prune_threshold:
-                store.remove(entry)
-                pruned += 1
-            elif new_u_stored > entry.u_stored:
-                entry.u_stored = new_u_stored
-                entry.retroverified = True
-                updated += 1
-        except Exception as exc:
-            logger.debug("retroverify skipped for entry %s: %s", entry.entry_id, exc)
+    n_updated, n_removed = store.retroverify(
+        verify_fn=verify_fn,
+        threshold=config.retroverify_prune_threshold,
+    )
 
     logger.info(
         "  Retroactive re-verification done: %d total | %d updated | %d pruned",
-        total, updated, pruned,
+        total_before, n_updated, n_removed,
     )
-    return {"total": total, "updated": updated, "pruned": pruned}
+    return {"total": total_before, "updated": n_updated, "pruned": n_removed}
 
 
 # ─────────────────────────────────────────────────────────────────────────────

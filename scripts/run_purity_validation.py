@@ -182,8 +182,10 @@ def measure_verification_precision(pipeline, purity_samples: List[dict], bm: str
             if result.stored_confidence is None:
                 continue
 
-            passed = result.stored_confidence.passed_verification
-            if not passed:
+            # StoredConfidence has no passed_verification field.
+            # An answer "passed" verification iff u_stored >= prune threshold.
+            threshold = pipeline.config.retroverify_prune_threshold
+            if result.stored_confidence.u_stored < threshold:
                 continue
 
             # Answer passed verification — was it actually correct?
@@ -232,7 +234,8 @@ def measure_memory_purity(memory_store, purity_samples: List[dict], bm: str, pip
     for s in purity_samples:
         gold_lookup[s["question"].strip().lower()] = s
 
-    store_entries = list(memory_store._metadata.values())
+    # Use the public all_entries() method, not the private _metadata dict
+    store_entries = memory_store.all_entries()
     correct_in_memory = 0
     checked = 0
 

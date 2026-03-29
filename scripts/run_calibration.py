@@ -11,7 +11,7 @@ Two calibration steps:
      Error) on the calibration set using L-BFGS. Adjusts token probability
      confidence to be better calibrated.
   2. Signal weight calibration — fits û signal weights (u_token, u_dropout,
-     u_SC, u_entropy) to maximise AUROC on the calibration set using
+     u_consistency, u_entropy) to maximise AUROC on the calibration set using
      logistic regression (scikit-learn).
 
 Results are:
@@ -155,7 +155,7 @@ def fit_signal_weights(
 ) -> List[float]:
     """Fit û signal weights using logistic regression to maximise AUROC.
 
-    Each row of signal_matrix is [u_token, u_dropout, u_sc, u_entropy]
+    Each row of signal_matrix is [u_token, u_dropout, u_consistency, u_entropy]
     for one sample. Labels: 1 = answer correct, 0 = wrong.
 
     The fitted coefficients (after softmax normalisation) become the
@@ -202,7 +202,7 @@ def fit_signal_weights(
     total = coefs.sum()
     weights = (coefs / total).tolist() if total > 1e-9 else [0.25, 0.25, 0.25, 0.25]
 
-    labels_str = ["u_token", "u_dropout", "u_sc", "u_entropy"]
+    labels_str = ["u_token", "u_dropout", "u_consistency", "u_entropy"]
     for name, w in zip(labels_str, weights):
         logger.info("  Calibrated weight — %s: %.4f", name, w)
 
@@ -273,13 +273,15 @@ def collect_calibration_data(
                 u_pre_labels.append(int(em))
 
                 # Signal matrix — only available for Tier 2 (post-generation conf)
+                # PostGenerationConfidence fields: u_token, u_dropout,
+                # u_consistency (NOT u_sc), u_entropy (NOT h_entropy_norm)
                 if result.post_confidence is not None:
                     pc = result.post_confidence
                     signals = [
                         getattr(pc, "u_token", 0.5),
                         getattr(pc, "u_dropout", 0.5),
-                        getattr(pc, "u_sc", 0.5),
-                        1.0 - getattr(pc, "h_entropy_norm", 0.5),
+                        getattr(pc, "u_consistency", 0.5),   # correct field name
+                        getattr(pc, "u_entropy", 0.5),       # correct field name (already 1-H)
                     ]
                     signal_matrix.append(signals)
 
@@ -362,10 +364,10 @@ def calibrate_pipeline(
 
     # ── Update config in-place ────────────────────────────────────────────── #
     config.temperature_scalar = T       # new field written to config
-    config.u_hat_weight_token    = new_weights[0]
-    config.u_hat_weight_dropout  = new_weights[1]
-    config.u_hat_weight_sc       = new_weights[2]
-    config.u_hat_weight_entropy  = new_weights[3]
+    config.u_hat_weight_token       = new_weights[0]
+    config.u_hat_weight_dropout     = new_weights[1]
+    config.u_hat_weight_consistency = new_weights[2]   # correct config field name
+    config.u_hat_weight_entropy     = new_weights[3]
 
     # ── Save results ──────────────────────────────────────────────────────── #
     calib_result = {
@@ -375,16 +377,16 @@ def calibrate_pipeline(
         "n_samples":  len(u_pre_logits),
         "n_tier2_samples": len(signal_matrix),
         "signal_weights": {
-            "u_token":   new_weights[0],
-            "u_dropout": new_weights[1],
-            "u_sc":      new_weights[2],
-            "u_entropy": new_weights[3],
+            "u_token":       new_weights[0],
+            "u_dropout":     new_weights[1],
+            "u_consistency": new_weights[2],   # correct field name
+            "u_entropy":     new_weights[3],
         },
         "projected_weights_from_plan": {
-            "u_token":   0.20,
-            "u_dropout": 0.20,
-            "u_sc":      0.20,
-            "u_entropy": 0.40,
+            "u_token":       0.20,
+            "u_dropout":     0.20,
+            "u_consistency": 0.20,
+            "u_entropy":     0.40,
         },
         "note": (
             "Actual calibrated values — these replace the projected 0.20/0.20/0.20/0.40 "
@@ -405,7 +407,7 @@ def calibrate_pipeline(
     print(f"  ECE before: {ece_before:.6f}")
     print(f"  ECE after:  {ece_after:.6f}  (improvement: {ece_before - ece_after:.6f})")
     print(f"\n  û Signal weights (calibrated vs projected):")
-    names = ["u_token", "u_dropout", "u_sc", "u_entropy"]
+    names = ["u_token", "u_dropout", "u_consistency", "u_entropy"]
     proj  = [0.20, 0.20, 0.20, 0.40]
     for name, w, p in zip(names, new_weights, proj):
         delta = w - p

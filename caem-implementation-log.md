@@ -17,55 +17,85 @@
 
 ## Session 21 — 2026-03-29
 
-**Scope:** Experiment-phase scaffolding recovery and repository hygiene. Restored deleted scripts, tracked the experiments notebook despite global notebook ignore rules, validated Python environment dependencies, and re-ran the full unit test suite.
+**Scope:** Experiment-phase script authoring and schema-mismatch correction. Wrote all five experiment scripts (`run_experiment.py`, `run_calibration.py`, `run_ablation.py`, `run_purity_validation.py`, `hardware.py`) and the `CAEM_Experiments.ipynb` notebook. Identified and fixed every schema mismatch against the actual implementation.
+
+### Schema bugs found and fixed
+
+The first versions of the scripts were written without reading the actual implementation files, producing multiple schema mismatches. All were corrected in this session:
+
+| Bug | Wrong code | Correct code | File(s) |
+|-----|-----------|-------------|---------|
+| PostGenerationConfidence field | `pc.u_sc` | `pc.u_consistency` | run_calibration.py |
+| PostGenerationConfidence field | `1.0 - pc.h_entropy_norm` | `pc.u_entropy` | run_calibration.py |
+| StoredConfidence constructor | `nli_score=, sc_score=, se_score=, passed_verification=True` | `p_entail=, s_avg=, h_norm=, u_stored=` | run_ablation.py |
+| Retroactive re-verification pattern | manual loop calling `pipeline.answer(entry.question)` | `store.retroverify(verify_fn=lambda e: pipeline.verifier.verify(e.question, e.answer), threshold=...)` | run_experiment.py |
+| store.remove argument | `store.remove(entry)` (EpisodicEntry) | `store.remove(entry_id: int)` — handled by retroverify | run_experiment.py |
+| Private attribute access | `list(store._metadata.values())` | `store.all_entries()` | run_experiment.py, run_purity_validation.py |
+| TierThreeRAG constructor | missing `passage_encoder=encoder` | `TierThreeRAG(model, tokenizer, passage_encoder=encoder, passage_store=..., ...)` | run_ablation.py |
+| passed_verification field | `result.stored_confidence.passed_verification` | `result.stored_confidence.u_stored >= config.retroverify_prune_threshold` | run_purity_validation.py |
 
 ### Actions completed
 
-#### Action 1 — Repository recovery: `scripts/` restored
+#### Action 1 — Authored `scripts/hardware.py`
 
-**Problem:** The `scripts/` directory disappeared from the working tree during branch/rebase cleanup and reset operations.
+Device-agnostic hardware detection for RTX 3060 (12 GB, fp16, batch=4), A100 (40/80 GB, bf16, batch=16), T4/V100 (16 GB, fp16, batch=8), and CPU fallback. All scripts now call `print_hardware_summary()` + `apply_memory_flags()` at startup — no hardcoded `cuda` strings.
 
-**Fix:** Restored `scripts/` from commit `b467f13` and re-added:
-- `scripts/hardware.py`
-- `scripts/run_experiment.py`
-- `scripts/run_ablation.py`
-- `scripts/run_calibration.py`
-- `scripts/run_purity_validation.py`
-- `scripts/__init__.py`
+#### Action 2 — Authored and fixed `scripts/run_experiment.py`
 
-#### Action 2 — Notebook tracking: `CAEM_Experiments.ipynb`
+Main orchestrator for Cycle 0→3. Key fix: replaced the broken manual retroactive re-verification loop with the correct `store.retroverify(verify_fn, threshold)` call. `build_pipeline()` now uses `hw.device`, `hw.use_fp16`, `hw.use_bf16` from hardware profile.
 
-**Problem:** The notebook was not appearing on GitHub because `.gitignore` contains `*.ipynb`.
+#### Action 3 — Authored and fixed `scripts/run_calibration.py`
 
-**Fix:** Staged notebook with force-add (`git add -f CAEM_Experiments.ipynb`) and pushed in commit `b49a77b` with restored scripts.
+Temperature scaling (L-BFGS, Guo et al. 2017) + signal weight calibration (logistic regression, AUROC-maximised). Fixed `PostGenerationConfidence` field names throughout: `u_consistency` (not `u_sc`) and `u_entropy` (not `h_entropy_norm`). These are the correct field names from `caem/memory/entry.py`. Updated signal labels, config assignment (`u_hat_weight_consistency`), and JSON output keys.
 
-#### Action 3 — Environment verification
+#### Action 4 — Authored and fixed `scripts/run_ablation.py`
 
-Installed/verified in `.venv`:
-- `faiss-cpu`
-- `sentence-transformers`
-- `torch`
-- `transformers`
-- `datasets`
-- `pytest`
-- `scipy`
+6 baselines (A0–A5) + 3 ablation variants (AB1–AB3). Key fixes:
+- `RAGOnlyBaseline` now takes an `encoder` parameter; `TierThreeRAG` constructor called with `passage_encoder=encoder` (positional arg, not `passage_store=`).
+- `PassthroughVerifier.verify()` now returns `StoredConfidence(p_entail=0.5, s_avg=0.5, h_norm=0.5, u_stored=0.5)` — the correct 4-field constructor. No `passed_verification`, `ve1_triggered`, or `ve2_triggered` fields (they don't exist).
 
-Also resolved editor diagnostic (`Import "pytest" could not be resolved`) by ensuring the workspace interpreter points to `.venv` and confirming import success.
+#### Action 5 — Authored and fixed `scripts/run_purity_validation.py`
 
-#### Action 4 — Full unit test execution
+Three-protocol theory validation (Purity Theorem, Monotonicity, Convergence). Key fixes:
+- `measure_verification_precision()`: removed `passed_verification` check (field doesn't exist on `StoredConfidence`); replaced with `u_stored >= config.retroverify_prune_threshold` threshold check.
+- `measure_memory_purity()`: replaced `list(memory_store._metadata.values())` with the public `memory_store.all_entries()` method.
 
-Executed full suite with project interpreter:
+#### Action 6 — Verified `CAEM_Experiments.ipynb`
 
+The notebook delegates all schema-sensitive logic to the script functions (e.g., `retroactive_reverification` from `run_experiment`, `calibrate_pipeline` from `run_calibration`, `run_ablation`). After the script fixes, the notebook is schema-correct by delegation. The notebook includes a modular Colab/local/cluster environment detection cell and is hardware-agnostic.
+
+### Output files the experiment analyzer skill expects
+
+Scripts produce:
+- `outputs/all_cycle_results.json` — per-benchmark `{em, f1, hallucination_rate, tier1_frac, tier2_frac, tier3_frac, storage_rate, mean_u_stored, mean_latency_ms}` for Cycles 0–3
+- `outputs/experiment_summary.csv` — mechanism evidence table (Chapter 5, Table 1)
+- `outputs/retroverify_cycle{N}.json` — retroverification stats per cycle
+- `outputs/calibration/calibrated_config.json` — temperature scalar T, signal weights
+- `outputs/purity_validation/theory_validation.json` — Theory 1/2/3 tables
+- `outputs/ablation/ablation_summary.json` — baselines + ablation variants + MMLU retention
+
+### Confirmed correct schemas (do not change)
+
+```python
+# PostGenerationConfidence (caem/memory/entry.py)
+pc.u_token        # geometric mean token log-probs
+pc.u_dropout      # MC Dropout uncertainty
+pc.u_consistency  # avg pairwise cosine sim (NOT u_sc)
+pc.u_entropy      # 1 - H_semantic / log2(K) (NOT h_entropy_norm)
+pc.u_hat          # combined û
+
+# StoredConfidence (caem/memory/entry.py)
+sc.p_entail   # NLI entailment probability
+sc.s_avg      # self-consistency avg cosine sim
+sc.h_norm     # normalised semantic entropy
+sc.u_stored   # combined stored confidence
+# NO: passed_verification, ve1_triggered, ve2_triggered
+
+# EpisodicMemoryStore (caem/memory/store.py)
+store.all_entries()                         # public method (not ._metadata.values())
+store.retroverify(verify_fn, threshold)     # returns (n_updated, n_removed)
+store.remove(entry_id: int)                 # takes int, not EpisodicEntry
 ```
-python -m pytest
-```
-
-**Result:** `361 passed, 0 failed` (3 deprecation warnings from SWIG/FAISS internals).
-
-### Commit/push notes
-
-- Removed unintended co-author trailer from prior commit via amend + force-with-lease.
-- Pushed experiment scaffolding commit: `b49a77b` (scripts + notebook).
 
 ---
 
