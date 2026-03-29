@@ -15,6 +15,52 @@
 
 ---
 
+## Session 18 — 2026-03-29
+
+**Scope:** `CAEMPipeline` (end-to-end orchestrator) tying all 8 stages.
+
+**Files created/modified:**
+```
+caem/pipeline.py
+caem/__init__.py     (added CAEMPipeline, PipelineResult exports)
+tests/test_pipeline.py
+```
+
+**Test result:** 265/265 passing (39 new pipeline tests + 226 from prior sessions).
+
+---
+
+### Module: `caem/pipeline.py`
+
+**Responsibility:** single entry point `pipeline.answer(query) → PipelineResult` that runs the full 8-stage inference loop.
+
+**Stage sequence:**
+
+| Stage | Component | What it does |
+|---|---|---|
+| 2 | `_encode_query` | L2-normalised 384-dim embedding |
+| 3a | `PreRoutingConfidenceEstimator` | u_pre from token probs + C_conv |
+| 1 | `EpisodicMemoryStore.search` | top-1 cosine search |
+| 3b | `AdaptiveRouter.route` | Tier 1 / 2 / 3 dispatch |
+| 4a | `PostGenerationConfidenceEstimator` | û (Tier 2 only) |
+| 5 | `MultiLayerVerifier.verify` | û_stored (all tiers) |
+| 6 | `TierThreeRAG.generate` | RAG answer (Tier 3) |
+| 7 | `_maybe_store` | novelty + threshold gate |
+
+**Key design decisions:**
+
+> **Tier 2 escalation:** if û < 0.60, the Tier 2 answer is discarded and Tier 3 RAG is called instead. `post_confidence` is still set in `PipelineResult` (so the threshold miss is visible in experiment logs) even after escalation.
+
+> **Tier 1 does not re-store:** on a Tier 1 hit the episode is already in memory. We call `update_retrieval_stats` (increments count, updates success_rate, applies feedback-loop u_stored nudge) and do an upward-only u_stored update if verification produced a higher score. No new entry is added.
+
+> **Entry ID recovery for Tier 1 stats:** `EpisodicMemoryStore.search()` returns `EpisodicEntry` objects (not IDs). We recover the entry_id by scanning `_metadata.items()` for object identity (`is` comparison). This is O(N) but N ≤ 20k and Tier 1 hits are cheap anyway.
+
+> **reasoning_chain = generated answer:** for Tier 2/3, Flan-T5 output serves as both `reasoning_chain` and `answer` in the `EpisodicEntry`. Flan-T5-Large does not natively produce separate CoT traces in instruction-tuned mode. A future extension could use chain-of-thought prompting to separate the two.
+
+> **Empty passage store:** if no `passage_store` is provided at construction, a degenerate empty `PassageStore` is created and a warning is logged. `TierThreeRAG` will fall back to query-only generation. This avoids a hard crash at construction time.
+
+---
+
 ## Session 17 — 2026-03-29
 
 **Scope:** SelfImprovementLoop (Stage 8) + `all_entries()` on EpisodicMemoryStore.
