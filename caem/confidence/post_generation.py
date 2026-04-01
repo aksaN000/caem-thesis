@@ -209,14 +209,26 @@ class PostGenerationConfidenceEstimator:
         Returns float in [0, 1]. Returns 0.0 on error (pessimistic fail).
         """
         try:
-            # Tokenize the generated answer as decoder labels
-            with self.tokenizer.as_target_tokenizer():
-                answer_ids = self.tokenizer(
-                    generated_answer,
-                    return_tensors="pt",
-                    truncation=True,
-                    max_length=256,
-                ).input_ids.to(self.device)
+            # Transformers target-tokenization API changed from
+            # as_target_tokenizer() to text_target=...; support both.
+            tok_kwargs = {
+                "return_tensors": "pt",
+                "truncation": True,
+                "max_length": 256,
+            }
+            try:
+                target_tokens = self.tokenizer(text_target=generated_answer, **tok_kwargs)
+            except TypeError:
+                if hasattr(self.tokenizer, "as_target_tokenizer"):
+                    with self.tokenizer.as_target_tokenizer():
+                        target_tokens = self.tokenizer(generated_answer, **tok_kwargs)
+                else:
+                    target_tokens = self.tokenizer(generated_answer, **tok_kwargs)
+
+            if hasattr(target_tokens, "input_ids"):
+                answer_ids = target_tokens.input_ids.to(self.device)
+            else:
+                answer_ids = target_tokens["input_ids"].to(self.device)
 
             # Forward pass: model scores each decoder token given the input
             outputs = self.model(

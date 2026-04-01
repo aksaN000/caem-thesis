@@ -267,7 +267,8 @@ class TestHallucinationRate:
     def test_all_wrong_uncertain(self):
         em = [0.0, 0.0, 0.0]
         u = [0.3, 0.2, 0.1]
-        assert hallucination_rate(em, u) == pytest.approx(1.0)
+        # Uncertain errors are Safe Failures, not confident confabulations.
+        assert hallucination_rate(em, u) == pytest.approx(0.0)
 
     def test_all_correct(self):
         em = [1.0, 1.0]
@@ -276,14 +277,15 @@ class TestHallucinationRate:
 
     def test_mixed(self):
         em = [0.0, 1.0, 0.0, 1.0]
-        u = [0.3, 0.3, 0.8, 0.3]   # sample 0: wrong+uncertain; sample 2: wrong but confident
+        u = [0.3, 0.3, 0.8, 0.3]   # sample 0: safe failure; sample 2: confident confabulation
         rate = hallucination_rate(em, u)
-        assert rate == pytest.approx(0.25)   # 1 out of 4
+        assert rate == pytest.approx(0.25)   # 1 out of 4 (sample 2)
 
     def test_none_u_stored_treated_as_zero(self):
         em = [0.0]
         u = [None]
-        assert hallucination_rate(em, u) == pytest.approx(1.0)
+        # u=None becomes u=0.0 (uncertain), so it's a safe failure
+        assert hallucination_rate(em, u) == pytest.approx(0.0)
 
     def test_empty(self):
         assert hallucination_rate([], []) == pytest.approx(0.0)

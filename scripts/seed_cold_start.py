@@ -273,7 +273,7 @@ def build_pipeline(config, device: str):
 
     # ── Wikipedia passage index (optional) ───────────────────────────── #
     passage_store = None
-    idx_path = Path("outputs/passage_index")
+    idx_path = Path("data/passage_index")
     if idx_path.exists():
         try:
             passage_store = PassageStore.load(str(idx_path))

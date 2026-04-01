@@ -123,6 +123,10 @@ Everything else stays identical.
 
 ## Full run sequence (copy-paste for 4090/5090)
 
+> [!WARNING]
+> Because this script runs for 11–14 hours, your SSH connection dropping will kill the script. **ALWAYS run this inside `tmux`:**
+> `tmux new -s caem`
+
 ```bash
 cd /path/to/caem-project
 
@@ -137,6 +141,15 @@ python scripts/run_experiment.py \
   --passage_index data/passage_index \
   --cold_start_memory outputs/cold_start_memory
 
+# ── CRASH RECOVERY (If the script dies midway) ─────────────────────────────
+# Do not run this normally! Only if it OOMs or the server reboots during Cycle X.
+# Just swap 'X' for the cycle it crashed on:
+python scripts/run_experiment.py \
+  --n_questions 5000 \
+  --resume_from_cycle X \
+  --output_dir outputs/full_experiment \
+  --passage_index data/passage_index
+  
 # ── Purity validation — validates Theorem 1/2/3 (~30 min) ─────────────────
 python scripts/run_purity_validation.py \
   --experiment_dir outputs/full_experiment \

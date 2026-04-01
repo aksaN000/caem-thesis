@@ -22,9 +22,9 @@ FEVER      — Label accuracy
 
 Hallucination rate
 ------------------
-Defined operationally as: fraction of answers where û_stored < 0.50 AND
-the answer does not match the gold (EM = 0). This is a proxy, not a ground-
-truth hallucination detector, but it correlates with confabulated outputs.
+Defined operationally as: fraction of answers where û_stored >= 0.50 AND
+the answer does not match the gold (EM = 0). This proxy measures confident
+confabulations (where the model arrogantly asserts a falsehood).
 
 Routing distribution
 --------------------
@@ -257,10 +257,10 @@ def hallucination_rate(
     u_stored_values: Sequence[Optional[float]],
     u_threshold: float = 0.50,
 ) -> float:
-    """Fraction of answers that are both wrong AND low-confidence.
+    """Fraction of answers that are both wrong AND confidently generated.
 
-    Operational definition: EM = 0 AND û_stored < u_threshold.
-    This is a proxy for confabulated (hallucinated) outputs, not a
+    Operational definition: EM = 0 AND û_stored >= u_threshold.
+    This is a proxy for confident confabulations (hallucinations), not a
     ground-truth oracle. Used for ablation analysis in Chapter 5.
 
     Parameters
@@ -286,7 +286,7 @@ def hallucination_rate(
     count = 0
     for em, u in zip(em_scores, u_stored_values):
         u_val = u if u is not None else 0.0
-        if em == 0.0 and u_val < u_threshold:
+        if em == 0.0 and u_val >= u_threshold:  # Fixed: measures Confident Confabulation
             count += 1
 
     return count / n

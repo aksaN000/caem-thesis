@@ -587,24 +587,63 @@ def run_experiment(ns: argparse.Namespace) -> None:
         output_dir=str(output_dir),
     )
 
-    # ── CYCLE 0: Baseline evaluation ─────────────────────────────────────── #
-    logger.info("─" * 60)
-    logger.info("CYCLE 0 — Baseline evaluation (zero episodic memory)")
-    logger.info("─" * 60)
-    t0 = time.time()
-    cycle0_results = harness.run_all(eval_samples, cycle=0)
-    logger.info("Cycle 0 done in %.1f min.", (time.time() - t0) / 60)
+    # ── CYCLE 0: Baseline evaluation & Resume Logic ──────────────────────── #
+    if ns.resume_from_cycle == 0:
+        logger.info("─" * 60)
+        logger.info("CYCLE 0 — Baseline evaluation (zero episodic memory)")
+        logger.info("─" * 60)
+        t0 = time.time()
+        cycle0_results = harness.run_all(eval_samples, cycle=0)
+        logger.info("Cycle 0 done in %.1f min.", (time.time() - t0) / 60)
+        
+        # Save baseline memory store checkpoint
+        pipeline.memory_store.save(str(output_dir / "memory_store_cycle_0"))
 
-    all_cycle_results = [cycle0_results]
+        all_cycle_results = [cycle0_results]
 
-    # ── Calibration (after Cycle 0, before Cycle 1 fine-tuning) ──────────── #
-    if not ns.skip_calibration:
-        run_calibration_step(pipeline, calib_samples, config, output_dir, m)
+        # ── Calibration (after Cycle 0, before Cycle 1 fine-tuning) ──────────── #
+        if not ns.skip_calibration:
+            run_calibration_step(pipeline, calib_samples, config, output_dir, m)
+        else:
+            logger.info("Calibration skipped (--skip_calibration). Using equal initial weights.")
     else:
-        logger.info("Calibration skipped (--skip_calibration). Using equal initial weights.")
+        logger.info("─" * 60)
+        logger.info("RESUMING EXPERIMENT FROM CYCLE %d", ns.resume_from_cycle)
+        logger.info("Reconstructing previous metrics and memory states...")
+        logger.info("─" * 60)
+        
+        all_cycle_results = []
+        # Reconstruct all_cycle_results up to the resume point
+        for c in range(ns.resume_from_cycle):
+            cycle_results = {}
+            for bm in eval_samples.keys():
+                json_path = eval_dir / f"{bm}_cycle{c}.json"
+                if not json_path.exists():
+                    raise FileNotFoundError(f"Cannot resume: {json_path} is missing.")
+                with open(json_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                cycle_results[bm] = data["meta"]
+            all_cycle_results.append(cycle_results)
+            
+        prev_cycle = ns.resume_from_cycle - 1
+        
+        # Reload memory store state
+        mem_path = output_dir / f"memory_store_cycle_{prev_cycle}"
+        if not mem_path.exists():
+            raise FileNotFoundError(f"Missing memory store checkpoint: {mem_path}")
+        pipeline.memory_store.load(str(mem_path))
+        logger.info("Restored memory store from Cycle %d: %d episodes", prev_cycle, pipeline.memory_store.size)
+        
+        # Reload fine-tuned model weights if past cycle 0
+        if prev_cycle > 0:
+            sil.load_checkpoint(prev_cycle)
+            logger.info("Restored fine-tuned model weights from Cycle %d.", prev_cycle)
+            
+        pipeline.current_cycle = prev_cycle
 
     # ── CYCLES 1–3 ─────────────────────────────────────────────────────────── #
-    for cycle_num in range(1, config.num_cycles + 1):
+    start_cycle = max(1, ns.resume_from_cycle)
+    for cycle_num in range(start_cycle, config.num_cycles + 1):
         logger.info("─" * 60)
         logger.info("CYCLE %d — Fine-tuning + evaluation", cycle_num)
         logger.info("─" * 60)
@@ -662,6 +701,9 @@ def run_experiment(ns: argparse.Namespace) -> None:
         logger.info("  Step 3: Evaluating all benchmarks (cycle=%d) …", cycle_num)
         cycle_results = harness.run_all(eval_samples, cycle=cycle_num)
         all_cycle_results.append(cycle_results)
+        
+        # Step 6: Save memory checkpoint for resuming
+        pipeline.memory_store.save(str(output_dir / f"memory_store_cycle_{cycle_num}"))
 
         logger.info("Cycle %d done in %.1f min.", cycle_num, (time.time() - t0) / 60)
 
@@ -734,6 +776,10 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument(
         "--disable_reverification", action="store_true",
         help="Disable retroactive re-verification between cycles (for AB4 ablation).",
+    )
+    p.add_argument(
+        "--resume_from_cycle", type=int, default=0,
+        help="Resume experiment from a specific cycle (1 to 3). Bypasses earlier cycles and reloads memory/weights.",
     )
     return p.parse_args()
 

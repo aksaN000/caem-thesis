@@ -128,14 +128,20 @@ class QADataset(Dataset):
             padding="max_length",
             return_tensors="pt",
         )
-        with self.tokenizer.as_target_tokenizer():
-            dec = self.tokenizer(
-                pair.answer,
-                max_length=self.max_target,
-                truncation=True,
-                padding="max_length",
-                return_tensors="pt",
-            )
+        dec_kwargs = {
+            "max_length": self.max_target,
+            "truncation": True,
+            "padding": "max_length",
+            "return_tensors": "pt",
+        }
+        try:
+            dec = self.tokenizer(text_target=pair.answer, **dec_kwargs)
+        except TypeError:
+            if hasattr(self.tokenizer, "as_target_tokenizer"):
+                with self.tokenizer.as_target_tokenizer():
+                    dec = self.tokenizer(pair.answer, **dec_kwargs)
+            else:
+                dec = self.tokenizer(pair.answer, **dec_kwargs)
         labels = dec["input_ids"].squeeze(0)
         # Replace padding token id with -100 so cross-entropy ignores it
         labels[labels == self.tokenizer.pad_token_id] = -100

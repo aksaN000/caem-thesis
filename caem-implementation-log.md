@@ -949,6 +949,26 @@ Recency = exp(−0.01 · age_in_seconds)
 
 ---
 
+## Session 25 — 2026-04-01 (Pre-Experiment Hardening)
+
+**Scope:** Resolved math/logic blockers preventing the full lab run, and added robust crash recovery to the orchestrator.
+
+### Actions completed
+
+#### Action 1 — MPNet Embedding Dimension Fix
+Identified a hardware-crashing bug where `caem/memory/encoder.py` and downstream FAISS structures incorrectly expected 384 dimensions, despite `all-mpnet-base-v2` producing 768-dimensional vectors. Migrated all assertions, initialization schemas, and docstrings from `384` to `768` dimensions across `encoder.py`, `pipeline.py`, `entry.py`, `store.py`, `verifier.py`, and 5 unit test files.
+
+#### Action 2 — Corrected Hallucination Rate Definition
+Fixed an accidental logical inversion in `eval/metrics.py`. The system was measuring "Safe Failures" (`em == 0` AND `u < 0.50`) rather than "Confident Confabulations" (`em == 0` AND `u >= 0.50`). Updated all docstrings, assertions, and `test_eval.py` to ensure the core thesis claim (measuring the drop in *confident confabulations*) is mathematically accurate.
+
+#### Action 3 — Implemented Mid-Run Crash Resiliency
+Modified `scripts/run_experiment.py` to survive catastrophic failures (OOM, SSH disconnects) during the 14-hour lab run.
+- Added a `--resume_from_cycle N` flag.
+- Engineered logic to jump directly to Cycle $N$, intercepting and parsing previous JSON eval files to perfectly reconstruct `all_cycle_results`.
+- Enforced FAISS `memory_store` saves at the explicit end of every evaluation loop (not just the end of the entire script) so that the exact state of the Episodic Memory can be rehydrated via `sil.load_checkpoint()` alongside the PyTorch weights.
+
+---
+
 ## Pipeline Implementation Roadmap
 
 **Status legend:** ✅ Done | 🔬 Experiment phase | ⬜ Pending

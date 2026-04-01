@@ -1,60 +1,190 @@
-# CAEM Hardware Scaling Guide (Lab PC Edition)
+# CAEM Hardware Scaling Guide (Lab PC / 4090 / 5090 Edition)
 
-This document outlines the maximum-capacity hyperparameters you can (and should) unlock when transferring execution from your constrained local machine (16GB RAM, RTX 3060) to your dedicated Lab PC. 
+**Purpose:** This document records which hyperparameters to change when moving from
+the thesis-standard RTX 3060 config to a higher-capacity machine, with honest
+expected gains and the academic justification (or lack thereof) for each change.
 
-Scaling these parameters will dramatically increase your retrieval accuracy, verification robustness, and training stability for your final thesis numbers.
-
----
-
-## 1. Massive Memory Indexing (Passage Store)
-**File:** `scripts/build_passage_index.py` (CLI argument)
-*   **Current Setup:** `500,000` passages (Maxing out 16GB limit, relying on slow SSD paging).
-*   **Lab PC:** `5,000,000` to `20,000,000` passages.
-*   **Why:** A 5M+ index contains exponentially more niche and long-tail facts. Tier 3 (RAG) generation accuracy on complex HotpotQA datasets will skyrocket because the model is no longer relying on a fractional subset of Wikipedia. 
-*   **Command:** `python scripts/build_passage_index.py --max_passages 5000000 --output_dir outputs/passage_index`
-
-## 2. Episodic Memory Seed Volume
-**File:** `scripts/seed_cold_start.py` (CLI argument)
-*   **Current Setup:** `200` target episodes per benchmark.
-*   **Lab PC:** `1,000` to `2,000` target episodes per benchmark.
-*   **Why:** Starting Cycle 1 with a massive, highly-dense associative memory matrix means Tier 1 routing acts like a hyper-efficient cache right out of the gate, maximizing both throughput and accuracy from the very first question.
-*   **Command:** `python scripts/seed_cold_start.py --target_episodes 1000 --output_dir outputs/cold_start_memory`
-
-## 3. Self-Consistency Robustness (Stage 4 & Stage 5)
-**File:** `caem/config.py` (`sc_chains_m`)
-*   **Current Setup:** `sc_chains_m = 3`
-*   **Lab PC:** `sc_chains_m = 10` or `20`
-*   **Why:** When measuring `u_consistency` and `s_avg` verification flags, generating 3 answers provides a "minimum viable" consensus. Generating 10-20 independent CoT paths virtually eliminates statistical noise, mirroring the original Wang et al. (2022) hardware parameters.
-
-## 4. Semantic Entropy Clustering (Stage 4 & Stage 5)
-**File:** `caem/config.py` (`se_samples_k`)
-*   **Current Setup:** `se_samples_k = 10`
-*   **Lab PC:** `se_samples_k = 20`
-*   **Why:** Farquhar et al. (2024) rely on deep sampling pools to measure meaning-level uncertainty. Larger sample sizes allow the NLI clustering algorithm to firmly map the boundary of "true" vs "confabulated" reasoning paths.
-
-## 5. Training Batch Sizes (Stage 8)
-**File:** `caem/config.py` (`batch_size`)
-*   **Current Setup:** Small (Likely `1`, `2`, or `4` to prevent VRAM overflow on a 12GB 3060 during backpropagation).
-*   **Lab PC:** `16` or `32`
-*   **Why:** Larger batch sizes during the Self-Improvement loop provide drastically smoother gradient updates. It speeds up the self-training epoch times and prevents catastrophic forgetting by averaging out noisy single-batch anomalies when regularizing against `theta_prev`.
-
-## 6. MC Dropout Resolution
-**File:** `caem/config.py` (`mc_dropout_k`)
-*   **Current Setup:** `mc_dropout_k = 5`
-*   **Lab PC:** `mc_dropout_k = 10`
-*   **Why:** Generating 10 stochastic forward passes at inference provides a much cleaner variance distribution for calculating per-token output uncertainty.
-
-## 7. Hyper-Accelerate L2 Regularization (Unlocking PCIe bottleneck)
-**File:** `caem/training/self_improvement.py` (Inside `_finetune` and `_l2_penalty`)
-*   **Current Setup:** `p0` (which is `theta_prev`) is permanently stored on systemic CPU RAM to save 3.1GB of GPU VRAM. During training, the pipeline ships exact memory layers natively to the GPU *per batch* over your computer's PCIe bus to calculate the L2 distance penalty. 
-*   **Lab PC:** Disable this hardware trick! If your Lab PC has 24GB+ VRAM, immediately rewrite `theta_prev` to stay natively attached to the GPU.
-*   **Code Mod:** In `_finetune()`, add `theta_prev_gpu = [p0.to(self.device) for p0 in theta_prev]` before the epoch loops, and redirect `_l2_penalty` to use `theta_prev_gpu` instead of mapping it dynamically. 
-*   **Why:** Eradicating the cyclic PCIe bus transfer bottleneck will mathematically accelerate your Cycle fine-tuning epochs by approximately **400%**.
+> **Thesis rule:** Only change a hyperparameter if you can defend it in viva.
+> Speed-only changes (batch size, theta_prev placement) are always safe.
+> Accuracy-affecting changes (passage count, sc_chains_m) require justification.
 
 ---
 
-### Summary Checklist for the Lab PC transfer:
-1. Open `caem/config.py` and double `sc_chains_m`, `se_samples_k`, and `batch_size`.
-2. Generate the background Wikipedia matrices at `5,000,000` or higher limit.
-3. Seed the cold start memory at `1,000` episodes.
-4. Run the full experiment on all 5,000+ benchmark questions simultaneously since computing time will no longer be a bottleneck.
+## Summary Table
+
+| Parameter | Thesis config | Scaled config | Type of gain | Expected accuracy Δ | Safe to change? |
+|---|---|---|---|---|---|
+| `max_passages` | 500,000 | 5,000,000 | Accuracy (HotpotQA only) | +1–3% EM on HotpotQA | ✅ Yes — note in §5.3 |
+| `target_episodes` | 200 | 1,000 | Accuracy (Cycle 1 only) | +2–5% EM at Cycle 1 | ✅ Yes — converges by Cycle 3 |
+| `sc_chains_m` | 3 | 10 | Accuracy (marginal) | +0.5–1.5% EM | ⚠️ Requires justification |
+| `se_samples_k` | 10 | 20 | Accuracy (negligible) | <1% EM | ⚠️ Not worth it |
+| `mc_dropout_k` | 5 | 10 | Accuracy (negligible) | <1% | ⚠️ Not worth it |
+| `batch_size` | 4 | 16–32 | Speed only | 0% | ✅ Always safe |
+| `theta_prev` placement | CPU (PCIe) | GPU (native) | Speed only | 0% | ✅ Always safe |
+
+---
+
+## 1. Passage Index (`max_passages`)
+
+**Thesis config:** 500,000 passages
+**Scaled config:** 5,000,000 passages
+**Command:**
+```bash
+python scripts/build_passage_index.py --max_passages 5000000 --output_dir data/passage_index
+```
+
+**Honest expected gain:**
+- HotpotQA: +1–3% EM. HotpotQA requires retrieving two connected passages for multi-hop
+  reasoning. A denser index increases the chance both passages are present.
+- FEVER: +1–2% label accuracy. Richer claim evidence coverage.
+- TruthfulQA: No meaningful gain. Questions test model knowledge, not retrieval breadth.
+- StrategyQA: No meaningful gain. Boolean reasoning, not fact lookup.
+
+**Build time:** ~30 min on 4090, ~5–6 hours on RTX 3060.
+**Storage:** ~15 GB (vs ~1.5 GB for 500K).
+
+**Thesis note (§5.3):** *"The primary experiment uses a 500K-passage Wikipedia index
+consistent with Flan-T5-Large's 780M parameter capacity. A 5M-passage high-capacity
+variant was evaluated on the lab GPU and reported in Appendix B."*
+
+---
+
+## 2. Cold-Start Seeding (`target_episodes`)
+
+**Thesis config:** 200 episodes per benchmark
+**Scaled config:** 1,000 episodes per benchmark
+**Command:**
+```bash
+python scripts/seed_cold_start.py --target_episodes 1000 --output_dir outputs/cold_start_memory
+```
+
+**Honest expected gain:**
+- Cycle 1: +2–5% EM. A denser memory at the start means more Tier 1 hits early,
+  before the experiment fills memory organically.
+- Cycle 3: Negligible. Both configs converge to nearly the same result because CAEM
+  accumulates verified episodes throughout the experiment anyway.
+- Seeding time on 4090: ~2.5 hours.
+
+**Conclusion:** Worth doing on the lab PC since time is not a constraint there.
+Not worth the 2–4 extra hours on RTX 3060.
+
+---
+
+## 3. Self-Consistency Chains (`sc_chains_m`)
+
+**Thesis config:** 3 chains — [LIT] Wang et al. (2022) minimum viable consensus
+**Scaled config:** 10 chains
+
+**Honest expected gain:** +0.5–1.5% EM from cleaner `u_consistency` signal.
+Diminishing returns beyond 5 chains.
+
+**⚠️ Academic caution:** `sc_chains_m=3` is the value used in the cited paper (Wang et al. 2022).
+Changing to 10 without ablation evidence opens the question: *"Why 10 and not 5 or 20?"*
+If you run this, add an ablation: sc_chains ∈ {3, 5, 10} and report in Appendix B.
+Do NOT change the thesis main-result config from 3.
+
+---
+
+## 4. Semantic Entropy Samples (`se_samples_k`)
+
+**Thesis config:** 10 — [LIT] Farquhar et al. (2024) standard
+**Scaled config:** 20
+
+**Honest expected gain:** <1% EM. Statistically negligible.
+
+**Verdict:** Not worth changing. `se_samples_k=10` is directly cited from the source
+paper and is the most defensible value in viva. Increasing it doubles Stage 4a
+inference time for no measurable thesis benefit.
+
+---
+
+## 5. MC Dropout (`mc_dropout_k`)
+
+**Thesis config:** 5 passes
+**Scaled config:** 10 passes
+
+**Honest expected gain:** <1%. Minor improvement in uncertainty variance estimate.
+Not worth changing for thesis purposes.
+
+---
+
+## 6. Training Batch Size (`batch_size`) — SPEED ONLY
+
+**Thesis config:** 4 (RTX 3060, 12GB VRAM safe)
+**Scaled config:** 16 on 4090 (24GB), 32 on 5090 (32GB)
+
+**Accuracy impact:** Zero. Batch size does not affect final accuracy at these scales.
+
+**Speed impact:** Fine-tuning epochs run ~4× faster at batch=16, ~6–8× faster at batch=32.
+This is the single fastest change to make when moving to the lab PC — change it immediately.
+
+```python
+# caem/config.py — only this line changes on lab PC
+batch_size = 16   # 4090 (24GB VRAM)
+# batch_size = 32  # 5090 (32GB VRAM)
+```
+
+---
+
+## 7. L2 Penalty: `theta_prev` on GPU — SPEED ONLY
+
+**Thesis config:** `theta_prev` stored on CPU RAM, transferred to GPU per batch over PCIe.
+This saves ~3.1 GB of VRAM on the RTX 3060.
+
+**Scaled config:** Keep `theta_prev` natively on GPU throughout fine-tuning.
+
+**Accuracy impact:** Zero. Mathematically identical L2 penalty — just without the
+PCIe round-trip per batch.
+
+**Speed impact:** ~3–4× faster fine-tuning per cycle on 24GB+ VRAM GPUs.
+This is the second most impactful change after batch size.
+
+**Code change** (in `caem/training/self_improvement.py`):
+```python
+# Before the epoch loop in _finetune(), add:
+theta_prev_gpu = [p0.to(self.device) for p0 in theta_prev]
+
+# Then redirect _l2_penalty() to use theta_prev_gpu instead of
+# mapping theta_prev dynamically per batch.
+```
+
+Only apply this if VRAM ≥ 24 GB. On RTX 3060, keep the CPU offload.
+
+---
+
+## Lab PC Run Checklist
+
+When you get university GPU access (4090 or 5090), do this in order:
+
+1. Open `caem/config.py`:
+   - Set `batch_size = 16` (4090) or `batch_size = 32` (5090)
+   - Everything else stays at thesis-standard values
+
+2. Apply the `theta_prev` GPU patch in `self_improvement.py` (speed only, no accuracy change)
+
+3. Build the 5M passage index (optional — run in parallel/background):
+   ```bash
+   python scripts/build_passage_index.py --max_passages 5000000 --output_dir data/passage_index_5m
+   ```
+
+4. Run the main thesis experiment first with 500K passages (thesis-standard numbers):
+   ```bash
+   python scripts/run_experiment.py --n_questions 5000 --passage_index data/passage_index ...
+   ```
+
+5. After thesis numbers are confirmed, optionally run the 5M variant for Appendix B.
+
+**Do not wait for the 5M index before running the main experiment.**
+Thesis numbers come from 500K. Appendix B numbers come from 5M. Keep them separate.
+
+---
+
+## Expected total time on lab GPU
+
+| Phase | 4090 | 5090 |
+|---|---|---|
+| Full experiment (n=5000, Cycle 0→3) | ~11–14h | ~7–10h |
+| Purity validation | ~30 min | ~20 min |
+| Ablations (9 configs, n=500) | ~3–5h | ~2–3h |
+| Calibration | ~45 min | ~30 min |
+| **Total** | **~16–20h** | **~10–14h** |
