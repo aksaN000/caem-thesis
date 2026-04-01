@@ -109,7 +109,7 @@ class QADataset(Dataset):
         pairs: List[QAPair],
         tokenizer,
         max_input_length: int = 512,
-        max_target_length: int = 128,
+        max_target_length: int = 512,
     ) -> None:
         self.pairs = pairs
         self.tokenizer = tokenizer
@@ -475,7 +475,7 @@ class SelfImprovementLoop:
                 ).to(self.device)
                 out = self.model.generate(
                     enc["input_ids"],
-                    max_new_tokens=64,
+                    max_new_tokens=256,
                     do_sample=False,
                 )
                 pred = self.tokenizer.decode(out[0], skip_special_tokens=True).strip().lower()

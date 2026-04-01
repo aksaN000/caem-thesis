@@ -275,7 +275,7 @@ class PostGenerationConfidenceEstimator:
                 for _ in range(K):
                     out = self.model.generate(
                         input_ids,
-                        max_new_tokens=64,
+                        max_new_tokens=self.config.cot_max_new_tokens,
                         do_sample=False,       # Greedy — dropout is the only stochasticity
                         output_scores=True,
                         return_dict_in_generate=True,
@@ -333,7 +333,7 @@ class PostGenerationConfidenceEstimator:
                 for _ in range(M):
                     out = self.model.generate(
                         input_ids,
-                        max_new_tokens=128,
+                        max_new_tokens=self.config.cot_max_new_tokens,
                         do_sample=True,
                         temperature=0.7,
                     )
@@ -401,7 +401,7 @@ class PostGenerationConfidenceEstimator:
                 for _ in range(K):
                     out = self.model.generate(
                         input_ids,
-                        max_new_tokens=128,
+                        max_new_tokens=self.config.cot_max_new_tokens,
                         do_sample=True,
                         temperature=T,
                     )

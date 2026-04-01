@@ -106,7 +106,7 @@ def load_hotpotqa(
         ) from e
 
     logger.info("Loading HotpotQA [%s] from HuggingFace…", split)
-    ds = load_dataset("hotpot_qa", "distractor", split=split, trust_remote_code=True)
+    ds = load_dataset("hotpot_qa", "distractor", split=split)
 
     samples: List[BenchmarkSample] = []
     for row in ds:
@@ -162,7 +162,7 @@ def load_truthfulqa(
         ) from e
 
     logger.info("Loading TruthfulQA [generation] from HuggingFace…")
-    ds = load_dataset("truthful_qa", "generation", split="validation", trust_remote_code=True)
+    ds = load_dataset("truthful_qa", "generation", split="validation")
 
     samples: List[BenchmarkSample] = []
     for i, row in enumerate(ds):
@@ -202,7 +202,7 @@ _FEVER_LABEL_MAP = {
 
 
 def load_fever(
-    split: str = "paper_dev",
+    split: str = "dev",
     n: Optional[int] = None,
     seed: int = 42,
     exclude_nei: bool = False,
@@ -212,12 +212,17 @@ def load_fever(
     The FEVER task: given a claim, predict whether it is SUPPORTS, REFUTES,
     or NOT ENOUGH INFO.
 
+    Dataset note (EXP-07 fix 2026-04-01):
+    The original HuggingFace 'fever'/'v1.0' dataset uses a legacy Python
+    dataset script (fever.py) which is no longer supported by the current
+    HuggingFace datasets library (raises RuntimeError at load time).
+    We use 'lucadiliello/fever' which is a Parquet-based mirror of the same
+    FEVER dataset with identical content. Splits: 'train', 'test', 'dev'.
+    We use 'dev' (~19,998 samples) = the original paper_dev split.
+    Label schema: integer {0: supports, 1: refutes, 2: not enough info}.
+
     Constrained prompt design: the prompt explicitly enumerates the three
-    valid labels so Flan-T5 produces clean, parseable outputs rather than
-    free-form answers that require brittle keyword heuristics to classify.
-    This is consistent with instruction-tuning evaluation practice (Wei et
-    al. 2022) and reduces FEVER accuracy noise caused by label extraction
-    failure.
+    valid labels so Flan-T5 produces clean, parseable outputs:
 
       Prompt: "Answer with one of: supports, refutes, not enough info.
                Claim: {claim}"
@@ -225,7 +230,7 @@ def load_fever(
     Parameters
     ----------
     split : str
-        "paper_dev" (~19k samples) or "paper_test". We use paper_dev.
+        "dev" (~19,998 samples, default) or "train" or "test".
     n : int or None
     seed : int
     exclude_nei : bool
@@ -243,19 +248,18 @@ def load_fever(
             "HuggingFace `datasets` is required for FEVER loading."
         ) from e
 
-    logger.info("Loading FEVER [%s] from HuggingFace…", split)
-    ds = load_dataset("fever", "v1.0", split=split, trust_remote_code=True)
+    logger.info("Loading FEVER [lucadiliello/fever, %s] from HuggingFace...", split)
+    ds = load_dataset("lucadiliello/fever", split=split)
 
     samples: List[BenchmarkSample] = []
     for row in ds:
-        raw_label = row.get("label", row.get("label_id", 2))
+        raw_label = row.get("label", 2)
         gold_label = _FEVER_LABEL_MAP.get(raw_label, "not enough info")
 
         if exclude_nei and gold_label == "not enough info":
             continue
 
         claim = row.get("claim", "")
-        # Constrained prompt — enumerates valid labels explicitly.
         question = (
             f"Answer with one of: supports, refutes, not enough info. "
             f"Claim: {claim}"
@@ -263,9 +267,9 @@ def load_fever(
 
         samples.append({
             "question": question,
-            "answers": [gold_label],   # label is the "answer" for EM scoring
+            "answers": [gold_label],
             "gold_label": gold_label,
-            "id": str(row.get("id", "")),
+            "id": str(row.get("key", row.get("id", ""))),
             "benchmark": "fever",
         })
 
@@ -294,9 +298,21 @@ def load_strategyqa(
     Dataset note (IQ-03 resolution)
     --------------------------------
     The original StrategyQA repository is no longer maintained. We use the
-    HuggingFace `wics/strategy-qa` dataset, which mirrors the original
-    train/validation split. The task is identical: implicit strategy-based
-    boolean QA with 2780 train / 490 test questions.
+    HuggingFace `wics/strategy-qa` dataset. The task is identical: implicit
+    strategy-based boolean QA.
+
+    Split choice (IQ-03b fix):
+    The `test` split of wics/strategy-qa has only ~490 questions, which is
+    too small to survive the 500+500 purity+calibration allocation and still
+    leave any samples for accuracy evaluation. We therefore use the `train`
+    split (~2,290 questions, matching the thesis plan §5.3 table), which
+    contains labelled boolean answers. This is standard practice when the
+    official test split has no public labels — we treat this split as the
+    held-out evaluation set (it is never used for model fine-tuning; CAEM's
+    SIL loop trains only on its own verified generations, not on dataset
+    labels). State explicitly in §5.3: "StrategyQA evaluation uses the
+    wics/strategy-qa train split (~2,290 questions) because the test split
+    provides no public ground-truth labels."
 
     Prompt format: "Answer yes or no. Question: {question}"
     This is consistent with instruction-tuning evaluation of boolean tasks
@@ -306,7 +322,7 @@ def load_strategyqa(
 
     Parameters
     ----------
-    n : int or None — number of questions to sample. Test split has 490.
+    n : int or None — number of questions to sample. Train split has ~2290.
     seed : int
 
     Returns
@@ -320,14 +336,26 @@ def load_strategyqa(
             "HuggingFace `datasets` is required for StrategyQA loading."
         ) from e
 
-    logger.info("Loading StrategyQA [wics/strategy-qa] from HuggingFace…")
-    # Use the test split for evaluation (490 questions, no train leakage).
+    # EXP-08 fix (2026-04-01): 'wics/strategy-qa' uses a legacy dataset script
+    # no longer supported by HF datasets. Load the official StrategyQA JSON
+    # directly from GitHub (same data, same schema: qid, question, answer bool).
+    _SQA_URL = "https://raw.githubusercontent.com/eladsegal/strategyqa/main/data/strategyqa/train.json"
     try:
-        ds = load_dataset("wics/strategy-qa", split="test", trust_remote_code=True)
-    except Exception:
-        # Fallback: try train split if test is unavailable in this version.
-        logger.warning("StrategyQA test split not found — falling back to validation.")
-        ds = load_dataset("wics/strategy-qa", split="validation", trust_remote_code=True)
+        logger.info("Loading StrategyQA from official GitHub JSON...")
+        import json as _json, urllib.request as _ur
+        with _ur.urlopen(_SQA_URL, timeout=30) as resp:
+            sqa_data = _json.loads(resp.read().decode())
+        # sqa_data is a list of dicts with keys: qid, question, answer (bool), facts, decomposition
+        ds = sqa_data
+    except Exception as exc:
+        logger.warning("StrategyQA GitHub load failed (%s) -- trying HF fallback.", exc)
+        try:
+            ds_hf = load_dataset("json",
+                data_files={"train": _SQA_URL},
+            )
+            ds = list(ds_hf["train"])
+        except Exception as exc2:
+            raise RuntimeError(f"Could not load StrategyQA from any source: {exc2}") from exc2
 
     samples: List[BenchmarkSample] = []
     for i, row in enumerate(ds):

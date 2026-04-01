@@ -10,9 +10,10 @@ HotpotQA   — Exact Match (EM) + Token F1
              Both are case-insensitive, after normalising punctuation and
              stripping articles ("a", "an", "the").
 
-TruthfulQA — Any-match EM
+TruthfulQA — ROUGE-L
              The dataset provides a list of acceptable answer strings; a
-             response is correct if it matches ANY of them after normalisation.
+             response is scored via ROUGE-L (LCS F1) to give partial credit
+             for overlapping n-grams, serving as an offline proxy for a judge.
 
 FEVER      — Label accuracy
              Claims are labelled SUPPORTS / REFUTES / NOT ENOUGH INFO.
@@ -67,6 +68,19 @@ def normalise(text: str) -> str:
     text = text.translate(_PUNCT_TABLE)
     tokens = [t for t in text.split() if t not in _ARTICLES]
     return " ".join(tokens)
+
+
+def extract_cot_answer(text: str) -> str:
+    """Extract the final answer from a Chain-of-Thought string.
+    
+    Splits by 'Answer:' and takes the right-most side.
+    If 'Answer:' is not present, returns the full string to avoid breaking
+    fallback or non-CoT outputs.
+    """
+    marker = "Answer:"
+    if marker in text:
+        return text.split(marker)[-1].strip()
+    return text.strip()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -142,6 +156,41 @@ def token_f1(prediction: str, gold: str) -> float:
     precision = common / len(pred_tokens)
     recall = common / len(gold_tokens)
     return 2 * precision * recall / (precision + recall)
+
+
+def rouge_l(prediction: str, golds: Sequence[str]) -> float:
+    """ROUGE-L (LCS F1) across all gold strings, returning the max.
+    
+    Used for TruthfulQA as an offline proxy for a judge model, giving
+    partial credit for overlapping free-form sequences.
+    """
+    def _lcs_length(a: list, b: list) -> int:
+        m, n = len(a), len(b)
+        dp = [[0] * (n + 1) for _ in range(m + 1)]
+        for i in range(1, m + 1):
+            for j in range(1, n + 1):
+                if a[i - 1] == b[j - 1]:
+                    dp[i][j] = dp[i - 1][j - 1] + 1
+                else:
+                    dp[i][j] = max(dp[i - 1][j], dp[i][j - 1])
+        return dp[m][n]
+
+    pred_toks = normalise(prediction).split()
+    best = 0.0
+    for gold in golds:
+        gold_toks = normalise(gold).split()
+        if not pred_toks and not gold_toks:
+            best = max(best, 1.0)
+            continue
+        if not pred_toks or not gold_toks:
+            continue
+            
+        lcs = _lcs_length(pred_toks, gold_toks)
+        p = lcs / len(pred_toks)
+        r = lcs / len(gold_toks)
+        f = 2 * p * r / (p + r) if (p + r) > 0 else 0
+        best = max(best, f)
+    return best
 
 
 def best_token_f1(prediction: str, golds: Sequence[str]) -> float:

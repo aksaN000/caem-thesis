@@ -6,8 +6,8 @@ QueryEncoder: wraps Sentence-BERT (all-mpnet-base-v2) to produce
 
 Key facts from the thesis spec:
   - Model:  sentence-transformers/all-mpnet-base-v2
-  - Output: np.ndarray shape (384,), dtype float32
-  - CRITICAL: 384-dim, NOT 768 — this is a common mistake with SBERT models.
+  - Output: np.ndarray shape (768,), dtype float32
+  - CRITICAL: 768-dim, NOT 384 — this matches the mpnet architecture.
   - Embeddings are L2-normalised to unit length so that inner product (IP)
     equals cosine similarity. This is required for FAISS IndexFlatIP correctness.
 """
@@ -22,7 +22,7 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 # Expected output dimension from all-mpnet-base-v2.
-EXPECTED_DIM = 384
+EXPECTED_DIM = 768
 
 
 class QueryEncoder:
@@ -54,7 +54,7 @@ class QueryEncoder:
         ----------
         model_name : str
             HuggingFace / sentence-transformers model identifier.
-            Must be all-mpnet-base-v2 (384-dim) unless you also change
+            Must be all-mpnet-base-v2 (768-dim) unless you also change
             CAEMConfig.embedding_dim and rebuild the FAISS index.
         device : str or None
             'cuda', 'cpu', or None (auto-detect). Auto-detection checks for
@@ -101,7 +101,7 @@ class QueryEncoder:
         logger.info("Encoder loaded. Output dim: %d", actual_dim)
 
     def encode(self, text: Union[str, List[str]]) -> np.ndarray:
-        """Encode one or more texts into 384-dim float32 embeddings.
+        """Encode one or more texts into 768-dim float32 embeddings.
 
         Parameters
         ----------
@@ -111,8 +111,8 @@ class QueryEncoder:
         Returns
         -------
         np.ndarray
-            - Single string → shape (384,), dtype float32.
-            - List of N strings → shape (N, 384), dtype float32.
+            - Single string → shape (768,), dtype float32.
+            - List of N strings → shape (N, 768), dtype float32.
             Embeddings are L2-normalised (unit length) if self.normalize=True.
         """
         if self._model is None:
@@ -141,17 +141,18 @@ class QueryEncoder:
     def encode_for_storage(self, text: str) -> np.ndarray:
         """Convenience wrapper: encode a single query for storage in FAISS.
 
-        Always returns shape (384,), dtype float32, L2-normalised.
+        Always returns shape (768,), dtype float32, L2-normalised.
         This is the canonical call site for the EpisodicMemoryStore.add() path.
         """
         emb = self.encode(text)
-        assert emb.shape == (EXPECTED_DIM,), (
-            f"Expected (384,) embedding, got {emb.shape}. "
-            "This is a bug — contact the implementation team."
-        )
+        if emb.shape[0] != 768:
+            raise ValueError(
+                f"Expected (768,) embedding, got {emb.shape}. "
+                "Check that sentence-transformers model is 768-dim (mpnet)."
+            )
         return emb
 
     @property
     def dim(self) -> int:
-        """Return the embedding dimension (384)."""
+        """Return the embedding dimension (768)."""
         return EXPECTED_DIM

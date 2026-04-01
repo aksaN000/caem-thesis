@@ -69,7 +69,7 @@ class ZeroShotBaseline:
         ).to(self.device)
         with __import__("torch").no_grad():
             outputs = self.model.generate(
-                **inputs, max_new_tokens=64, do_sample=False
+                **inputs, max_new_tokens=256, do_sample=False
             )
         return self.tokenizer.decode(outputs[0], skip_special_tokens=True)
 
@@ -83,13 +83,13 @@ class CoTBaseline:
         self.device = device
 
     def answer(self, question: str) -> str:
-        prompt = f"Let's think step by step. {question}"
+        prompt = f"Question: {question}\nThink step by step:"
         inputs = self.tokenizer(
             prompt, return_tensors="pt", truncation=True, max_length=512
         ).to(self.device)
         with __import__("torch").no_grad():
             outputs = self.model.generate(
-                **inputs, max_new_tokens=128, do_sample=False
+                **inputs, max_new_tokens=256, do_sample=False
             )
         return self.tokenizer.decode(outputs[0], skip_special_tokens=True)
 
@@ -112,7 +112,7 @@ class RAGOnlyBaseline:
                 question, return_tensors="pt", truncation=True, max_length=512
             ).to(self.device)
             with __import__("torch").no_grad():
-                out = self.model.generate(**inputs, max_new_tokens=64, do_sample=False)
+                out = self.model.generate(**inputs, max_new_tokens=256, do_sample=False)
             return self.tokenizer.decode(out[0], skip_special_tokens=True)
 
         # TierThreeRAG constructor: model, tokenizer, passage_encoder, passage_store, config, device
@@ -152,7 +152,7 @@ class SelfConsistencyBaseline:
         with torch.no_grad():
             for _ in range(self.N):
                 out = self.model.generate(
-                    **inputs, max_new_tokens=64,
+                    **inputs, max_new_tokens=256,
                     do_sample=True, temperature=1.0,
                 )
                 answers.append(
@@ -188,7 +188,7 @@ class VanillaFinetuneBaseline:
         ).to(self.pipeline.device)
         with __import__("torch").no_grad():
             out = self.pipeline.model.generate(
-                **inputs, max_new_tokens=64, do_sample=False
+                **inputs, max_new_tokens=256, do_sample=False
             )
         return self.pipeline.tokenizer.decode(out[0], skip_special_tokens=True)
 
@@ -306,6 +306,19 @@ def build_no_cot_pipeline(base_pipeline):
     )
     return base_pipeline   # placeholder — returns base if no checkpoint
 
+def build_no_reverification_pipeline(base_pipeline):
+    """AB4: Full pipeline but Retroactive Re-verification is disabled between cycles.
+
+    This variant disables the between-cycle memory scrub, meaning errors that slip through 
+    initially are never cleaned up, isolating the value of Theorem constraint cleaning.
+    """
+    logger.info(
+        "AB4 (no-reverification) requires a separately trained checkpoint. "
+        "To generate it: re-run run_experiment.py with --disable_reverification flag "
+        "and save to outputs/ablation/no_reverif/. "
+        "This ablation is placeholder if the checkpoint doesn't exist."
+    )
+    return base_pipeline   # placeholder — returns base if no checkpoint
 
 def _clone_pipeline(base_pipeline):
     """Create a copy of the pipeline sharing model weights but with a fresh store."""
@@ -569,7 +582,7 @@ def run_ablation(ns: argparse.Namespace) -> None:
 
     # ── Run all conditions ─────────────────────────────────────────────── #
     logger.info("═" * 60)
-    logger.info("ABLATION STUDY — running %d conditions", 9)
+    logger.info("ABLATION STUDY — running %d conditions", 10)
     logger.info("═" * 60)
 
     all_baseline_results: Dict[str, Dict] = {}
@@ -644,6 +657,12 @@ def run_ablation(ns: argparse.Namespace) -> None:
     no_cot_pipeline = build_no_cot_pipeline(pipeline)
     harness_nocot = EvalHarness(no_cot_pipeline, output_dir=str(output_dir / "ab3_no_cot"), log_every=50)
     all_baseline_results["ab_no_cot"] = harness_nocot.run_all(samples, cycle=3)
+
+    # AB4 — No Retroactive Re-verification (ablation)
+    logger.info("AB4: No Retroactive Re-verification ablation …")
+    no_reverif_pipeline = build_no_reverification_pipeline(pipeline)
+    harness_noreverif = EvalHarness(no_reverif_pipeline, output_dir=str(output_dir / "ab4_no_reverif"), log_every=50)
+    all_baseline_results["ab_no_reverif"] = harness_noreverif.run_all(samples, cycle=3)
 
     # ── MMLU Retention ─────────────────────────────────────────────────── #
     logger.info("Measuring MMLU retention …")

@@ -205,13 +205,15 @@ def stream_passages(
         sys.exit(1)
 
     logger.info(
-        "Streaming %s / %s from HuggingFace …", dataset_name, dataset_config
+        "Streaming %s / %s from HuggingFace ...", dataset_name, dataset_config
     )
+    # Note (EXP-09 fix 2026-04-01): The original 'wikipedia'/'20220301.en' uses a
+    # legacy Python script (wikipedia.py) no longer supported by HF datasets.
+    # Default is now 'wikimedia/wikipedia'/'20231101.en' -- Parquet-based, same schema.
     ds = load_dataset(
         dataset_name, dataset_config,
         split="train",
         streaming=True,
-        trust_remote_code=True,
     )
 
     yielded = 0
@@ -433,9 +435,11 @@ def build_passage_index(
         "Concatenating embeddings from %d batches …", len(all_embedding_batches)
     )
     all_embeddings = np.concatenate(all_embedding_batches, axis=0)
-    assert all_embeddings.shape == (len(all_passages), 384), (
-        f"Shape mismatch: {all_embeddings.shape} vs {len(all_passages)} passages"
+    emb_dim = all_embeddings.shape[1]  # 768 for all-mpnet-base-v2, 384 for all-MiniLM
+    assert all_embeddings.shape[0] == len(all_passages), (
+        f"Count mismatch: {all_embeddings.shape[0]} embeddings vs {len(all_passages)} passages"
     )
+    logger.info("Embeddings: %d × %d (dim=%d)", len(all_passages), emb_dim, emb_dim)
 
     # ── Build and save PassageStore ───────────────────────────────────────
     logger.info("Building PassageStore for %d passages …", len(all_passages))
@@ -560,13 +564,13 @@ def _parse_args() -> argparse.Namespace:
     )
     p.add_argument(
         "--dataset_name",
-        default="wikipedia",
-        help="HuggingFace dataset name.",
+        default="wikimedia/wikipedia",
+        help="HuggingFace dataset name. Default is wikimedia/wikipedia (Parquet, no legacy script).",
     )
     p.add_argument(
         "--dataset_config",
-        default="20220301.en",
-        help="HuggingFace dataset config / subset.",
+        default="20231101.en",
+        help="HuggingFace dataset config / subset. Default is 20231101.en (Nov 2023 English dump).",
     )
     return p.parse_args()
 

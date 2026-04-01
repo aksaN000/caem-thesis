@@ -23,9 +23,9 @@ class CAEMConfig:
     # ------------------------------------------------------------------ #
     # Encoding                                                             #
     # ------------------------------------------------------------------ #
-    # [LIT] all-mpnet-base-v2 produces 384-dim embeddings (NOT 768).
+    # [LIT] all-mpnet-base-v2 produces 768-dim embeddings (not 384).
     sbert_model: str = "sentence-transformers/all-mpnet-base-v2"
-    embedding_dim: int = 384  # CRITICAL: 384, not 768
+    embedding_dim: int = 768  # EXP-10 fix: must match the sbert_model output dim
 
     # ------------------------------------------------------------------ #
     # Episodic Memory                                                      #
@@ -130,7 +130,9 @@ class CAEMConfig:
     rag_max_context_tokens: int = 384
     # [DES] Max new tokens for RAG generation (longer than Tier 2 because
     # the model now has supporting context to draw from).
-    rag_max_new_tokens: int = 128
+    rag_max_new_tokens: int = 256
+    # [DES] Max new tokens for CoT (Chain-of-Thought) generation limits
+    cot_max_new_tokens: int = 256
     # [DES] Sampling for RAG generation: greedy (do_sample=False) for
     # reproducibility; no temperature needed.
     rag_do_sample: bool = False

@@ -50,8 +50,10 @@ from eval.metrics import (
     aggregate,
     any_match_em,
     best_token_f1,
+    rouge_l,
     exact_match,
     extract_fever_label,
+    extract_cot_answer,
     fever_accuracy,
     token_f1,
 )
@@ -252,6 +254,8 @@ class EvalHarness:
         TruthfulQA — any-match EM + best F1 across accepted answers
         FEVER      — label extraction + accuracy (F1 = EM for labels)
         """
+        prediction = extract_cot_answer(prediction)
+
         if benchmark == "fever":
             pred_label = extract_fever_label(prediction)
             gold = gold_label or (gold_answers[0] if gold_answers else "not enough info")
@@ -259,8 +263,9 @@ class EvalHarness:
             return acc, acc   # f1 == em for label classification
 
         elif benchmark == "truthfulqa":
-            em = any_match_em(prediction, gold_answers)
-            f1 = best_token_f1(prediction, gold_answers)
+            # EM equivalent uses ROUGE-L threshold > 0.15 since TruthfulQA has no exact string matches.
+            f1 = rouge_l(prediction, gold_answers)
+            em = float(f1 > 0.15)
             return em, f1
 
         elif benchmark == "strategyqa":

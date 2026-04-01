@@ -12,7 +12,7 @@ Two components
 PassageStore
     Thin FAISS wrapper over a static Wikipedia passage corpus.
     Encodes queries with the same SBERT encoder used by EpisodicMemoryStore
-    so both indices share the 384-dim embedding space.
+    so both indices share the same SBERT embedding space (e.g. 768 or 384 dim).
     The corpus is read-only at inference — passages are never modified.
 
 TierThreeRAG
@@ -72,7 +72,7 @@ class PassageStore:
     """Read-only FAISS index over a Wikipedia passage corpus.
 
     Each passage is a ~100-word chunk from Wikipedia (DPR-style split,
-    Karpukhin et al. 2020). Embeddings are 384-dim SBERT vectors, L2-normalised,
+    Karpukhin et al. 2020). Embeddings are N-dim SBERT vectors, L2-normalised,
     stored in a flat inner-product index (cosine similarity via dot product).
 
     Parameters
@@ -80,7 +80,7 @@ class PassageStore:
     passages : list of str
         The raw passage strings. Index i in this list corresponds to FAISS
         vector id i.
-    embeddings : np.ndarray, shape (N, 384), dtype float32
+    embeddings : np.ndarray, shape (N, dim), dtype float32
         Pre-computed L2-normalised SBERT embeddings for all passages.
         Computed once offline (see scripts/build_passage_index.py).
 
@@ -97,13 +97,13 @@ class PassageStore:
             raise ValueError(
                 f"passages length {len(passages)} != embeddings rows {embeddings.shape[0]}"
             )
-        if embeddings.ndim != 2 or embeddings.shape[1] != 384:
+        if embeddings.ndim != 2:
             raise ValueError(
-                f"embeddings must be (N, 384), got {embeddings.shape}"
+                f"embeddings must be 2D, got {embeddings.shape}"
             )
 
         self.passages = passages
-        self._dim = 384
+        self._dim = embeddings.shape[1]
 
         # Inner-product index — cosine similarity because embeddings are
         # L2-normalised (same design as EpisodicMemoryStore).
@@ -125,7 +125,7 @@ class PassageStore:
 
         Parameters
         ----------
-        query_embedding : np.ndarray, shape (384,), float32, L2-normalised
+        query_embedding : np.ndarray, shape (dim,), float32, L2-normalised
         k : int
             Number of passages to retrieve.
 
@@ -172,7 +172,7 @@ class PassageStore:
         # Reconstruct: wrap existing index directly
         store = cls.__new__(cls)
         store.passages = passages
-        store._dim = 384
+        store._dim = index.d
         store._index = index
         logger.info("PassageStore loaded from %s (%d passages).", path, len(passages))
         return store
@@ -329,7 +329,7 @@ class TierThreeRAG:
         for i, (passage, _score) in enumerate(passages, start=1):
             lines.append(f"[{i}] {passage}")
         lines.append(f"\nQuestion: {query}")
-        lines.append("Answer:")
+        lines.append("Think step by step:")
         return "\n".join(lines)
 
     def _tokenize_prompt(self, prompt: str) -> torch.Tensor:

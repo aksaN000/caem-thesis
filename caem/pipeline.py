@@ -125,7 +125,7 @@ class CAEMPipeline:
     tokenizer : transformers.AutoTokenizer
         Matching tokenizer.
     encoder : QueryEncoder
-        Sentence-BERT encoder (all-mpnet-base-v2, 384-dim).
+        Sentence-BERT encoder (all-mpnet-base-v2, 768-dim).
         Shared by EpisodicMemoryStore, PostGenerationConf., and Verifier.
     nli_model : optional
         RoBERTa-Large-MNLI. If None, NLI-dependent signals fall back to
@@ -222,7 +222,7 @@ class CAEMPipeline:
                 "query-only generation (no Wikipedia context). Provide a "
                 "PassageStore for full RAG functionality."
             )
-            passage_store = PassageStore([], np.empty((0, 384), dtype=np.float32))
+            passage_store = PassageStore([], np.empty((0, 768), dtype=np.float32))
         self.rag = TierThreeRAG(
             model=model,
             tokenizer=tokenizer,
@@ -383,8 +383,9 @@ class CAEMPipeline:
         cfg = self.config
 
         # Tokenise query
+        prompt = f"Question: {query}\nThink step by step:"
         enc = self.tokenizer(
-            query,
+            prompt,
             return_tensors="pt",
             truncation=True,
             max_length=512,
@@ -397,7 +398,7 @@ class CAEMPipeline:
             with torch.no_grad():
                 output_ids = self.model.generate(
                     input_ids,
-                    max_new_tokens=128,
+                    max_new_tokens=self.config.cot_max_new_tokens,
                     do_sample=False,
                 )
             answer_str = self.tokenizer.decode(

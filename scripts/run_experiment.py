@@ -155,7 +155,7 @@ def build_pipeline(config, ns, m) -> "CAEMPipeline":
 
     # ── SBERT encoder ────────────────────────────────────────────────────── #
     logger.info("Loading SBERT encoder (all-mpnet-base-v2) …")
-    encoder = m["QueryEncoder"](config=config)
+    encoder = m["QueryEncoder"](model_name=config.sbert_model)
 
     # ── NLI model ────────────────────────────────────────────────────────── #
     nli_model, nli_tokenizer = None, None
@@ -531,6 +531,16 @@ def run_experiment(ns: argparse.Namespace) -> None:
     logger.info("═" * 60)
     pipeline = build_pipeline(config, ns, m)
 
+    # ── Seed cold-start memory ────────────────────────────────────────────── #
+    if ns.cold_start_memory:
+        mem_path = Path(ns.cold_start_memory)
+        if mem_path.exists():
+            logger.info("Loading cold-start memory from %s …", mem_path)
+            pipeline.memory_store.load(str(mem_path))
+            logger.info("Cold-start memory loaded (%d episodes).", pipeline.memory_store.size)
+        else:
+            raise FileNotFoundError(f"Cold-start memory path not found: {mem_path}")
+
     # ── Load datasets ─────────────────────────────────────────────────────── #
     if ns.smoke_test:
         logger.info("SMOKE TEST MODE — using synthetic samples (n=10 per benchmark)")
@@ -626,8 +636,12 @@ def run_experiment(ns: argparse.Namespace) -> None:
         pipeline.current_cycle = cycle_num
 
         # Step 3: Retroactive re-verification of memory
-        logger.info("  Step 2: Retroactive re-verification …")
-        retroverify_stats = retroactive_reverification(pipeline, cycle_num, config)
+        if getattr(ns, "disable_reverification", False):
+            logger.info("  Step 2: Skipped retroactive re-verification (--disable_reverification set)")
+            retroverify_stats = {}
+        else:
+            logger.info("  Step 2: Retroactive re-verification …")
+            retroverify_stats = retroactive_reverification(pipeline, cycle_num, config)
 
         # Step 4: Save retroverify stats alongside cycle results
         rv_path = output_dir / f"retroverify_cycle{cycle_num}.json"
@@ -698,6 +712,10 @@ def _parse_args() -> argparse.Namespace:
         help="Path to pre-built Wikipedia FAISS passage index (for Tier 3 RAG).",
     )
     p.add_argument(
+        "--cold_start_memory", type=str, default=None,
+        help="Path to pre-seeded episodic memory index (from seed_cold_start.py).",
+    )
+    p.add_argument(
         "--no_rag", action="store_true",
         help="Disable Tier 3 RAG (run without passage index).",
     )
@@ -712,6 +730,10 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument(
         "--smoke_test", action="store_true",
         help="Tiny synthetic run to verify the pipeline is wired correctly (no GPU needed).",
+    )
+    p.add_argument(
+        "--disable_reverification", action="store_true",
+        help="Disable retroactive re-verification between cycles (for AB4 ablation).",
     )
     return p.parse_args()
 

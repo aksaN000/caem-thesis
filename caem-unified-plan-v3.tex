@@ -874,7 +874,7 @@ Every query follows a fixed seven-stage pipeline through the \caem{} system. Und
 
 % STAGE 1-2: Input and Encoding
 \node[process, fill=orange!15, draw=orange!70!black] (input) {\textbf{STAGE 1}\\Input Query};
-\node[process, below=0.5cm of input] (encode) {\textbf{STAGE 2}\\Encode (SBERT 384-dim)\\+ FAISS search $\rightarrow s$};
+\node[process, below=0.5cm of input] (encode) {\textbf{STAGE 2}\\Encode (SBERT 768-dim)\\+ FAISS search $\rightarrow s$};
 \node[storage, below=0.5cm of encode] (mem) {Episodic Memory\\20K episodes};
 
 % STAGE 3: Pre-routing confidence
@@ -952,7 +952,7 @@ Every query follows a fixed seven-stage pipeline through the \caem{} system. Und
 
 \textbf{Stage 1 — Input:} The query arrives as raw text. No computation yet.
 
-\textbf{Stage 2 — Encoding:} Sentence-BERT encodes the query to a 384-dimensional vector. Simultaneously, FAISS searches episodic memory and returns the best-match similarity score $s \in [0,1]$ and the matched episode's metadata (including its stored confidence $\ustored$). Both are available before any generation begins.
+\textbf{Stage 2 — Encoding:} Sentence-BERT encodes the query to a 768-dimensional vector. Simultaneously, FAISS searches episodic memory and returns the best-match similarity score $s \in [0,1]$ and the matched episode's metadata (including its stored confidence $\ustored$). Both are available before any generation begins.
 
 \textbf{Stage 3 — Pre-Routing Confidence:} Before any generation, the system computes $\upre = 0.6\,u_{\text{token}} + 0.4\,\Cconv$. Token probability comes from a single greedy decode pass. $\Cconv = \operatorname{Var}(h_{1:L/2}) / (\operatorname{Var}(h_{L/2:L}) + \epsilon)$ measures whether encoder hidden states converge across layers — high convergence signals stable query understanding. Cost is near-zero because encoder states are already computed.
 
@@ -1169,7 +1169,7 @@ e = \underbrace{(q,\; c,\; a,\; v,\; \phi,\; t_{\text{cycle}},\; t_{\text{stamp}
 $q$ & Immutable & Question (string) & What problem was solved \\
 $c$ & Immutable & Reasoning chain (list) & \textit{HOW} we solved it — the valuable knowledge \\
 $a$ & Immutable & Answer (string) & Final result \\
-$v \in \R^{384}$ & Immutable & Dense embedding & For similarity-based retrieval via FAISS \\
+$v \in \R^{768}$ & Immutable & Dense embedding & For similarity-based retrieval via FAISS \\
 $\phi \in \{0,1\}$ & Immutable & Binary verified flag & Whether this episode passed verification at storage time \\
 $t_{\text{cycle}} \in \mathbb{N}$ & Immutable & Storage cycle number & Which improvement cycle produced this episode \\
 $t_{\text{stamp}}$ & Immutable & Timestamp & For recency-based pruning \\
@@ -1202,7 +1202,7 @@ c: ["Check divisibility by 2: 17 is odd, so not divisible",
 
 a: "Yes, 17 is prime"
 
-v: [0.234, -0.567, 0.123, ..., 0.891]  (384-dim embedding)
+v: [0.234, -0.567, 0.123, ..., 0.891]  (768-dim embedding)
 
 phi: 1  (Verified via 3-layer system -- binary storage gate)
 u_stored: 0.94  (Continuous quality score from verification:
@@ -1737,7 +1737,7 @@ where $\theta$ is the angle between vectors.
 
 \textbf{Step 1 - Generate embeddings:}
 \begin{verbatim}
-Chain 1 embedding: v_1 = [0.2, 0.8, -0.1, 0.5, ...]  (384-dim)
+Chain 1 embedding: v_1 = [0.2, 0.8, -0.1, 0.5, ...]  (768-dim)
 Chain 2 embedding: v_2 = [0.25, 0.75, -0.05, 0.48, ...]
 Chain 3 embedding: v_3 = [0.18, 0.82, -0.12, 0.52, ...]
 \end{verbatim}
@@ -3559,7 +3559,11 @@ P = \frac{p \cdot \alpha}{p \cdot \alpha + (1-p) \cdot (1-\alpha)} \qquad \squar
 \end{proofbox}
 
 \begin{keyinsightbox}
-\textbf{Critical Observation: Purity > Verification Accuracy when $p > 0.5$}
+\textbf{Critical Observation: Purity $P$ exceeds Base Generation Accuracy $p$}
+
+\textbf{Primary theorem guarantee:} $P > p$ (purity exceeds \emph{base generation accuracy}), which holds whenever $\alpha > 0.5$. This is the result that matters for self-improvement: stored memory is more reliable than what the model generates unaided.
+
+\textbf{Secondary observation:} $P > \alpha$ (purity exceeds \emph{verification accuracy}) holds when $p > \alpha$. With typical values $p = 0.65$, $\alpha = 0.85$: $P = 0.90 > \alpha$. Note that $p > 0.5$ alone is not sufficient to guarantee $P > \alpha$; the precise condition is $p > \alpha$.
 
 This is due to \textbf{base rates} (Bayes' theorem):
 \begin{itemize}
@@ -3567,7 +3571,7 @@ This is due to \textbf{base rates} (Bayes' theorem):
     \item Then verifier sees more correct examples to accept (correctly)
     \item Than incorrect examples to reject (correctly)
     \item Result: True positives dominate false positives
-    \item Purity exceeds verification accuracy!
+    \item Purity exceeds both base generation accuracy \emph{and} verification accuracy
 \end{itemize}
 
 \textbf{Concrete example:}
@@ -4277,7 +4281,7 @@ Under mild monotonicity conditions (improving model never degrades memory; impro
 \midrule
 \textbf{Models:} & \\
 Base LLM & Flan-T5-Large (780M params) \\
-Embedding Model & Sentence-BERT (all-mpnet-base-v2, 384-dim) \\
+Embedding Model & Sentence-BERT (all-mpnet-base-v2, 768-dim) \\
 NLI Model & RoBERTa-Large-MNLI (355M params) \\
 \midrule
 \textbf{Infrastructure:} & \\
@@ -4403,11 +4407,17 @@ Debugging/Misc & 1--2 hrs & 3--4 hrs & Buffer for issues \\
 
 The data purity convergence theorem assumes baseline model accuracy $p > 0.5$ for all four benchmarks. This is stated as reasonable given Flan-T5-Large's instruction-tuning, but it has not been empirically verified on the specific benchmarks with CAEM's evaluation protocol. If any benchmark shows $p \leq 0.5$, the entire convergence argument collapses for that benchmark.
 
-\textbf{Procedure:} Sample 100 questions per benchmark from the validation split (not test split), run vanilla Flan-T5-Large zero-shot, evaluate answers against official ground-truth labels. Record baseline accuracy $p$ per benchmark.
+\textbf{Procedure:} Sample 100 questions per benchmark from the validation split (not test split), run vanilla Flan-T5-Large zero-shot (no retrieved context, no memory), evaluate answers against official ground-truth labels. Record baseline accuracy $p_{\text{zero-shot}}$ per benchmark.
 
-\textbf{What this validates:} (1) Confirms $p > 0.5$ for all benchmarks; (2) Provides empirically measured baselines so the thesis states ``CAEM improves from X\% to Y\%'' with specific numbers; (3) Determines whether step-by-step entailment verification (conditional fourth layer) is needed; (4) Verifies data loading and evaluation scripts work correctly before investing 30--45 GPU-hours.
+\textbf{Important distinction --- two different $p$ values:}
+\begin{itemize}
+    \item $p_{\text{zero-shot}}$: measured here, pure generation with no context. Establishes a floor baseline for the thesis (``CAEM improves from X\% zero-shot to Y\%''). HotpotQA and FEVER will appear low because these benchmarks are designed for retrieval-augmented evaluation --- the model lacks the supporting context it needs. TruthfulQA EM$\approx 0$ is a metric artifact (EM is too strict for free-form answers; ROUGE-L is reported instead).
+    \item $p_{\text{pipeline}}$: the \emph{full Tier 3 RAG accuracy} with retrieved Wikipedia context. This is the $p$ that enters the purity theorem formula and the convergence guarantee. It is measured in Step~1 of the five-step purity validation protocol (\S\ref{sec:purity-validation-protocol}) on the Cycle~0 purity validation set --- not from this zero-shot check.
+\end{itemize}
 
-\textbf{Contingency:} If $p \leq 0.5$ for any benchmark, options are (a) drop that benchmark with scope acknowledgment, (b) add few-shot examples to lift baseline above chance, or (c) switch to a different benchmark. Option (b) is preferred to preserve coverage of all four hallucination types.
+\textbf{What this validates:} (1) Confirms data loading and evaluation scripts work before investing GPU-hours; (2) Provides the zero-shot floor baseline ($p_{\text{zero-shot}}$) for the ablation comparison table; (3) Checks that $p_{\text{zero-shot}} > 0$ for all benchmarks (complete model failure would warrant intervention). StrategyQA and partial FEVER/HotpotQA passing zero-shot is a positive signal.
+
+\textbf{Contingency (applies to $p_{\text{pipeline}}$, not $p_{\text{zero-shot}}$):} If the \emph{full-pipeline} Cycle~0 evaluation shows $p \leq 0.5$ for any benchmark after building the passage index, options are (a) drop that benchmark with scope acknowledgment, (b) add few-shot examples to lift baseline above chance, or (c) switch to a different benchmark. Option (b) is preferred to preserve coverage of all four hallucination types. Low $p_{\text{zero-shot}}$ alone does not trigger this contingency.
 \end{keyinsightbox}
 
 \subsection{Critical Methodological Commitments}
@@ -4423,7 +4433,7 @@ This models realistic deployment: production QA systems are initialized with see
 \begin{designbox}
 \textbf{Formal methodological commitment — state this explicitly in Chapter 5:}
 
-``Evaluation is entirely decoupled from the verification pipeline. Final performance is measured exclusively using benchmark-provided ground truth labels: exact match and F1 for HotpotQA and StrategyQA, label accuracy for FEVER, true/false accuracy for TruthfulQA. The verification pipeline (NLI + self-consistency + semantic entropy) is internal to the training loop only. It filters which episodes enter memory and fine-tuning, but it never scores model outputs at evaluation time. Test set answers are evaluated by comparing generated answers directly to ground truth labels using the benchmark's official evaluation script, with no verification pipeline intervention.''
+``Evaluation is entirely decoupled from the verification pipeline. Final performance is measured exclusively using benchmark-provided ground truth labels: exact match and F1 for HotpotQA and StrategyQA, label accuracy for FEVER, and ROUGE-L (LCS F1) for TruthfulQA as an offline judge proxy. The verification pipeline (NLI + self-consistency + semantic entropy) is internal to the training loop only. It filters which episodes enter memory and fine-tuning, but it never scores model outputs at evaluation time. Test set answers are evaluated by comparing generated answers directly to ground truth labels using the benchmark's official evaluation script, with no verification pipeline intervention.''
 
 \textbf{Why this is essential:} If verification filtered training data AND evaluated test performance, any systematic blind spot in verification would inflate measured accuracy by generating exactly the errors verification fails to detect. Decoupling ensures measured improvements are real improvements in correctness, not artifacts of overfitting to verification's weaknesses.
 
@@ -4458,6 +4468,12 @@ TruthfulQA & 817 questions & Truthfulness & \textbf{SE Primary} + NLI + VE1/VE2 
 \bottomrule
 \end{tabular}
 \end{table}
+
+\subsubsection{Dataset Procurement and Migration}
+
+The original experimental design assumed standard procurement via HuggingFace's \texttt{datasets} library (e.g., \texttt{load\_dataset("fever", "v1.0")}). However, executing arbitrary Python builder scripts (\texttt{trust\_remote\_code=True}) for legacy datasets poses well-documented remote code execution (RCE) vulnerabilities. Consequently, HuggingFace deprecated this execution pathway for older datasets in late 2023/2024, causing the official Python builder scripts for FEVER, StrategyQA, and Wikipedia to fail locally with \texttt{ImportError} and \texttt{RuntimeError} exceptions.
+
+To ensure a stable, secure, and reproducible pipeline without relying on deprecated remote code execution, the implementation was migrated to modern flat-file formats. Specifically, the system now bypasses HuggingFace's legacy builder scripts entirely by utilizing the official \texttt{wikimedia/wikipedia} (20231101.en) Parquet distribution, the \texttt{lucadiliello/fever} secure Parquet mirror, and a direct JSON download from the StrategyQA author's official GitHub repository. This migration preserves the exact mathematical composition of the benchmark sets while satisfying modern compute security standards.
 
 \subsection{Data Split Design and Calibration/Purity Set Separation}
 
@@ -5085,7 +5101,7 @@ Verification False Neg & 7\% & Correct answer rejected by overly conservative ve
 & - Validate convergence predictions \\
 \midrule
 \textbf{9} & \textbf{Ablation Studies} \\
-& - Component ablations (15+ configurations) \\
+& - Component ablations (9 out of 10 proposed structural configurations) \\
 & - Confidence signal ablations \\
 & - Verification layer ablations \\
 & - Fine-tuning strategy ablations \\
@@ -5222,7 +5238,7 @@ Results not meeting targets & Weak contribution & Focus on theoretical contribut
     
     \item \textbf{Extensive Ablation Studies}
     \begin{itemize}
-        \item 15+ component ablations
+        \item 9 out of 10 proposed structural component ablations
         \item Confidence signal combinations
         \item Verification layer combinations
         \item Fine-tuning strategy variations

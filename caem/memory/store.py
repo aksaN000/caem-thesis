@@ -11,7 +11,7 @@ FAISS backend: IndexIDMap(IndexFlatIP)
   - IndexIDMap: maps external integer IDs → internal FAISS positions,
     enabling targeted remove_ids() calls during pruning.
   - Why not IndexIVFPQ (as the thesis spec mentions)?
-    At 20k × 384 float32, the index is ~30 MB — trivially within VRAM budget.
+    At 20k × 768 float32, the index is trivially within VRAM budget.
     IVF-PQ reduces this to ~4 MB but requires training on ≥ nlist vectors
     and does not support remove_ids() without an IDMap2 wrapper.
     For correctness at this scale, FlatIP + IDMap is the right trade-off.
@@ -64,7 +64,7 @@ class EpisodicMemoryStore:
         self._index = None          # FAISS index (lazy init on first add)
         self._metadata: Dict[int, EpisodicEntry] = {}
         self._next_id: int = 0      # Monotonically increasing external ID counter
-        self._dim: int = self.config.embedding_dim   # 384
+        self._dim: int = self.config.embedding_dim   # 768
 
     # ------------------------------------------------------------------ #
     # Private helpers                                                      #
@@ -92,7 +92,7 @@ class EpisodicMemoryStore:
         if emb.shape[1] != self._dim:
             raise ValueError(
                 f"Embedding dim mismatch: expected {self._dim}, got {emb.shape[1]}. "
-                "Check that all-mpnet-base-v2 is being used (384-dim)."
+                "Check that all-mpnet-base-v2 is being used (768-dim)."
             )
         return np.ascontiguousarray(emb)
 
@@ -222,7 +222,7 @@ class EpisodicMemoryStore:
         Parameters
         ----------
         embedding : np.ndarray
-            Query embedding, shape (384,), L2-normalised float32.
+            Query embedding, shape (768,), L2-normalised float32.
         k : int
             Number of results to return (1 for routing; higher for inspection).
 

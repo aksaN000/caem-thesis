@@ -60,8 +60,8 @@ class EpisodicEntry:
     """Final answer string."""
 
     embedding: np.ndarray
-    """384-dim Sentence-BERT vector (all-mpnet-base-v2), L2-normalised.
-    Shape: (384,).  dtype: float32."""
+    """768-dim Sentence-BERT vector (all-mpnet-base-v2), L2-normalised.
+    Shape: (768,).  dtype: float32."""
 
     storage_cycle: int
     """Which self-improvement cycle stored this episode (0, 1, or 2)."""
@@ -96,11 +96,11 @@ class EpisodicEntry:
 
     def __post_init__(self) -> None:
         # Validate embedding shape immediately to catch dimension bugs early.
-        if self.embedding.ndim != 1 or self.embedding.shape[0] != 384:
+        if self.embedding.ndim != 1 or self.embedding.shape[0] != 768:
             raise ValueError(
-                f"EpisodicEntry.embedding must be shape (384,), "
+                f"EpisodicEntry.embedding must be shape (768,), "
                 f"got {self.embedding.shape}. "
-                "Check that all-mpnet-base-v2 is used (384-dim, NOT 768)."
+                "Check that all-mpnet-base-v2 is used (768-dim, NOT 384)."
             )
         if self.embedding.dtype != np.float32:
             self.embedding = self.embedding.astype(np.float32)

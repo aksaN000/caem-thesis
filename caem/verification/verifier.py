@@ -22,7 +22,7 @@ Signal 1 — p_entail  [DES]
 
 Signal 2 — s_avg  [LIT: Wang et al. 2022]
     Average pairwise cosine similarity of M=3 independent chain-of-thought
-    generations (Sentence-BERT, 384-dim, same encoder as memory store).
+    generations (Sentence-BERT, 768-dim, same encoder as memory store).
     High similarity = the model's reasoning is stable; low = uncertain or
     multi-modal answer space.
 
@@ -214,7 +214,7 @@ class MultiLayerVerifier:
                 for _ in range(M):
                     out = self.model.generate(
                         input_ids,
-                        max_new_tokens=128,
+                        max_new_tokens=self.config.cot_max_new_tokens,
                         do_sample=True,
                         temperature=0.7,
                     )
@@ -266,7 +266,7 @@ class MultiLayerVerifier:
         """Average pairwise cosine similarity of M=3 independent generations.
 
         M=3 [LIT: Wang et al. 2022]. Similarity computed via Sentence-BERT
-        (same 384-dim encoder as episodic memory store).
+        (same 768-dim encoder as episodic memory store).
         Returns float in [0, 1]. Returns 0.5 on error (neutral).
         """
         M = self.config.sc_chains_m
@@ -277,7 +277,7 @@ class MultiLayerVerifier:
                 for _ in range(M):
                     out = self.model.generate(
                         input_ids,
-                        max_new_tokens=128,
+                        max_new_tokens=self.config.cot_max_new_tokens,
                         do_sample=True,
                         temperature=0.7,
                     )
@@ -287,7 +287,7 @@ class MultiLayerVerifier:
             if len(chains) < 2:
                 return 0.5
 
-            embeddings = self.sbert_encoder.encode(chains)   # (M, 384)
+            embeddings = self.sbert_encoder.encode(chains)   # (M, 768)
             if embeddings.ndim == 1:
                 embeddings = embeddings.reshape(1, -1)
 
@@ -327,7 +327,7 @@ class MultiLayerVerifier:
                 for _ in range(K):
                     out = self.model.generate(
                         input_ids,
-                        max_new_tokens=128,
+                        max_new_tokens=self.config.cot_max_new_tokens,
                         do_sample=True,
                         temperature=T,
                     )
