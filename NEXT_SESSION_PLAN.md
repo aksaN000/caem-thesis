@@ -110,7 +110,7 @@ mc_dropout_k       = 5       # [DES]
 batch_size         = 4       # RTX 3060/T4 safe; set to 16 on 4090/5090
 cot_max_new_tokens = 256     # [EXP-13 fix — do not lower]
 n_cycles           = 3       # thesis plan §5.2
-embedding_dim      = 768     # [EXP-10 fix — all-MiniLM-L6-v2 is 768-dim]
+embedding_dim      = 768     # [EXP-10 fix — all-mpnet-base-v2 is 768-dim (not all-MiniLM which is 384)]
 ```
 
 **When on 4090/5090 — change only these two lines in `caem/config.py`:**
