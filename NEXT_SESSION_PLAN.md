@@ -10,31 +10,18 @@
 | Smoke Test (Cycle 0→3) | ✅ DONE | Full pipeline verified on RTX 3060 |
 | Cold-start seeding (Gap 3) | ✅ DONE | 447 verified episodes stored |
 | Writing prep files | ✅ DONE | `writing-suggestions.md`, `hyperparameter-reference.md`, `caem-implementation-log.md` all updated |
+| Visual elements inventory | ✅ DONE | Full figures/algorithms/equations/theorems spec added to `writing-suggestions.md` |
 | Ch1 TikZ fix (IMPL-01a) | ✅ DONE | Tier 1 → Stage 5 arrow removed (2026-04-07) |
+| C2-04/C2-05 text fix | ✅ DONE | chapter_2.tex "384-dim" → "768-dimensional" (both §2.1.4 and §2.2.4) |
 | Mini-run (n=500 per bm) | ⏳ IN PROGRESS | All 4 benchmarks active, restarted clean |
-| Pre-run text fixes | ⚠️ DO FIRST | C2-04, C2-05 (chapter_2.tex 384-dim errors) |
 | Full experiment (n=5000) | ❌ PLANNED | Pending lab PC (4090/5090) access |
 | Chapter writing | ❌ PLANNED | Ch3+Ch4 can start now; Ch5 blocked on data |
 
 ---
 
-## PHASE 0 — Pre-Run Text Fixes (Do Now, No Data Needed)
+## PHASE 0 — Pre-Run Text Fixes ✅ COMPLETED (2026-04-07)
 
-These are submitted-text errors that can and should be fixed before the mini-run completes.
-
-### Step 0.1 — Fix chapter_2.tex 384-dim errors
-
-Two lines in the already-submitted Chapter 2 contain the wrong embedding dimension.
-
-**C2-04** — `chapter_2.tex` §2.1.4 (approximately line 36):
-- Find: `"384 dimensional"` (in the all-mpnet-base-v2 sentence)
-- Replace: `"768-dimensional"`
-
-**C2-05** — `chapter_2.tex` §2.2.4 (approximately line 162):
-- Find: `"three hundred eighty four dimensional embedding"`
-- Replace: `"768-dimensional embedding"`
-
-Source: Bug EXP-10 in `caem-implementation-log.md`. `all-mpnet-base-v2` produces 768-dim vectors — confirmed by the model card and the implementation. The 384 figure was a pre-fix planning error.
+~~C2-04 and C2-05 fixed in `chapter_2.tex` — both "384 dimensional" / "three hundred eighty four dimensional" changed to "768-dimensional".~~
 
 ---
 
@@ -282,19 +269,30 @@ Write chapters in this order. Ch3 and Ch4 do NOT need experiment data and can be
 **File:** `pre thesis 1 report/chapters/chapter_5.tex`
 **Status:** NOT WRITTEN — write from scratch
 
+**Before writing any section of Chapter 4:** Read the Visual & Formal Elements section of `writing-suggestions.md` to know exactly which figures, algorithms, equations, and theorems belong in each section.
+
 Write sections in this order, applying each writing-suggestions.md entry as you go:
 
-| Section | Key entries to apply |
-|---|---|
-| §4.1 Architecture Overview | C4-01, C4-03 (three-value table), GEN-01, GEN-11 |
-| §4.2 Three-Tier Routing | C4-04, C4-10b, C4-20, IMPL-01 (no Tier1→Stage5 arrow), BM-01–BM-06 |
-| §4.3 Pre-Routing Confidence (u_pre) | C4-03b (C_conv adaptation), C4-10 (hyperparameter provenance) |
-| §4.4 Post-Generation Confidence (û) | C4-05, C4-06, C4-07, C4-09 (blind-spot table), C4-21 (correct field names) |
-| §4.5 Verification Pipeline | C4-08 (û_stored ≠ û), C4-22 (training target = reasoning_chain), IMPL-02 |
-| §4.6 Episodic Memory | C4-15 (immutable/mutable split), C4-03 (notation consistency) |
-| §4.7 Self-Improvement Loop | C4-16 (ReST framing), C4-19 (L2 regularisation — name correctly), GEN-11 |
-| §4.8 Calibration | IMPL-03 (temperature scaling, Guo et al. 2017, timing after Cycle 0) |
-| §4.9 Theoretical Analysis | C4-17, C4-18, C4-23, TH-01, TH-02, PUB-02 (formal proof block) |
+| Section | Key prose entries | Visual elements to include |
+|---|---|---|
+| §4.1 Architecture Overview | C4-01, C4-03 (three-value table), GEN-01, GEN-11 | **FIG-C4-01** (main architecture) — extend from `chapter_1.tex` line 78 |
+| §4.2 Three-Tier Routing | C4-04, C4-10b, C4-20, IMPL-01, BM-01–BM-06 | **FIG-C4-02** (routing flowchart), **ALG-C4-02** (routing algorithm), **EQN-C4-02** (routing score) |
+| §4.3 Pre-Routing Confidence | C4-03b, C4-10 | **FIG-C4-03** (confidence architecture) — left panel only, **EQN-C4-01** |
+| §4.4 Post-Generation Confidence (û) | C4-05, C4-06, C4-07, C4-09, C4-21 | **FIG-C4-03** right panel, **EQN-C4-03** (û formula), **TAB** (blind-spot 4×4), **TAB** (three-value summary) |
+| §4.5 Verification Pipeline | C4-08, C4-22, IMPL-02 | **FIG-C4-04** (verification flowchart), **ALG-C4-03** (verification algorithm), **EQN-C4-04** (û_stored) |
+| §4.6 Episodic Memory | C4-15, C4-03 | **FIG-C4-05** (memory schema), **ALG-C4-05** (retroactive re-verification) |
+| §4.7 Self-Improvement Loop | C4-16, C4-19, GEN-11 | **FIG-C4-06** (self-improvement cycle), **ALG-C4-04** (Stage 8 algorithm), **EQN-C4-05** (L2 loss) |
+| §4.8 Calibration | IMPL-03 | **EQN-C4-06** (temperature scaling), **EQN-C4-07** (ECE) |
+| §4.9 Theoretical Analysis | C4-17, C4-18, C4-23, TH-01, TH-02, PUB-02 | **THM-C4-01 + proof**, **THM-C4-02**, **THM-C4-03**, **EQN-C4-08** (purity formula) |
+
+**Algorithm source rule for Chapter 4:**
+- FIG-C4-01: base = `chapter_1.tex` line 78 (extend, do NOT redraw)
+- ALG-C4-02: base = unified plan line 2627 (formatting only, logic from `caem/router.py`)
+- ALG-C4-03: base = unified plan lines 1832 + 2321 + 2441 (SE and SC blocks), combined for Stage 5
+- ALG-C4-04: base = unified plan line 3979 (fix θ_base → θ_prev, fix training target to reasoning_chain)
+- ALG-C4-05: base = unified plan line 3100 (fix field names)
+- THM-C4-01 proof: base = unified plan line 3508 (replace proofbox with standard \begin{proof})
+- THM-C4-02/03: base = unified plan lines 4029 + 4185 (theorem environments already correct format)
 
 **Critical writing rules for Chapter 4:**
 - Use hyperparameter-reference.md — state Category 1/2/3 provenance for every value
@@ -316,15 +314,15 @@ Write sections in this order, pulling numbers from specific output files:
 
 | Section | Source file | Key entries |
 |---|---|---|
-| §5.1 Calibration Results | `calibration/calibrated_config.json` | C5-01, C5-11, GEN-03 |
-| §5.2 Main Results | `eval/{bm}_cycle{n}.json` | C5-04, C5-05, C5-12, GEN-12 |
-| §5.3 Mechanism Evidence | `experiment_summary.csv` | C5-02, IMPL-04 (StrategyQA split note) |
-| §5.4 Theory Validation | `purity_validation/theory_validation.json` | C5-03, TH-03, TH-04, C4-17 (replace illustrative) |
-| §5.5 Ablations | `ablation_results/ablation_summary.json` | C5-09 |
-| §5.6 Baselines | `ablation_results/ablation_summary.json` | C5-09 (baseline sub-section) |
-| §5.7 Computational Efficiency | `experiment_summary.csv` mean_latency_ms | C5-06, GEN-13 (use actual device latency) |
-| §5.8 Stability-Plasticity | `ablation_summary.json` + `retroverify_cycle{n}.json` | C5-07 |
-| §5.9 Memory + Error Analysis | `experiment_summary.csv` + qualitative | C5-10, C5-08 |
+| §5.1 Calibration Results | `calibration/calibrated_config.json` | C5-01, C5-11, GEN-03 | **TAB-C5-07** (calibration results table) |
+| §5.2 Main Results | `eval/{bm}_cycle{n}.json` | C5-04, C5-05, C5-12, GEN-12 | **TAB-C5-01** (main results), **TAB-C5-06** (significance), **FIG-C5-01** (accuracy chart) |
+| §5.3 Mechanism Evidence | `experiment_summary.csv` | C5-02, IMPL-04 | **TAB-C5-02** (mechanism table), **FIG-C5-02** (tier distribution chart) |
+| §5.4 Theory Validation | `purity_validation/theory_validation.json` | C5-03, TH-03, TH-04, C4-17 | **TAB-C5-03** (purity theorem), **TAB-C5-04** (convergence Δ) |
+| §5.5 Ablations | `ablation_results/ablation_summary.json` | C5-09 | **TAB-C5-05** (ablation table) |
+| §5.6 Baselines | `ablation_results/ablation_summary.json` | C5-09 (baseline sub-section) | (sub-section of TAB-C5-01 or separate table) |
+| §5.7 Computational Efficiency | `experiment_summary.csv` mean_latency_ms | C5-06, GEN-13 | **TAB-C5-08** (efficiency table), **FIG-C5-02** tier fraction growth |
+| §5.8 Stability-Plasticity | `ablation_summary.json` + `retroverify_cycle{n}.json` | C5-07 | **FIG-C5-03** (MMLU retention chart) |
+| §5.9 Memory + Error Analysis | `experiment_summary.csv` + qualitative | C5-10, C5-08 | (qualitative — no figure required) |
 
 **Critical writing rules for Chapter 5:**
 - All numbers from output files — never copy from unified plan projections (GEN-02, GEN-09)

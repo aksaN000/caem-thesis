@@ -338,3 +338,176 @@ These entries identify gaps between the current thesis and conference-submission
 | PUB-04 | **LoRA / PEFT comparison ablation** — reviewers will ask "why full fine-tuning?" | Add as Appendix ablation: LoRA (r=8, α=16) vs full fine-tuning + L2, reporting MMLU retention and EM improvement per cycle. If LoRA matches full FT on accuracy with better retention, note as future direction. If full FT + L2 is better, report why. Either way, the ablation pre-empts the question. | STRONGLY RECOMMENDED | OPEN |
 | PUB-05 | **Full EWC vs L2 ablation** — needed to validate the L2 approximation claim | Add one ablation variant: full EWC (compute diagonal FIM, re-run Cycle 1–3). Compare MMLU retention, EM improvement, and compute time. Expected: similar MMLU and EM, but 30–40% higher compute time — validating the L2 approximation. Noted in `caem-implementation-log.md` Session 29 as planned. | STRONGLY RECOMMENDED | OPEN |
 | PUB-06 | **Larger model experiment** — single model scale (780M) limits generalisability | Run Flan-T5-XL (3B) on HotpotQA only (clearest EM metric). Report in Appendix B. Question to answer: does CAEM's improvement trend hold at larger scale, or does the convergence ceiling simply move up proportionally? | STRONGLY RECOMMENDED | OPEN |
+
+---
+
+## Publication Elevation — Current State, What to Add, and When
+
+**Read alongside the PUB-01–PUB-06 table above.** This section gives the honest gap assessment and a concrete timeline for each item.
+
+### What we currently have (thesis-grade)
+
+| Item | Status | Notes |
+|---|---|---|
+| 6 baselines (Zero-shot, CoT, RAG, SC, Vanilla FT, Memory-only) | ✅ Implemented | From `run_ablation.py` — available after full experiment |
+| McNemar's test + bootstrap CI | ✅ Implemented | `eval/metrics.py` — apply post-experiment |
+| Purity Theorem formula | ✅ Written | Symbolic in Ch4; needs formal proof block |
+| Three theory validations | ✅ Designed | Needs actual `theory_validation.json` values |
+| Temperature scaling calibration | ✅ Implemented | ECE before/after report in Ch5 §5.1 |
+| 4 benchmarks × 3 cycles | ✅ Designed | Available after full experiment |
+
+### What is missing for conference submission (and when to add it)
+
+| # | Gap | When to start | How long | Blocker |
+|---|---|---|---|---|
+| PUB-01a | Self-RAG (Asai et al. 2023) baseline | After full experiment | ~2 days | Need same eval splits saved |
+| PUB-01b | SelfCheckGPT (Manakul et al. 2023) baseline | After full experiment | ~1 day | Runs on top of existing generation outputs |
+| PUB-01c | GPT-3.5/4 numbers | Anytime — use published numbers | ~2 hours | Just look up published benchmark scores and cite them |
+| PUB-02 | Formal purity theorem proof | **NOW** — no data needed | ~2 hours | None |
+| PUB-03 | Human eval for TruthfulQA (N=100) | After Cycle 3 outputs available | 1–2 days | Need 100 Cycle 0 vs Cycle 3 output pairs + 2 annotators |
+| PUB-04 | LoRA vs full FT ablation | After full experiment device confirmed | ~4 hours compute | Needs extra training run |
+| PUB-05 | Full EWC vs L2 ablation | After full experiment | ~4–6 hours compute | Needs FIM computation + extra training run |
+| PUB-06 | Flan-T5-XL (3B) on HotpotQA | Post-submission if time permits | ~6 hours compute | Needs ≥16 GB VRAM |
+
+### Priority order for conference upgrade
+
+**Immediate (do before submitting thesis draft for supervisor review):**
+- PUB-02 (formal proof) — zero cost, high credibility boost
+
+**After full experiment completes:**
+- PUB-01c (published GPT numbers) — zero compute, just citation lookup
+- PUB-01b (SelfCheckGPT) — runs on your existing generation outputs, low cost
+- PUB-01a (Self-RAG) — highest value baseline, needs fresh eval run
+
+**If targeting ACL/EMNLP specifically:**
+- PUB-03 (human eval) — reviewers will ask; even 2-annotator agreement is enough
+- PUB-04 (LoRA ablation) — pre-empts the most common PEFT question
+- PUB-05 (EWC ablation) — validates the L2 approximation claim formally
+
+**Defer post-submission:**
+- PUB-06 (XL model) — significant compute; report as future work if not done
+
+---
+
+## Visual & Formal Elements
+
+**This section specifies every non-prose element required in each chapter.** For each element: what it is, what it must show, which source file or implementation module to use, which writing-suggestions entries it satisfies, and what implementation-vs-plan discrepancies to watch for.
+
+> **Algorithm strategy:** Use the plan's algorithm blocks as **structural templates** — the pseudocode layout, `\begin{algorithmic}[1]` formatting, and step ordering are reusable. However, every algorithm must be reviewed against the implemented code in `caem/` before copying. The plan has known discrepancies listed per-algorithm below. Do not copy any algorithm block without reading the corresponding source first.
+
+> **Figure strategy:** The best existing TikZ source for Chapter 4 is `chapter_1.tex` line 78 (the submitted architecture diagram). Use it as the base and extend — do not redraw from scratch. Unified plan figures at lines 848 and 1378 are also useful as starting points but have the same field-name and flow discrepancies as the algorithms.
+
+> **Theorem strategy:** The unified plan uses a custom `proofbox` environment. For the report, use standard LaTeX `\begin{theorem}` / `\begin{proof}` / `\end{proof}`. The content is reusable; the environment names are not.
+
+---
+
+### Chapter 3 — Tables Only
+
+| # | Element | What it must show | Source | Satisfies |
+|---|---|---|---|---|
+| VIS-C3-01 | **Table 3.1: Functional Requirements** | 3-column table: Requirement ID / Functional Requirement / Maps to Pipeline Stage. List one row per pipeline stage (Stage 1 query intake through Stage 8 self-improvement loop). Show that CAEM's architecture is fully derivable from requirements. | Design + pipeline spec | C3-01 |
+| VIS-C3-02 | **Table 3.2: Non-Functional Requirements** | 4-column: NFR / Target Value / Rationale / Verification Method. Include: Tier 1 < 400ms, Tier 2 < 2.5s, Tier 3 < 6s, α ≥ 85%, GPU budget ≤ 50h, MMLU retention ≥ 93%, K=1000 capacity. | Design | C3-01, C3-02 |
+| VIS-C3-03 | **Table 3.3: Hardware Constraints → Design Decisions** | 3-column: Hardware Constraint / Value / Design Decision It Forces. Rows: VRAM ≤ 12 GB → batch_size=4 + theta_prev CPU + 500K passages; GPU budget ≤ 50h → n=5000 + 3 cycles; K=1000 → cold-start seeding strategy. Frame constraints as design *drivers*, not apologies. | C3-02, LAB_PC_SCALING_GUIDE | C3-02 |
+
+---
+
+### Chapter 4 — Figures, Algorithms, Equations, Theorems (full inventory)
+
+#### Figures / Diagrams
+
+| # | Element | What it must show | Source | Satisfies | Watch for |
+|---|---|---|---|---|---|
+| FIG-C4-01 | **Figure 4.1: CAEM System Architecture** (main full-pipeline TikZ diagram) | All 8 stages as numbered boxes with directional arrows. Three routing paths clearly labelled (Tier 1 / Tier 2 / Tier 3). Memory store as a separate module. Stage 8 loop back to Stage 1. Use the Ch1 TikZ figure as the template and EXTEND it — do not redraw from scratch. | **PRIMARY SOURCE: `chapter_1.tex` lines 78–219** (the submitted architecture TikZ). Also see unified plan line 848 for the detailed pipeline version with decision diamonds. | C4-01, C4-03, IMPL-01 | **No Tier 1 → Stage 5 arrow** (IMPL-01 — this was the exact error fixed in Ch1, do not re-introduce it). The unified plan line 848 figure may also contain this arrow — check before adapting. Stage 5 box is Tier 2/3 only. |
+| FIG-C4-02 | **Figure 4.2: Three-Tier Routing Decision Flowchart** | Decision flowchart with explicit diamond nodes. Flow: (1) compute u_pre → (2) Diamond: u_pre < 0.60? → YES → Tier 3; NO → (3) compute FAISS similarity s → (4) compute routing_score = 0.7·s + 0.3·û_stored → (5) Diamond: score ≥ 0.90? → Tier 1; score ≥ 0.65? → Tier 2; else → Tier 3. | **Unified plan line 848** has a routing section with decision diamonds — use as base. Also see `caem/router.py`. | C4-04, C4-10b, C4-20 | OR-condition (u_pre < 0.60) must appear as a **separate first diamond** before the routing score formula (C4-10b). Plan may show them in the wrong order or merged — verify. |
+| FIG-C4-03 | **Figure 4.3: Confidence Signal Architecture** | Two-panel figure. Left panel: u_pre composition (C_conv + u_MC_pre → weighted sum with 0.60/0.40 weights). Right panel: û composition (u_token + u_dropout + u_consistency + u_entropy → weighted sum with 0.25/0.25/0.25/0.25 initial, then calibrated). | **Unified plan line 1378** is the routing/confidence flowchart — reuse the signal box layout. Also unified plan line 2147 (confidence figure). Read `caem/confidence.py` for actual field names. | C4-03, C4-06, C4-07, C4-09, C4-21 | Plan line 1378 uses `u_sc` and possibly `h_entropy_norm` — rename to `u_consistency` and `u_entropy` respectively. Plan shows SC with 3 samples — implementation uses N=10. Initial weights in the plan may be shown as 0.30/0.30/0.20/0.20 — correct to 0.25/0.25/0.25/0.25 initial, calibrated to ≈0.20/0.20/0.20/0.40. |
+| FIG-C4-04 | **Figure 4.4: Verification Pipeline (Stage 5) Flowchart** | Sequential pipeline: generated answer → NLI scoring (p_entail) → SC scoring (s_avg) → SE scoring (h_norm) → VE1 check (neutral NLI AND u_consistency > 0.90 → escalate) → VE2 check (TruthfulQA only — misconception flag → reject) → û_stored = 0.5·p_entail + 0.3·s_avg + 0.2·h_norm → storage gate (û_stored ≥ threshold → store). | **Unified plan line 2147** (three-layer verification architecture figure) — reuse the layered pipeline layout. Read `caem/verifier.py` for exact field names. | C4-08, C4-22, BM-03, BM-04 | û_stored formula is from Stage 5 outputs — NOT from û (C4-08). VE2 applies TruthfulQA only — plan may show it as general (GEN-05). Plan uses `phi_SC`, `phi_NLI`, `phi_SE` notation — the report should use `s_avg`, `p_entail`, `h_norm` consistent with stored field names. |
+| FIG-C4-05 | **Figure 4.5: Episodic Memory Episode Schema** | Two-column box diagram. Left column (IMMUTABLE): question, reasoning_chain, answer, embedding. Right column (MUTABLE): u_stored, success_rate, retrieval_count, retroverified. Caption: "Content fields are frozen at storage time — the fine-tuning dataset derives from them. Quality and usage metadata are updated across cycles." | No existing figure in the plan matches this exactly. Design fresh as a simple two-column annotated box. Read `caem/memory.py` or `caem/models.py` for the actual field list. | C4-15, C4-21 | No `passed_verification`, `ve1_triggered`, or `ve2_triggered` fields — these do not exist in the schema (C4-21). Unified plan memory schema may include these — do not include them. |
+| FIG-C4-06 | **Figure 4.6: Self-Improvement Cycle Diagram** | Cyclic arrow diagram showing the cycle flow: Query Processing → Verification → Memory Update → Retroactive Re-verification → Fine-tuning (with L2 penalty) → Calibration (Cycle 0 ONLY, shown as a dashed branch) → next cycle. Label boxes C0, C1, C2, C3. | **PRIMARY SOURCE: `chapter_1.tex` lines 220–280** (submitted experimental workflow TikZ — C1/C2/C3 cycle boxes). Also see unified plan line 3246 (very similar structure). Reuse the cycle-box layout and arrow style. | C4-16, C4-19, IMPL-03 | Calibration box must appear only after C0 — both the Ch1 figure and the plan figure show calibration as a recurring step; change to one-time after C0 only. Plan cycle boxes show illustrative numbers (e.g. "Accuracy: 60% → 68%") — remove all concrete numbers from Chapter 4 version; those belong in Chapter 5. |
+
+---
+
+#### Algorithms
+
+> **Format:** Use `\begin{algorithm}` / `\end{algorithm}` with `\begin{algorithmic}[1]` for line numbers. Import `algorithmicx` and `algpseudocode` packages. Number algorithms sequentially: Algorithm 4.1, 4.2, etc.
+
+> **Source rule:** For each algorithm, READ the corresponding `caem/` Python file before writing the pseudocode. The plan may differ — the code is authoritative.
+
+| # | Element | What it must show | Source file | Satisfies | Known plan discrepancies |
+|---|---|---|---|---|---|
+| ALG-C4-01 | **Algorithm 4.1: CAEM Query Processing (Master Pipeline)** | Top-level loop covering Stages 1–7. Inputs: query q. Shows: u_pre computation → routing decision (OR-condition first, then score) → branch to Tier 1/2/3 logic → Stage 4a gate → Stage 5 (for Tier 2/3 only) → memory storage. Output: answer + storage decision. | **No single plan algorithm covers the full pipeline.** Read `caem/pipeline.py` and use the Ch1 TikZ stage numbering as the structural skeleton. The plan's Algorithm at line 3100 (storage) and line 2627 (verification) can be referenced for those sub-steps. | C4-01, C4-04, C4-10b, IMPL-01 | Tier 1 path must explicitly skip Stage 5 — add a comment to the pseudocode. OR-condition check must precede routing score computation as a distinct step. |
+| ALG-C4-02 | **Algorithm 4.2: Three-Tier Routing** | Inputs: u_pre, memory store M, query embedding e_q. Step 1: if u_pre < 0.60 → return Tier 3. Step 2: s ← FAISS_search(M, e_q). Step 3: û_stored ← M[nearest].u_stored. Step 4: score ← 0.7·s + 0.3·û_stored. Step 5: if score ≥ 0.90 → Tier 1; elif score ≥ 0.65 → Tier 2; else → Tier 3. | **Unified plan line 2627** (Dataset-Adaptive Multi-Layer Verification) has a `\begin{algorithmic}[1]` block with routing-style logic — use its LaTeX `\If / \ElsIf / \State` formatting as a template. Read `caem/router.py` for the actual threshold values and structure. | C4-04, C4-10b, C4-20 | OR-condition must be Step 1 (before FAISS call) — never merged into the score formula. The plan algorithm at 2627 shows per-dataset routing logic — CAEM's routing is confidence-based (not dataset-based at this stage), so do not copy that structure directly. |
+| ALG-C4-03 | **Algorithm 4.3: Multi-Signal Verification Pipeline (Stage 5)** | Inputs: query q, generated answer a, context c, ground-truth label y (benchmark mode). Outputs: (accept: bool, û_stored: float). Steps: (1) p_entail ← NLI_score(q, a, y); (2) SC samples ← [generate(q) for _ in range(10)]; s_avg ← mean_cosine_sim(SC_samples); (3) SE samples ← [generate(q, temp=T_se) for _ in range(10)]; h_norm ← semantic_entropy(SE_samples); (4) VE1 check: if p_entail is NEUTRAL AND u_consistency > 0.90 → reject; (5) VE2 check (TruthfulQA only): if misconception_match(a) → reject; (6) û_stored ← 0.5·p_entail + 0.3·s_avg + 0.2·h_norm; (7) accept ← û_stored ≥ storage_threshold. | **PRIMARY SOURCE: Unified plan line 1832** (Semantic Entropy Computation) and **line 2321** (Self-Consistency Verification) — use their step formatting. Also **line 2441** (SE Verification Layer 3) — very detailed SE clustering pseudocode, reusable verbatim after field-name fixes. Read `caem/verifier.py` for the combined verification logic. | C4-08, BM-03, BM-04, BM-05, GEN-05 | Plan line 2321 uses `u_SC > 0.85` as the threshold — VE1 uses `> 0.90` (the stricter threshold for neutral NLI escalation, C4-02/BM-04). Plan uses `phi_SC`, `phi_SE` notation — replace with `s_avg`, `h_norm`. Plan shows N=3 chains for SC — implementation uses N=10. VE2 is TruthfulQA only (plan may show as general). |
+| ALG-C4-04 | **Algorithm 4.4: Self-Improvement Loop (Stage 8)** | Inputs: memory M, model θ, previous weights θ_prev, λ=0.01. For each cycle c ∈ {0,1,2,3}: (1) D_train ← {(q, reasoning_chain) : episode ∈ M, episode.u_stored ≥ threshold}; (2) for each batch in D_train: L ← CE(θ, q, reasoning_chain) + (λ/2)·Σ(θᵢ − θ_prev,ᵢ)²; update θ; (3) check forgetting score; if score < 0.07 → abort, restore θ_prev; (4) θ_prev ← θ.copy(). Note: θ_prev computed on CPU in RTX 3060 config. | **Unified plan line 3979** (Catastrophic Forgetting Mitigation Protocol) has the L2 regularisation and forgetting check structure — use as base. Also plan **line 3910** (Mixed Training Data Construction). Read `caem/trainer.py` `_l2_penalty()` and `train_cycle()` for the actual implementation. | C4-16, C4-19, C4-22, GEN-11 | **CRITICAL discrepancies in plan line 3979:** (1) Plan uses `θ_base` (original pre-trained weights) — implementation uses `θ_prev` (previous cycle's weights). These are completely different. (2) Plan includes 10% general corpus mixing (`D_general`) — verify whether this is in the implementation. (3) Training target: plan has `log P_θ(c, a | q)` — correct, this is reasoning_chain (C4-22). (4) Regularisation is L2 uniform — write explicitly as `||θ − θ_prev||²` not EWC. |
+| ALG-C4-05 | **Algorithm 4.5: Retroactive Re-verification** | Inputs: memory M, current model θ. At end of each cycle (before next cycle's fine-tuning): For each episode e ∈ M: (1) a_new ← generate(θ, e.question); (2) new_û_stored ← Stage5_verify(e.question, a_new, e.answer); (3) if new_û_stored < eviction_threshold → remove e from M; else → e.u_stored ← new_û_stored; e.retroverified ← True. Output: pruned, freshness-updated memory M. Note: this amortises verification cost over one batch per cycle — NOT per-query. | **Unified plan line 3100** (Strategic Storage with Novelty Checking) covers the storage-side logic. The retroactive re-verification pass (re-running the whole memory) is described in the plan's text but may not have a dedicated algorithm block. Read `caem/retroverifier.py` for the actual implementation. The plan's storage algorithm at line 3100 can provide the LaTeX formatting skeleton. | IMPL-01 (freshness), C5-07, C4-15 | Plan line 3100 uses notation `e.phi`, `e.r`, `e.s`, `e.u` — update to match actual schema fields (`u_stored`, `success_rate`, `retrieval_count`, `retroverified`). Plan uses `C_max = 20000` — correct, keep it. Caption must state: "This is what gives Tier 1 its freshness guarantee — retroactive re-verification amortises the verification cost across cycles, not per-query." |
+
+---
+
+#### Equations
+
+> **Format:** Use `\begin{equation}` with `\label{eq:name}` for each. Cross-reference by label throughout the text. Number sequentially: (4.1), (4.2), etc.
+
+| # | Element | Formula | Section | Satisfies |
+|---|---|---|---|---|
+| EQN-C4-01 | **Eq 4.1: Pre-Routing Confidence** | u_pre = 0.60·C_conv + 0.40·u_MC_pre | §4.3 | C4-03b, C4-10 |
+| EQN-C4-02 | **Eq 4.2: Routing Score** | routing_score = 0.7·s(q, e) + 0.3·û_stored(e) | §4.2 | C4-10b, C4-20 |
+| EQN-C4-03 | **Eq 4.3: Post-Generation Composite Confidence (û)** | û = w₁·u_token + w₂·u_dropout + w₃·u_consistency + w₄·u_entropy where w₁=w₂=w₃=w₄=0.25 initially, calibrated to ≈0.20/0.20/0.20/0.40 | §4.4 | C4-06, C4-07, C4-21 |
+| EQN-C4-04 | **Eq 4.4: Stored Confidence (û_stored)** | û_stored = 0.5·p_entail + 0.3·s_avg + 0.2·h_norm | §4.5 | C4-08 |
+| EQN-C4-05 | **Eq 4.5: Fine-tuning Loss with L2 Penalty** | L(θ) = L_CE(θ) + (λ/2)·‖θ − θ_prev‖² where λ=0.01 [DES] | §4.7 | C4-19, GEN-11 |
+| EQN-C4-06 | **Eq 4.6: Temperature Scaling** | p_calibrated(y \| x) = softmax(z(x)/T) where T is fitted by minimising ECE on the 500-sample calibration set | §4.8 | IMPL-03 |
+| EQN-C4-07 | **Eq 4.7: Expected Calibration Error (ECE)** | ECE = Σ_{b} (|B_b|/N) · |acc(B_b) − conf(B_b)| over M bins (M=10) | §4.8 | IMPL-03, C5-11 |
+| EQN-C4-08 | **Eq 4.8: Data Purity Theorem** | P = pα / (pα + (1−p)(1−α)) | §4.9 Theorem 4.1 | C4-17, PUB-02 |
+| EQN-C4-09 | **Eq 4.9: Cosine Similarity (routing)** | sim(q, e) = (e_q · e_episode) / (‖e_q‖ · ‖e_episode‖) | §4.2 (reference to Ch2 definition) | C4-02 |
+
+---
+
+#### Theorems and Proofs
+
+> **Format:** Use `\begin{theorem}[Name]\label{thm:name}`, `\end{theorem}` and `\begin{proof}`, `\end{proof}`. All three theorems must appear in §4.9. Chapter 5 reports the empirical confirmation of each — cross-reference by label.
+
+| # | Element | Statement | Proof required? | Satisfies |
+|---|---|---|---|---|
+| THM-C4-01 | **Theorem 4.1: Data Purity Theorem** | Let p = P(model correct), α = P(verifier accepts \| correct). Then P(episode correct \| accepted) = pα / (pα + (1−p)(1−α)). Moreover, P > p if and only if p > (1−α). | **PRIMARY SOURCE: Unified plan line 3508** (`\begin{theorem}[Data Purity Formula]`) — the content and formula are directly reusable. HOWEVER: plan uses a custom `proofbox` environment (not standard LaTeX). For the report, replace with `\begin{proof}...\end{proof}`. The proof logic in the `proofbox` (TP = N·p·α, FP = N·(1−p)·(1−α), P = TP/(TP+FP)) is mathematically correct and reusable verbatim. | C4-17, PUB-02, TH-01, TH-02 |
+| THM-C4-02 | **Theorem 4.2: Coupled Improvement Recurrence (Monotonicity)** | Let p_n and α_n denote model accuracy and verifier accuracy at cycle n. If p_n+1 > p_n and α_n+1 ≥ α_n, then P_n+1 > P_n — memory purity is strictly increasing per cycle, bounded above by 1. | **Unified plan line 4029** (`\begin{theorem}[Practical Equilibrium]`) and **line 4185** (`\begin{theorem}[Coupled System Convergence]`) — both use standard `\begin{theorem}` environments, reusable directly. The coupled recurrence text and the Banach fixed-point mention are at line 4185. Proof sketch (not full proof) is acceptable for thesis. | C4-18, TH-01, C6-02 |
+| THM-C4-03 | **Theorem 4.3: Convergence (Diminishing Returns)** | The improvement magnitude Δ_n = p_n+1 − p_n decreases monotonically for n ≥ 1, converging to 0 as the system approaches the fixed point. Convergence guaranteed because the coupled (p, α) system is bounded — capacity ceiling and maximum verifier accuracy set a practical ceiling. Empirical signal: diminishing Δ between consecutive cycles. | **Unified plan line 4185** (`\begin{theorem}[Coupled System Convergence]`) — cites Banach fixed-point theorem and states conditions formally. Use this text and adapt it. The `\begin{theorem}` environment is already correct format. | C4-23, TH-01, C6-02 |
+
+---
+
+### Chapter 5 — Figures and Tables (data-dependent)
+
+> All figures and tables in Chapter 5 use actual values from `outputs/` files. No projected or illustrative values. See Phase 5 of `NEXT_SESSION_PLAN.md` for the output file → section mapping.
+
+#### Figures
+
+| # | Element | What it must show | Source | Satisfies | Notes |
+|---|---|---|---|---|---|
+| FIG-C5-01 | **Figure 5.1: Accuracy by Cycle (all benchmarks)** | Grouped bar chart or line chart. X-axis: Cycles 0–3. Y-axis: Accuracy (EM or ROUGE-L). One line/bar group per benchmark. Shows monotone improvement trend. | `outputs/full_experiment/experiment_summary.csv` | C5-04, C5-03 (Theory 2 visual) | If any benchmark shows non-monotone cycle, annotate and explain in caption. |
+| FIG-C5-02 | **Figure 5.2: Tier Routing Distribution Across Cycles** | Stacked bar chart. X-axis: Cycles 0–3. Y-axis: Fraction of queries. Three stacks: Tier 1 (growing), Tier 2 (stable), Tier 3 (shrinking). Key narrative: growing Tier 1 fraction proves memory accumulation is working. | `outputs/full_experiment/experiment_summary.csv` (tier_1_frac, tier_2_frac, tier_3_frac columns) | C5-02, C5-06 | Report per-benchmark FEVER Tier 1 accuracy separately (GEN-06 near-miss risk). |
+| FIG-C5-03 | **Figure 5.3: MMLU Retention Across Cycles** | Line chart. X-axis: Cycles 0–3. Y-axis: MMLU accuracy (%). Horizontal dashed line at 93% (retention target). Expected: stable flat line near or above 93%. | `outputs/ablation_results/ablation_summary.json` | C5-07 | If any cycle drops below 93%: this is catastrophic forgetting — do NOT hide it, flag immediately. |
+
+#### Tables
+
+| # | Element | What it must show | Source | Satisfies |
+|---|---|---|---|---|
+| TAB-C5-01 | **Table 5.1: Main Results — CAEM vs All Baselines** | Rows: all methods (Zero-shot, CoT, RAG, SC, Vanilla FT, Memory-only, CAEM Cycle 0, CAEM Cycle 3). Columns: HotpotQA / TruthfulQA / FEVER / StrategyQA / Average. Include † for statistically significant improvements (McNemar's p < 0.05). | `outputs/full_experiment/eval/*.json` + `ablation_results/ablation_summary.json` | C5-04, C5-05, C5-12, GEN-12 |
+| TAB-C5-02 | **Table 5.2: Mechanism Evidence Table** | Rows: Cycles 0–3. Columns: Hallucination Rate (%), Tier 1 Fraction (%), Tier 3 Fraction (%), MMLU Retention (%), Mean û_stored. Shows all three mechanisms active simultaneously. | `outputs/full_experiment/experiment_summary.csv` | C5-02 |
+| TAB-C5-03 | **Table 5.3: Theory Validation — Purity Theorem** | Rows: Cycles 0–3. Columns: p (model accuracy), α (verifier accuracy), P_theoretical (from formula), P_observed (measured from memory). Show P_obs ≈ P_theoretical confirms theorem. | `outputs/purity_validation/theory_validation.json` | C5-03, TH-03 |
+| TAB-C5-04 | **Table 5.4: Convergence — Δ per Cycle** | Rows: Cycle gaps (C0→C1, C1→C2, C2→C3). Columns: Δ_HotpotQA / Δ_TruthfulQA / Δ_FEVER / Δ_StrategyQA / Δ_avg / Convergence Check (✅ or ❌). If Δ(n+1) < Δ(n) → ✅. Show diminishing returns explicitly. | `outputs/full_experiment/eval/*.json` | TH-04, C4-23, C6-02 |
+| TAB-C5-05 | **Table 5.5: Ablation Results** | 9 ablation configs grouped by mechanism: (1) Memory quality: A1 no reverification, A-NLI single-layer NLI, A-verify no verification; (2) Routing: A2 all-Tier-3, A3 no OR-condition; (3) Training: A4 vanilla FT, A5 no FT; (4) Confidence: A6 no SE, A7 (q,a)-only. Report EM per benchmark + MMLU retention. | `outputs/ablation_results/ablation_summary.json` | C5-09 |
+| TAB-C5-06 | **Table 5.6: Statistical Significance** | For each CAEM Cycle 3 vs baseline pair: χ² / p-value / significant (Y/N). Use McNemar's test from `eval/metrics.py`. | Per-question EM arrays from `eval/{bm}_cycle{n}.json` | C5-05, C5-12, GEN-12 |
+| TAB-C5-07 | **Table 5.7: Calibration Results** | Rows: pre-calibration / post-calibration. Columns: ECE / Temperature scalar T / û signal weights (u_token / u_dropout / u_consistency / u_entropy). Shows ECE reduction and actual vs projected weights. | `calibration/calibrated_config.json` | C5-11, GEN-03, C4-07 |
+| TAB-C5-08 | **Table 5.8: Computational Efficiency** | Rows: Tier 1 / Tier 2 / Tier 3 / All-Tier-3 baseline (A2). Columns: Mean latency (ms) / GPU memory peak / Total GPU hours. Show that Tier 1 fraction growth reduces mean latency across cycles. | `outputs/full_experiment/experiment_summary.csv` mean_latency_ms | C5-06 |
+
+---
+
+### Answer to "Does writing-suggestions.md already cover these aspects?"
+
+**Before this section was added: NO.** The existing entries (C4-03, C4-09, C4-20, C5-02, etc.) mentioned specific tables or figures in passing, but there was no systematic inventory. The following were entirely missing:
+
+- Any figure/diagram list (FIG-C4-01 through FIG-C5-03)
+- Any algorithm inventory (ALG-C4-01 through ALG-C4-05) — the most critical gap given plan vs implementation discrepancies
+- Any equation list with labels (EQN-C4-01 through EQN-C4-09)
+- Formal theorem statement requirements for THM-C4-02 and THM-C4-03 (THM-C4-01 was partially covered by PUB-02)
+- Chapter 5 table inventory (TAB-C5-01 through TAB-C5-08)
+- Chapter 3 table list
+
+**Standing rule for all algorithms:** Always read the `caem/` source file before writing the pseudocode. The unified plan is pedagogically useful for understanding the structure, but the field names, training target, regularisation method, and routing logic must match the implementation. See C4-19, C4-21, C4-22 for the specific known discrepancies.

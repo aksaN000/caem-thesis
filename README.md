@@ -5,17 +5,21 @@ Student: Aksan Gony Alif
 
 ## Current Status
 
-Implementation is complete for the full 8-stage architecture, unit/integration/smoke validation has been done, and the project is in experiment execution mode.
+Implementation is complete for the full 8-stage architecture. Unit/integration/smoke validation done. Mini-run (n=500 per benchmark) is in progress. Writing preparation is complete.
 
 Current run sequence:
 
-1. Implementation complete
-2. Unit tests complete
-3. Integration tests complete
-4. Smoke runs complete
-5. Cold-start seeding in progress (running 150 episodes)
-6. Next: mini full pipeline run
-7. Then: full lab-device run with scaling from `LAB_PC_SCALING_GUIDE.md`
+1. ✅ Implementation complete
+2. ✅ Unit tests complete
+3. ✅ Integration tests complete
+4. ✅ Smoke runs complete
+5. ✅ Cold-start seeding complete — 447 verified episodes stored
+6. ⏳ Mini full pipeline run (n=500 per benchmark) — in progress
+7. ❌ Full lab-device run (n=5000) — pending device confirmation
+8. ❌ Chapter writing — Ch3+Ch4 can start now; Ch5 blocked on experiment data
+
+**Submitted chapters:** Ch1 (349 lines) and Ch2 (229 lines) — Phase 1 submission complete.
+**Pending chapters:** Ch3 (stub), Ch4 (empty), Ch5 (empty), Ch6 (empty).
 
 ## What CAEM Is
 
@@ -261,7 +265,24 @@ From auxiliary scripts:
 
 ## Documentation Pointers
 
-- `caem-implementation-log.md`: chronological implementation decisions and fixes
-- `hyperparameter-reference.md`: literature/design/calibrated hyperparameter taxonomy
-- `LAB_PC_SCALING_GUIDE.md`: scaling policy for lab hardware
-- `NEXT_SESSION_PLAN.md`: execution planning notes
+- `caem-implementation-log.md`: chronological implementation decisions and fixes (Sessions 20–29)
+- `hyperparameter-reference.md`: three-category hyperparameter taxonomy (literature-fixed / design / calibrated)
+- `LAB_PC_SCALING_GUIDE.md`: scaling policy for lab hardware (batch size, theta_prev GPU, passage index)
+- `NEXT_SESSION_PLAN.md`: master sequential plan — mini-run → full experiment → analysis → chapter writing
+- `writing-suggestions.md`: chapter-by-chapter writing guidance including:
+  - Prose corrections and framing rules (C1–C6 and GEN entries)
+  - Visual & Formal Elements inventory: all figures (FIG), algorithms (ALG), equations (EQN), theorems (THM), and result tables (TAB) with exact source lines in the unified plan and chapter files
+  - Publication elevation gaps (PUB-01–PUB-06) with current state and timing
+
+## Thesis Chapter Files
+
+| Chapter | Template file | Status |
+|---|---|---|
+| Ch 1 — Introduction | `pre thesis 1 report/chapters/chapter_1.tex` | ✅ Submitted (349 lines) |
+| Ch 2 — Literature Review | `pre thesis 1 report/chapters/chapter_2.tex` | ✅ Submitted (229 lines) |
+| Ch 3 — Requirements | `pre thesis 1 report/chapters/chapter_3.tex` | ⚠️ Stub (9 lines) |
+| Ch 4 — Methodology | `pre thesis 1 report/chapters/chapter_5.tex` | ❌ Not written |
+| Ch 5 — Results | `pre thesis 1 report/chapters/chapter_6.tex` | ❌ Not written |
+| Ch 6 — Conclusion | `pre thesis 1 report/chapters/chapter_9.tex` | ❌ Not written |
+
+> ⚠️ Template file numbering does not match chapter numbers (BracU template quirk — do not rename files).
