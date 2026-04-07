@@ -24,8 +24,7 @@ Copied from prior work with a citation. Do not change these during implementatio
 | SE sample count | K = 10, T = 1.0 | Farquhar et al. 2024 |
 | SE clustering method | Agglomerative + cosine | Farquhar et al. 2024 |
 | NLI model | RoBERTa-Large-MNLI | Best open NLI at this scale |
-| Embedding model | all-mpnet-base-v2, 384-dim | Sentence-BERT |
-| EWC regularization λ | 0.4 | Kirkpatrick et al. 2017 |
+| Embedding model | all-mpnet-base-v2, **768-dim** | Sentence-BERT (mpnet is 768-d; 384 was a pre-fix error — see impl-log EXP-10) |
 
 **Writing instruction:** State these as fixed design decisions, each followed by the citation. No calibration language.
 
@@ -44,6 +43,7 @@ Principled starting values derived from design judgment. May be adjusted if abla
 | OR-condition threshold | u_pre < 0.60 → force Tier 3 | Safety-first: Tier 3 cost preferred over confident wrong answer |
 | Stage 4a accept threshold | û ≥ 0.60 → accept; else escalate | Asymmetric cost → set low to avoid false negatives |
 | Memory capacity | 1,000 (initial plan) / 20,000 (full) | GPU/disk budget |
+| L2 regularization λ | **0.01** | Design choice [DES] — NOT from Kirkpatrick et al. 2017. Full EWC uses FIM weighting (Session 29 impl-log). λ=0.4 from early planning notes is WRONG — do not use it. |
 
 **Writing instruction:** State these as "design decisions informed by [principle]". When presenting the OR-condition, explain the design reasoning: we explicitly choose the computational cost of Tier 3 over the risk of storing an incorrect confident answer.
 
@@ -54,8 +54,8 @@ These have stated initial values only. The actual values come from running calib
 
 | Hyperparameter | Initial value | Calibration method | When calibrated |
 |---|---|---|---|
-| Temperature scalar T | Not pre-set; fit from data | Minimise ECE on 500-sample calibration set using L-BFGS | After Cycle 1, before Cycle 2 |
-| û signal weights | 0.25 / 0.25 / 0.25 / 0.25 (equal) | Logistic regression or grid search on calibration set to maximise AUROC | After Cycle 1, before Cycle 2 |
+| Temperature scalar T | Not pre-set; fit from data | Minimise ECE on 500-sample calibration set using L-BFGS | **After Cycle 0, before Cycle 1** (calibrates base model output distribution) |
+| û signal weights | 0.25 / 0.25 / 0.25 / 0.25 (equal) | Logistic regression or grid search on calibration set to maximise AUROC | **After Cycle 0, before Cycle 1** |
 
 #### The "post-calibration weights" in the plan (0.20 / 0.20 / 0.20 / 0.40)
 
@@ -83,7 +83,7 @@ signal_weights = {
 ```
 
 #### Writing instruction for Chapter 4
-> "Initial signal weights are set equal at 0.25 for all four signals. After temperature scaling calibration on the held-out calibration set, weights are refined to reflect each signal's empirical discriminative power. Based on Farquhar et al.'s (2024) finding that semantic entropy achieves AUROC ≈ 0.79 for confabulation detection, we project the calibrated weights will converge toward approximately 0.20/0.20/0.20/0.40, with semantic entropy receiving elevated weight. Actual calibrated values are reported in Chapter 5."
+> "Initial signal weights are set equal at 0.25 for all four signals. After Cycle 0, temperature scaling calibration is performed on the held-out calibration set (500 samples), fitting the temperature scalar T and û signal weights via logistic regression on AUROC. Based on Farquhar et al.'s (2024) finding that semantic entropy achieves AUROC ≈ 0.79 for confabulation detection, we project the calibrated weights will converge toward approximately 0.20/0.20/0.20/0.40, with semantic entropy receiving elevated weight. Calibration is performed once only — it uses the base model's output distribution and applies for all subsequent cycles. Actual calibrated values are reported in Chapter 5."
 
 ---
 
@@ -93,4 +93,4 @@ signal_weights = {
 |---|---|---|---|
 | 1 — Literature | Before implementation | Only with new citation and experimental reason | "Fixed at X (Author, Year)" |
 | 2 — Design choice | Before implementation | With ablation evidence | "Set to X based on [design principle]" |
-| 3 — Calibrated | After Cycle 1 | N/A — measured from data | "Initial value X; projected post-calibration ≈ Y; actual measured value Z (Chapter 5)" |
+| 3 — Calibrated | After Cycle 0 | N/A — measured from data | "Initial value X; projected post-calibration ≈ Y; actual measured value Z (Chapter 5)" |
