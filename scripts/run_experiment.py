@@ -52,7 +52,10 @@ import os
 import sys
 import time
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Mapping, cast
+
+if TYPE_CHECKING:
+    from caem.pipeline import CAEMPipeline
 
 # -- Logging -----------------------------------------------------------------
 logging.basicConfig(
@@ -78,7 +81,7 @@ def _check_deps() -> None:
 
 
 # -- Imports (after dep check) ------------------------------------------------
-def _load_imports():
+def _load_imports() -> Dict[str, Any]:
     """Deferred import so --help works without GPU deps installed."""
     import torch
     from transformers import AutoTokenizer, T5ForConditionalGeneration
@@ -119,7 +122,7 @@ def _load_imports():
 # Model initialisation
 # -----------------------------------------------------------------------------
 
-def build_pipeline(config, ns, m) -> "CAEMPipeline":
+def build_pipeline(config: Any, ns: Any, m: Dict[str, Any]) -> "CAEMPipeline":
     """Load Flan-T5-Large, SBERT encoder, NLI model, and passage store.
 
     Parameters
@@ -155,7 +158,7 @@ def build_pipeline(config, ns, m) -> "CAEMPipeline":
 
     # -- SBERT encoder ------------------------------------------------------ #
     logger.info("Loading SBERT encoder (all-mpnet-base-v2) ...")
-    encoder = m["QueryEncoder"](model_name=config.sbert_model)
+    encoder = m["QueryEncoder"](model_name=config.sbert_model, device=device)
 
     # -- NLI model ---------------------------------------------------------- #
     nli_model, nli_tokenizer = None, None
@@ -206,7 +209,7 @@ def build_pipeline(config, ns, m) -> "CAEMPipeline":
 # Dataset loading
 # -----------------------------------------------------------------------------
 
-def load_datasets(ns, m) -> Dict[str, list]:
+def load_datasets(ns: argparse.Namespace, m: Dict[str, Any]) -> Dict[str, list]:
     """Load HotpotQA, TruthfulQA, FEVER, StrategyQA from HuggingFace.
 
     Returns a dict keyed by benchmark name.
@@ -311,8 +314,10 @@ def load_general_data(n: int = 1000) -> list:
         ds = load_dataset("trivia_qa", "rc.nocontext", split="validation")
         pairs = []
         for item in ds.select(range(min(n, len(ds)))):
-            q = item["question"]
-            ans = item["answer"]["value"] if item["answer"]["value"] else ""
+            row = cast(Mapping[str, Any], item)
+            q = str(row.get("question", ""))
+            answer_obj = cast(Mapping[str, Any], row.get("answer", {}))
+            ans = str(answer_obj.get("value", "") or "")
             if q and ans:
                 pairs.append(QAPair(question=q, answer=ans))
         logger.info("  General-domain mix: %d QA pairs loaded.", len(pairs))
@@ -483,12 +488,12 @@ def print_mechanism_table(all_cycle_results: List[Dict]) -> None:
 
     for cycle_num, cycle_results in enumerate(all_cycle_results):
         for bm, res in sorted(cycle_results.items()):
-            em = res.get("em", 0.0)
+            em = float(res.get("em", 0.0) or 0.0)
             if cycle_num == 0:
                 cycle0_em[bm] = em
 
             # Hallucination reduction relative to cycle 0
-            base = cycle0_em.get(bm, em)
+            base = float(cycle0_em.get(bm, em) or 0.0)
             hall_red = ((base - em) / base * -100) if base > 0 else 0.0
             # NOTE: positive hall_red = reduction in hallucinations (EM improved)
 

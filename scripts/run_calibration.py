@@ -1,4 +1,4 @@
-﻿"""
+"""
 scripts/run_calibration.py
 ===========================
 Temperature Scaling + Signal Weight Calibration (Category 3 hyperparameters)
@@ -129,7 +129,7 @@ def fit_temperature_scalar(
     logits_arr = np.array(logits, dtype=np.float64)
     labels_arr = np.array(labels, dtype=np.float64)
 
-    def nll_loss(log_T: float) -> float:
+    def nll_loss(log_T) -> float:
         T = math.exp(log_T[0])
         scaled = logits_arr / T
         # Binary cross-entropy
@@ -225,7 +225,7 @@ def fit_signal_weights(
 def collect_calibration_data(
     pipeline,
     calib_samples: Dict[str, list],
-) -> Tuple[List[float], List[float], List[List[float]], List[int]]:
+) -> Tuple[List[float], List[int], List[List[float]], List[int]]:
     """Run calibration samples through the pipeline and collect signals.
 
     Parameters
@@ -375,7 +375,7 @@ def calibrate_pipeline(
     config.temperature_scalar = T       # new field written to config
     config.u_hat_weight_token       = new_weights[0]
     config.u_hat_weight_dropout     = new_weights[1]
-    config.u_hat_weight_consistency = new_weights[2]   # correct config field name
+    config.u_hat_weight_sc          = new_weights[2]
     config.u_hat_weight_entropy     = new_weights[3]
 
     # -- Save results -------------------------------------------------------- #
@@ -473,6 +473,9 @@ if __name__ == "__main__":
         passage_index="outputs/passage_index",
     )
     pipeline = build_pipeline(config, ns, m)
+    # The build_pipeline call above creates an encoder without device explicitly passed to it, 
+    # but the pipeline object is built correctly. For standalone scripts, we override:
+    pipeline.encoder = m["QueryEncoder"](model_name=config.sbert_model, device=profile.device)
 
     # Load calibration window: indices [500:n_calib] per benchmark.
     # Indices 0-499 are the purity validation set (§5.3) -- never used for calibration.

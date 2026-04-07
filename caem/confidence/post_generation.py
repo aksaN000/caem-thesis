@@ -358,7 +358,7 @@ class PostGenerationConfidenceEstimator:
                 return 0.5
 
             # Encode all chains with Sentence-BERT
-            embeddings = self.sbert_encoder.encode(chains)   # (M, 384)
+            embeddings = self.sbert_encoder.encode(chains)   # (M, 768)
             if embeddings.ndim == 1:
                 embeddings = embeddings.reshape(1, -1)
 

@@ -1,4 +1,4 @@
-﻿"""
+"""
 scripts/run_ablation.py
 ========================
 CAEM Ablation Studies + 6 Baseline Comparisons
@@ -46,7 +46,7 @@ import json
 import logging
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Mapping, Optional, cast
 
 logger = logging.getLogger(__name__)
 
@@ -441,9 +441,10 @@ def eval_mmlu_retention(pipeline, n: int = 200) -> float:
     total = 0
 
     for item in ds:
-        q = item["question"]
-        choices = item["choices"]   # list of 4 strings
-        answer_idx = item["answer"]  # 0-3
+        row = cast(Mapping[str, Any], item)
+        q = str(row.get("question", ""))
+        choices = cast(List[str], row.get("choices", []))
+        answer_idx = int(row.get("answer", 0))
 
         prompt = (
             f"Question: {q}\n"
@@ -569,10 +570,10 @@ def run_ablation(ns: argparse.Namespace) -> None:
     if profile.use_fp16:
         model = model.half()
     if profile.use_bf16:
-        model = model.to(torch.bfloat16)
-    model = model.to(device).eval()
+        model = model.bfloat16()
+    model = cast(Any, model).to(torch.device(device)).eval()
 
-    encoder = QueryEncoder(config=config)
+    encoder = QueryEncoder(model_name=config.sbert_model, device=device)
 
     # Build full CAEM pipeline (for ablation variants)
     pipeline = CAEMPipeline(

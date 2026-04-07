@@ -6,16 +6,16 @@ a PassageStore for use by TierThreeRAG.
 
 What it does
 ------------
-1. Streams the English Wikipedia dump (20220301.en) from HuggingFace datasets
+1. Streams the configured English Wikipedia dump from HuggingFace datasets
    in streaming mode -- avoids downloading the full ~20 GB dump at once.
 2. Chunks each article into ~100-word passages (DPR-style split,
    Karpukhin et al. 2020). Each chunk keeps its section title as a prefix.
 3. Encodes all passages with the same SBERT model used by EpisodicMemoryStore
-   (sentence-transformers/all-mpnet-base-v2 -> 384-dim vectors).
+    (sentence-transformers/all-mpnet-base-v2 -> 768-dim vectors).
 4. L2-normalises every embedding (required for cosine similarity via inner
    product in FAISS IndexFlatIP).
 5. Saves the result as a PassageStore: two files in --output_dir:
-       passages.faiss   -- FAISS IndexFlatIP (N × 384, float32)
+         passages.faiss   -- FAISS IndexFlatIP (N × D, float32)
        passages.pkl     -- matching list of passage strings
 
 Usage
@@ -242,7 +242,7 @@ def encode_passages(
     device: Optional[str] = None,
     show_progress: bool = True,
 ) -> np.ndarray:
-    """Encode a list of passage strings into L2-normalised 384-dim vectors.
+    """Encode passage strings into L2-normalised vectors.
 
     Parameters
     ----------
@@ -258,7 +258,7 @@ def encode_passages(
 
     Returns
     -------
-    np.ndarray, shape (N, 384), dtype float32, L2-normalised.
+    np.ndarray, shape (N, D), dtype float32, L2-normalised.
     """
     try:
         from sentence_transformers import SentenceTransformer
@@ -346,7 +346,7 @@ def build_passage_index(
     encode_batch_size : int
         SBERT encoding batch size.
     sbert_model : str
-        SBERT model name. Must produce 384-dim embeddings.
+        SBERT model name. Must match the configured embedding dimension.
     device : str or None
         ``"cuda"`` / ``"cpu"`` / ``None`` (auto).
     resume : bool
@@ -435,7 +435,7 @@ def build_passage_index(
         "Concatenating embeddings from %d batches ...", len(all_embedding_batches)
     )
     all_embeddings = np.concatenate(all_embedding_batches, axis=0)
-    emb_dim = all_embeddings.shape[1]  # 768 for all-mpnet-base-v2, 384 for all-MiniLM
+    emb_dim = all_embeddings.shape[1]  # Must match the configured SBERT model output dimension.
     assert all_embeddings.shape[0] == len(all_passages), (
         f"Count mismatch: {all_embeddings.shape[0]} embeddings vs {len(all_passages)} passages"
     )

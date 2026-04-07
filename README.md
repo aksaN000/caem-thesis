@@ -1,115 +1,268 @@
-# CAEM — Confidence-Aware Episodic Memory with Self-Improvement
+# CAEM - Confidence-Aware Episodic Memory with Self-Improvement
 
-**CSE400 Final Year Thesis** | BRAC University
-**Student:** Aksan Gony Alif
+CSE400 Final Year Thesis | BRAC University
+Student: Aksan Gony Alif
 
----
+## Current Status
 
-## Overview
+Implementation is complete for the full 8-stage architecture, unit/integration/smoke validation has been done, and the project is in experiment execution mode.
 
-CAEM is a hallucination-reduction system built on **Flan-T5-Large** (780M parameters). It combines:
+Current run sequence:
 
-- **Episodic memory** — a FAISS-backed store of verified (question, reasoning, answer) triples
-- **Confidence-aware routing** — three-tier dispatch based on pre-routing confidence and memory similarity
-- **Multi-signal verification** — NLI + self-consistency + semantic entropy pipeline
-- **Self-improvement loop** — 3 cycles of verified rejection sampling with L2-regularised fine-tuning
-- **Retroactive re-verification** — memory quality updated after each cycle with the improved model
+1. Implementation complete
+2. Unit tests complete
+3. Integration tests complete
+4. Smoke runs complete
+5. Cold-start seeding in progress (you are running 150 episodes)
+6. Next: mini full pipeline run
+7. Then: full lab-device run with scaling from `LAB_PC_SCALING_GUIDE.md`
 
-CAEM is an **architectural intervention**, not post-hoc detection. It prevents unreliable knowledge from accumulating in memory and progressively improves generation quality through a closed self-improvement loop.
+## What CAEM Is
 
----
+CAEM is a hallucination-reduction architecture built on Flan-T5-Large, with:
 
-## Repository structure
+- episodic memory for verified QA episodes
+- confidence-aware adaptive routing
+- multi-signal verification (NLI + self-consistency + semantic entropy)
+- iterative self-improvement (fine-tuning over verified memory)
+- retroactive re-verification and pruning between cycles
 
-```
+This is a system-level architectural approach, not only a post-hoc detection add-on.
+
+## Core Architecture
+
+Pipeline flow (single query):
+
+1. Encode query embedding
+2. Estimate pre-routing confidence `u_pre`
+3. Search episodic memory
+4. Route to Tier 1, Tier 2, or Tier 3
+5. Verify answer quality (Tier 2 and Tier 3)
+6. Store only verified novel episodes
+7. Repeat across cycles with fine-tuning and retroverification
+
+Tier behavior:
+
+- Tier 1: direct memory recall fast path, no per-query Stage 5 verifier call
+- Tier 2: guided generation, then confidence gate and verifier
+- Tier 3: RAG generation from passage index, then verifier
+
+Important implementation note:
+
+- Tier 1 intentionally skips per-query verification for latency; quality refresh is handled by retroactive re-verification after cycles.
+
+## Repository Map
+
+```text
 caem/
-  config.py                      ← CAEMConfig: all hyperparameters, annotated [LIT]/[DES]/[CAL]
-  pipeline.py                    ← CAEMPipeline — full 8-stage orchestrator
-  memory/
-    entry.py                     ← EpisodicEntry + confidence dataclasses + RoutingDecision
-    encoder.py                   ← QueryEncoder (Sentence-BERT all-mpnet-base-v2, 384-dim)
-    store.py                     ← EpisodicMemoryStore (FAISS IndexIDMap + IndexFlatIP)
+  config.py
+  pipeline.py
   confidence/
-    pre_routing.py               ← Stage 3a — PreRoutingConfidenceEstimator (u_pre)
-    post_generation.py           ← Stage 4a — PostGenerationConfidenceEstimator (û, Tier 2)
+    pre_routing.py
+    post_generation.py
+  memory/
+    entry.py
+    encoder.py
+    store.py
   routing/
-    router.py                    ← Stage 3b — AdaptiveRouter (Tier 1/2/3 dispatch)
-  verification/
-    verifier.py                  ← Stage 5 — MultiLayerVerifier (NLI + SC + SE → û_stored)
+    router.py
   retrieval/
-    rag.py                       ← Stage 6 — TierThreeRAG (DPR + FAISS passage store)
+    rag.py
+  verification/
+    verifier.py
   training/
-    self_improvement.py          ← Stage 8 — SelfImprovementLoop (3-cycle fine-tuning)
+    self_improvement.py
 
 eval/
-  metrics.py                     ← EM, F1, FEVER acc, hallucination rate, bootstrap CI, McNemar
-  benchmarks.py                  ← HotpotQA / TruthfulQA / FEVER / StrategyQA loaders
-  harness.py                     ← EvalHarness — run, score, save JSON
+  benchmarks.py
+  metrics.py
+  harness.py
+
+scripts/
+  build_passage_index.py
+  check_base_model.py
+  seed_cold_start.py
+  run_experiment.py
+  run_purity_validation.py
+  run_ablation.py
+  run_calibration.py
+  hardware.py
 
 tests/
-  test_episodic_memory.py        ← Memory store + search_with_ids
-  test_confidence.py             ← Pre- and post-generation confidence estimators
-  test_routing.py                ← AdaptiveRouter + RoutingDecision
-  test_verifier.py               ← MultiLayerVerifier
-  test_rag.py                    ← TierThreeRAG
-  test_pipeline.py               ← Full CAEMPipeline (Tier 1/2/3 paths)
-  test_self_improvement.py       ← SelfImprovementLoop
-  test_eval.py                   ← eval/ metrics, benchmarks, harness
-
-caem-implementation-log.md      ← Authoritative record of all design decisions + alternatives
-caem-unified-plan-v3.tex        ← Full thesis plan and system spec
-hyperparameter-reference.md     ← Three-category hyperparameter breakdown [LIT]/[DES]/[CAL]
-writing-suggestions.md          ← Chapter-by-chapter corrections and thesis writing guidance
+  test_episodic_memory.py
+  test_pre_routing.py
+  test_post_generation.py
+  test_router.py
+  test_verifier.py
+  test_rag.py
+  test_pipeline.py
+  test_self_improvement.py
+  test_eval.py
 ```
 
----
+## Key Technical Facts
 
-## Benchmarks
+- Embedding model is `sentence-transformers/all-mpnet-base-v2`
+- Embedding dimension is 768 (not 384)
+- Episodic memory uses FAISS `IndexIDMap(IndexFlatIP)`
+- Initial post-generation weights start equal at `0.25, 0.25, 0.25, 0.25`
+- Projected `0.20, 0.20, 0.20, 0.40` is a post-calibration target estimate only
 
-| Dataset | Failure mode tested | Primary verifier |
+## Benchmarks and Metrics
+
+| Benchmark | Metric used in code | Notes |
 |---|---|---|
-| HotpotQA | Multi-hop reasoning errors | Self-consistency (SC) |
-| StrategyQA | Implicit chain-of-thought failures | Self-consistency (SC) |
-| FEVER | Factual claim verification | NLI (entailment) |
-| TruthfulQA | Systematic misconceptions / inverse scaling | Semantic entropy (SE) |
+| HotpotQA | EM + token F1 | multi-hop QA |
+| TruthfulQA | ROUGE-L (with EM proxy in harness) | offline judge proxy |
+| FEVER | label accuracy | supports/refutes/not enough info |
+| StrategyQA | EM on yes/no | boolean reasoning |
 
----
+## Environment Setup
 
-## Quick start
+Python setup in this repo is configured for local virtual environment usage (`.venv`) and Pyright targeting Python 3.10.
+
+Install base dependencies:
 
 ```bash
-pip install faiss-cpu sentence-transformers torch transformers datasets pytest scipy
-
-# Run all unit tests (no GPU required)
-python -m pytest tests/ -v
-# Expected: 361 passed
+pip install torch transformers datasets sentence-transformers faiss-cpu pytest scipy scikit-learn tqdm
 ```
 
----
+Optional (faster FAISS on CUDA systems):
 
-## Implementation status
+```bash
+pip install faiss-gpu
+```
 
-**Implementation phase: COMPLETE.** All 8 pipeline stages and the full evaluation harness are implemented. Next phase: experiments.
+### VS Code Fresh-Session Bootstrap
 
-| Module | Stage | Status |
-|---|---|---|
-| `caem/memory/` | Episodic store (FAISS) | ✅ Sessions 11, 20 |
-| `caem/confidence/pre_routing.py` | Stage 3a — u_pre | ✅ Session 12 |
-| `caem/routing/router.py` | Stage 3b — Tier dispatch | ✅ Session 13 |
-| `caem/confidence/post_generation.py` | Stage 4a — û (Tier 2) | ✅ Session 14 |
-| `caem/verification/verifier.py` | Stage 5 — MultiLayerVerifier | ✅ Session 15 |
-| `caem/retrieval/rag.py` | Stage 6 — Tier 3 RAG | ✅ Session 16 |
-| `caem/training/self_improvement.py` | Stage 8 — Fine-tune loop | ✅ Sessions 17, 20 |
-| `caem/pipeline.py` | Full orchestrator | ✅ Sessions 18, 20 |
-| `eval/` | Metrics + benchmarks + harness | ✅ Sessions 19, 20 |
-| Calibration harness | Post-Cycle 0 temperature scaling | 🔬 Experiment phase |
+Workspace settings are pinned in `.vscode/settings.json` so new sessions use:
 
----
+- the project interpreter: `.venv/Scripts/python.exe`
+- Pylance as diagnostics source
+- Pyrefly type errors forced off (for IDEs where the Pyrefly extension is installed)
 
-## Key design decisions
+Run this at the start of each fresh session:
 
-See [`caem-implementation-log.md`](caem-implementation-log.md) for the full record. The most important:
+1. Run task: `CAEM: Session Bootstrap`
+2. If old squiggles remain: run `Python: Restart Language Server`
+3. Then run `Developer: Reload Window`
 
-- **FAISS backend:** `IndexIDMap(IndexFlatIP)` instead of IVF-PQ — exact cosine search, no training required, supports `remove_ids()`. At 20k × 384, the index is ~30 MB (negligible vs 15–19 GB VRAM budget).
-- **u_hat weights start equal (0.25/0.25/0.25/0.25)** — post-calibration values (~0.20/0.20/0.20/0.40) are projected estimates, not implementation starting values. Actual values fitted after Cycle 1.
-- **Retroverify only updates upward** — if the updated model gives a lower (but safe) u_stored, the stored value is kept. Only below-threshold episodes are removed.
+Task definitions are in `.vscode/tasks.json`:
+
+- `CAEM: Check Env` -- verifies interpreter and key imports
+- `CAEM: Quick Diagnostics` -- quick pytest sanity check
+- `CAEM: Session Bootstrap` -- runs both tasks in sequence
+
+## Execution Workflow
+
+Use this order for complete runs.
+
+### 1) Build Passage Index
+
+```bash
+python scripts/build_passage_index.py --output_dir data/passage_index --max_passages 500000
+```
+
+For smoke test:
+
+```bash
+python scripts/build_passage_index.py --smoke_test --output_dir data/passage_index_smoke
+```
+
+### 2) Base Model Check (Gap 1)
+
+```bash
+python scripts/check_base_model.py --output outputs/base_model_check.json
+```
+
+### 3) Cold-Start Seeding (Gap 3)
+
+Your current operation (150 episodes):
+
+```bash
+python scripts/seed_cold_start.py --target_episodes 150 --output_dir outputs/cold_start_memory
+```
+
+This writes:
+
+- `outputs/cold_start_memory/memory_store.faiss`
+- `outputs/cold_start_memory/memory_store.meta`
+- `outputs/cold_start_memory/seed_summary.json`
+
+### 4) Mini Full Pipeline Run
+
+```bash
+python scripts/run_experiment.py \
+  --n_questions 500 \
+  --benchmarks hotpotqa truthfulqa fever strategyqa \
+  --output_dir outputs/mini_experiment \
+  --passage_index data/passage_index \
+  --cold_start_memory outputs/cold_start_memory/memory_store
+```
+
+Note: always pass `--passage_index` explicitly unless your index is at the script default path.
+
+### 5) Resume a Crashed Run
+
+```bash
+python scripts/run_experiment.py \
+  --resume_from_cycle 2 \
+  --output_dir outputs/mini_experiment \
+  --passage_index data/passage_index
+```
+
+### 6) Post-Run Analysis Scripts
+
+```bash
+python scripts/run_purity_validation.py --output_dir outputs/purity_validation
+python scripts/run_ablation.py --caem_results outputs/mini_experiment/all_cycle_results.json --cycle3_checkpoint outputs/mini_experiment/cycle_3 --output_dir outputs/ablation
+python scripts/run_calibration.py --output_dir outputs/calibration
+```
+
+## Lab-Scale Run Plan
+
+After the mini run succeeds:
+
+1. Apply the scaling policy from `LAB_PC_SCALING_GUIDE.md`
+2. Use lab GPU for the full run
+3. Keep thesis-standard and scaled variants clearly separated in outputs
+
+For hardware-specific behavior and precision flags, see `scripts/hardware.py`.
+
+## Testing
+
+Run full tests:
+
+```bash
+python -m pytest tests -v
+```
+
+Focused runs:
+
+```bash
+python -m pytest tests/test_pipeline.py -v
+python -m pytest tests/test_eval.py -v
+```
+
+## Main Outputs You Will Use
+
+From `run_experiment.py`:
+
+- `all_cycle_results.json`
+- `experiment_summary.csv`
+- `dataset_splits.json`
+- `memory_store_cycle_0.faiss/.meta` ... `memory_store_cycle_3.faiss/.meta`
+- `cycle_1/`, `cycle_2/`, `cycle_3/` checkpoints
+
+From auxiliary scripts:
+
+- `outputs/purity_validation/theory_validation.json`
+- `outputs/ablation/ablation_summary.json`
+- `outputs/calibration/calibrated_config.json`
+
+## Documentation Pointers
+
+- `caem-implementation-log.md`: chronological implementation decisions and fixes
+- `hyperparameter-reference.md`: literature/design/calibrated hyperparameter taxonomy
+- `LAB_PC_SCALING_GUIDE.md`: scaling policy for lab hardware
+- `NEXT_SESSION_PLAN.md`: execution planning notes

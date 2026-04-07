@@ -1,4 +1,4 @@
-﻿"""
+"""
 scripts/run_purity_validation.py
 ==================================
 CAEM Theory Validation -- Three Protocols (Chapter 5, Section 5.5)
@@ -54,7 +54,7 @@ import json
 import logging
 import math
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Tuple, cast
 
 logger = logging.getLogger(__name__)
 
@@ -271,7 +271,7 @@ def measure_memory_purity(memory_store, purity_samples: List[dict], bm: str, pip
 # -----------------------------------------------------------------------------
 
 def run_purity_validation_protocol(
-    pipelines_by_cycle: Dict[int, object],
+    pipelines_by_cycle: Mapping[int, Any],
     purity_samples: Dict[str, list],
     output_dir: Path,
 ) -> Dict:
@@ -499,8 +499,9 @@ def run_purity_validation(ns: argparse.Namespace) -> None:
 
         config = CAEMConfig()
         tokenizer = AutoTokenizer.from_pretrained("google/flan-t5-large")
-        model = T5ForConditionalGeneration.from_pretrained("google/flan-t5-large").to(profile.device)
-        encoder = QueryEncoder(config=config)
+        model = T5ForConditionalGeneration.from_pretrained("google/flan-t5-large")
+        model = cast(Any, model).to(torch.device(profile.device))
+        encoder = QueryEncoder(model_name=config.sbert_model, device=profile.device)
         pipeline = CAEMPipeline(model=model, tokenizer=tokenizer, encoder=encoder,
                                 config=config, device=profile.device)
         pipelines_by_cycle = {0: pipeline}
@@ -541,10 +542,10 @@ def run_purity_validation(ns: argparse.Namespace) -> None:
             if profile.use_fp16:
                 model = model.half()
             elif profile.use_bf16:
-                model = model.to(torch.bfloat16)
-            model = model.to(profile.device).eval()
+                model = model.bfloat16()
+            model = cast(Any, model).to(torch.device(profile.device)).eval()
 
-            encoder = QueryEncoder(config=config)
+            encoder = QueryEncoder(model_name=config.sbert_model, device=profile.device)
             pipeline = CAEMPipeline(
                 model=model, tokenizer=tokenizer, encoder=encoder,
                 config=config, device=profile.device, current_cycle=cycle_num,

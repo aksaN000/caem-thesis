@@ -567,7 +567,7 @@ class CAEMPipeline:
     # ------------------------------------------------------------------ #
 
     def _encode_query(self, query: str) -> np.ndarray:
-        """Encode query to L2-normalised 384-dim float32 embedding."""
+        """Encode query to L2-normalised 768-dim float32 embedding."""
         emb = self.encoder.encode(query).astype(np.float32)
         norm = np.linalg.norm(emb)
         if norm > 0:

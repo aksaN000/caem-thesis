@@ -11,7 +11,7 @@ caem/
   memory/
     entry.py         -- EpisodicEntry, PreRoutingConfidence,
                        PostGenerationConfidence, StoredConfidence, RoutingDecision
-    encoder.py       -- QueryEncoder (Sentence-BERT, 384-dim)
+    encoder.py       -- QueryEncoder (Sentence-BERT, 768-dim)
     store.py         -- EpisodicMemoryStore (FAISS-backed)
   confidence/
     pre_routing.py   -- PreRoutingConfidenceEstimator (Stage 3a)

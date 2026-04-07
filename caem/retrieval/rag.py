@@ -12,7 +12,8 @@ Two components
 PassageStore
     Thin FAISS wrapper over a static Wikipedia passage corpus.
     Encodes queries with the same SBERT encoder used by EpisodicMemoryStore
-    so both indices share the same SBERT embedding space (e.g. 768 or 384 dim).
+    so both indices share the same SBERT embedding space (768-dim for
+    all-mpnet-base-v2 in this repository).
     The corpus is read-only at inference -- passages are never modified.
 
 TierThreeRAG

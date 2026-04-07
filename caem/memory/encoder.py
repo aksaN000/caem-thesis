@@ -2,7 +2,7 @@
 caem/memory/encoder.py
 ======================
 QueryEncoder: wraps Sentence-BERT (all-mpnet-base-v2) to produce
-384-dim embeddings for episodic memory storage and retrieval.
+768-dim embeddings for episodic memory storage and retrieval.
 
 Key facts from the thesis spec:
   - Model:  sentence-transformers/all-mpnet-base-v2
@@ -26,7 +26,7 @@ EXPECTED_DIM = 768
 
 
 class QueryEncoder:
-    """Encode natural-language queries into 384-dim Sentence-BERT embeddings.
+    """Encode natural-language queries into 768-dim Sentence-BERT embeddings.
 
     The encoder is loaded lazily on first use to avoid GPU memory allocation
     at import time. This is important when running experiments that instantiate
@@ -38,7 +38,7 @@ class QueryEncoder:
     >>> encoder = QueryEncoder()
     >>> emb = encoder.encode("What is the capital of France?")
     >>> emb.shape
-    (384,)
+    (768,)
     >>> np.linalg.norm(emb)   # Should be ≈ 1.0 (L2-normalised)
     1.0
     """
