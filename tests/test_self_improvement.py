@@ -226,12 +226,23 @@ class TestCollectEpisodes:
         what the final answer is.
         """
         loop, _ = make_loop()
-        store = make_store_with_entries([make_entry("Who?", "Me", u_stored=0.9)])
+        entry = make_entry("Who?", "Me", u_stored=0.9)
+        entry.reasoning_chain = "Because the evidence supports this answer."
+        store = make_store_with_entries([entry])
         pairs = loop._collect_episodes(store)
         assert isinstance(pairs[0], QAPair)
         assert pairs[0].question == "Who?"
-        # The answer field carries reasoning_chain ("Because."), not entry.answer ("Me")
-        assert pairs[0].answer == "Because."
+        # The answer field carries reasoning_chain, not entry.answer.
+        assert pairs[0].answer == "Because the evidence supports this answer."
+
+    def test_short_chain_falls_back_to_answer(self):
+        """EXP-16: chains shorter than 10 chars fall back to verified answer."""
+        loop, _ = make_loop()
+        entry = make_entry("Who?", "Me", u_stored=0.9)
+        entry.reasoning_chain = "short"
+        store = make_store_with_entries([entry])
+        pairs = loop._collect_episodes(store)
+        assert pairs[0].answer == "Me"
 
 
 # -----------------------------------------------------------------------------
@@ -431,28 +442,29 @@ class TestRunCycle:
         assert result.cycle_num == 1
 
     def test_aborted_when_forgetting_fails(self):
-        """If forgetting_score < tolerance, run_cycle sets aborted=True."""
+        """If post/pre retention ratio < tolerance, run_cycle sets aborted=True."""
         cfg = CAEMConfig()
         cfg.epochs_per_cycle = 0
-        cfg.forgetting_tolerance = 0.99   # very strict -- will fail
+        cfg.forgetting_tolerance = 0.93
         cfg.min_u_stored_for_training = 0.70
         loop, _ = make_loop(config=cfg)
-        # forgetting_score: tokenizer returns "Paris", answers are "London" -> 0.0
-        loop.tokenizer.decode.return_value = "Paris"
-        general = [QAPair("Q?", "London")]
         store = make_store_with_entries([make_entry(u_stored=0.80)])
-        result = loop.run_cycle(1, store, general * 10)
+        with patch.object(loop, "_forgetting_score", side_effect=[0.14, 0.10]):
+            result = loop.run_cycle(1, store, make_general_data(10))
         assert result.aborted is True
+        assert result.forgetting_score == pytest.approx(0.10 / 0.14, abs=1e-6)
 
     def test_not_aborted_when_forgetting_passes(self):
         cfg = CAEMConfig()
         cfg.epochs_per_cycle = 0
-        cfg.forgetting_tolerance = 0.0   # always passes
+        cfg.forgetting_tolerance = 0.93
         cfg.min_u_stored_for_training = 0.70
         loop, _ = make_loop(config=cfg)
         store = make_store_with_entries([make_entry(u_stored=0.80)])
-        result = loop.run_cycle(1, store, make_general_data(4))
+        with patch.object(loop, "_forgetting_score", side_effect=[0.14, 0.14]):
+            result = loop.run_cycle(1, store, make_general_data(10))
         assert result.aborted is False
+        assert result.forgetting_score == pytest.approx(1.0)
 
     def test_checkpoint_created(self):
         """run_cycle must create a checkpoint directory."""

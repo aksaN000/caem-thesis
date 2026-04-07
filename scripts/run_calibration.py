@@ -129,9 +129,26 @@ def fit_temperature_scalar(
     logits_arr = np.array(logits, dtype=np.float64)
     labels_arr = np.array(labels, dtype=np.float64)
 
+    finite_mask = np.isfinite(logits_arr) & np.isfinite(labels_arr)
+    if not finite_mask.all():
+        n_bad = int((~finite_mask).sum())
+        logger.warning(
+            "Temperature scaling: dropping %d non-finite samples.",
+            n_bad,
+        )
+        logits_arr = logits_arr[finite_mask]
+        labels_arr = labels_arr[finite_mask]
+
+    if logits_arr.size < 20:
+        logger.warning(
+            "Temperature scaling: too few valid samples (%d) after filtering; using T=1.0.",
+            int(logits_arr.size),
+        )
+        return 1.0
+
     def nll_loss(log_T) -> float:
         T = math.exp(log_T[0])
-        scaled = logits_arr / T
+        scaled = np.clip(logits_arr / T, -60.0, 60.0)
         # Binary cross-entropy
         p = 1 / (1 + np.exp(-scaled))  # sigmoid
         p = np.clip(p, 1e-7, 1 - 1e-7)
@@ -344,14 +361,33 @@ def calibrate_pipeline(
         logger.error("No calibration data collected -- aborting calibration.")
         return {}
 
+    # Guard against non-finite u_pre values from upstream estimators.
+    cleaned = [
+        (float(u), int(l))
+        for u, l in zip(u_pre_logits, u_pre_labels)
+        if math.isfinite(float(u))
+    ]
+    if len(cleaned) != len(u_pre_logits):
+        logger.warning(
+            "Calibration: dropped %d non-finite u_pre samples before fitting.",
+            len(u_pre_logits) - len(cleaned),
+        )
+    if not cleaned:
+        logger.error("No finite u_pre samples remain after filtering -- aborting calibration.")
+        return {}
+    u_pre_logits = [u for u, _ in cleaned]
+    u_pre_labels = [l for _, l in cleaned]
+
     # -- ECE before calibration ---------------------------------------------- #
     ece_before = expected_calibration_error(u_pre_logits, [float(l) for l in u_pre_labels])
     logger.info("ECE before temperature scaling: %.6f", ece_before)
 
     # -- Temperature scaling ------------------------------------------------- #
     # Convert u_pre [0,1] to logit space for temperature fitting
-    import math
-    logits = [math.log(max(u, 1e-7) / max(1 - u, 1e-7)) for u in u_pre_logits]
+    logits = []
+    for u in u_pre_logits:
+        u_clamped = min(max(float(u), 1e-7), 1.0 - 1e-7)
+        logits.append(math.log(u_clamped / (1.0 - u_clamped)))
     T = fit_temperature_scalar(logits, u_pre_labels)
 
     # Apply T and re-compute ECE

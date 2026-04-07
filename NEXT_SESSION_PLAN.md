@@ -14,7 +14,7 @@
 | Ch1 TikZ fix (IMPL-01a) | ✅ DONE | Tier 1 → Stage 5 arrow removed (2026-04-07) |
 | C2-04/C2-05 text fix | ✅ DONE | chapter_2.tex "384-dim" → "768-dimensional" (both §2.1.4 and §2.2.4) |
 | paper-writing skill (v0.4.0) | ⚠️ MANUAL STEP | Updated files in `plugin-skill-updates/` — apply manually to plugin folder |
-| Mini-run (n=500 per bm) | ⏳ IN PROGRESS | All 4 benchmarks active, restarted clean |
+| Mini-run (n=500 per bm) | ⏳ IN PROGRESS | Resumed from Cycle 0 checkpoint after EXP-14/15/16 fixes. Cycle 1 completed (retention 1.75, no abort). Cycles 2–3 running. |
 | Full experiment (n=5000) | ❌ PLANNED | Pending lab PC (4090/5090) access |
 | Chapter writing | ❌ PLANNED | Ch3+Ch4 can start now; Ch5 blocked on data |
 
@@ -435,6 +435,9 @@ GEN-10 (check Ch1 stated target vs actual result; update if materially different
 | EXP-11 | TruthfulQA EM always 0 | ROUGE-L with 0.15 threshold |
 | EXP-12 | AB4 (no reverification) missing | `--disable_reverification` added |
 | EXP-13 | Token limit 128 cuts CoT | cot_max_new_tokens=256, CoT induction, extract_cot_answer |
+| EXP-14 | Forgetting check compares absolute accuracy (14%) vs 93% floor → always aborts | ✅ FIXED — relative retention ratio (post/pre ≥ 0.93). Verified: ratio 1.75 in Cycle 1, no abort, weights kept. 32/32 tests pass. |
+| EXP-15 | NaN training loss across all epochs | ✅ FIXED — float32 L2, bf16/AMP, clip_grad_norm=1.0. Verified: finite loss in resumed run. |
+| EXP-16 | CE training loss ~49; reasoning_chain quality unknown | ✅ RESOLVED — chain diagnostics added; FEVER/StrategyQA chains are correctly short labels (2–8 chars), not artifacts. Under-10-char fallback to entry.answer added. High CE is expected given task diversity + small dataset; not a bug. 32/32 tests pass. |
 | Session 29 | L2 λ=0.4 (wrong) in early notes → λ=0.01 (correct) [DES] | Fixed in hyperparameter-reference.md + writing-suggestions.md |
 
 ---

@@ -142,6 +142,15 @@ def build_pipeline(config: Any, ns: Any, m: Dict[str, Any]) -> "CAEMPipeline":
     logger.info("Device: %s | GPU: %s | VRAM: %.1f GB",
                 device, hw.gpu_name or "n/a", hw.vram_gb)
 
+    # Keep fine-tuning batch size hardware-safe for the current GPU profile.
+    if getattr(config, "batch_size", 0) > hw.recommended_batch_size:
+        logger.info(
+            "Adjusting batch_size %d -> %d for current hardware.",
+            config.batch_size,
+            hw.recommended_batch_size,
+        )
+        config.batch_size = hw.recommended_batch_size
+
     # -- Flan-T5-Large ----------------------------------------------------- #
     logger.info("Loading Flan-T5-Large ...")
     torch = m["torch"]
@@ -670,13 +679,13 @@ def run_experiment(ns: argparse.Namespace) -> None:
 
         if cycle_result.aborted:
             logger.warning(
-                "  Cycle %d ABORTED (forgetting score %.3f < %.3f). "
+                "  Cycle %d ABORTED (retention ratio %.3f < %.3f). "
                 "Weights restored. Eval still runs on the restored model.",
                 cycle_num, cycle_result.forgetting_score, config.forgetting_tolerance,
             )
         else:
             logger.info(
-                "  Fine-tuning done: %d episodes | forgetting=%.3f | loss=%.4f",
+                "  Fine-tuning done: %d episodes | retention_ratio=%.3f | loss=%.4f",
                 cycle_result.n_episodes_used,
                 cycle_result.forgetting_score,
                 cycle_result.final_train_loss,

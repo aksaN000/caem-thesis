@@ -19,8 +19,9 @@ What a cycle looks like
    θ_prev are the weights frozen at the START of this cycle (previous
    checkpoint). The L2 term penalises large deviations from the prior.
 4. Forgetting check: after fine-tuning, measure accuracy on a held-out
-   general-domain set. If retention < forgetting_tolerance (0.93),
-   abort and restore θ_prev. This is the catastrophic forgetting guard.
+    general-domain set and compare post/pre retention ratio. If
+    (post / pre) < forgetting_tolerance (0.93), abort and restore θ_prev.
+    This is the catastrophic forgetting guard.
 5. Save checkpoint: model weights + cycle metadata to outputs/cycle_{n}/.
 
 L2 vs full EWC
@@ -92,7 +93,7 @@ class CycleResult:
     n_general_used:     int
     epochs_completed:   int
     final_train_loss:   float
-    forgetting_score:   float   # retention on general set (0–1, higher = less forgetting)
+    forgetting_score:   float   # post/pre retention ratio (>=1 means no forgetting)
     aborted:            bool    # True if forgetting check failed and weights were restored
     checkpoint_path:    str
 
@@ -201,6 +202,7 @@ class SelfImprovementLoop:
         if device is None:
             device = str(next(model.parameters()).device)
         self.device = device
+        self._last_chain_diagnostics: Optional[Dict[str, object]] = None
 
     # ------------------------------------------------------------------ #
     # Public API                                                           #
@@ -243,6 +245,7 @@ class SelfImprovementLoop:
         # Step 1: collect episode training data
         episode_pairs = self._collect_episodes(memory_store)
         logger.info("Cycle %d: %d verified episodes collected.", cycle_num, len(episode_pairs))
+        self._log_chain_diagnostics(cycle_num)
 
         if not episode_pairs:
             logger.warning("Cycle %d: no episodes meet quality threshold -- skipping.", cycle_num)
@@ -270,21 +273,43 @@ class SelfImprovementLoop:
         # Step 4: snapshot θ_prev BEFORE fine-tuning (used for L2 reg + forgetting restore)
         theta_prev = self._snapshot_weights()
 
+        # Step 4b: measure forgetting baseline BEFORE fine-tuning (EXP-14 fix).
+        # The forgetting check compares RELATIVE retention (post/pre), not absolute
+        # accuracy. TriviaQA exact-match baseline for Flan-T5-Large is ~10–20%, so
+        # an absolute 0.93 floor would always abort. Relative ratio ≥ forgetting_tolerance
+        # (0.93) means "retain at least 93% of whatever capability existed before".
+        baseline_forgetting = self._forgetting_score(general_eval)
+        logger.info(
+            "Cycle %d: pre-training forgetting baseline = %.4f",
+            cycle_num, baseline_forgetting,
+        )
+
         # Step 5: fine-tune with L2 regularisation
         epochs_done, final_loss = self._finetune(train_pairs, theta_prev)
 
-        # Step 6: forgetting check
-        forgetting_score = self._forgetting_score(general_eval)
+        # Step 6: forgetting check — relative retention ratio (EXP-14 fix)
+        post_forgetting = self._forgetting_score(general_eval)
+        # If baseline is ~0, the ratio is undefined. Treat as "no detectable
+        # forgetting" to avoid false aborts from 0/0 on exact-match metric.
+        if baseline_forgetting <= 1e-6:
+            retention_ratio = 1.0
+        else:
+            retention_ratio = post_forgetting / baseline_forgetting
         logger.info(
-            "Cycle %d: forgetting score = %.4f (tolerance = %.4f)",
-            cycle_num, forgetting_score, cfg.forgetting_tolerance,
+            "Cycle %d: post-training forgetting score = %.4f | retention ratio = %.4f "
+            "(threshold = %.4f)",
+            cycle_num, post_forgetting, retention_ratio, cfg.forgetting_tolerance,
         )
 
+        # Use retention_ratio as the reported forgetting_score so CycleResult and
+        # checkpoints log a value that is interpretable as "fraction of capability retained".
+        forgetting_score = retention_ratio
+
         aborted = False
-        if forgetting_score < cfg.forgetting_tolerance:
+        if retention_ratio < cfg.forgetting_tolerance:
             logger.warning(
-                "Cycle %d: forgetting check FAILED (%.4f < %.4f) -- restoring θ_prev.",
-                cycle_num, forgetting_score, cfg.forgetting_tolerance,
+                "Cycle %d: forgetting check FAILED (retention %.4f < %.4f) -- restoring θ_prev.",
+                cycle_num, retention_ratio, cfg.forgetting_tolerance,
             )
             self._restore_weights(theta_prev)
             aborted = True
@@ -345,13 +370,85 @@ class SelfImprovementLoop:
         """
         threshold = self.config.min_u_stored_for_training
         pairs = []
+        n_empty = 0
+        n_too_short = 0
+        chain_lengths = []
+        preview_texts = []
+
         for entry in memory_store.all_entries():
             if entry.u_stored >= threshold:
-                # Use reasoning_chain as the seq2seq target -- not answer.
-                # This aligns training with the chain-of-thought supervision
-                # described in the thesis methodology.
-                pairs.append(QAPair(question=entry.question, answer=entry.reasoning_chain))
+                chain = (entry.reasoning_chain or "").strip()
+                chain_len = len(chain)
+                chain_lengths.append(chain_len)
+
+                # Quality filter (EXP-16): empty/too-short chains are replaced
+                # with the verified answer so we do not train on blank targets.
+                if chain_len == 0:
+                    n_empty += 1
+                    chain = (entry.answer or "").strip()
+                elif chain_len < 10:
+                    n_too_short += 1
+                    chain = (entry.answer or "").strip()
+
+                pairs.append(QAPair(question=entry.question, answer=chain))
+                preview_texts.append(chain.replace("\n", " ").strip()[:120])
+
+        previews = random.sample(preview_texts, min(3, len(preview_texts))) if preview_texts else []
+        self._last_chain_diagnostics = {
+            "count": len(pairs),
+            "min_len": min(chain_lengths) if chain_lengths else 0,
+            "avg_len": (sum(chain_lengths) / len(chain_lengths)) if chain_lengths else 0.0,
+            "max_len": max(chain_lengths) if chain_lengths else 0,
+            "n_empty": n_empty,
+            "n_too_short": n_too_short,
+            "previews": previews,
+        }
+
         return pairs
+
+    def _log_chain_diagnostics(self, cycle_num: int) -> None:
+        """Log chain quality diagnostics for the latest _collect_episodes call."""
+        diag = self._last_chain_diagnostics or {}
+        count_raw = diag.get("count", 0)
+        count = count_raw if isinstance(count_raw, int) else 0
+
+        if count == 0:
+            logger.info("Cycle %d: chain diagnostics -- no collected episodes.", cycle_num)
+            return
+
+        min_len_raw = diag.get("min_len", 0)
+        avg_len_raw = diag.get("avg_len", 0.0)
+        max_len_raw = diag.get("max_len", 0)
+        n_empty_raw = diag.get("n_empty", 0)
+        n_too_short_raw = diag.get("n_too_short", 0)
+
+        min_len = min_len_raw if isinstance(min_len_raw, int) else 0
+        avg_len = float(avg_len_raw) if isinstance(avg_len_raw, (int, float)) else 0.0
+        max_len = max_len_raw if isinstance(max_len_raw, int) else 0
+        n_empty = n_empty_raw if isinstance(n_empty_raw, int) else 0
+        n_too_short = n_too_short_raw if isinstance(n_too_short_raw, int) else 0
+        n_fallback = n_empty + n_too_short
+
+        logger.info(
+            "Cycle %d: chain diagnostics -- length min/avg/max = %d / %.1f / %d",
+            cycle_num,
+            min_len,
+            avg_len,
+            max_len,
+        )
+        logger.info(
+            "Cycle %d: chain diagnostics -- fallback to entry.answer: %d "
+            "(empty=%d, too_short=%d)",
+            cycle_num,
+            n_fallback,
+            n_empty,
+            n_too_short,
+        )
+
+        previews = diag.get("previews", [])
+        if isinstance(previews, list):
+            for i, preview in enumerate(previews, start=1):
+                logger.info("Cycle %d: chain preview %d/3: %s", cycle_num, i, str(preview))
 
     def _mix(
         self,
@@ -423,6 +520,20 @@ class SelfImprovementLoop:
         self.model.train()
         self.model.to(self.device)
 
+        # Use AMP + GradScaler when the model is loaded in half precision.
+        # This preserves memory usage on 12 GB GPUs while reducing fp16 NaN risk.
+        param_dtype = next(self.model.parameters()).dtype
+        use_cuda = str(self.device).startswith("cuda")
+        if use_cuda and param_dtype == torch.float16 and torch.cuda.is_bf16_supported():
+            logger.info("Fine-tuning: switching fp16 -> bf16 for numerical stability.")
+            self.model.to(dtype=torch.bfloat16)
+            param_dtype = torch.bfloat16
+        amp_enabled = use_cuda and param_dtype in (torch.float16, torch.bfloat16)
+        amp_dtype = torch.float16 if param_dtype == torch.float16 else torch.bfloat16
+        scaler = torch.cuda.amp.GradScaler(enabled=amp_enabled and amp_dtype == torch.float16)
+        if amp_enabled:
+            logger.info("Fine-tuning with AMP (%s).", str(param_dtype))
+
         epochs_done = 0
         final_loss  = 0.0
 
@@ -435,22 +546,45 @@ class SelfImprovementLoop:
                 attention_mask = batch["attention_mask"].to(self.device)
                 labels         = batch["labels"].to(self.device)
 
-                outputs = self.model(
-                    input_ids=input_ids,
-                    attention_mask=attention_mask,
-                    labels=labels,
-                )
-                ce_loss = outputs.loss
+                # Skip degenerate batches where every label is ignored.
+                if int((labels != -100).sum().item()) == 0:
+                    continue
+
+                with torch.autocast(device_type="cuda", dtype=amp_dtype, enabled=amp_enabled):
+                    outputs = self.model(
+                        input_ids=input_ids,
+                        attention_mask=attention_mask,
+                        labels=labels,
+                    )
+                    ce_loss = outputs.loss
+
+                if not torch.isfinite(ce_loss):
+                    logger.warning("Non-finite CE loss encountered; skipping batch.")
+                    optimizer.zero_grad(set_to_none=True)
+                    continue
 
                 # L2 regularisation: penalise deviation from θ_prev
                 l2_loss = self._l2_penalty(theta_prev)
                 loss = ce_loss + (cfg.l2_lambda / 2.0) * l2_loss
 
-                optimizer.zero_grad()
-                loss.backward()
-                # Gradient clipping for training stability [DES]
-                nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
-                optimizer.step()
+                if not torch.isfinite(loss):
+                    logger.warning("Non-finite total loss encountered; skipping batch.")
+                    optimizer.zero_grad(set_to_none=True)
+                    continue
+
+                optimizer.zero_grad(set_to_none=True)
+                if scaler.is_enabled():
+                    scaler.scale(loss).backward()
+                    scaler.unscale_(optimizer)
+                    # Gradient clipping for training stability [DES]
+                    nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
+                    scaler.step(optimizer)
+                    scaler.update()
+                else:
+                    loss.backward()
+                    # Gradient clipping for training stability [DES]
+                    nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
+                    optimizer.step()
 
                 epoch_loss += loss.item()
                 n_batches  += 1
@@ -472,7 +606,11 @@ class SelfImprovementLoop:
         """
         penalty = torch.tensor(0.0, device="cpu")
         for p, p0 in zip(self.model.parameters(), theta_prev):
-            diff = p.detach().cpu() - p0   # both on CPU, no VRAM cost
+            # Cast to fp32 before computing diff. p0 is already fp32 (stored by
+            # _snapshot_weights). Without .float() here, fp16 model params produce
+            # fp16 subtraction whose squared sum can overflow (fp16 max = 65504)
+            # with 780M parameters, propagating inf -> NaN into the total loss.
+            diff = p.detach().cpu().float() - p0   # both fp32, no VRAM cost
             penalty = penalty + (diff ** 2).sum()
         return penalty.to(self.device)
 
@@ -530,8 +668,14 @@ class SelfImprovementLoop:
     # ------------------------------------------------------------------ #
 
     def _snapshot_weights(self) -> List[torch.Tensor]:
-        """Return a deepcopy of all model parameter tensors (CPU)."""
-        return [p.detach().cpu().clone() for p in self.model.parameters()]
+        """Return a deepcopy of all model parameter tensors (CPU, always fp32).
+
+        Stored in fp32 regardless of model dtype so that _l2_penalty can
+        safely sum 780M squared differences without fp16 overflow (fp16 max
+        is 65504; the cumulative L2 norm of a 780M-param model easily exceeds
+        this in early training).
+        """
+        return [p.detach().cpu().float().clone() for p in self.model.parameters()]
 
     def _restore_weights(self, theta_prev: List[torch.Tensor]) -> None:
         """Restore model parameters to θ_prev in-place."""
