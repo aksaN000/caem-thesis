@@ -154,8 +154,8 @@ Figure~\ref{fig:architecture} illustrates the system architecture.
 % CRITICAL FIX 1: Memory retrieves to Tier 1
 \draw[arrow=green!70, line width=2.5pt] (mem) to[out=-45, in=90] node[right, font=\scriptsize, xshift=2mm, yshift=1mm, fill=white, inner sep=1pt, text=black] {Retrieve} (t1);
 
-% Tier 1: Direct to verify (no generation)
-\draw[arrow=green!70] (t1) -| (verify);
+% Tier 1: Serves answer directly from memory -- skips Stage 5 entirely
+% Freshness is maintained by retroactive re-verification each cycle, not per-query
 
 % CRITICAL FIX 2: Model generates for Tier 2 (SOLID, PROMINENT)
 \draw[arrow=orange!70, line width=2.5pt] (model) -- node[left, font=\scriptsize, xshift=-2mm, fill=white, inner sep=1pt, text=black] {Generate} (t2gen);
