@@ -78,16 +78,114 @@ All CAEM content maps cleanly to the 6-chapter template:
 
 **Reference:** `LAB_PC_SCALING_GUIDE.md` §7 for exact L2 penalty GPU migration code (3-step change).
 
-### Chapter contents overview
+### Chapter contents overview and LaTeX heading hierarchy
 
-| Chapter | Primary purpose | Key sections |
+> **Template constraint:** The BracU CSE400 `main.tex` has exactly 6 `\chapter{}` commands — fixed, cannot add more. `chapter_7.tex` exists in the template folder but is NOT referenced in `main.tex`. Do not add a 7th chapter.
+>
+> **Heading levels:** Use `\section{}` for 4–6 major divisions per chapter. Use `\subsection{}` for sub-topics within each section. The planning labels §4.2, §4.3 etc. below are logical groupings — several of them become `\subsection{}` inside a single `\section{}`, not separate `\section{}` commands.
+
+| Chapter | `\section{}` headings (top level) | `\subsection{}` within each section |
 |---|---|---|
-| Ch 1 | Motivate the problem; state CAEM's contribution | Problem statement, research objectives, contributions, thesis organisation |
-| Ch 2 | Survey hallucination, memory, verification, self-training prior work | Hallucination taxonomy, episodic memory, NLI/SC/SE, continual learning, ReST, RAG |
-| Ch 3 | State functional + non-functional requirements; constraints as design drivers | Functional requirements (8 pipeline stages), NFRs (latency/VRAM/GPU budget), societal impact |
-| Ch 4 | Present the full CAEM architecture with theory | Routing (§4.2), confidence signals (§4.3–4.4), verification (§4.5), episodic memory (§4.6), self-improvement loop (§4.7), calibration (§4.8), theory (§4.9) |
-| Ch 5 | Report and interpret all experimental results | Calibration (§5.1), main results (§5.2), mechanism evidence table (§5.3), theory validation (§5.4), ablations (§5.5), baselines (§5.6), efficiency (§5.7), stability-plasticity (§5.8), error analysis (§5.9) |
-| Ch 6 | State conclusions, limitations, future work | Findings (§6.1), limitations (§6.2), future work (§6.3), theoretical contribution (§6.4) |
+| **Ch 1** ✅ SUBMITTED | Background / Motivation / Problem Statement / Objectives / Methodology in Brief / Scope and Challenges | Subsections already written |
+| **Ch 2** ✅ SUBMITTED | Preliminaries / Review of Existing Research / Summary | Subsections already written (hallucination taxonomy, NLI, SC, SE, memory, continual learning) |
+| **Ch 3** | Final Specifications and Requirements / Societal and Ethical Impact / Project Management | Requirements → FR (8 stages) + NFR (latency/VRAM) + HW constraints as subsections; Impact → societal + ethical as subsections |
+| **Ch 4** | System Architecture Overview / Confidence Estimation and Adaptive Routing / Verification Pipeline and Episodic Memory / Self-Improvement Loop and Calibration / Theoretical Analysis | See detailed hierarchy below |
+| **Ch 5** | Experimental Setup / Main Results / Analysis of Mechanisms / Ablation Study / Efficiency and Stability Analysis / Discussion | See detailed hierarchy below |
+| **Ch 6** | Summary of Findings / Limitations / Future Work | Findings → one subsection per theory + empirical claim; Limitations → SBERT routing, NLI ground-truth dependency, inference scope; Future Work → distillation, capacity, reference-free NLI |
+
+---
+
+### Chapter 4 — Detailed `\section{}` / `\subsection{}` Hierarchy
+
+```
+\section{System Architecture Overview}
+    (no subsections needed — prose + FIG-C4-01 + three-value summary table)
+
+\section{Confidence Estimation and Adaptive Routing}
+    \subsection{Pre-Routing Confidence Estimation}   ← u_pre, C_conv, EQN-C4-01
+    \subsection{Three-Tier Adaptive Routing}         ← routing logic, OR-condition, FIG-C4-02, ALG-C4-02, EQN-C4-02
+    \subsection{Post-Generation Confidence (û)}      ← four signals, FIG-C4-03, EQN-C4-03, blind-spot table
+
+\section{Verification Pipeline and Episodic Memory}
+    \subsection{Multi-Signal Verification (Stage 5)} ← NLI+SC+SE, VE1/VE2, FIG-C4-04, ALG-C4-03, EQN-C4-04
+    \subsection{Episodic Memory Architecture}        ← schema, immutable/mutable split, FIG-C4-05
+
+\section{Self-Improvement Loop and Calibration}
+    \subsection{Iterative Self-Improvement (Stage 8)}← ReST framing, L2 reg, ALG-C4-04, EQN-C4-05, FIG-C4-06
+    \subsection{Retroactive Re-verification}         ← freshness mechanism, ALG-C4-05
+    \subsection{Confidence Calibration}              ← temperature scaling, EQN-C4-06, EQN-C4-07, IMPL-03
+
+\section{Theoretical Analysis}
+    \subsection{Data Purity Theorem}                 ← THM-C4-01 + proof, EQN-C4-08
+    \subsection{Coupled Improvement Recurrence}      ← THM-C4-02, monotonicity
+    \subsection{Convergence Analysis}                ← THM-C4-03, Banach, diminishing Δ
+```
+
+**Writing-suggestions entries by section:**
+
+| Section | Entries to apply |
+|---|---|
+| §System Architecture Overview | C4-01, C4-03 (three-value table), GEN-01, GEN-11 |
+| §Confidence Estimation / u_pre | C4-03b, C4-10 (provenance) |
+| §Confidence Estimation / Routing | C4-04, C4-10b, C4-20, IMPL-01, BM-01–06 |
+| §Confidence Estimation / û | C4-05, C4-06, C4-07, C4-09 (blind-spot), C4-21 (field names) |
+| §Verification / Stage 5 | C4-08 (û_stored≠û), C4-22 (reasoning_chain target), IMPL-02, BM-03–05, GEN-05 |
+| §Verification / Memory | C4-15 (immutable/mutable), C4-21 |
+| §Self-Improvement / Stage 8 | C4-16 (ReST), C4-19 (L2 — name correctly), GEN-11 |
+| §Self-Improvement / Retroactive | IMPL-01 (freshness guarantee), C5-07 |
+| §Calibration | IMPL-03, GEN-13 (device rule) |
+| §Theory / Purity | C4-17, PUB-02 (full proof), TH-01, TH-02 |
+| §Theory / Recurrence | C4-18, TH-01 |
+| §Theory / Convergence | C4-23, TH-01 |
+
+---
+
+### Chapter 5 — Detailed `\section{}` / `\subsection{}` Hierarchy
+
+```
+\section{Experimental Setup}
+    \subsection{Benchmarks and Evaluation Metrics}   ← BM-01–06, IMPL-04 (StrategyQA split)
+    \subsection{Baselines}                           ← 6 baselines described
+    \subsection{Calibration Results}                 ← TAB-C5-07, C5-11, GEN-03
+
+\section{Main Results}
+    \subsection{Accuracy Across Cycles}              ← FIG-C5-01, TAB-C5-01 (CAEM vs baselines)
+    \subsection{Statistical Significance}            ← TAB-C5-06, McNemar's, C5-05, C5-12, GEN-12
+
+\section{Analysis of Mechanisms}
+    \subsection{Mechanism Evidence}                  ← TAB-C5-02 (tier fractions, MMLU, û_stored), FIG-C5-02
+    \subsection{Theory Validation}                   ← TAB-C5-03 (purity theorem), TAB-C5-04 (convergence Δ), C5-03, TH-03, TH-04
+
+\section{Ablation Study}
+    (single section, no subsections needed — TAB-C5-05 with grouped rows)
+    ← C5-09, ablation_summary.json
+
+\section{Efficiency and Stability Analysis}
+    \subsection{Computational Efficiency}            ← TAB-C5-08, FIG-C5-02 tier growth, C5-06
+    \subsection{Stability-Plasticity Analysis}       ← FIG-C5-03 MMLU retention, forgetting scores, C5-07
+    \subsection{Memory Utilisation}                  ← TAB (episodes vs capacity), pruning rate, C5-10
+
+\section{Discussion}
+    \subsection{Error Analysis and Failure Modes}    ← C5-08 (qualitative failures per benchmark)
+    \subsection{Convergence and Practical Ceiling}   ← C4-23 narrative, TAB-C5-04 recap, C5-04 thread
+```
+
+**Writing-suggestions entries by section:**
+
+| Section | Entries to apply |
+|---|---|
+| §Setup / Benchmarks | BM-01–06, IMPL-04, C5-01 |
+| §Setup / Calibration | C5-11, GEN-03, C4-07 (actual weights) |
+| §Main Results / Accuracy | C5-04 (narrative thread), GEN-02, GEN-09 |
+| §Main Results / Significance | C5-05, C5-12, GEN-12 |
+| §Mechanisms / Evidence | C5-02, GEN-06 (FEVER Tier 1 accuracy) |
+| §Mechanisms / Theory | C5-03, TH-03, TH-04, C4-17 (replace illustrative) |
+| §Ablations | C5-09, PUB-04 (LoRA — Appendix), PUB-05 (EWC — Appendix) |
+| §Efficiency | C5-06, GEN-13 (actual device latency) |
+| §Stability-Plasticity | C5-07, IMPL-05 |
+| §Memory Utilisation | C5-10 |
+| §Discussion / Error Analysis | C5-08 |
+| §Discussion / Convergence | C4-23, C5-04 closing narrative |
 
 ---
 
