@@ -382,8 +382,8 @@ class CAEMPipeline:
         """
         cfg = self.config
 
-        # Tokenise query
-        prompt = f"Question: {query}\nThink step by step:"
+        # Tokenise query (benchmark-aware for classification tasks).
+        prompt = self._build_tier2_prompt(query)
         enc = self.tokenizer(
             prompt,
             return_tensors="pt",
@@ -446,6 +446,53 @@ class CAEMPipeline:
         answer = self.rag.generate(query)
         logger.debug("Tier 3 RAG answer: '%s...'", answer[:80])
         return answer
+
+    @staticmethod
+    def _extract_after_token(query: str, token: str) -> str:
+        """Return substring after token (case-insensitive), else full query."""
+        q_lower = query.lower()
+        t_lower = token.lower()
+        idx = q_lower.find(t_lower)
+        if idx == -1:
+            return query.strip()
+        return query[idx + len(token):].strip()
+
+    @staticmethod
+    def _detect_query_task(query: str) -> str:
+        """Infer benchmark task style from constrained prompt prefixes."""
+        q = query.lower().strip()
+        if q.startswith("answer with one of: supports, refutes, not enough info."):
+            return "fever"
+        if q.startswith("answer yes or no."):
+            return "strategyqa"
+        return "open"
+
+    def _build_tier2_prompt(self, query: str) -> str:
+        """Build Tier 2 generation prompt with task-specific CoT formatting."""
+        task = self._detect_query_task(query)
+
+        if task == "fever":
+            claim = self._extract_after_token(query, "Claim:")
+            return (
+                "Determine whether the claim is supports, refutes, or not enough info.\n"
+                "Provide brief reasoning, then the final label.\n"
+                "Format:\n"
+                "Reasoning: <short explanation>\n"
+                "Answer: supports|refutes|not enough info\n"
+                f"Claim: {claim}"
+            )
+
+        if task == "strategyqa":
+            q_text = self._extract_after_token(query, "Question:")
+            return (
+                "Answer the question with brief reasoning and a final yes/no label.\n"
+                "Format:\n"
+                "Reasoning: <short explanation>\n"
+                "Answer: yes|no\n"
+                f"Question: {q_text}"
+            )
+
+        return f"Question: {query}\nThink step by step:"
 
     # ------------------------------------------------------------------ #
     # Verification (Stage 5)                                               #

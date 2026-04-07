@@ -1,5 +1,5 @@
 # CAEM — Master Execution & Writing Plan
-**Updated: 2026-04-07 | Session 30 — Sequential Flow from Current State to Submission**
+**Updated: 2026-04-07 | Session 31 — Sequential Flow from Current State to Submission**
 
 ---
 
@@ -8,13 +8,13 @@
 | Step | Status | Notes |
 |---|---|---|
 | Smoke Test (Cycle 0→3) | ✅ DONE | Full pipeline verified on RTX 3060 |
-| Cold-start seeding (Gap 3) | ✅ DONE | 447 verified episodes stored |
+| Cold-start seeding (Gap 3) | ⏳ IN PROGRESS (RESEED) | Fresh reseeding started after Fix A to avoid mixing old label-only classification episodes with new reasoning+label format |
 | Writing prep files | ✅ DONE | `writing-suggestions.md`, `hyperparameter-reference.md`, `caem-implementation-log.md` all updated |
 | Visual elements inventory | ✅ DONE | Full figures/algorithms/equations/theorems spec added to `writing-suggestions.md` |
 | Ch1 TikZ fix (IMPL-01a) | ✅ DONE | Tier 1 → Stage 5 arrow removed (2026-04-07) |
 | C2-04/C2-05 text fix | ✅ DONE | chapter_2.tex "384-dim" → "768-dimensional" (both §2.1.4 and §2.2.4) |
 | paper-writing skill (v0.4.0) | ⚠️ MANUAL STEP | Updated files in `plugin-skill-updates/` — apply manually to plugin folder |
-| Mini-run (n=500 per bm) | ⏳ IN PROGRESS | Resumed from Cycle 0 checkpoint after EXP-14/15/16 fixes. Cycle 1 completed (retention 1.75, no abort). Cycles 2–3 running. |
+| Mini-run (n=500 per bm) | ⏳ QUEUED AFTER RESEED | Fresh run from `resume_from_cycle=0` starts immediately after reseeding completes (`outputs/mini_experiment`) |
 | Full experiment (n=5000) | ❌ PLANNED | Pending lab PC (4090/5090) access |
 | Chapter writing | ❌ PLANNED | Ch3+Ch4 can start now; Ch5 blocked on data |
 
@@ -28,18 +28,19 @@
 
 ## PHASE 1 — Mini-Run Validation (RTX 3060, n=500)
 
-The mini-run is already in progress at `outputs/mini_experiment`. Do NOT restart it again.
+Clean Fix A protocol is active: reseed cold-start memory first, then run mini experiment from Cycle 0 in `outputs/mini_experiment`. Avoid launching a second manual run in parallel.
 
 ### Step 1.1 — Let it complete
 
 Wait for the run to finish. The run command (for reference):
 ```powershell
 python scripts/run_experiment.py `
-  --n_questions 100 `
+  --n_questions 500 `
   --benchmarks hotpotqa truthfulqa fever strategyqa `
   --output_dir outputs/mini_experiment `
   --passage_index data/passage_index `
-  --cold_start_memory outputs/cold_start_memory/memory_store
+  --cold_start_memory outputs/cold_start_memory/memory_store `
+  --resume_from_cycle 0
 ```
 
 ### Step 1.2 — Validate mini-run outputs

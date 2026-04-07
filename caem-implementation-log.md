@@ -16,6 +16,53 @@
 ---
 ---
 
+## Session 31 — 2026-04-07 (Fix A Rollout Hardening: RAG Typing Patch + Clean Rerun Protocol)
+
+**Scope:** Finalized Fix A rollout details after post-fix validation. This session records one code-level patch (RAG static diagnostics) and one methodology-level operational correction (fresh reseed + fresh mini-run for strict chain-supervision validity).
+
+---
+
+### Bug EXP-17 — FAISS SWIG Type Stubs Trigger False Positive Compile Errors in `rag.py` (FIXED)
+
+**File:** `caem/retrieval/rag.py` (PassageStore `__init__` and `search`)
+
+**Symptom:** VS Code/Pylance reported compile errors:
+- `Argument missing for parameter "x"` on `self._index.add(...)`
+- `Arguments missing for parameters "k", "distances", "labels"` on `self._index.search(...)`
+
+**Root cause:** Python FAISS bindings are SWIG-based. Runtime methods support the common high-level signatures (`add(x)` and `search(x, k)`), but stubs exposed to static analysis include low-level C++-style signatures, producing false-positive diagnostics.
+
+**Fix applied:**
+1. Imported `Any` and `cast` from `typing`.
+2. Updated calls to:
+  - `cast(Any, self._index).add(embeddings.astype(np.float32))`
+  - `scores, ids = cast(Any, self._index).search(q, k)`
+3. Added inline comments clarifying this is a typing-stub compatibility patch, not algorithmic logic change.
+
+**Validation:**
+- `get_errors` shows no diagnostics in `caem/retrieval/rag.py`.
+- Targeted RAG tests pass (`tests/test_rag.py -k "passage_store_search or build_prompt"`).
+
+**Performance impact:** None. This patch affects only static typing; runtime FAISS behavior and retrieval latency are unchanged.
+
+---
+
+### Operational Correction EXP-18 — Strict Fix A Validity Requires Fresh Cold-Start Seeding (APPLIED)
+
+**Problem:** Fix A changed FEVER/StrategyQA generation format to reasoning+label. Previously seeded cold-start memory (447 episodes) contained many pre-Fix-A classification entries (label-only or inconsistent rationale formatting). Continuing from those seeds would mix supervision regimes.
+
+**Applied protocol for methodological cleanliness:**
+1. Stop active `seed_cold_start.py` / `run_experiment.py` processes.
+2. Remove stale artifacts in `outputs/cold_start_memory` and `outputs/mini_experiment`.
+3. Rerun:
+  - `scripts/seed_cold_start.py --target_episodes 150 --max_questions 1000 ...`
+  - then `scripts/run_experiment.py --n_questions 500 --resume_from_cycle 0 ...`
+4. Keep a single output directory policy for the mini-run (`outputs/mini_experiment`).
+
+**Current status (end of Session 31):** Fresh cold-start seeding is running; mini-run starts immediately after seeding completion in the chained launch command.
+
+---
+
 ## Session 30 — 2026-04-07 (Mini-Run Diagnostics: NaN Training, Forgetting Check Bug, CE Loss Anomaly)
 
 **Scope:** Mini-run (n=500 total) exposed three new issues during Cycle 1 fine-tuning. All three are documented and fixed or flagged here before the full run.
@@ -110,6 +157,71 @@ The high CE loss (~49) is explained by the diversity of training targets across 
 **Thesis note:** In the methodology, note that `reasoning_chain` for classification tasks (FEVER, StrategyQA) stores the classification label, while for open-ended tasks (HotpotQA, TruthfulQA) it stores the model's full generation. This is the correct behaviour and should be stated explicitly in §4.4 Fine-Tuning Objective.
 
 **Status:** RESOLVED — not a bug, no further action needed.
+
+> **⚠️ Update (Session 30 Fix A, same session):** The thesis note above is now **superseded by Fix A**. After implementing task-aware CoT prompting (see below), `reasoning_chain` for FEVER/StrategyQA NOW contains "Reasoning: X\nAnswer: label" — not a bare label token. The under-10-char fallback is no longer the primary path for classification tasks; it is a safety net only. See §Fix A entry below.
+
+---
+
+### Fix A — Task-Aware CoT Prompting: `reasoning_chain` Now Always Contains a Reasoning Trace (Session 30 Conceptual Change)
+
+**Files modified:**
+- `caem/pipeline.py` → `_build_tier2_prompt()`, `_detect_query_task()`, Tier 2 generation call
+- `caem/retrieval/rag.py` → `_build_prompt()`, `_detect_query_task()`, `_extract_after_token()`
+- `eval/metrics.py` → `extract_strategyqa_label()` (new function)
+- `eval/harness.py` → StrategyQA scoring updated to use `extract_strategyqa_label`
+
+**Problem (conceptual, not just a bug):**
+
+The thesis makes a central claim: *"CAEM trains on verified reasoning chains — the full model output including chain-of-thought steps — not on isolated answer strings."* This claim was invalid for FEVER and StrategyQA when those benchmarks' prompts elicited only a label token (e.g., "supports" or "yes"). Storing a label token as `reasoning_chain` is effectively answer supervision, not reasoning-chain supervision. The thesis claim would not hold under examination.
+
+**Two options were considered:**
+
+| Option | Approach | Decision |
+|---|---|---|
+| **A (applied)** | Extend CoT prompting to FEVER/StrategyQA so generated output = "Reasoning: X\nAnswer: label" | ✅ Implemented |
+| B | Keep bare-label targets; acknowledge scope limitation in Chapter 6 | Rejected — weakens thesis claim, defers the fix to writing |
+
+**Fix A — implementation:**
+
+`_build_tier2_prompt(query)` in `pipeline.py` now detects task type via `_detect_query_task(query)`:
+
+- **FEVER** (prefix: `"Answer with one of: supports, refutes, not enough info."`):
+  ```
+  Determine whether the claim is supports, refutes, or not enough info.
+  Provide brief reasoning, then the final label.
+  Format:
+  Reasoning: <short explanation>
+  Answer: supports|refutes|not enough info
+  Claim: {claim}
+  ```
+- **StrategyQA** (prefix: `"Answer yes or no."`):
+  ```
+  Answer the question with brief reasoning and a final yes/no label.
+  Format:
+  Reasoning: <short explanation>
+  Answer: yes|no
+  Question: {q_text}
+  ```
+- **Open** (HotpotQA, TruthfulQA):
+  ```
+  Question: {query}
+  Think step by step:
+  ```
+
+The same task-aware structure is applied in `rag.py` → `_build_prompt()` (Tier 3 path), so all three tiers produce reasoning traces for all four benchmarks.
+
+**Label extraction update:**
+
+`extract_strategyqa_label(text)` was added to `eval/metrics.py`. It uses `re.search(r"\byes\b")` / `re.search(r"\bno\b")` to find the label in rationale-style output (e.g., `"Reasoning: X. Answer: yes"` → "yes"). Harness updated to use this instead of direct substring match.
+
+**Known minor limitation:** The `<short explanation>` literal in the Format spec may occasionally be echoed verbatim by Flan-T5-Large (which was instruction-tuned on FLAN templates using literal format specs). In practice, the model generally fills the slot with actual content. If this causes issues at scale, replace the format spec with a two-shot example instead.
+
+**Test coverage:** 96 eval tests + 3 CoT prompt format sanity tests pass after Fix A.
+
+**Thesis implications (write-up required — see C4-24 in writing-suggestions.md):**
+- §4.4: State task-aware CoT prompting explicitly; explain that Tier 2 and Tier 3 both use structured prompts for all four benchmarks.
+- §4.4: `reasoning_chain` = full reasoning trace + answer for all four benchmarks. The thesis claim of "verified reasoning-chain supervision" holds uniformly.
+- §5.1 Benchmarks: Note that FEVER and StrategyQA outputs are parsed by label extractors (`extract_fever_label`, `extract_strategyqa_label`) rather than scored on the raw string.
 
 ---
 

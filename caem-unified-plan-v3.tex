@@ -3938,12 +3938,25 @@ We distinguish three types of forgetting based on what is forgotten:
 Recent work on chain-of-thought monitorability (Turpin et al., 2023; Korbak et al., 2025) demonstrates that reasoning chains in language models may not faithfully represent the model's internal computation. For this reason, \caem{} uses \textit{outcome-based verification} rather than attempting to verify the reasoning process itself. The verification question is ``Is this answer correct?'' not ``Does this reasoning chain accurately explain how the model arrived at it?'' --- a question current methods cannot reliably answer at scale. All three verification layers (NLI entailment against external evidence, self-consistency across independent chains, semantic entropy over sampled meanings) evaluate answer correctness using external signals, not by reading and trusting the chain's content. This makes \caem{} robust to reasoning faithfulness concerns.
 
 However, \textit{training} on $(q, c, a)$ triples rather than $(q, a)$ pairs is still justified by generalization: training on $(q, a)$ pairs strengthens only the direct mapping from this specific question to this specific answer --- instance-level memorization. Training on $(q, c, a)$ triples strengthens the entire reasoning pathway --- category-level learning. The model learns ``when I see this \textit{type} of question, apply this \textit{type} of reasoning process.'' An episode with reasoning chain ``capitals are designated seats of government, not the largest city; for Australia that is Canberra'' teaches a transferable rule that applies to every capital question. An association ``Australia $\to$ Canberra'' teaches one isolated fact. Rules generalize; facts do not. This benefit requires empirical validation (see Chapter 6 $(q,a)$-only ablation).
+
+\textbf{Task-aware prompting and the training target (implementation note):}
+Generation prompts are task-conditioned for all four benchmarks. For open-ended benchmarks (HotpotQA, TruthfulQA), the Tier 2/3 prompt elicits free-form chain-of-thought: \texttt{``Question: \{q\}\textbackslash{}nThink step by step:''}, and \texttt{reasoning\_chain} stores the full generation. For classification benchmarks (FEVER, StrategyQA), the prompt enforces a structured rationale-then-label format:
+\begin{quote}
+FEVER: \texttt{Reasoning: <explanation> Answer: supports|refutes|not enough info}\\
+StrategyQA: \texttt{Reasoning: <explanation> Answer: yes|no}
+\end{quote}
+This ensures that \texttt{reasoning\_chain} always stores a genuine reasoning trace for all four benchmarks, not a bare label token. The thesis claim of ``verified reasoning-chain supervision'' therefore holds uniformly. Label extraction at evaluation time uses regex-based label parsers (\texttt{extract\_fever\_label}, \texttt{extract\_strategyqa\_label}) rather than raw string comparison.
 \end{designbox}
 
 \textbf{Standard fine-tuning loss:}
+
+\noindent In the implementation, the training target for each episode is the full \texttt{reasoning\_chain} field, which encodes both the reasoning trace and the answer (embedded in the chain as ``Answer: \{answer\}''). The fine-tuning objective is:
+
 \begin{equation}
 \mathcal{L}_{\text{standard}} = -\sum_{(q,c,a)} \log P_\theta(c, a | q)
 \end{equation}
+
+\noindent where $c$ is the task-conditioned reasoning trace and $a$ is the answer embedded within it. For open-ended tasks, $c$ contains sentence-level CoT steps. For classification tasks, $c$ contains a brief rationale followed by the label token. In both cases, the model is supervised on the full structured output, not on the answer string alone.
 
 \textbf{With L2 regularization:}
 \begin{equation}

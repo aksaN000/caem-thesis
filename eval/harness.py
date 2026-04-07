@@ -53,6 +53,7 @@ from eval.metrics import (
     rouge_l,
     exact_match,
     extract_fever_label,
+    extract_strategyqa_label,
     extract_cot_answer,
     fever_accuracy,
     token_f1,
@@ -269,9 +270,10 @@ class EvalHarness:
             return em, f1
 
         elif benchmark == "strategyqa":
-            # Boolean QA: EM on "yes"/"no" after normalisation.
+            # Boolean QA: robust yes/no label extraction from free-form output.
             gold = gold_answers[0] if gold_answers else "no"
-            em = exact_match(prediction, gold)
+            pred_label = extract_strategyqa_label(prediction)
+            em = exact_match(pred_label, gold)
             f1 = em   # F1 == EM for binary labels
             return em, f1
 

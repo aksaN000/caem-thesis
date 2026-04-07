@@ -64,6 +64,7 @@ from eval.metrics import (
     bootstrap_ci,
     exact_match,
     extract_fever_label,
+    extract_strategyqa_label,
     fever_accuracy,
     hallucination_rate,
     mcnemar_test,
@@ -257,6 +258,25 @@ class TestExtractFeverLabel:
     def test_nei_takes_priority_over_supports(self):
         # "not enough info" should take priority
         assert extract_fever_label("There is not enough info to support this.") == "not enough info"
+
+
+class TestExtractStrategyQALabel:
+    def test_yes_plain(self):
+        assert extract_strategyqa_label("yes") == "yes"
+
+    def test_no_plain(self):
+        assert extract_strategyqa_label("no") == "no"
+
+    def test_yes_in_rationale(self):
+        text = "Reasoning: whales are mammals. Answer: yes"
+        assert extract_strategyqa_label(text) == "yes"
+
+    def test_no_in_rationale(self):
+        text = "Reasoning: this is false. Therefore, no."
+        assert extract_strategyqa_label(text) == "no"
+
+    def test_fallback_defaults_no(self):
+        assert extract_strategyqa_label("uncertain output") == "no"
 
 
 # -----------------------------------------------------------------------------
@@ -488,6 +508,14 @@ class TestEvalHarness:
         samples = make_synthetic_samples("strategyqa", n=1)  # gold="yes"
         r = harness.run("strategyqa", samples, cycle=0)
         assert r["em"] == pytest.approx(0.0)
+
+    def test_strategyqa_rationale_with_answer_marker_scores_correct(self):
+        """StrategyQA: rationale output with final label is parsed correctly."""
+        pipeline = _make_pipeline(answer="Reasoning: X. Answer: yes")
+        harness = EvalHarness(pipeline)
+        samples = make_synthetic_samples("strategyqa", n=1)  # gold="yes"
+        r = harness.run("strategyqa", samples, cycle=0)
+        assert r["em"] == pytest.approx(1.0)
 
     def test_saves_json_to_output_dir(self):
         with tempfile.TemporaryDirectory() as tmpdir:

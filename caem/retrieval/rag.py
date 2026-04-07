@@ -54,7 +54,7 @@ from __future__ import annotations
 import logging
 import pickle
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Any, List, Optional, Tuple, cast
 
 import faiss
 import numpy as np
@@ -109,7 +109,8 @@ class PassageStore:
         # Inner-product index -- cosine similarity because embeddings are
         # L2-normalised (same design as EpisodicMemoryStore).
         self._index = faiss.IndexFlatIP(self._dim)
-        self._index.add(embeddings.astype(np.float32))
+        # FAISS SWIG stubs expose low-level signatures; runtime supports add(x).
+        cast(Any, self._index).add(embeddings.astype(np.float32))
 
         logger.info("PassageStore: %d passages indexed.", len(passages))
 
@@ -140,7 +141,8 @@ class PassageStore:
 
         k = min(k, self._index.ntotal)
         q = query_embedding.astype(np.float32).reshape(1, self._dim)
-        scores, ids = self._index.search(q, k)
+        # FAISS SWIG stubs expose low-level signatures; runtime supports search(x, k).
+        scores, ids = cast(Any, self._index).search(q, k)
 
         results = []
         for score, idx in zip(scores[0], ids[0]):
@@ -329,9 +331,47 @@ class TierThreeRAG:
         lines = ["Context:"]
         for i, (passage, _score) in enumerate(passages, start=1):
             lines.append(f"[{i}] {passage}")
-        lines.append(f"\nQuestion: {query}")
-        lines.append("Think step by step:")
+
+        task = self._detect_query_task(query)
+        if task == "fever":
+            claim = self._extract_after_token(query, "Claim:")
+            lines.append("")
+            lines.append("Determine whether the claim is supports, refutes, or not enough info using the context above.")
+            lines.append(f"Claim: {claim}")
+            lines.append("Reasoning: <short explanation>")
+            lines.append("Answer: supports|refutes|not enough info")
+        elif task == "strategyqa":
+            q_text = self._extract_after_token(query, "Question:")
+            lines.append("")
+            lines.append("Answer the question using the context above.")
+            lines.append(f"Question: {q_text}")
+            lines.append("Reasoning: <short explanation>")
+            lines.append("Answer: yes|no")
+        else:
+            lines.append(f"\nQuestion: {query}")
+            lines.append("Think step by step.")
+            lines.append("Answer:")
         return "\n".join(lines)
+
+    @staticmethod
+    def _extract_after_token(query: str, token: str) -> str:
+        """Return substring after token (case-insensitive), else full query."""
+        q_lower = query.lower()
+        t_lower = token.lower()
+        idx = q_lower.find(t_lower)
+        if idx == -1:
+            return query.strip()
+        return query[idx + len(token):].strip()
+
+    @staticmethod
+    def _detect_query_task(query: str) -> str:
+        """Infer benchmark task style from constrained prompt prefixes."""
+        q = query.lower().strip()
+        if q.startswith("answer with one of: supports, refutes, not enough info."):
+            return "fever"
+        if q.startswith("answer yes or no."):
+            return "strategyqa"
+        return "open"
 
     def _tokenize_prompt(self, prompt: str) -> torch.Tensor:
         """Tokenize the full RAG prompt, truncating context to fit encoder limit."""

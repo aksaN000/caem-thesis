@@ -248,6 +248,23 @@ def extract_fever_label(text: str) -> str:
     return "not enough info"   # conservative fallback
 
 
+def extract_strategyqa_label(text: str) -> str:
+    """Extract a StrategyQA label (yes/no) from free-form model output.
+
+    Supports rationale-style outputs such as:
+      "Reasoning: ... Answer: yes"
+      "Yes, because ..."
+
+    Returns "yes" or "no"; defaults to "no" if no label is detectable.
+    """
+    text_lower = text.lower()
+    if re.search(r"\byes\b", text_lower):
+        return "yes"
+    if re.search(r"\bno\b", text_lower):
+        return "no"
+    return "no"
+
+
 # -----------------------------------------------------------------------------
 # Hallucination rate (operational proxy)
 # -----------------------------------------------------------------------------

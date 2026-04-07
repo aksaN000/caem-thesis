@@ -195,9 +195,10 @@ All CAEM content maps cleanly to the 6-chapter template:
 | §Confidence Estimation / u_pre | C4-03b, C4-10 (provenance) |
 | §Confidence Estimation / Routing | C4-04, C4-10b, C4-20, IMPL-01 |
 | §Confidence Estimation / û | C4-05, C4-06, C4-07, C4-09 (blind-spot), C4-21 (field names) |
-| §Verification / Stage 5 | C4-08 (û_stored≠û), C4-22 (reasoning_chain target), IMPL-02, **BM-03** (VE1/VE2 → TruthfulQA failure mode), **BM-04** (SC threshold distinction), GEN-05 |
+| §Confidence / Generation (§4.4) | C4-22b [DONE], **C4-24** (task-aware CoT prompts for all 4 benchmarks; reasoning_chain always has reasoning trace) |
+| §Verification / Stage 5 | C4-08 (û_stored≠û), C4-22 (reasoning_chain target), C4-24 (label extraction via harness), IMPL-02, **BM-03** (VE1/VE2 → TruthfulQA failure mode), **BM-04** (SC threshold distinction), GEN-05 |
 | §Verification / Memory | C4-15 (immutable/mutable), C4-21 |
-| §Self-Improvement / Stage 8 | C4-16 (ReST), C4-19 (L2 — name correctly), GEN-11 |
+| §Self-Improvement / Stage 8 | C4-16 (ReST), C4-19 (L2 — name correctly), GEN-11, **C4-24** (training target = full reasoning trace for all 4 benchmarks) |
 | §Self-Improvement / Retroactive | IMPL-01 (freshness guarantee), C5-07 |
 | §Calibration | IMPL-03, GEN-13 (device rule) |
 | §Theory / Purity | C4-17, PUB-02 (full proof), TH-01, TH-02 |
@@ -339,6 +340,8 @@ All CAEM content maps cleanly to the 6-chapter template:
 | C4-06 | û weight correction (Session 3 stated wrong weights) | Correct weights in û: u_token = 0.20, u_dropout = 0.20, u_SC = **0.20**, (1−H_sem) = **0.40**. NOT 0.30/0.30 as mistakenly stated in Session 3. SE gets double weight (0.40) because it is the only signal that catches systematic misconceptions and has the strongest empirical AUROC (0.79, Farquhar et al. 2024). | Session 4 correction | OPEN |
 | C4-07 | Initial vs calibrated weights must be distinguished | Present equal initial weights (0.25 each) as the *starting point*, then explain calibration produces the final weights (0.20/0.20/0.20/0.40). Write: "Initial weights are set equal at 0.25 for all four signals. After temperature scaling calibration on the held-out calibration set, weights are refined to reflect each signal's empirical discriminative power, with semantic entropy receiving elevated weight (≈0.40) given its superior AUROC for confabulation detection." | Session 4 | OPEN |
 | C4-09 | Blind spot table should appear in Chapter 4 | Include a 4×4 table showing which signal catches which failure mode (lexical uncertainty / epistemic uncertainty / reasoning instability / systematic misconception). This directly answers the committee question "why four signals?" | Session 4 | OPEN |
+| C4-22b | "Reasoning-chain supervision" is task-conditioned; for classification benchmarks it may collapse to label supervision | **RESOLVED via C4-24 (Session 30 Fix A).** Option A was implemented: task-aware CoT prompting now applied to FEVER and StrategyQA so `reasoning_chain` always contains a reasoning trace + label, not a bare label token. See C4-24 for the required §4.4 write-up. The `(q,a)`-only vs `(q,c,a)` ablation still needed to quantify chain contribution empirically (ablation A7). | Session 31 diagnostics → Session 30 Fix A | DONE |
+| C4-24 | Task-aware CoT prompting for all four benchmarks — `reasoning_chain` always contains a reasoning trace after Session 30 Fix A | Write in §4.4 (Generation and Fine-Tuning Objective): "Tier 2 and Tier 3 generation uses task-aware prompts that produce structured reasoning traces for all four benchmarks. For open-ended benchmarks (HotpotQA, TruthfulQA), the prompt is: 'Question: {q}\nThink step by step:\nAnswer:' — eliciting free-form chain-of-thought. For classification benchmarks (FEVER, StrategyQA), the prompt is structured to produce a rationale + label: 'Reasoning: {brief explanation}\nAnswer: {label}'. This ensures the `reasoning_chain` field stored in episodic memory always contains genuine reasoning content, not a bare label token. The thesis claim of 'verified reasoning-chain supervision' (§4.3) therefore holds uniformly across all four benchmarks. At fine-tuning time, the full reasoning chain (reasoning + answer) is the supervision target — richer than answer-only supervision and consistent with chain-of-thought distillation literature (Wei et al. 2022; Ho et al. 2022)." Also note label extraction: FEVER uses `extract_fever_label()` and StrategyQA uses `extract_strategyqa_label()` (regex-based, not substring match) to parse the label from the rationale-style output. The harness applies these extractors before scoring — verify this is stated in the §5.1 Experimental Setup. | Session 30 Fix A | OPEN |
 
 ### §4.5 — Verification Pipeline (Stage 5)
 
@@ -668,20 +671,4 @@ These entries identify gaps between the current thesis and conference-submission
 | TAB-C5-04 | **Table 5.4: Convergence — Δ per Cycle** | Rows: Cycle gaps (C0→C1, C1→C2, C2→C3). Columns: Δ_HotpotQA / Δ_TruthfulQA / Δ_FEVER / Δ_StrategyQA / Δ_avg / Convergence Check (✅ or ❌). If Δ(n+1) < Δ(n) → ✅. Show diminishing returns explicitly. | `outputs/full_experiment/eval/*.json` | TH-04, C4-23, C6-02 |
 | TAB-C5-05 | **Table 5.5: Ablation Results** | 9 ablation configs grouped by mechanism: (1) Memory quality: A1 no reverification, A-NLI single-layer NLI, A-verify no verification; (2) Routing: A2 all-Tier-3, A3 no OR-condition; (3) Training: A4 vanilla FT, A5 no FT; (4) Confidence: A6 no SE, A7 (q,a)-only. Report EM per benchmark + MMLU retention. | `outputs/ablation_results/ablation_summary.json` | C5-09 |
 | TAB-C5-06 | **Table 5.6: Statistical Significance** | For each CAEM Cycle 3 vs baseline pair: χ² / p-value / significant (Y/N). Use McNemar's test from `eval/metrics.py`. | Per-question EM arrays from `eval/{bm}_cycle{n}.json` | C5-05, C5-12, GEN-12 |
-| TAB-C5-07 | **Table 5.7: Calibration Results** | Rows: pre-calibration / post-calibration. Columns: ECE / Temperature scalar T / û signal weights (u_token / u_dropout / u_consistency / u_entropy). Shows ECE reduction and actual vs projected weights. | `calibration/calibrated_config.json` | C5-11, GEN-03, C4-07 |
-| TAB-C5-08 | **Table 5.8: Computational Efficiency** | Rows: Tier 1 / Tier 2 / Tier 3 / All-Tier-3 baseline (A2). Columns: Mean latency (ms) / GPU memory peak / Total GPU hours. Show that Tier 1 fraction growth reduces mean latency across cycles. | `outputs/full_experiment/experiment_summary.csv` mean_latency_ms | C5-06 |
-
----
-
-### Answer to "Does writing-suggestions.md already cover these aspects?"
-
-**Before this section was added: NO.** The existing entries (C4-03, C4-09, C4-20, C5-02, etc.) mentioned specific tables or figures in passing, but there was no systematic inventory. The following were entirely missing:
-
-- Any figure/diagram list (FIG-C4-01 through FIG-C5-03)
-- Any algorithm inventory (ALG-C4-01 through ALG-C4-05) — the most critical gap given plan vs implementation discrepancies
-- Any equation list with labels (EQN-C4-01 through EQN-C4-09)
-- Formal theorem statement requirements for THM-C4-02 and THM-C4-03 (THM-C4-01 was partially covered by PUB-02)
-- Chapter 5 table inventory (TAB-C5-01 through TAB-C5-08)
-- Chapter 3 table list
-
-**Standing rule for all algorithms:** Always read the `caem/` source file before writing the pseudocode. The unified plan is pedagogically useful for understanding the structure, but the field names, training target, regularisation method, and routing logic must match the implementation. See C4-19, C4-21, C4-22 for the specific known discrepancies.
+| TAB-C5-07 | **Table 5.7: Calibration Results** | Rows: pre-calibrati
