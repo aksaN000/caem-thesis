@@ -244,7 +244,7 @@ All CAEM content maps cleanly to the 6-chapter template:
 | §Setup / Calibration | C5-11, GEN-03, C4-07 (actual weights) |
 | §Main Results / Accuracy | C5-04 (narrative thread), GEN-02, GEN-09 |
 | §Main Results / Significance | C5-05, C5-12, GEN-12 |
-| §Mechanisms / Evidence | C5-02, GEN-06 (FEVER Tier 1 accuracy) |
+| §Mechanisms / Evidence | C5-02, C5-13, GEN-06 (FEVER Tier 1 accuracy) |
 | §Mechanisms / Theory | C5-03, TH-03, TH-04, C4-17 (replace illustrative) |
 | §Ablations | C5-09, PUB-04 (LoRA — Appendix), PUB-05 (EWC — Appendix) |
 | §Efficiency | C5-06, GEN-13 (actual device latency) |
@@ -404,6 +404,7 @@ All CAEM content maps cleanly to the 6-chapter template:
 | # | Issue | Required Fix | Source | Status |
 |---|-------|-------------|--------|--------|
 | C5-02 | Report five cycle-level metrics in a single table to prove all three mechanisms are working | Include a table with columns: Cycle, Hallucination Reduction (%), Tier 1 Fraction (%), Tier 3 Fraction (%), MMLU Retention (%), Mean û_stored in Memory. A growing Tier 1 fraction proves memory is accumulating trusted knowledge. Stable MMLU proves forgetting is controlled. Rising mean û_stored proves retroactive cleaning is working. Report per-benchmark Tier 1 accuracy separately to catch FEVER near-miss issues. Source: `experiment_summary.csv`. | Session 8 | OPEN |
+| C5-13 | Add a lightweight per-benchmark verifier diagnostics table to defend the benchmark-agnostic verifier claim | Add one compact table (main text or Appendix A) with one row per benchmark and these columns only: Tier 1 accuracy, storage rate, mean û_stored, and stored-sample precision proxy `mean(EM | stored=True)`. Compute from existing eval JSON outputs only; do not run extra training or per-benchmark recalibration. Write: "This table is a diagnostic validity check, not a second calibration pipeline. It verifies that the shared verifier remains acceptable across benchmark formats without introducing benchmark-specific fitted parameters." | Session 30 | OPEN |
 
 ### §5.4 — Theory Validation
 
