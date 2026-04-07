@@ -1,9 +1,9 @@
-"""
+﻿"""
 tests/test_post_generation.py
 ==============================
 Unit tests for PostGenerationConfidenceEstimator (Stage 4a).
 
-All tests use lightweight mocks — no Flan-T5, no RoBERTa download.
+All tests use lightweight mocks -- no Flan-T5, no RoBERTa download.
 Mock design mirrors test_pre_routing.py: controlled logits and hidden
 states to isolate each signal independently.
 
@@ -38,9 +38,9 @@ from caem.confidence.post_generation import PostGenerationConfidenceEstimator
 from caem.memory.entry import PostGenerationConfidence
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Shared constants
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 VOCAB      = 100
 HIDDEN     = 64
@@ -52,9 +52,9 @@ PAD_ID     = 0
 CHOSEN_TOK = 2
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Mock builders
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 def make_score(chosen_logit: float = 8.0) -> torch.Tensor:
     """Return (1, VOCAB) logits with high value at CHOSEN_TOK."""
@@ -84,8 +84,8 @@ def make_mock_model(
     model = MagicMock()
     model.parameters.return_value = iter([torch.zeros(1)])
     # generate() is called in two different modes:
-    #   - u_dropout:     return_dict_in_generate=True  → returns dict-like with .scores/.sequences
-    #   - u_consistency / u_entropy: no return_dict_in_generate → returns plain tensor
+    #   - u_dropout:     return_dict_in_generate=True  -> returns dict-like with .scores/.sequences
+    #   - u_consistency / u_entropy: no return_dict_in_generate -> returns plain tensor
     # Use side_effect to differentiate so each calling site gets the right shape.
     _plain_seq = torch.tensor([[0] + [CHOSEN_TOK] * n_generate_tokens + [EOS_ID]])
     _dict_out  = make_generate_output(n_generate_tokens, chosen_logit)
@@ -193,9 +193,9 @@ def make_estimator(
     )
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # PostGenerationConfidence dataclass
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 class TestPostGenerationConfidenceDataclass:
     def test_should_accept_above_threshold(self):
@@ -224,9 +224,9 @@ class TestPostGenerationConfidenceDataclass:
             assert 0.0 <= pgc.u_hat <= 1.0
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # u_token signal
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 class TestUTokenPostGen:
     def test_high_logit_produces_high_u_token(self):
@@ -255,15 +255,15 @@ class TestUTokenPostGen:
         assert u_high > u_low
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # u_dropout signal
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 class TestUDropout:
     def test_low_variance_produces_high_u_dropout(self):
-        """All K passes return identical probs → variance=0 → u_dropout=1.0."""
+        """All K passes return identical probs -> variance=0 -> u_dropout=1.0."""
         est = make_estimator(chosen_logit=20.0)
-        # All K passes return same output → var ≈ 0
+        # All K passes return same output -> var ≈ 0
         u = est._compute_u_dropout(torch.zeros(1, SEQ_LEN, dtype=torch.long))
         assert u > 0.90, f"Expected high u_dropout, got {u:.4f}"
 
@@ -311,13 +311,13 @@ class TestUDropout:
         assert call_count[0] == 5
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # u_consistency signal
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 class TestUConsistency:
     def test_identical_chains_produce_high_consistency(self):
-        """All chains decode to same string → embeddings identical → sim=1.0."""
+        """All chains decode to same string -> embeddings identical -> sim=1.0."""
         est = make_estimator(sbert_sim=1.0)
         u = est._compute_u_consistency("q", torch.zeros(1, SEQ_LEN, dtype=torch.long))
         assert u > 0.95, f"Expected near-1.0, got {u:.4f}"
@@ -350,19 +350,19 @@ class TestUConsistency:
         assert u == 0.5
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # u_entropy signal
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 class TestUEntropy:
     def test_all_entailment_single_cluster_low_entropy(self):
-        """All K samples equivalent (all entail each other) → 1 cluster → H=0 → u_entropy=1.0."""
+        """All K samples equivalent (all entail each other) -> 1 cluster -> H=0 -> u_entropy=1.0."""
         est = make_estimator(nli_label=2, include_nli=True)  # 2=ENTAILMENT
         u = est._compute_u_entropy("q", torch.zeros(1, SEQ_LEN, dtype=torch.long))
         assert u > 0.95, f"Expected near-1.0 with all-entailment, got {u:.4f}"
 
     def test_no_entailment_all_unique_high_entropy(self):
-        """No sample entails any other → K clusters → max entropy → u_entropy near 0."""
+        """No sample entails any other -> K clusters -> max entropy -> u_entropy near 0."""
         est = make_estimator(nli_label=0, include_nli=True)  # 0=CONTRADICTION
 
         # Make each sample unique so clustering doesn't merge them
@@ -371,7 +371,7 @@ class TestUEntropy:
         est.tokenizer.decode.side_effect = lambda *a, **kw: next(resp_iter)
 
         u = est._compute_u_entropy("q", torch.zeros(1, SEQ_LEN, dtype=torch.long))
-        # With K=10 unique clusters: H = log2(10) ≈ 3.32, h_norm = 1.0 → u_entropy ≈ 0.0
+        # With K=10 unique clusters: H = log2(10) ≈ 3.32, h_norm = 1.0 -> u_entropy ≈ 0.0
         assert u < 0.15, f"Expected near-0 with all-unique, got {u:.4f}"
 
     def test_surface_fallback_no_nli_model(self):
@@ -381,7 +381,7 @@ class TestUEntropy:
         assert 0.0 <= u <= 1.0
 
     def test_surface_fallback_identical_samples_high_u(self):
-        """All samples identical → 1 surface cluster → H=0 → u_entropy=1.0."""
+        """All samples identical -> 1 surface cluster -> H=0 -> u_entropy=1.0."""
         est = make_estimator(include_nli=False)
         est.tokenizer.decode.return_value = "identical answer"
         u = est._compute_u_entropy("q", torch.zeros(1, SEQ_LEN, dtype=torch.long))
@@ -414,20 +414,20 @@ class TestUEntropy:
         assert u == 0.5
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # NLI clustering (_semantic_entropy_nli)
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 class TestNLIClustering:
     def test_all_entailment_one_cluster(self):
-        """All pairs entail each other → single cluster → H = 0."""
+        """All pairs entail each other -> single cluster -> H = 0."""
         est = make_estimator(nli_label=2)
         samples = ["Paris", "Paris is in France", "The capital is Paris"]
         H = est._semantic_entropy_nli(samples, "capital of France")
         assert H == pytest.approx(0.0, abs=1e-6)
 
     def test_no_entailment_all_unique_clusters(self):
-        """No pairs entail → each sample its own cluster → H = log2(N)."""
+        """No pairs entail -> each sample its own cluster -> H = log2(N)."""
         est = make_estimator(nli_label=0)   # CONTRADICTION
         samples = [f"answer_{i}" for i in range(4)]
         H = est._semantic_entropy_nli(samples, "q")
@@ -435,27 +435,27 @@ class TestNLIClustering:
         assert H == pytest.approx(expected_H, abs=0.01)
 
     def test_two_equal_clusters(self):
-        """Two equal-sized clusters → H = 1.0 bit."""
+        """Two equal-sized clusters -> H = 1.0 bit."""
         # NLI: within-cluster = ENTAILMENT, cross-cluster = CONTRADICTION
         # We need 4 samples: [A, A, B, B]
         est = make_estimator()
 
         call_responses = []
-        # Samples: [0,1,2,3] → 0,1 entail each other; 2,3 entail each other
+        # Samples: [0,1,2,3] -> 0,1 entail each other; 2,3 entail each other
         # Pairs checked: (0,1),(0,2),(0,3),(1,2),(1,3),(2,3) × 2 directions = 12 calls
         nli_model = MagicMock()
 
         def nli_fn(**kwargs):
             # Track call count.
-            # NOTE: the algorithm short-circuits on AND — if the forward
+            # NOTE: the algorithm short-circuits on AND -- if the forward
             # direction returns CONTRADICTION the reverse is never called.
             # With 4 samples and CONT for cross-cluster pairs, call pattern is:
-            #   (0,1) fwd=call1 ENT → (0,1) bwd=call2 ENT → union
-            #   (0,2) fwd=call3 CONT → SHORT CIRCUIT
-            #   (0,3) fwd=call4 CONT → SHORT CIRCUIT
-            #   (1,2) fwd=call5 CONT → SHORT CIRCUIT
-            #   (1,3) fwd=call6 CONT → SHORT CIRCUIT
-            #   (2,3) fwd=call7 ENT → (2,3) bwd=call8 ENT → union
+            #   (0,1) fwd=call1 ENT -> (0,1) bwd=call2 ENT -> union
+            #   (0,2) fwd=call3 CONT -> SHORT CIRCUIT
+            #   (0,3) fwd=call4 CONT -> SHORT CIRCUIT
+            #   (1,2) fwd=call5 CONT -> SHORT CIRCUIT
+            #   (1,3) fwd=call6 CONT -> SHORT CIRCUIT
+            #   (2,3) fwd=call7 ENT -> (2,3) bwd=call8 ENT -> union
             # Total: 8 calls (not 12).
             call_responses.append(1)
             cnt = len(call_responses)
@@ -470,13 +470,13 @@ class TestNLIClustering:
 
         samples = ["A1", "A2", "B1", "B2"]
         H = est._semantic_entropy_nli(samples, "q")
-        # Two clusters of size 2: p=0.5 each → H = 1.0 bit
+        # Two clusters of size 2: p=0.5 each -> H = 1.0 bit
         assert H == pytest.approx(1.0, abs=0.01)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Combined estimate()
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 class TestEstimate:
     def test_returns_post_generation_confidence(self):
@@ -518,7 +518,7 @@ class TestEstimate:
             assert 0.0 <= val <= 1.0, f"{sig}={val} out of [0,1]"
 
     def test_high_confidence_accepts(self):
-        """All signals high → û > 0.60 → should_accept()=True."""
+        """All signals high -> û > 0.60 -> should_accept()=True."""
         est = make_estimator(chosen_logit=20.0, sbert_sim=0.99, nli_label=2)
         pgc = est.estimate("q", "answer")
         assert pgc.should_accept(0.60) is True

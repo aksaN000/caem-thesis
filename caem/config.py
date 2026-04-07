@@ -1,9 +1,9 @@
-"""
+﻿"""
 caem/config.py
 ==============
 Central configuration for the CAEM pipeline.
 
-Every numeric constant in the system must come from here — no magic numbers
+Every numeric constant in the system must come from here -- no magic numbers
 in module code. Values are annotated with their hyperparameter category:
   [LIT]  = fixed from literature (cite the source, never change arbitrarily)
   [DES]  = design choice (principled default; change only with ablation evidence)
@@ -52,7 +52,7 @@ class CAEMConfig:
     importance_u_stored_weight: float = 0.10
 
     # ------------------------------------------------------------------ #
-    # Pre-routing confidence (Stage 3, fast — 2 signals)                  #
+    # Pre-routing confidence (Stage 3, fast -- 2 signals)                  #
     # ------------------------------------------------------------------ #
     # [DES] Token prob is the primary reliability signal.
     u_pre_token_weight: float = 0.60
@@ -60,7 +60,7 @@ class CAEMConfig:
     u_pre_cconv_weight: float = 0.40
 
     # ------------------------------------------------------------------ #
-    # Adaptive Router (Stage 3 → dispatch)                                 #
+    # Adaptive Router (Stage 3 -> dispatch)                                 #
     # ------------------------------------------------------------------ #
     # [DES] Combined score = routing_lambda·s + (1-λ)·û_stored
     routing_lambda: float = 0.70
@@ -72,7 +72,7 @@ class CAEMConfig:
     safety_u_pre_min: float = 0.60
 
     # ------------------------------------------------------------------ #
-    # Post-generation confidence (Stage 4a, Tier 2 only — 4 signals)      #
+    # Post-generation confidence (Stage 4a, Tier 2 only -- 4 signals)      #
     # ------------------------------------------------------------------ #
     # [LIT] Gal & Ghahramani 2016: K=5 MC Dropout passes.
     mc_dropout_k: int = 5
@@ -88,10 +88,10 @@ class CAEMConfig:
     # Projected post-calibration: ~0.20/0.20/0.20/0.40 (SE upweighted due to
     # AUROC ≈ 0.79, Farquhar et al. 2024). Actual values come from calibration
     # set after Cycle 1 and are reported in Chapter 5.
-    u_hat_weight_token: float = 0.25       # initial; calibrated → ~0.20
-    u_hat_weight_dropout: float = 0.25     # initial; calibrated → ~0.20
-    u_hat_weight_sc: float = 0.25          # initial; calibrated → ~0.20
-    u_hat_weight_entropy: float = 0.25     # initial; calibrated → ~0.40
+    u_hat_weight_token: float = 0.25       # initial; calibrated -> ~0.20
+    u_hat_weight_dropout: float = 0.25     # initial; calibrated -> ~0.20
+    u_hat_weight_sc: float = 0.25          # initial; calibrated -> ~0.20
+    u_hat_weight_entropy: float = 0.25     # initial; calibrated -> ~0.40
 
     # [DES] Asymmetric cost: accept Tier 2 answer if û ≥ this; else escalate.
     u_hat_accept_threshold: float = 0.60
@@ -103,13 +103,13 @@ class CAEMConfig:
     nli_model: str = "roberta-large-mnli"
     # [DES] NLI entailment threshold for hard-pass.
     nli_entailment_threshold: float = 0.90
-    # [DES] Self-consistency gate: s_avg > this → accept.
+    # [DES] Self-consistency gate: s_avg > this -> accept.
     sc_accept_threshold: float = 0.85
     # [LIT] Farquhar et al. 2024: agglomerative + cosine clustering.
     se_clustering_method: str = "agglomerative"
-    # [DES] Semantic entropy gate: H < this (bits) → accept.
+    # [DES] Semantic entropy gate: H < this (bits) -> accept.
     se_entropy_threshold: float = 1.5
-    # [DES] VE1 escalation: NEUTRAL + SC > 0.90 → escalate (systematic confab).
+    # [DES] VE1 escalation: NEUTRAL + SC > 0.90 -> escalate (systematic confab).
     se_escalation_sc_min: float = 0.90
 
     # û_stored weights [DES]: NLI entailment is strongest post-hoc signal.

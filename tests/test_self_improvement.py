@@ -1,4 +1,4 @@
-"""
+﻿"""
 tests/test_self_improvement.py
 ================================
 Unit tests for SelfImprovementLoop (Stage 8) and QADataset.
@@ -42,9 +42,9 @@ from caem.training.self_improvement import (
 )
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Helpers
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 DIM = 768
 
@@ -139,9 +139,9 @@ def make_general_data(n: int = 10) -> list:
     return [QAPair(question=f"Q{i}?", answer=f"A{i}") for i in range(n)]
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # QAPair and CycleResult
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 class TestDataclasses:
     def test_qa_pair_fields(self):
@@ -160,9 +160,9 @@ class TestDataclasses:
         assert r.forgetting_score == pytest.approx(0.96)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # QADataset
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 class TestQADataset:
     def test_len(self):
@@ -182,7 +182,7 @@ class TestQADataset:
         """Padding tokens in labels must be -100 for cross-entropy to ignore them."""
         tok = make_mock_tokenizer()
         tok.pad_token_id = 0
-        # Labels will be all zeros (pad) after tokenisation → all should be -100
+        # Labels will be all zeros (pad) after tokenisation -> all should be -100
         pairs = [QAPair("Q?", "A")]
         ds = QADataset(pairs, tok)
         item = ds[0]
@@ -196,9 +196,9 @@ class TestQADataset:
         assert item["labels"].dim() == 1
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # _collect_episodes
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 class TestCollectEpisodes:
     def test_filters_by_threshold(self):
@@ -206,9 +206,9 @@ class TestCollectEpisodes:
         cfg.min_u_stored_for_training = 0.75
         loop, _ = make_loop(config=cfg)
         store = make_store_with_entries([
-            make_entry("Q1", u_stored=0.80),   # above → include
-            make_entry("Q2", u_stored=0.60),   # below → exclude
-            make_entry("Q3", u_stored=0.75),   # exact → include
+            make_entry("Q1", u_stored=0.80),   # above -> include
+            make_entry("Q2", u_stored=0.60),   # below -> exclude
+            make_entry("Q3", u_stored=0.75),   # exact -> include
         ])
         pairs = loop._collect_episodes(store)
         assert len(pairs) == 2
@@ -234,9 +234,9 @@ class TestCollectEpisodes:
         assert pairs[0].answer == "Because."
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # _mix
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 class TestMix:
     def test_general_ratio_approx(self):
@@ -253,7 +253,7 @@ class TestMix:
     def test_clips_to_available_general(self):
         """If fewer general pairs exist than needed, use all available."""
         cfg = CAEMConfig()
-        cfg.general_data_ratio = 0.50   # high ratio → needs many general
+        cfg.general_data_ratio = 0.50   # high ratio -> needs many general
         loop, _ = make_loop(config=cfg)
         episodes = [QAPair(f"Q{i}", f"A{i}") for i in range(100)]
         general  = [QAPair("G0", "GA0")]   # only 1 available
@@ -273,9 +273,9 @@ class TestMix:
         assert "G" in questions
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # _snapshot_weights / _restore_weights
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 class TestWeightManagement:
     def _real_model_and_loop(self):
@@ -316,9 +316,9 @@ class TestWeightManagement:
         assert torch.allclose(snap[0], original_val)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # _l2_penalty
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 class TestL2Penalty:
     def test_zero_when_weights_unchanged(self):
@@ -362,9 +362,9 @@ class TestL2Penalty:
             assert p_large > p_small
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # _forgetting_score
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 class TestForgettingScore:
     def test_empty_eval_returns_one(self):
@@ -394,7 +394,7 @@ class TestForgettingScore:
         tok.decode.side_effect = decode_responses
         pairs = [QAPair("Q1?", "Paris"), QAPair("Q2?", "Paris"), QAPair("Q3?", "Berlin")]
         score = loop._forgetting_score(pairs)
-        # "Paris"=="Paris" → correct, "London"=="Paris" → wrong, "Paris"=="Berlin" → wrong
+        # "Paris"=="Paris" -> correct, "London"=="Paris" -> wrong, "Paris"=="Berlin" -> wrong
         assert score == pytest.approx(1/3, abs=0.01)
 
     def test_score_in_unit_interval(self):
@@ -404,9 +404,9 @@ class TestForgettingScore:
         assert 0.0 <= score <= 1.0
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # run_cycle
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 class TestRunCycle:
     def test_no_episodes_exits_early(self):
@@ -434,10 +434,10 @@ class TestRunCycle:
         """If forgetting_score < tolerance, run_cycle sets aborted=True."""
         cfg = CAEMConfig()
         cfg.epochs_per_cycle = 0
-        cfg.forgetting_tolerance = 0.99   # very strict — will fail
+        cfg.forgetting_tolerance = 0.99   # very strict -- will fail
         cfg.min_u_stored_for_training = 0.70
         loop, _ = make_loop(config=cfg)
-        # forgetting_score: tokenizer returns "Paris", answers are "London" → 0.0
+        # forgetting_score: tokenizer returns "Paris", answers are "London" -> 0.0
         loop.tokenizer.decode.return_value = "Paris"
         general = [QAPair("Q?", "London")]
         store = make_store_with_entries([make_entry(u_stored=0.80)])
@@ -472,9 +472,9 @@ class TestRunCycle:
             assert os.path.exists(os.path.join(result.checkpoint_path, "meta.pkl"))
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # EpisodicMemoryStore.all_entries()
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 class TestAllEntries:
     def test_empty_store(self):

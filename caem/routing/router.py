@@ -1,41 +1,41 @@
-"""
+﻿"""
 caem/routing/router.py
 ======================
-AdaptiveRouter — Stage 3 dispatch logic for the CAEM pipeline.
+AdaptiveRouter -- Stage 3 dispatch logic for the CAEM pipeline.
 
 Takes a pre-routing confidence estimate and an episodic memory search result,
 and returns a RoutingDecision specifying which tier handles the query.
 
 Three-tier dispatch
 -------------------
-  Tier 1 — Direct retrieval
+  Tier 1 -- Direct retrieval
     The retrieved episode is highly similar AND historically reliable.
     Return the stored reasoning chain and answer directly. No generation.
     Latency target: < 400 ms.
 
-  Tier 2 — Guided generation
+  Tier 2 -- Guided generation
     Moderate similarity: the memory holds relevant but not directly applicable
     knowledge. Use the retrieved reasoning chain as a soft prompt to guide
     generation of a new answer.
     Latency target: < 2.5 s.
 
-  Tier 3 — Full RAG (Retrieval-Augmented Generation)
+  Tier 3 -- Full RAG (Retrieval-Augmented Generation)
     No reliable memory match, or model confidence too low to trust any match.
     Generate from scratch with Wikipedia passages as context.
     Latency target: < 6 s.
 
-Two-mechanism design (CRITICAL — do not merge into one formula)
+Two-mechanism design (CRITICAL -- do not merge into one formula)
 --------------------------------------------------------------
-Mechanism 1 — OR-condition (hard veto, evaluated FIRST):
+Mechanism 1 -- OR-condition (hard veto, evaluated FIRST):
     if u_pre < safety_u_pre_min (0.60):
-        → Tier 3, safety_override=True
+        -> Tier 3, safety_override=True
     This fires before any memory lookup result is considered.
 
-Mechanism 2 — Routing score formula (only if OR-condition did not fire):
+Mechanism 2 -- Routing score formula (only if OR-condition did not fire):
     routing_score = 0.70 · similarity + 0.30 · û_stored
-    if routing_score >= 0.90  → Tier 1
-    elif similarity > 0.75    → Tier 2
-    else                      → Tier 3
+    if routing_score >= 0.90  -> Tier 1
+    elif similarity > 0.75    -> Tier 2
+    else                      -> Tier 3
 
 WHY they are separate: combining them into one formula would allow a high
 û_stored to arithmetically compensate for a dangerously low u_pre. A high-
@@ -47,7 +47,7 @@ Empty memory
 ------------
 If the episodic store is empty (no retrieved episode), similarity = 0.0 and
 û_stored = 0.0. The routing score will be 0.0, which falls below both thresholds
-— the router naturally dispatches to Tier 3 without any special-casing.
+-- the router naturally dispatches to Tier 3 without any special-casing.
 """
 
 from __future__ import annotations
@@ -67,7 +67,7 @@ class AdaptiveRouter:
     Parameters
     ----------
     config : CAEMConfig
-        All thresholds come from here — no magic numbers in this class.
+        All thresholds come from here -- no magic numbers in this class.
 
     Usage
     -----
@@ -107,23 +107,23 @@ class AdaptiveRouter:
         cfg = self.config
         u_pre = pre_confidence.u_pre
 
-        # ── Unpack memory search result ─────────────────────────────────── #
+        # -- Unpack memory search result ----------------------------------- #
         if search_results:
             best_entry, similarity = search_results[0]
             u_stored_retrieved = best_entry.u_stored
             retrieved_entry_id = None
-            # Recover the entry_id — EpisodicEntry doesn't store its own ID,
+            # Recover the entry_id -- EpisodicEntry doesn't store its own ID,
             # so we carry it via the caller if needed. Stored as None here;
             # the store's search() can be extended to return IDs if required.
             # For routing purposes, we only need u_stored and similarity.
         else:
-            # Empty memory — no episode retrieved.
+            # Empty memory -- no episode retrieved.
             best_entry = None
             similarity = 0.0
             u_stored_retrieved = 0.0
             retrieved_entry_id = None
 
-        # ── Mechanism 1 — OR-condition (MUST be evaluated first) ────────── #
+        # -- Mechanism 1 -- OR-condition (MUST be evaluated first) ---------- #
         if u_pre < cfg.safety_u_pre_min:
             routing_score = cfg.routing_lambda * similarity + (1 - cfg.routing_lambda) * u_stored_retrieved
             decision = RoutingDecision(
@@ -136,12 +136,12 @@ class AdaptiveRouter:
                 retrieved_entry_id=retrieved_entry_id,
             )
             logger.debug(
-                "OR-condition fired: u_pre=%.4f < %.2f → Tier 3 (safety override).",
+                "OR-condition fired: u_pre=%.4f < %.2f -> Tier 3 (safety override).",
                 u_pre, cfg.safety_u_pre_min,
             )
             return decision
 
-        # ── Mechanism 2 — Routing score formula ─────────────────────────── #
+        # -- Mechanism 2 -- Routing score formula --------------------------- #
         routing_score = (
             cfg.routing_lambda * similarity
             + (1.0 - cfg.routing_lambda) * u_stored_retrieved
@@ -191,7 +191,7 @@ class AdaptiveRouter:
             )
             lines.append(
                 "Routed to Tier 3 regardless of memory similarity. "
-                "Model readiness check failed — Tier 3 cost preferred over "
+                "Model readiness check failed -- Tier 3 cost preferred over "
                 "confident-but-wrong Tier 1/2 answer."
             )
         else:
@@ -206,19 +206,19 @@ class AdaptiveRouter:
             if decision.tier == 1:
                 lines.append(
                     f"Score {decision.routing_score:.4f} ≥ Tier 1 threshold "
-                    f"{cfg.tier1_combined_threshold:.2f} → Tier 1 (direct retrieval)."
+                    f"{cfg.tier1_combined_threshold:.2f} -> Tier 1 (direct retrieval)."
                 )
             elif decision.tier == 2:
                 lines.append(
                     f"Score {decision.routing_score:.4f} < {cfg.tier1_combined_threshold:.2f}, "
                     f"but similarity {decision.similarity:.4f} > Tier 2 threshold "
-                    f"{cfg.tier2_similarity_threshold:.2f} → Tier 2 (guided generation)."
+                    f"{cfg.tier2_similarity_threshold:.2f} -> Tier 2 (guided generation)."
                 )
             else:
                 lines.append(
                     f"Score {decision.routing_score:.4f} < {cfg.tier1_combined_threshold:.2f} "
                     f"and similarity {decision.similarity:.4f} ≤ {cfg.tier2_similarity_threshold:.2f} "
-                    "→ Tier 3 (full RAG)."
+                    "-> Tier 3 (full RAG)."
                 )
 
         return " ".join(lines)

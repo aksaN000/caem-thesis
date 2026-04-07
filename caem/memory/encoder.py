@@ -1,4 +1,4 @@
-"""
+﻿"""
 caem/memory/encoder.py
 ======================
 QueryEncoder: wraps Sentence-BERT (all-mpnet-base-v2) to produce
@@ -7,7 +7,7 @@ QueryEncoder: wraps Sentence-BERT (all-mpnet-base-v2) to produce
 Key facts from the thesis spec:
   - Model:  sentence-transformers/all-mpnet-base-v2
   - Output: np.ndarray shape (768,), dtype float32
-  - CRITICAL: 768-dim, NOT 384 — this matches the mpnet architecture.
+  - CRITICAL: 768-dim, NOT 384 -- this matches the mpnet architecture.
   - Embeddings are L2-normalised to unit length so that inner product (IP)
     equals cosine similarity. This is required for FAISS IndexFlatIP correctness.
 """
@@ -111,8 +111,8 @@ class QueryEncoder:
         Returns
         -------
         np.ndarray
-            - Single string → shape (768,), dtype float32.
-            - List of N strings → shape (N, 768), dtype float32.
+            - Single string -> shape (768,), dtype float32.
+            - List of N strings -> shape (N, 768), dtype float32.
             Embeddings are L2-normalised (unit length) if self.normalize=True.
         """
         if self._model is None:

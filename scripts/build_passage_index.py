@@ -1,4 +1,4 @@
-"""
+﻿"""
 scripts/build_passage_index.py
 ==============================
 One-time offline script: build a Wikipedia passage corpus and encode it into
@@ -7,16 +7,16 @@ a PassageStore for use by TierThreeRAG.
 What it does
 ------------
 1. Streams the English Wikipedia dump (20220301.en) from HuggingFace datasets
-   in streaming mode — avoids downloading the full ~20 GB dump at once.
+   in streaming mode -- avoids downloading the full ~20 GB dump at once.
 2. Chunks each article into ~100-word passages (DPR-style split,
    Karpukhin et al. 2020). Each chunk keeps its section title as a prefix.
 3. Encodes all passages with the same SBERT model used by EpisodicMemoryStore
-   (sentence-transformers/all-mpnet-base-v2 → 384-dim vectors).
+   (sentence-transformers/all-mpnet-base-v2 -> 384-dim vectors).
 4. L2-normalises every embedding (required for cosine similarity via inner
    product in FAISS IndexFlatIP).
 5. Saves the result as a PassageStore: two files in --output_dir:
-       passages.faiss   — FAISS IndexFlatIP (N × 384, float32)
-       passages.pkl     — matching list of passage strings
+       passages.faiss   -- FAISS IndexFlatIP (N × 384, float32)
+       passages.pkl     -- matching list of passage strings
 
 Usage
 -----
@@ -67,9 +67,9 @@ logging.basicConfig(
     datefmt="%H:%M:%S",
 )
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Constants
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 CHUNK_WORDS: int = 100          # target passage length (DPR default)
 CHUNK_OVERLAP: int = 10         # words shared between adjacent passages
@@ -80,9 +80,9 @@ SKIP_SECTIONS = {               # section titles to drop (noisy, non-factual)
     "further reading", "footnotes",
 }
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Text utilities
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 def _chunk_text(text: str, title: str = "", chunk_words: int = CHUNK_WORDS,
                 overlap: int = CHUNK_OVERLAP) -> List[str]:
@@ -104,7 +104,7 @@ def _chunk_text(text: str, title: str = "", chunk_words: int = CHUNK_WORDS,
 
     Returns
     -------
-    list of str  — passage strings ready for embedding.
+    list of str  -- passage strings ready for embedding.
     """
     words = text.split()
     if len(words) < 10:
@@ -171,9 +171,9 @@ def _article_to_passages(article: dict, chunk_words: int = CHUNK_WORDS) -> List[
     return passages
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Streaming article → passages generator
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
+# Streaming article -> passages generator
+# -----------------------------------------------------------------------------
 
 def stream_passages(
     max_passages: int,
@@ -196,7 +196,7 @@ def stream_passages(
 
     Yields
     ------
-    str — one passage string per iteration.
+    str -- one passage string per iteration.
     """
     try:
         from datasets import load_dataset
@@ -231,9 +231,9 @@ def stream_passages(
                 return
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Encoding
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 def encode_passages(
     passages: List[str],
@@ -248,7 +248,7 @@ def encode_passages(
     ----------
     passages : list of str
     model_name : str
-        SBERT model name — must match the one used in EpisodicMemoryStore
+        SBERT model name -- must match the one used in EpisodicMemoryStore
         (default: ``sentence-transformers/all-mpnet-base-v2``).
     batch_size : int
         Encoding batch size. 512 works well on 16 GB GPU; reduce for CPU.
@@ -266,11 +266,11 @@ def encode_passages(
         logger.error("Install sentence-transformers:  pip install sentence-transformers")
         sys.exit(1)
 
-    logger.info("Loading SBERT model: %s …", model_name)
+    logger.info("Loading SBERT model: %s ...", model_name)
     model = SentenceTransformer(model_name, device=device)
 
     logger.info(
-        "Encoding %d passages in batches of %d …", len(passages), batch_size
+        "Encoding %d passages in batches of %d ...", len(passages), batch_size
     )
     t0 = time.time()
     embeddings = model.encode(
@@ -288,9 +288,9 @@ def encode_passages(
     return embeddings.astype(np.float32)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Checkpoint helpers
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 def _checkpoint_path(output_dir: Path) -> Path:
     return output_dir / "_checkpoint.pkl"
@@ -317,9 +317,9 @@ def _load_checkpoint(output_dir: Path):
     return data["passages"], data["embeddings"]
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Main build routine
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 def build_passage_index(
     output_dir: str,
@@ -361,7 +361,7 @@ def build_passage_index(
     out = Path(output_dir)
     out.mkdir(parents=True, exist_ok=True)
 
-    # ── Determine auto device ──────────────────────────────────────────────
+    # -- Determine auto device ----------------------------------------------
     if device is None:
         try:
             import torch
@@ -370,7 +370,7 @@ def build_passage_index(
             device = "cpu"
     logger.info("Using device: %s", device)
 
-    # ── Resume from checkpoint or start fresh ─────────────────────────────
+    # -- Resume from checkpoint or start fresh -----------------------------
     all_passages: List[str] = []
     all_embedding_batches: List[np.ndarray] = []
 
@@ -383,11 +383,11 @@ def build_passage_index(
     already_have = len(all_passages)
     remaining = max_passages - already_have
     if remaining <= 0:
-        logger.info("Already have %d passages — nothing to stream.", already_have)
+        logger.info("Already have %d passages -- nothing to stream.", already_have)
     else:
-        # ── Stream passages ────────────────────────────────────────────────
+        # -- Stream passages ------------------------------------------------
         logger.info(
-            "Streaming up to %d more passages (have %d, target %d) …",
+            "Streaming up to %d more passages (have %d, target %d) ...",
             remaining, already_have, max_passages,
         )
         buffer: List[str] = []
@@ -404,7 +404,7 @@ def build_passage_index(
 
             # Encode and checkpoint in batches.
             if len(buffer) >= CHECKPOINT_EVERY:
-                logger.info("Encoding buffer of %d passages …", len(buffer))
+                logger.info("Encoding buffer of %d passages ...", len(buffer))
                 embs = encode_passages(
                     buffer, sbert_model,
                     batch_size=encode_batch_size,
@@ -417,7 +417,7 @@ def build_passage_index(
 
         # Encode remaining buffer.
         if buffer:
-            logger.info("Encoding final buffer of %d passages …", len(buffer))
+            logger.info("Encoding final buffer of %d passages ...", len(buffer))
             embs = encode_passages(
                 buffer, sbert_model,
                 batch_size=encode_batch_size,
@@ -430,9 +430,9 @@ def build_passage_index(
         logger.error("No passages were collected. Aborting.")
         sys.exit(1)
 
-    # ── Concatenate all embeddings ─────────────────────────────────────────
+    # -- Concatenate all embeddings -----------------------------------------
     logger.info(
-        "Concatenating embeddings from %d batches …", len(all_embedding_batches)
+        "Concatenating embeddings from %d batches ...", len(all_embedding_batches)
     )
     all_embeddings = np.concatenate(all_embedding_batches, axis=0)
     emb_dim = all_embeddings.shape[1]  # 768 for all-mpnet-base-v2, 384 for all-MiniLM
@@ -441,8 +441,8 @@ def build_passage_index(
     )
     logger.info("Embeddings: %d × %d (dim=%d)", len(all_passages), emb_dim, emb_dim)
 
-    # ── Build and save PassageStore ───────────────────────────────────────
-    logger.info("Building PassageStore for %d passages …", len(all_passages))
+    # -- Build and save PassageStore ---------------------------------------
+    logger.info("Building PassageStore for %d passages ...", len(all_passages))
     # Import here so the script can be run without the full caem package in PYTHONPATH
     # as long as the caem/ directory is on the path.
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -452,13 +452,13 @@ def build_passage_index(
     store.save(str(out))
     logger.info("PassageStore saved to %s (%d passages).", out, len(all_passages))
 
-    # ── Clean up checkpoint ───────────────────────────────────────────────
+    # -- Clean up checkpoint -----------------------------------------------
     cp = _checkpoint_path(out)
     if cp.exists():
         cp.unlink()
         logger.info("Checkpoint file removed.")
 
-    # ── Quick sanity check ────────────────────────────────────────────────
+    # -- Quick sanity check ------------------------------------------------
     _sanity_check(out, sbert_model, device)
 
 
@@ -469,7 +469,7 @@ def _sanity_check(output_dir: Path, sbert_model: str, device: str) -> None:
     from caem.retrieval.rag import PassageStore
     from sentence_transformers import SentenceTransformer
 
-    logger.info("Running sanity check …")
+    logger.info("Running sanity check ...")
     store = PassageStore.load(str(output_dir))
     model = SentenceTransformer(sbert_model, device=device)
 
@@ -478,7 +478,7 @@ def _sanity_check(output_dir: Path, sbert_model: str, device: str) -> None:
     hits = store.search(emb, k=3)
 
     if not hits:
-        logger.warning("Sanity check: no hits returned — passage store may be empty.")
+        logger.warning("Sanity check: no hits returned -- passage store may be empty.")
         return
 
     logger.info("Sanity check PASSED. Top-3 hits for '%s':", test_query)
@@ -502,9 +502,9 @@ def _check_dependencies() -> None:
         sys.exit(1)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # CLI
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 def _parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(

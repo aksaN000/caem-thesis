@@ -1,7 +1,7 @@
-"""
+﻿"""
 caem/verification/verifier.py
 ==============================
-MultiLayerVerifier — Stage 5 of the CAEM pipeline.
+MultiLayerVerifier -- Stage 5 of the CAEM pipeline.
 
 Runs after a Tier 2 answer passes Stage 4a (û ≥ 0.60).
 Determines whether the answer is trustworthy enough to store in episodic
@@ -9,24 +9,24 @@ memory and at what confidence level (û_stored).
 
 Three signals
 -------------
-Signal 1 — p_entail  [DES]
+Signal 1 -- p_entail  [DES]
     NLI entailment probability: P(ENTAILMENT | query, answer) from the NLI
     model's softmax output (NOT just argmax). Captures factual consistency
     between the question and the generated answer.
 
     Implementation: for each of M independently generated chains, compute
-    P(ENTAILMENT) of (chain → original_answer), then average. This checks
+    P(ENTAILMENT) of (chain -> original_answer), then average. This checks
     that the model's own reasoning chains consistently support the answer,
     rather than trusting the NLI model's relationship between a raw question
     and an opaque answer string.
 
-Signal 2 — s_avg  [LIT: Wang et al. 2022]
+Signal 2 -- s_avg  [LIT: Wang et al. 2022]
     Average pairwise cosine similarity of M=3 independent chain-of-thought
     generations (Sentence-BERT, 768-dim, same encoder as memory store).
     High similarity = the model's reasoning is stable; low = uncertain or
     multi-modal answer space.
 
-Signal 3 — h_norm  [LIT: Farquhar et al. 2024]
+Signal 3 -- h_norm  [LIT: Farquhar et al. 2024]
     Normalised semantic entropy from K=10 samples at T=1.0, using
     bidirectional NLI clustering (same method as Stage 4a u_entropy).
     Measures meaning-level, not surface-level, diversity.
@@ -45,14 +45,14 @@ Stage 4a (PostGenerationConfidenceEstimator) is an EFFICIENCY gate:
 it prevents sending low-confidence answers to expensive Stage 5 compute.
 Stage 5 (MultiLayerVerifier) is a QUALITY gate: it determines what û_stored
 value to write into the episodic memory entry. These two stages are
-deliberately separate — Stage 4a can be calibrated for recall (avoid false
+deliberately separate -- Stage 4a can be calibrated for recall (avoid false
 negatives) while Stage 5 is calibrated for precision (avoid storing junk).
 See: writing-suggestions.md C4-05.
 
 If û_stored ≥ retroverify_prune_threshold (default 0.50):
-    → Write to episodic memory (Stage 7).
+    -> Write to episodic memory (Stage 7).
 If û_stored < threshold:
-    → Discard — not stored.
+    -> Discard -- not stored.
 """
 
 from __future__ import annotations
@@ -98,7 +98,7 @@ class MultiLayerVerifier:
     ...                               nli_model, nli_tokenizer)
     >>> sc = verifier.verify("Who wrote Hamlet?", "William Shakespeare")
     >>> sc.u_stored   # e.g. 0.82
-    >>> sc.u_stored >= 0.50  # True → store in memory
+    >>> sc.u_stored >= 0.50  # True -> store in memory
     """
 
     def __init__(
@@ -183,7 +183,7 @@ class MultiLayerVerifier:
         return sc.u_stored >= self.config.retroverify_prune_threshold
 
     # ------------------------------------------------------------------ #
-    # Signal 1 — p_entail                                                  #
+    # Signal 1 -- p_entail                                                  #
     # ------------------------------------------------------------------ #
 
     def _compute_p_entail(
@@ -197,13 +197,13 @@ class MultiLayerVerifier:
         For each of M chains generated from the query, compute the NLI
         probability that the chain ENTAILS the given answer. High average
         p_entail means the model's own reasoning consistently supports
-        the answer — a strong factual reliability signal.
+        the answer -- a strong factual reliability signal.
 
         If NLI model is unavailable, falls back to 0.5 (neutral).
         Returns float in [0, 1].
         """
         if self.nli_model is None or self.nli_tokenizer is None:
-            logger.debug("p_entail: NLI model unavailable — returning 0.5.")
+            logger.debug("p_entail: NLI model unavailable -- returning 0.5.")
             return 0.5
 
         M = self.config.sc_chains_m
@@ -230,7 +230,7 @@ class MultiLayerVerifier:
             return float(np.clip(p_entail, 0.0, 1.0))
 
         except Exception as exc:
-            logger.warning("p_entail: failed with %s — returning 0.5.", exc)
+            logger.warning("p_entail: failed with %s -- returning 0.5.", exc)
             return 0.5
 
     def _nli_entail_prob(self, premise: str, hypothesis: str) -> float:
@@ -254,7 +254,7 @@ class MultiLayerVerifier:
         return float(probs[0, 2].item())               # ENTAILMENT index = 2
 
     # ------------------------------------------------------------------ #
-    # Signal 2 — s_avg (self-consistency)                                  #
+    # Signal 2 -- s_avg (self-consistency)                                  #
     # ------------------------------------------------------------------ #
 
     def _compute_s_avg(
@@ -299,11 +299,11 @@ class MultiLayerVerifier:
             return float(np.clip(s_avg, 0.0, 1.0))
 
         except Exception as exc:
-            logger.warning("s_avg: failed with %s — returning 0.5.", exc)
+            logger.warning("s_avg: failed with %s -- returning 0.5.", exc)
             return 0.5
 
     # ------------------------------------------------------------------ #
-    # Signal 3 — h_norm (semantic entropy)                                 #
+    # Signal 3 -- h_norm (semantic entropy)                                 #
     # ------------------------------------------------------------------ #
 
     def _compute_h_norm(
@@ -342,14 +342,14 @@ class MultiLayerVerifier:
             if self.nli_model is not None and self.nli_tokenizer is not None:
                 H = self._semantic_entropy_nli(samples)
             else:
-                logger.debug("h_norm: NLI model unavailable — using surface fallback.")
+                logger.debug("h_norm: NLI model unavailable -- using surface fallback.")
                 H = self._semantic_entropy_surface(samples)
 
             h_norm = H / math.log2(max(K, 2))
             return float(np.clip(h_norm, 0.0, 1.0))
 
         except Exception as exc:
-            logger.warning("h_norm: failed with %s — returning 0.5.", exc)
+            logger.warning("h_norm: failed with %s -- returning 0.5.", exc)
             return 0.5
 
     # ------------------------------------------------------------------ #
@@ -357,7 +357,7 @@ class MultiLayerVerifier:
     # ------------------------------------------------------------------ #
 
     def _semantic_entropy_nli(self, samples: List[str]) -> float:
-        """Bidirectional NLI clustering → Shannon entropy (bits).
+        """Bidirectional NLI clustering -> Shannon entropy (bits).
 
         Two samples are in the same semantic cluster iff both directions
         return ENTAILMENT. Union-Find merges clusters incrementally.

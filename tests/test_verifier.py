@@ -1,9 +1,9 @@
-"""
+﻿"""
 tests/test_verifier.py
 ======================
 Unit tests for MultiLayerVerifier (Stage 5).
 
-Mock strategy: identical to test_post_generation.py — no real models,
+Mock strategy: identical to test_post_generation.py -- no real models,
 controlled logits and embeddings, each signal isolated independently.
 
 Coverage:
@@ -34,9 +34,9 @@ from caem.memory.entry import StoredConfidence
 from caem.verification.verifier import MultiLayerVerifier
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Shared constants
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 VOCAB   = 100
 DIM     = 768
@@ -47,9 +47,9 @@ PAD_ID  = 0
 CHOSEN  = 2
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Mock builders (reuse the patterns established in test_post_generation.py)
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 def make_plain_seq(n_tokens: int = 3) -> torch.Tensor:
     """Plain (1, n+2) tensor for generate() without return_dict_in_generate."""
@@ -59,7 +59,7 @@ def make_plain_seq(n_tokens: int = 3) -> torch.Tensor:
 def make_mock_model(chosen_logit: float = 8.0) -> MagicMock:
     model = MagicMock()
     model.parameters.return_value = iter([torch.zeros(1)])
-    # Stage 5 generate() calls never use return_dict_in_generate → plain tensor
+    # Stage 5 generate() calls never use return_dict_in_generate -> plain tensor
     model.generate.return_value = make_plain_seq()
     model.training = False
     return model
@@ -138,9 +138,9 @@ def make_verifier(
                               cfg, device="cpu")
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # StoredConfidence dataclass
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 class TestStoredConfidenceDataclass:
     def test_fields_accessible(self):
@@ -156,20 +156,20 @@ class TestStoredConfidenceDataclass:
             assert 0.0 <= sc.u_stored <= 1.0
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # p_entail signal
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 class TestPEntail:
     def test_all_entailment_gives_high_p_entail(self):
-        """NLI model always returns ENTAILMENT → p_entail near 1.0."""
+        """NLI model always returns ENTAILMENT -> p_entail near 1.0."""
         v = make_verifier(nli_label=2)
         input_ids = torch.zeros(1, SEQ_LEN, dtype=torch.long)
         p = v._compute_p_entail("q", "answer", input_ids)
         assert p > 0.95, f"Expected near-1.0, got {p:.4f}"
 
     def test_all_contradiction_gives_low_p_entail(self):
-        """NLI model always returns CONTRADICTION → p_entail near 0.0."""
+        """NLI model always returns CONTRADICTION -> p_entail near 0.0."""
         v = make_verifier(nli_label=0)
         input_ids = torch.zeros(1, SEQ_LEN, dtype=torch.long)
         p = v._compute_p_entail("q", "answer", input_ids)
@@ -225,13 +225,13 @@ class TestPEntail:
         assert p < 0.05
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # s_avg signal
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 class TestSAvg:
     def test_identical_chains_high_s_avg(self):
-        """All chains identical → pairwise sim = 1.0 → s_avg ≈ 1.0."""
+        """All chains identical -> pairwise sim = 1.0 -> s_avg ≈ 1.0."""
         v = make_verifier(sbert_sim=1.0)
         s = v._compute_s_avg("q", "ans", torch.zeros(1, SEQ_LEN, dtype=torch.long))
         assert s > 0.95, f"Expected near-1.0, got {s:.4f}"
@@ -263,13 +263,13 @@ class TestSAvg:
         assert s == pytest.approx(0.5)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # h_norm signal
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 class TestHNorm:
     def test_all_entailment_low_h_norm(self):
-        """All samples cluster into one → H=0 → h_norm=0."""
+        """All samples cluster into one -> H=0 -> h_norm=0."""
         v = make_verifier(nli_label=2)
         h = v._compute_h_norm("q", torch.zeros(1, SEQ_LEN, dtype=torch.long))
         assert h < 0.05, f"Expected near-0, got {h:.4f}"
@@ -281,7 +281,7 @@ class TestHNorm:
             assert 0.0 <= h <= 1.0
 
     def test_surface_fallback_identical_samples_zero_h_norm(self):
-        """Identical samples → 1 surface cluster → H=0 → h_norm=0."""
+        """Identical samples -> 1 surface cluster -> H=0 -> h_norm=0."""
         v = make_verifier(include_nli=False)
         v.tokenizer.decode.return_value = "identical answer"
         h = v._compute_h_norm("q", torch.zeros(1, SEQ_LEN, dtype=torch.long))
@@ -308,9 +308,9 @@ class TestHNorm:
         assert h == pytest.approx(0.5)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Combined verify()
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 class TestVerify:
     def test_returns_stored_confidence(self):
@@ -346,7 +346,7 @@ class TestVerify:
         assert math.isclose(sc.u_stored, expected, abs_tol=1e-5)
 
     def test_high_confidence_all_signals(self):
-        """High NLI entailment, high SBERT sim, all samples same cluster → high û_stored."""
+        """High NLI entailment, high SBERT sim, all samples same cluster -> high û_stored."""
         v = make_verifier(nli_label=2, sbert_sim=0.99)
         sc = v.verify("q", "answer")
         assert sc.u_stored > 0.70, f"Expected high û_stored, got {sc.u_stored:.4f}"
@@ -370,9 +370,9 @@ class TestVerify:
         assert math.isclose(total, 1.0, abs_tol=1e-6)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # should_store() gate
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 class TestShouldStore:
     def test_above_threshold_stores(self):
@@ -386,7 +386,7 @@ class TestShouldStore:
         assert v.should_store(sc) is False
 
     def test_at_exact_threshold_stores(self):
-        """u_stored == retroverify_prune_threshold → should store (≥)."""
+        """u_stored == retroverify_prune_threshold -> should store (≥)."""
         cfg = CAEMConfig()
         v = make_verifier(config=cfg)
         sc = StoredConfidence(p_entail=0.5, s_avg=0.5, h_norm=0.5,

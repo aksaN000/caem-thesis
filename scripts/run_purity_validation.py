@@ -1,23 +1,23 @@
-"""
+﻿"""
 scripts/run_purity_validation.py
 ==================================
-CAEM Theory Validation — Three Protocols (Chapter 5, Section 5.5)
+CAEM Theory Validation -- Three Protocols (Chapter 5, Section 5.5)
 
 Validates all three theoretical claims in the thesis:
 
-  Theory 1 — Data Purity Theorem
+  Theory 1 -- Data Purity Theorem
     Claim:   P = pα / (pα + (1-p)(1-α))   AND   P > p
     Condition: p > (1-α)  must hold for the theorem to guarantee P > p
     CRITICAL: theorem guarantees P > p (base accuracy), NOT P > α.
     Protocol: measure p and α per cycle on the purity validation set;
               compute P_theory; compare with P_obs (actual memory accuracy).
 
-  Theory 2 — Coupled Improvement Recurrence (Monotonicity)
+  Theory 2 -- Coupled Improvement Recurrence (Monotonicity)
     Claim:   p_0 < p_1 < p_2 < p_3  AND  α_0 < α_1 < α_2 < α_3
     Protocol: report p and α per cycle; confirm strict monotonicity.
 
-  Theory 3 — Convergence
-    Claim:   Δ(2→3) < Δ(1→2)   where Δ(k→k+1) = p_{k+1} - p_k
+  Theory 3 -- Convergence
+    Claim:   Δ(2->3) < Δ(1->2)   where Δ(k->k+1) = p_{k+1} - p_k
     Protocol: compute Δ per cycle pair; confirm diminishing improvement.
 
 All three validations use the purity validation set (500 samples, separate
@@ -28,11 +28,11 @@ Thesis reference
   §4.8  Theoretical analysis (purity theorem + convergence)
   §5.5  Theory validation (three protocols, one table each)
   §6.1  Conclusion: theoretical grounding distinguishes CAEM from heuristics
-  benchmarks-and-baselines.md — purity theorem protocol
+  benchmarks-and-baselines.md -- purity theorem protocol
 
 Purity theorem note
 -------------------
-The theorem guarantees P > p — purity in memory EXCEEDS BASE generation
+The theorem guarantees P > p -- purity in memory EXCEEDS BASE generation
 accuracy. It does NOT claim P > α (verification accuracy). Confusion between
 these two is a committee-facing risk (writing-suggestions.md C5-03).
 
@@ -59,9 +59,9 @@ from typing import Dict, List, Optional, Tuple
 logger = logging.getLogger(__name__)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Theory 1: Data Purity Theorem
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 def purity_theorem(p: float, alpha: float) -> float:
     """Compute theoretical memory purity P from base accuracy p and verification α.
@@ -73,12 +73,12 @@ def purity_theorem(p: float, alpha: float) -> float:
 
     Parameters
     ----------
-    p     : float — base generation accuracy (fraction correct before verification)
-    alpha : float — verification precision (fraction of stored answers that are correct)
+    p     : float -- base generation accuracy (fraction correct before verification)
+    alpha : float -- verification precision (fraction of stored answers that are correct)
 
     Returns
     -------
-    float — theoretical purity P_theory in [0, 1]
+    float -- theoretical purity P_theory in [0, 1]
     """
     numerator = p * alpha
     denominator = p * alpha + (1 - p) * (1 - alpha)
@@ -93,18 +93,18 @@ def check_purity_condition(p: float, alpha: float) -> bool:
 
 
 def measure_base_accuracy(pipeline, purity_samples: List[dict], bm: str) -> float:
-    """Measure p — the fraction of questions the model answers correctly BEFORE
+    """Measure p -- the fraction of questions the model answers correctly BEFORE
     verification. This is the raw generation accuracy on the purity validation set.
 
     Parameters
     ----------
     pipeline       : CAEMPipeline
     purity_samples : list of BenchmarkSample
-    bm             : str — benchmark name
+    bm             : str -- benchmark name
 
     Returns
     -------
-    float — p (base accuracy in [0, 1])
+    float -- p (base accuracy in [0, 1])
     """
     from eval.metrics import (
         any_match_em, exact_match, extract_fever_label, fever_accuracy
@@ -120,7 +120,7 @@ def measure_base_accuracy(pipeline, purity_samples: List[dict], bm: str) -> floa
         gold_label = sample.get("gold_label")
 
         try:
-            # Generate directly (bypass memory routing — we want raw model accuracy)
+            # Generate directly (bypass memory routing -- we want raw model accuracy)
             inputs = pipeline.tokenizer(
                 q, return_tensors="pt", truncation=True, max_length=512
             ).to(pipeline.device)
@@ -147,7 +147,7 @@ def measure_base_accuracy(pipeline, purity_samples: List[dict], bm: str) -> floa
 
 
 def measure_verification_precision(pipeline, purity_samples: List[dict], bm: str) -> float:
-    """Measure α — verification precision on the purity validation set.
+    """Measure α -- verification precision on the purity validation set.
 
     α = (correctly verified answers that were actually correct) /
         (all answers that passed verification)
@@ -159,11 +159,11 @@ def measure_verification_precision(pipeline, purity_samples: List[dict], bm: str
     ----------
     pipeline       : CAEMPipeline
     purity_samples : list of BenchmarkSample
-    bm             : str — benchmark name
+    bm             : str -- benchmark name
 
     Returns
     -------
-    float — α (verification precision in [0, 1])
+    float -- α (verification precision in [0, 1])
     """
     from eval.metrics import (
         any_match_em, exact_match, extract_fever_label, fever_accuracy
@@ -188,7 +188,7 @@ def measure_verification_precision(pipeline, purity_samples: List[dict], bm: str
             if result.stored_confidence.u_stored < threshold:
                 continue
 
-            # Answer passed verification — was it actually correct?
+            # Answer passed verification -- was it actually correct?
             pred = result.answer
             if bm == "fever":
                 pred_label = extract_fever_label(pred)
@@ -205,25 +205,25 @@ def measure_verification_precision(pipeline, purity_samples: List[dict], bm: str
             logger.debug("measure_verification_precision: skipped (%s)", exc)
 
     if accepted_total == 0:
-        logger.warning("No accepted answers found — α cannot be measured.")
+        logger.warning("No accepted answers found -- α cannot be measured.")
         return 0.0
     return accepted_and_correct / accepted_total
 
 
 def measure_memory_purity(memory_store, purity_samples: List[dict], bm: str, pipeline) -> float:
-    """Measure P_obs — the observed purity of episodes in the memory store.
+    """Measure P_obs -- the observed purity of episodes in the memory store.
 
     P_obs = (correct answers in memory) / (total answers in memory)
     Measured by checking stored answers against the gold labels from the
     purity validation set.
 
     Note: only stored answers whose questions are in the purity set are
-    checked. This is an approximation — the full memory also contains
+    checked. This is an approximation -- the full memory also contains
     answers from other sources.
 
     Returns
     -------
-    float — P_obs (observed memory purity in [0, 1])
+    float -- P_obs (observed memory purity in [0, 1])
     """
     from eval.metrics import (
         any_match_em, exact_match, extract_fever_label, fever_accuracy
@@ -266,9 +266,9 @@ def measure_memory_purity(memory_store, purity_samples: List[dict], bm: str, pip
     return correct_in_memory / checked
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Full validation protocol
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 def run_purity_validation_protocol(
     pipelines_by_cycle: Dict[int, object],
@@ -279,15 +279,15 @@ def run_purity_validation_protocol(
 
     Parameters
     ----------
-    pipelines_by_cycle : dict[cycle_num → CAEMPipeline]
+    pipelines_by_cycle : dict[cycle_num -> CAEMPipeline]
                          The pipeline at each cycle state (post fine-tuning).
                          At minimum cycle 0 and cycle 3 are required.
-    purity_samples     : dict[bm → list of BenchmarkSample] — 500-sample set
+    purity_samples     : dict[bm -> list of BenchmarkSample] -- 500-sample set
     output_dir         : Path
 
     Returns
     -------
-    dict — all three theory validation tables
+    dict -- all three theory validation tables
     """
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -298,7 +298,7 @@ def run_purity_validation_protocol(
 
     for cycle_num, pipeline in sorted(pipelines_by_cycle.items()):
         for bm, bm_samples in purity_samples.items():
-            logger.info("Purity validation: cycle=%d  bm=%s …", cycle_num, bm)
+            logger.info("Purity validation: cycle=%d  bm=%s ...", cycle_num, bm)
 
             # Step 1: Measure p (base accuracy)
             p = measure_base_accuracy(pipeline, bm_samples, bm)
@@ -337,8 +337,8 @@ def run_purity_validation_protocol(
                 "condition=%s  P_obs>p=%s",
                 p, alpha, P_theory,
                 P_obs if not math.isnan(P_obs) else float("nan"),
-                "✓" if condition_holds else "✗",
-                "✓" if (not math.isnan(P_obs) and P_obs > p) else "✗",
+                "OK" if condition_holds else "✗",
+                "OK" if (not math.isnan(P_obs) and P_obs > p) else "✗",
             )
 
             # Accumulate Theory 2 values
@@ -348,7 +348,7 @@ def run_purity_validation_protocol(
             theory2_p_values[bm].append(p)
             theory2_alpha_values[bm].append(alpha)
 
-    # ── Theory 2: Monotonicity ─────────────────────────────────────────── #
+    # -- Theory 2: Monotonicity ------------------------------------------- #
     theory2_rows: List[Dict] = []
     for bm in purity_samples:
         p_vals = theory2_p_values.get(bm, [])
@@ -368,11 +368,11 @@ def run_purity_validation_protocol(
         logger.info(
             "  Theory 2 (%s): p monotone=%s  α monotone=%s",
             bm,
-            "✓" if p_mono else "✗",
-            "✓" if a_mono else "✗",
+            "OK" if p_mono else "✗",
+            "OK" if a_mono else "✗",
         )
 
-    # ── Theory 3: Convergence ──────────────────────────────────────────── #
+    # -- Theory 3: Convergence -------------------------------------------- #
     theory3_rows: List[Dict] = []
     for bm in purity_samples:
         p_vals = theory2_p_values.get(bm, [])
@@ -380,7 +380,7 @@ def run_purity_validation_protocol(
             logger.warning("Theory 3 (%s): need 4 cycles, got %d.", bm, len(p_vals))
             continue
         deltas = [p_vals[i + 1] - p_vals[i] for i in range(len(p_vals) - 1)]
-        # Δ(2→3) < Δ(1→2) for convergence
+        # Δ(2->3) < Δ(1->2) for convergence
         converging = deltas[-1] < deltas[-2] if len(deltas) >= 2 else False
         theory3_rows.append({
             "benchmark": bm,
@@ -390,14 +390,14 @@ def run_purity_validation_protocol(
             "theory_3_confirmed": converging,
         })
         logger.info(
-            "  Theory 3 (%s): Δ(1→2)=%.4f  Δ(2→3)=%.4f  converging=%s",
+            "  Theory 3 (%s): Δ(1->2)=%.4f  Δ(2->3)=%.4f  converging=%s",
             bm,
             deltas[1] if len(deltas) > 1 else float("nan"),
             deltas[2] if len(deltas) > 2 else float("nan"),
-            "✓" if converging else "✗",
+            "OK" if converging else "✗",
         )
 
-    # ── Save all results ────────────────────────────────────────────────── #
+    # -- Save all results -------------------------------------------------- #
     results = {
         "theory_1_purity_theorem": theory1_rows,
         "theory_2_monotonicity": theory2_rows,
@@ -406,9 +406,9 @@ def run_purity_validation_protocol(
     out_path = output_dir / "theory_validation.json"
     with open(out_path, "w") as f:
         json.dump(results, f, indent=2)
-    logger.info("Theory validation results saved → %s", out_path)
+    logger.info("Theory validation results saved -> %s", out_path)
 
-    # ── Print tables ─────────────────────────────────────────────────────── #
+    # -- Print tables ------------------------------------------------------- #
     _print_theory_tables(results)
 
     return results
@@ -416,61 +416,61 @@ def run_purity_validation_protocol(
 
 def _print_theory_tables(results: Dict) -> None:
     """Print all three theory validation tables to stdout (Chapter 5)."""
-    print("\n" + "═" * 80)
+    print("\n" + "=" * 80)
     print("THEORY VALIDATION TABLES  (Chapter 5, Section 5.5)")
-    print("═" * 80)
+    print("=" * 80)
 
-    # ── Table 1: Purity Theorem ───────────────────────────────────────────── #
-    print("\nTable T1 — Data Purity Theorem: P = pα / (pα + (1-p)(1-α))")
+    # -- Table 1: Purity Theorem --------------------------------------------- #
+    print("\nTable T1 -- Data Purity Theorem: P = pα / (pα + (1-p)(1-α))")
     print("CRITICAL: theorem guarantees P > p (base accuracy), NOT P > α (verification)")
-    print("─" * 80)
+    print("-" * 80)
     print(f"  {'Cycle':<5} {'BM':<12} {'p':>7} {'α':>7} {'P_theory':>10} "
-          f"{'P_obs':>8} {'P_obs>p':>8} {'Cond':>6} {'✓':>4}")
-    print("─" * 80)
+          f"{'P_obs':>8} {'P_obs>p':>8} {'Cond':>6} {'OK':>4}")
+    print("-" * 80)
     for row in results["theory_1_purity_theorem"]:
         pobs_str = f"{row['P_obs']:.4f}" if row.get("P_obs") is not None else "  n/a "
-        confirmed = "✓" if row.get("theorem_confirmed") else "✗"
-        cond = "✓" if row.get("condition_p_gt_1_minus_alpha") else "✗"
-        pobs_gt_p = "✓" if (row.get("P_obs_minus_p") or 0) > 0 else "✗"
+        confirmed = "OK" if row.get("theorem_confirmed") else "✗"
+        cond = "OK" if row.get("condition_p_gt_1_minus_alpha") else "✗"
+        pobs_gt_p = "OK" if (row.get("P_obs_minus_p") or 0) > 0 else "✗"
         print(
             f"  {row['cycle']:<5} {row['benchmark']:<12} "
             f"{row['p']:>7.4f} {row['alpha']:>7.4f} "
             f"{row['P_theory']:>10.4f} {pobs_str:>8} "
             f"{pobs_gt_p:>8} {cond:>6} {confirmed:>4}"
         )
-    print("─" * 80)
-    print("  Cond = p > (1-α) must hold. ✓ = theorem confirmed.\n")
+    print("-" * 80)
+    print("  Cond = p > (1-α) must hold. OK = theorem confirmed.\n")
 
-    # ── Table 2: Monotonicity ─────────────────────────────────────────────── #
-    print("Table T2 — Coupled Improvement Recurrence (Monotonicity)")
-    print("─" * 80)
+    # -- Table 2: Monotonicity ----------------------------------------------- #
+    print("Table T2 -- Coupled Improvement Recurrence (Monotonicity)")
+    print("-" * 80)
     for row in results["theory_2_monotonicity"]:
-        p_str = " → ".join(f"{v:.4f}" for v in row["p_values"])
-        a_str = " → ".join(f"{v:.4f}" for v in row["alpha_values"])
-        p_ok = "✓" if row["p_monotone"] else "✗"
-        a_ok = "✓" if row["alpha_monotone"] else "✗"
+        p_str = " -> ".join(f"{v:.4f}" for v in row["p_values"])
+        a_str = " -> ".join(f"{v:.4f}" for v in row["alpha_values"])
+        p_ok = "OK" if row["p_monotone"] else "✗"
+        a_ok = "OK" if row["alpha_monotone"] else "✗"
         print(f"  {row['benchmark']:<12}  p: {p_str}  [{p_ok}]")
         print(f"  {'':<12}  α: {a_str}  [{a_ok}]")
-    print("─" * 80 + "\n")
+    print("-" * 80 + "\n")
 
-    # ── Table 3: Convergence ─────────────────────────────────────────────── #
-    print("Table T3 — Convergence: Δ(2→3) < Δ(1→2)")
-    print("─" * 80)
+    # -- Table 3: Convergence ----------------------------------------------- #
+    print("Table T3 -- Convergence: Δ(2->3) < Δ(1->2)")
+    print("-" * 80)
     for row in results["theory_3_convergence"]:
-        d_str = " → ".join(f"{d:+.4f}" for d in row["deltas"])
-        ok = "✓" if row["theory_3_confirmed"] else "✗"
+        d_str = " -> ".join(f"{d:+.4f}" for d in row["deltas"])
+        ok = "OK" if row["theory_3_confirmed"] else "✗"
         d12 = row.get("delta_1_2") or float("nan")
         d23 = row.get("delta_2_3") or float("nan")
         print(
             f"  {row['benchmark']:<12}  Δ: {d_str}  "
-            f"Δ(1→2)={d12:+.4f}  Δ(2→3)={d23:+.4f}  [{ok}]"
+            f"Δ(1->2)={d12:+.4f}  Δ(2->3)={d23:+.4f}  [{ok}]"
         )
-    print("═" * 80 + "\n")
+    print("=" * 80 + "\n")
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Main
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 def run_purity_validation(ns: argparse.Namespace) -> None:
     logging.basicConfig(
@@ -483,7 +483,7 @@ def run_purity_validation(ns: argparse.Namespace) -> None:
 
     output_dir = Path(ns.output_dir)
 
-    # ── Load pipeline and purity samples ─────────────────────────────────── #
+    # -- Load pipeline and purity samples ----------------------------------- #
     if ns.smoke_test:
         from eval.benchmarks import make_synthetic_samples
         purity_samples = {
@@ -517,7 +517,7 @@ def run_purity_validation(ns: argparse.Namespace) -> None:
         tokenizer = AutoTokenizer.from_pretrained("google/flan-t5-large")
 
         # Load purity validation samples
-        # (first 500 per benchmark — from dataset_splits.json or reload)
+        # (first 500 per benchmark -- from dataset_splits.json or reload)
         purity_samples = {
             "hotpotqa":   load_hotpotqa(n=500)[:500],
             "truthfulqa": load_truthfulqa(n=500)[:500],
@@ -533,10 +533,10 @@ def run_purity_validation(ns: argparse.Namespace) -> None:
 
             model = T5ForConditionalGeneration.from_pretrained("google/flan-t5-large")
             if model_path.exists():
-                logger.info("Loading cycle %d weights from %s …", cycle_num, model_path)
+                logger.info("Loading cycle %d weights from %s ...", cycle_num, model_path)
                 model.load_state_dict(torch.load(model_path, map_location="cpu"))
             else:
-                logger.warning("Cycle %d checkpoint not found at %s — using base weights.", cycle_num, model_path)
+                logger.warning("Cycle %d checkpoint not found at %s -- using base weights.", cycle_num, model_path)
 
             if profile.use_fp16:
                 model = model.half()
@@ -552,13 +552,13 @@ def run_purity_validation(ns: argparse.Namespace) -> None:
             pipelines_by_cycle[cycle_num] = pipeline
             logger.info("Cycle %d pipeline ready.", cycle_num)
 
-    # ── Run validation ────────────────────────────────────────────────────── #
+    # -- Run validation ------------------------------------------------------ #
     run_purity_validation_protocol(pipelines_by_cycle, purity_samples, output_dir)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # CLI
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 def _parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(

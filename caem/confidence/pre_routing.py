@@ -1,25 +1,25 @@
-"""
+﻿"""
 caem/confidence/pre_routing.py
 ===============================
-PreRoutingConfidenceEstimator — Stage 3 of the CAEM pipeline.
+PreRoutingConfidenceEstimator -- Stage 3 of the CAEM pipeline.
 
 Computes u_pre BEFORE routing, using two fast signals that require only a
 single forward pass through the model. No generation beyond a greedy decode
-of a short prefix is needed — this keeps Tier 1 latency well under 400 ms.
+of a short prefix is needed -- this keeps Tier 1 latency well under 400 ms.
 
 Two signals
 -----------
-Signal 1 — u_token (geometric mean of per-token log-probabilities)
+Signal 1 -- u_token (geometric mean of per-token log-probabilities)
     Measures how confidently the model assigns probability to each generated
     token. Low u_token = the model is guessing across many alternatives.
 
-Signal 2 — C_conv (Internal Convergence, adapted from Nandakishor 2025)
+Signal 2 -- C_conv (Internal Convergence, adapted from Nandakishor 2025)
     Original: applied to decoder hidden states in decoder-only models.
     CAEM adaptation: applied to Flan-T5's *encoder* hidden states to measure
     how stably the model represents the query *before* generation begins.
 
     Intuition: if early encoder layers vary much more than late layers, the
-    model has not settled on a stable representation of the query — it is
+    model has not settled on a stable representation of the query -- it is
     internally "confused" about what is being asked. High variance ratio =
     low confidence.
 
@@ -36,7 +36,7 @@ primary reliability signal; c_conv is a secondary prior on query stability.
 OR-condition
 ------------
     if u_pre < CAEMConfig.safety_u_pre_min (0.60):
-        → force Tier 3, regardless of memory similarity
+        -> force Tier 3, regardless of memory similarity
 
 This is checked via PreRoutingConfidence.is_safe(), not baked into any formula.
 See: writing-suggestions.md C4-04, C4-10b for thesis framing.
@@ -73,7 +73,7 @@ class PreRoutingConfidenceEstimator:
         Pipeline configuration. Weights and thresholds come from here.
     max_new_tokens : int
         How many tokens to greedily decode for the u_token signal.
-        Kept short (32) to stay within latency budget — we only need a
+        Kept short (32) to stay within latency budget -- we only need a
         confidence proxy, not a full answer.
     device : str or None
         'cuda' / 'cpu'. Auto-detected from model if None.
@@ -83,7 +83,7 @@ class PreRoutingConfidenceEstimator:
     >>> estimator = PreRoutingConfidenceEstimator(model, tokenizer, config)
     >>> pc = estimator.estimate("What is the capital of France?")
     >>> pc.u_pre          # e.g. 0.74
-    >>> pc.is_safe()      # True → safe to route via memory; False → force Tier 3
+    >>> pc.is_safe()      # True -> safe to route via memory; False -> force Tier 3
     """
 
     def __init__(
@@ -149,7 +149,7 @@ class PreRoutingConfidenceEstimator:
         )
 
     # ------------------------------------------------------------------ #
-    # Signal 1 — u_token                                                  #
+    # Signal 1 -- u_token                                                  #
     # ------------------------------------------------------------------ #
 
     def _compute_u_token(self, inputs: dict) -> float:
@@ -159,7 +159,7 @@ class PreRoutingConfidenceEstimator:
         then collect the log P(chosen token) at each step.
 
         Geometric mean = exp(mean(log_probs)), which equals the per-token
-        average probability under the model — a natural confidence measure.
+        average probability under the model -- a natural confidence measure.
 
         Returns float in [0, 1]. Returns 0.0 on error (fail-safe to Tier 3).
         """
@@ -167,12 +167,12 @@ class PreRoutingConfidenceEstimator:
             outputs = self.model.generate(
                 **inputs,
                 max_new_tokens=self.max_new_tokens,
-                do_sample=False,          # Greedy — deterministic, fast
+                do_sample=False,          # Greedy -- deterministic, fast
                 output_scores=True,
                 return_dict_in_generate=True,
             )
         except Exception as exc:
-            logger.warning("u_token: generate() failed with %s — returning 0.0.", exc)
+            logger.warning("u_token: generate() failed with %s -- returning 0.0.", exc)
             return 0.0
 
         scores = outputs.scores       # Tuple of (vocab_size,) tensors, one per step
@@ -182,7 +182,7 @@ class PreRoutingConfidenceEstimator:
         # outputs.sequences for encoder-decoder: [decoder_start, tok_1, ..., tok_n]
         # scores[t] = logits at step t before softmax, shape (batch, vocab)
         if not scores:
-            logger.warning("u_token: no scores returned — returning 0.5.")
+            logger.warning("u_token: no scores returned -- returning 0.5.")
             return 0.5
 
         log_probs = []
@@ -192,7 +192,7 @@ class PreRoutingConfidenceEstimator:
             # Token chosen at step t is at position t+1 in sequences (after bos/pad)
             token_id = sequences[0, t + 1].item()
             if token_id == self.tokenizer.eos_token_id:
-                break   # Stop at EOS — don't include it in the mean
+                break   # Stop at EOS -- don't include it in the mean
             log_prob = log_softmax[token_id].item()
             log_probs.append(log_prob)
 
@@ -204,11 +204,11 @@ class PreRoutingConfidenceEstimator:
         return float(np.clip(u_token, 0.0, 1.0))
 
     # ------------------------------------------------------------------ #
-    # Signal 2 — C_conv (Internal Convergence)                            #
+    # Signal 2 -- C_conv (Internal Convergence)                            #
     # ------------------------------------------------------------------ #
 
     def _compute_c_conv(self, inputs: dict) -> float:
-        """Encoder layer variance ratio — query representation stability.
+        """Encoder layer variance ratio -- query representation stability.
 
         Adaptation of Nandakishor (2025) C_conv to encoder-decoder architecture:
         - Original: decoder hidden states in decoder-only models (GPT-style)
@@ -216,17 +216,17 @@ class PreRoutingConfidenceEstimator:
 
         The encoder processes the query and produces contextual representations.
         If early layers disagree more than late layers, the model hasn't converged
-        on a stable representation — a signal of low query comprehension confidence.
+        on a stable representation -- a signal of low query comprehension confidence.
 
         Formula:
             early_layers = hidden_states[1 : L//2 + 1]   (layers 1 to L/2)
             late_layers  = hidden_states[L//2+1 : L+1]   (layers L/2+1 to L)
             c_conv       = Var(early) / (Var(late) + ε)
 
-        High c_conv → early layers more variable than late → model unsettled.
+        High c_conv -> early layers more variable than late -> model unsettled.
         Converted to confidence: 1 / (1 + c_conv).
 
-        Returns raw c_conv ratio (not converted) — conversion happens in estimate().
+        Returns raw c_conv ratio (not converted) -- conversion happens in estimate().
         Returns 0.0 (highest confidence) on error (fail-safe).
         """
         try:
@@ -237,7 +237,7 @@ class PreRoutingConfidenceEstimator:
                 return_dict=True,
             )
         except Exception as exc:
-            logger.warning("c_conv: encoder forward pass failed with %s — returning 0.0.", exc)
+            logger.warning("c_conv: encoder forward pass failed with %s -- returning 0.0.", exc)
             return 0.0
 
         hidden_states = encoder_outputs.hidden_states
@@ -246,8 +246,8 @@ class PreRoutingConfidenceEstimator:
         L = len(hidden_states) - 1  # Number of encoder layers (12 for Flan-T5-Large)
 
         if L < 2:
-            # Edge case: model has fewer than 2 layers — c_conv is undefined.
-            logger.warning("c_conv: only %d encoder layer(s) — returning 0.0.", L)
+            # Edge case: model has fewer than 2 layers -- c_conv is undefined.
+            logger.warning("c_conv: only %d encoder layer(s) -- returning 0.0.", L)
             return 0.0
 
         # Split into early and late halves (excluding embedding layer at index 0).

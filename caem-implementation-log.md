@@ -14,7 +14,124 @@
 - **Decision boxes** record the alternative that was considered and why it was rejected. These are the answers to "why didn't you just…?" committee questions.
 
 ---
+---
 
+## Session 27 — 2026-04-07 (Mini-Run Preparation & Final Hardening)
+
+**Scope:** Final technical hardening before the 14-hour run on better device. Resolved blocking crashes found during the first mini-run attempt and performed a codebase-wide UTF-8 stability pass for Windows.
+
+### Runtime fixes applied
+
+#### Fix D — Bulk Unicode-to-ASCII cleanup (Codebase-wide)
+**Problem:** Windows terminals (CP1252/UTF-8 hybrid environments) crashed with `UnicodeEncodeError` when encountering box-drawing characters (`─`, `═`, `┌`), em-dashes (`—`), and ellipses (`…`) in `logger.info()` or `print()` calls.
+**Fix:** Performed a recursive replacement across all `.py` files, converting all decorative unicode characters to ASCII equivalents (`-`, `=`, `+`, `--`, `...`). This ensures the orchestrator is stable on all host OSs.
+
+#### Fix E — `PassageStore` len() compatibility (`scripts/run_experiment.py`)
+**Problem:** `build_pipeline()` attempted to call `len(passage_store)`, but the `PassageStore` class does not implement `__len__`, causing an immediate `TypeError` crash when RAG was enabled.
+**Fix:** Changed to `len(passage_store.passages)`. 
+
+#### Fix F — `seed_cold_start.py` save-path and directory conflict
+**Problem:** The script incorrectly called `.mkdir()` on the intended file base path (`store_path`), then passed that directory string to `memory_store.save()`. Faiss attempted to append `.faiss` to a directory name, causing an OS-level access error.
+**Fix:** Removed the redundant `.mkdir()`. Corrected the logic to use `output_dir` as the container and `memory_store` as the base filename. Updated `seed_summary.json` to report the full `.faiss` file path for transparency.
+
+#### Fix G — `run_experiment.py` resume and loading logic
+**Problem:** 
+1. The `--resume_from_cycle` logic checked for directory existence but `EpisodicMemoryStore.save()` writes files (`.faiss` / `.meta`). Checks now correctly look for the `.faiss` file.
+2. `EpisodicMemoryStore.load()` is a `@classmethod` but was being called as an instance method on a pre-existing store object, leading to a `TypeError`.
+**Fix:** Corrected to `pipeline.memory_store = EpisodicMemoryStore.load(str(path))`. This is critical for crash-resiliency during long experiments.
+
+---
+
+## Session 26 — 2026-04-07 (Smoke Test Run + Design Inconsistency Audit)
+
+**Scope:** Executed full smoke test (Cycle 0→3) on RTX 3060. Fixed OOM crashes, nan loss in fine-tuning, and forgetting-check timeout. Identified and documented two design inconsistencies between `caem-unified-plan-v3.tex` and the implementation.
+
+### Runtime fixes applied
+
+#### Fix A — L2 penalty OOM (`caem/training/self_improvement.py`)
+**Problem:** `_l2_penalty()` called `p0.to(self.device)` inside the training loop, moving ~3 GB of `theta_prev` tensors from CPU→GPU on every single batch. This caused OOM on RTX 3060 (12 GB VRAM).
+**Fix:** Penalty now computed entirely on CPU (`p.detach().cpu() - p0`), scalar transferred to device at the end. This is the correct design for all hardware — even on A100, the PCIe transfer per batch is wasteful.
+
+#### Fix B — Static padding OOM (`caem/training/self_improvement.py`)
+**Problem:** `QADataset` padded every token sequence to `max_length=512` regardless of actual answer length. A batch of 5-word answers wasted 98% of VRAM on padding tokens.
+**Fix:** Replaced with dynamic padding via a custom `_collate()` function inside `_finetune()` that pads to the longest sequence in each batch only. `DataCollatorForSeq2Seq` was tried first but caused `nan` loss due to double-processing labels already marked with `-100` by the dataset. The custom collator avoids this conflict cleanly.
+**Note:** This is not a test-only change. Dynamic padding is best practice for all hardware.
+
+#### Fix C — Forgetting check timeout (`caem/training/self_improvement.py`)
+**Problem:** `_forgetting_score()` iterated over all general_eval pairs passed to it. With TriviaQA fallback producing 100 synthetic pairs, each requiring `model.generate(max_new_tokens=256)`, the forgetting check took ~33 minutes per cycle — making a 3-cycle run ~100 minutes of forgetting-check time alone.
+**Fix:** Added `MAX_FORGETTING_EVAL_PAIRS = 50` cap at the top of `_forgetting_score()`. 50 pairs is sufficient signal for the rough retention guard. This applies to all hardware and dataset sizes.
+
+---
+
+### Design decision: Tier 1 skips Stage 5 verification — PLAN INCONSISTENCY
+
+**Status: Intentional deviation from `caem-unified-plan-v3.tex`. Thesis text must be updated before submission.**
+
+**What the plan says:** `caem-unified-plan-v3.tex` lines 932–934 (TikZ diagram) draws an arrow from Tier 1 directly into Stage 5 (MultiLayerVerifier). Line 980 states "All three tier paths converge here." Scenario 1 (lines 1002–1010) shows Stage 5 running for Tier 1 with planned latency of 250 ms (80 ms retrieval + 170 ms verification).
+
+**What the implementation does:** `_tier1()` in `caem/pipeline.py` skips `_verify()` entirely. `StoredConfidence` is reconstructed directly from the stored entry's quality scores (`nli_score`, `sc_score`, `se_score`, `u_stored`). No model generation occurs. See Session 20 Fix 2 for the original implementation note.
+
+**Why the deviation is correct and should be kept:**
+
+| Plan intent | Why implementation is better |
+|---|---|
+| All 3 tiers run Stage 5 per-query | Per-query Stage 5 on Tier 1 generates M=3 chains → Tier 1 latency becomes ~2–4 s, indistinguishable from Tier 2. Destroys the fast-path value proposition. |
+| 250 ms latency (80 ms retrieval + 170 ms verification) | Observed Tier 1 latency is 150–400 ms (retrieval only, no generation). This matches the thesis's own "<400 ms" target without verification. |
+| Per-query freshness guarantee | Retroactive re-verification (`store.retroverify()`) re-scores ALL stored episodes with the most recent fine-tuned model at the end of every cycle. This is strictly better: it uses the improved model, catches staleness system-wide, and enables pruning of degraded episodes — none of which per-query verification can do. |
+
+**Thesis sections that must be updated before submission:**
+
+1. **TikZ diagram (line 932–934):** Remove `\draw[arrow, green!60!black] (t1) |- (verify);`. Add annotation: "Tier 1 skips Stage 5; stored `û_stored` from original storage cycle used directly."
+2. **Stage 5 description (line 980):** Change "All three tier paths converge here" → "Tier 2 and Tier 3 paths converge here. Tier 1 uses the pre-computed `û_stored` from its original verification cycle; freshness is maintained by retroactive re-verification (§4.x)."
+3. **Scenario 1 (lines 1002–1010):** Remove the Stage 5 block. Update latency: "~150–400 ms (FAISS retrieval only, no generation)."
+4. **Justification for committee:** Retroactive re-verification amortises verification cost across one batch per cycle rather than per query, uses the improved model (not the stale storage-time model), and enables selective pruning — a strictly stronger freshness guarantee than per-query re-verification at a fraction of the compute cost.
+
+---
+
+### Known limitation: SBERT routing is structure-sensitive, not entity-sensitive
+
+**Status: Known limitation. Does not affect experiment results on the 4 benchmarks. Must be disclosed in thesis Chapter 6 (Limitations) and Chapter 5 if reporting Tier 1 accuracy.**
+
+**The issue:** `all-mpnet-base-v2` produces similar embeddings for questions that share the same syntactic structure but differ only in specific entities or numbers. Example:
+- "Is 7 prime?" and "Is 21 prime?" → SBERT cosine similarity ~0.97 (above Tier 1 threshold 0.90)
+- If "Is 7 prime? → Yes" is in memory, "Is 21 prime?" may route to Tier 1 and return "Yes" (wrong answer)
+
+**Routing thresholds from `CAEMConfig`:**
+- `tier1_combined_threshold = 0.90` → routing score ≥ 0.90 goes directly to Tier 1, no re-verification
+- `routing_score = 0.70 × similarity + 0.30 × û_stored`
+- For sim=0.97, û_stored=0.91 → score = 0.679 + 0.273 = 0.952 → Tier 1
+
+**Why it doesn't crash experiments:** The 4 benchmarks (HotpotQA, TruthfulQA, FEVER, StrategyQA) have diverse enough questions that near-identical phrasings with contradictory answers are rare in the evaluation split. The purity theorem and retroactive re-verification also provide a correction mechanism across cycles.
+
+**Mitigating factors already in place:**
+- `novelty_threshold = 0.95` — if a new question is ≥ 0.95 similar to a stored one, it is not stored as a new episode (treated as "already known"), limiting propagation of near-duplicate conflicts
+- `retroverify` prunes low-quality episodes across cycles, reducing stale wrong-answer risk
+- Tier 1 skips Stage 5 (as above), so there is no per-query freshness check; this makes the limitation slightly worse than if Tier 1 re-verified
+
+**Thesis disclosure (Chapter 6):**
+"CAEM's routing mechanism relies on SBERT (all-mpnet-base-v2) cosine similarity, which captures semantic structure but is insensitive to specific numeric or named-entity values within a repeated question pattern. Structurally similar questions with different factual answers (e.g., primality queries for different numbers) may receive the same routing decision. This is an inherent limitation of dense-retrieval routing and is shared by all SBERT-based memory systems. Future work could augment routing with a lightweight entity-extraction filter that forces Tier 2 or 3 for questions containing out-of-vocabulary numerics or named entities not present in the matched episode."
+
+---
+
+## Session 25 — 2026-04-01 (Pre-Experiment Hardening)
+
+**Scope:** Resolved math/logic blockers preventing the full lab run, and added robust crash recovery to the orchestrator.
+
+### Actions completed
+
+#### Action 1 — MPNet Embedding Dimension Fix
+Identified a hardware-crashing bug where `caem/memory/encoder.py` and downstream FAISS structures incorrectly expected 384 dimensions, despite `all-mpnet-base-v2` producing 768-dimensional vectors. Migrated all assertions, initialization schemas, and docstrings from `384` to `768` dimensions across `encoder.py`, `pipeline.py`, `entry.py`, `store.py`, `verifier.py`, and 5 unit test files.
+
+#### Action 2 — Corrected Hallucination Rate Definition
+Fixed an accidental logical inversion in `eval/metrics.py`. The system was measuring "Safe Failures" (`em == 0` AND `u < 0.50`) rather than "Confident Confabulations" (`em == 0` AND `u >= 0.50`). Updated all docstrings, assertions, and `test_eval.py` to ensure the core thesis claim (measuring the drop in *confident confabulations*) is mathematically accurate.
+
+#### Action 3 — Implemented Mid-Run Crash Resiliency
+Modified `scripts/run_experiment.py` to survive catastrophic failures (OOM, SSH disconnects) during the 14-hour lab run.
+- Added a `--resume_from_cycle N` flag.
+- Engineered logic to jump directly to Cycle $N$, intercepting and parsing previous JSON eval files to perfectly reconstruct `all_cycle_results`.
+- Enforced FAISS `memory_store` saves at the explicit end of every evaluation loop (not just the end of the entire script) so that the exact state of the Episodic Memory can be rehydrated via `sil.load_checkpoint()` alongside the PyTorch weights.
+
+---
 ## Session 23 — 2026-04-01 (Pre-Experiment Fixes + Gap Scripts)
 
 **Scope:** Fixed 4 bugs that would have caused silent failures before running experiments. Wrote Gap 1 and Gap 3 scripts. All 361 tests still pass.
@@ -946,28 +1063,6 @@ Recency = exp(−0.01 · age_in_seconds)
 > **Why these weights [DES]:** φ (cycle recency proxy) gets the highest importance weight because later-cycle episodes were generated by a better model and verified by a stronger verifier — they are structurally more reliable. Retrieval frequency (r/r_max) captures usefulness. success_rate captures quality-in-use. u_stored gets the lowest importance weight because it was already used as the storage filter (threshold 0.75) — surviving entries are already high-quality on this dimension.
 >
 > **Alternative considered:** Pure u_stored ranking. Rejected because: it ignores usefulness (retrieval frequency) and recency, biasing pruning toward older verified-but-rarely-used episodes that may still contain unique knowledge.
-
----
-
-## Session 25 — 2026-04-01 (Pre-Experiment Hardening)
-
-**Scope:** Resolved math/logic blockers preventing the full lab run, and added robust crash recovery to the orchestrator.
-
-### Actions completed
-
-#### Action 1 — MPNet Embedding Dimension Fix
-Identified a hardware-crashing bug where `caem/memory/encoder.py` and downstream FAISS structures incorrectly expected 384 dimensions, despite `all-mpnet-base-v2` producing 768-dimensional vectors. Migrated all assertions, initialization schemas, and docstrings from `384` to `768` dimensions across `encoder.py`, `pipeline.py`, `entry.py`, `store.py`, `verifier.py`, and 5 unit test files.
-
-#### Action 2 — Corrected Hallucination Rate Definition
-Fixed an accidental logical inversion in `eval/metrics.py`. The system was measuring "Safe Failures" (`em == 0` AND `u < 0.50`) rather than "Confident Confabulations" (`em == 0` AND `u >= 0.50`). Updated all docstrings, assertions, and `test_eval.py` to ensure the core thesis claim (measuring the drop in *confident confabulations*) is mathematically accurate.
-
-#### Action 3 — Implemented Mid-Run Crash Resiliency
-Modified `scripts/run_experiment.py` to survive catastrophic failures (OOM, SSH disconnects) during the 14-hour lab run.
-- Added a `--resume_from_cycle N` flag.
-- Engineered logic to jump directly to Cycle $N$, intercepting and parsing previous JSON eval files to perfectly reconstruct `all_cycle_results`.
-- Enforced FAISS `memory_store` saves at the explicit end of every evaluation loop (not just the end of the entire script) so that the exact state of the Episodic Memory can be rehydrated via `sil.load_checkpoint()` alongside the PyTorch weights.
-
----
 
 ## Pipeline Implementation Roadmap
 

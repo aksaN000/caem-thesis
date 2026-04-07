@@ -1,19 +1,19 @@
-"""
+﻿"""
 tests/test_router.py
 ====================
 Unit tests for AdaptiveRouter (Stage 3 dispatch).
 
 Tests cover every routing path exhaustively:
-  - OR-condition fires (u_pre < 0.60)         → always Tier 3, safety_override=True
+  - OR-condition fires (u_pre < 0.60)         -> always Tier 3, safety_override=True
   - Tier 1: routing_score ≥ 0.90
   - Tier 2: score < 0.90, similarity > 0.75
   - Tier 3: score < 0.90, similarity ≤ 0.75
-  - Empty memory                               → always Tier 3
+  - Empty memory                               -> always Tier 3
   - Boundary values on every threshold
   - explain() output
   - batch routing
 
-No model, no FAISS — pure routing logic only.
+No model, no FAISS -- pure routing logic only.
 
 Run with:
     python -m pytest tests/test_router.py -v
@@ -30,9 +30,9 @@ from caem.memory.entry import EpisodicEntry, PreRoutingConfidence, RoutingDecisi
 from caem.routing.router import AdaptiveRouter
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Helpers
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 def make_config(
     tier1_threshold: float = 0.90,
@@ -70,9 +70,9 @@ def routing_score(sim: float, u_stored: float, lam: float = 0.70) -> float:
     return lam * sim + (1 - lam) * u_stored
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # OR-condition (Mechanism 1)
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 class TestORCondition:
     """The OR-condition must fire BEFORE any routing score is computed.
@@ -105,7 +105,7 @@ class TestORCondition:
         """u_pre == threshold is safe (>= condition)."""
         router = AdaptiveRouter(make_config(safety_u_pre_min=0.60))
         # With u_pre=0.60, OR-condition does NOT fire.
-        # routing_score = 0.70*0.99 + 0.30*0.99 = 0.99 ≥ 0.90 → Tier 1
+        # routing_score = 0.70*0.99 + 0.30*0.99 = 0.99 ≥ 0.90 -> Tier 1
         d = router.route(make_pc(0.60), make_results(0.99, 0.99))
         assert d.safety_override is False
         assert d.tier == 1
@@ -129,9 +129,9 @@ class TestORCondition:
         assert d.safety_override is True
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Tier 1 routing (Mechanism 2, high routing_score)
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 class TestTier1Routing:
     def test_high_score_routes_tier1(self):
@@ -142,8 +142,8 @@ class TestTier1Routing:
         assert d.safety_override is False
 
     def test_routing_score_at_exact_tier1_threshold(self):
-        # routing_score = 0.70*s + 0.30*u = 0.90 exactly → Tier 1
-        # Solve: 0.70*s + 0.30*0.80 = 0.90 → s ≈ 0.9428...
+        # routing_score = 0.70*s + 0.30*u = 0.90 exactly -> Tier 1
+        # Solve: 0.70*s + 0.30*0.80 = 0.90 -> s ≈ 0.9428...
         # Add small epsilon to ensure floating-point result is strictly ≥ 0.90.
         cfg = make_config()
         u_stored = 0.80
@@ -155,7 +155,7 @@ class TestTier1Routing:
         assert d.routing_score >= cfg.tier1_combined_threshold - 1e-9
 
     def test_routing_score_just_below_tier1_not_tier1(self):
-        # Ensure 0.8999 < 0.90 → not Tier 1
+        # Ensure 0.8999 < 0.90 -> not Tier 1
         cfg = make_config()
         u_stored = 0.80
         sim = (0.8999 - (1 - cfg.routing_lambda) * u_stored) / cfg.routing_lambda
@@ -182,13 +182,13 @@ class TestTier1Routing:
         assert math.isclose(d.similarity, 0.95, abs_tol=1e-6)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Tier 2 routing
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 class TestTier2Routing:
     def test_moderate_sim_above_tier2_threshold_routes_tier2(self):
-        # routing_score < 0.90, similarity > 0.75 → Tier 2
+        # routing_score < 0.90, similarity > 0.75 -> Tier 2
         # sim=0.80, u_stored=0.60: score = 0.70*0.80 + 0.30*0.60 = 0.56+0.18 = 0.74 < 0.90
         router = AdaptiveRouter(make_config())
         d = router.route(make_pc(0.75), make_results(0.80, u_stored=0.60))
@@ -196,7 +196,7 @@ class TestTier2Routing:
         assert d.safety_override is False
 
     def test_sim_at_tier2_threshold_boundary(self):
-        """similarity > 0.75 → Tier 2; similarity == 0.75 → Tier 3."""
+        """similarity > 0.75 -> Tier 2; similarity == 0.75 -> Tier 3."""
         cfg = make_config()
         router = AdaptiveRouter(cfg)
 
@@ -204,7 +204,7 @@ class TestTier2Routing:
         d_above = router.route(make_pc(0.75), make_results(0.7501, u_stored=0.50))
         assert d_above.tier == 2
 
-        # sim = 0.75 (exactly): NOT > threshold → Tier 3
+        # sim = 0.75 (exactly): NOT > threshold -> Tier 3
         d_exact = router.route(make_pc(0.75), make_results(0.75, u_stored=0.50))
         assert d_exact.tier == 3
 
@@ -215,9 +215,9 @@ class TestTier2Routing:
         assert d.similarity > 0.75
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Tier 3 routing (non-safety-override paths)
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 class TestTier3Routing:
     def test_low_sim_low_score_routes_tier3(self):
@@ -250,9 +250,9 @@ class TestTier3Routing:
         assert math.isclose(d.routing_score, expected, abs_tol=1e-6)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Routing score formula correctness
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 class TestRoutingScoreFormula:
     def test_formula_uses_config_lambda(self):
@@ -286,9 +286,9 @@ class TestRoutingScoreFormula:
         assert d1.tier == d2.tier
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Complete routing matrix (all four paths)
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 class TestFullRoutingMatrix:
     """Verify all four paths with representative values."""
@@ -307,7 +307,7 @@ class TestFullRoutingMatrix:
 
     def test_path_tier2(self):
         # score = 0.70*0.80 + 0.30*0.55 = 0.56 + 0.165 = 0.725 < 0.90
-        # sim = 0.80 > 0.75 → Tier 2
+        # sim = 0.80 > 0.75 -> Tier 2
         d = self.router.route(make_pc(0.80), make_results(0.80, 0.55))
         assert d.tier == 2 and d.safety_override is False
 
@@ -316,14 +316,14 @@ class TestFullRoutingMatrix:
         assert d.tier == 3 and d.safety_override is False
 
     def test_path_tier3_low_sim(self):
-        # score = 0.70*0.50 + 0.30*0.50 = 0.50 < 0.90, sim=0.50 ≤ 0.75 → Tier 3
+        # score = 0.70*0.50 + 0.30*0.50 = 0.50 < 0.90, sim=0.50 ≤ 0.75 -> Tier 3
         d = self.router.route(make_pc(0.80), make_results(0.50, 0.50))
         assert d.tier == 3 and d.safety_override is False
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # explain()
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 class TestExplain:
     def test_explain_or_condition_mentions_u_pre(self):
@@ -358,9 +358,9 @@ class TestExplain:
             assert isinstance(router.explain(d), str)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Batch routing
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 class TestBatchRouting:
     def test_batch_length(self):
@@ -377,7 +377,7 @@ class TestBatchRouting:
     def test_batch_tiers_correct(self):
         router = AdaptiveRouter(make_config())
         items = [
-            (make_pc(0.35), make_results(0.99, 0.99)),   # OR-condition → Tier 3
+            (make_pc(0.35), make_results(0.99, 0.99)),   # OR-condition -> Tier 3
             (make_pc(0.80), make_results(0.96, 0.95)),   # Tier 1
             (make_pc(0.80), make_results(0.80, 0.55)),   # Tier 2
             (make_pc(0.80), []),                          # Tier 3

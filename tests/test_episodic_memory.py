@@ -1,9 +1,9 @@
-"""
+﻿"""
 tests/test_episodic_memory.py
 ==============================
 Unit tests for the CAEM episodic memory module.
 
-These tests use synthetic (random, normalised) embeddings — no SBERT or FAISS
+These tests use synthetic (random, normalised) embeddings -- no SBERT or FAISS
 GPU required. They validate:
   - EpisodicEntry validation (shape, dtype)
   - EpisodicMemoryStore add / search / remove
@@ -41,9 +41,9 @@ from caem.memory.entry import (
 from caem.memory.store import EpisodicMemoryStore
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Helpers
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 DIM = 768  # Must match CAEMConfig.embedding_dim
 
@@ -84,9 +84,9 @@ def make_store(max_size: int = 100) -> EpisodicMemoryStore:
     return EpisodicMemoryStore(config=cfg)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # EpisodicEntry validation
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 class TestEpisodicEntry:
     def test_valid_entry_created(self):
@@ -125,9 +125,9 @@ class TestEpisodicEntry:
         assert entry.retroverified is False
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Confidence dataclasses
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 class TestConfidenceDataclasses:
     def test_pre_routing_is_safe(self):
@@ -157,9 +157,9 @@ class TestConfidenceDataclasses:
         assert not rd.safety_override
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# EpisodicMemoryStore — basic operations
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
+# EpisodicMemoryStore -- basic operations
+# -----------------------------------------------------------------------------
 
 class TestStoreBasicOps:
     def test_empty_store(self):
@@ -209,7 +209,7 @@ class TestStoreBasicOps:
         sims = [s for _, s in results]
         assert sims == sorted(sims, reverse=True)
 
-    # ── search_with_ids ───────────────────────────────────────────────── #
+    # -- search_with_ids ------------------------------------------------- #
 
     def test_search_with_ids_returns_three_tuple(self):
         store = make_store()
@@ -299,9 +299,9 @@ class TestStoreBasicOps:
             )
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Novelty check
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 class TestNoveltyCheck:
     def test_empty_store_is_novel(self):
@@ -327,9 +327,9 @@ class TestNoveltyCheck:
         assert store.is_novel(e2) is True
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Retrieval stats + feedback loop
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 class TestRetrievalStats:
     def test_retrieval_count_increments(self):
@@ -342,7 +342,7 @@ class TestRetrievalStats:
     def test_success_rate_running_mean(self):
         store = make_store()
         eid = store.add(make_entry(seed=0, u_stored=0.80))
-        # 3 accepted, 1 rejected → 0.75
+        # 3 accepted, 1 rejected -> 0.75
         for _ in range(3):
             store.update_retrieval_stats(eid, was_accepted=True)
         store.update_retrieval_stats(eid, was_accepted=False)
@@ -383,9 +383,9 @@ class TestRetrievalStats:
         assert store.get(eid).u_stored < 0.80
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Pruning
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 class TestPruning:
     def test_prune_removes_correct_count(self):
@@ -422,9 +422,9 @@ class TestPruning:
         assert store.get(low_eid) is None
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Retroactive re-verification
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 class TestRetroVerify:
     def test_retroverify_updates_improved_entry(self):
@@ -482,9 +482,9 @@ class TestRetroVerify:
         assert store.get(eid_bad) is None
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Save / Load round-trip
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 class TestSaveLoad:
     def test_round_trip(self):
@@ -511,9 +511,9 @@ class TestSaveLoad:
         assert math.isclose(sim, 1.0, abs_tol=1e-5)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Summary
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 class TestSummary:
     def test_summary_empty(self):

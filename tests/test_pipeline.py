@@ -1,22 +1,22 @@
-"""
+﻿"""
 tests/test_pipeline.py
 =======================
 Unit tests for CAEMPipeline (end-to-end orchestrator).
 
 Mock strategy
 -------------
-Every sub-component is replaced with a MagicMock — no real models, no FAISS
+Every sub-component is replaced with a MagicMock -- no real models, no FAISS
 loading from disk, no network calls. We control:
-  - encoder.encode()           → fixed 768-dim unit vector
-  - model.generate()           → fixed token tensor
-  - tokenizer()                → fixed input_ids tensor
-  - tokenizer.decode()         → fixed answer string
-  - pre_estimator.estimate()   → PreRoutingConfidence with controlled u_pre
-  - router.route()             → RoutingDecision with controlled tier
-  - post_estimator.estimate()  → PostGenerationConfidence with controlled û
-  - verifier.verify()          → StoredConfidence with controlled û_stored
-  - rag.generate()             → fixed answer string
-  - memory_store               → real EpisodicMemoryStore (small, in-memory)
+  - encoder.encode()           -> fixed 768-dim unit vector
+  - model.generate()           -> fixed token tensor
+  - tokenizer()                -> fixed input_ids tensor
+  - tokenizer.decode()         -> fixed answer string
+  - pre_estimator.estimate()   -> PreRoutingConfidence with controlled u_pre
+  - router.route()             -> RoutingDecision with controlled tier
+  - post_estimator.estimate()  -> PostGenerationConfidence with controlled û
+  - verifier.verify()          -> StoredConfidence with controlled û_stored
+  - rag.generate()             -> fixed answer string
+  - memory_store               -> real EpisodicMemoryStore (small, in-memory)
 
 Coverage
 --------
@@ -24,20 +24,20 @@ Coverage
   - Tier 1: stored answer returned, retrieval stats updated
   - Tier 2: answer generated, post-conf computed, accepted
   - Tier 2: escalation when û < threshold
-  - Tier 2: generation failure → escalation
+  - Tier 2: generation failure -> escalation
   - Tier 3: direct RAG path (safety override)
   - Tier 3: no-passage-store fallback
-  - Storage: novel + verified → stored
-  - Storage: duplicate → not stored
-  - Storage: û_stored below threshold → not stored
-  - Storage: verification failure → not stored
+  - Storage: novel + verified -> stored
+  - Storage: duplicate -> not stored
+  - Storage: û_stored below threshold -> not stored
+  - Storage: verification failure -> not stored
   - Tier 1 retrieval stats update (count increment)
   - Tier 1 stored_confidence populated from entry scores (no re-verification)
   - Pipeline repr
   - memory_summary delegates to store
   - current_cycle recorded in stored entry
   - auto-prune triggered near capacity
-  - empty answer → not stored
+  - empty answer -> not stored
 """
 
 from __future__ import annotations
@@ -62,9 +62,9 @@ from caem.memory.store import EpisodicMemoryStore
 from caem.pipeline import CAEMPipeline, PipelineResult
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Helpers
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 DIM = 768
 
@@ -193,9 +193,9 @@ def _build_pipeline(
     return pipeline
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # PipelineResult
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 class TestPipelineResult:
     def test_defaults(self):
@@ -215,9 +215,9 @@ class TestPipelineResult:
         assert r.entry_id == 7
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Pipeline construction
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 class TestPipelineConstruction:
     def test_repr_contains_cycle_and_memory(self):
@@ -245,13 +245,13 @@ class TestPipelineConstruction:
         import logging
         with caplog.at_level(logging.WARNING, logger="caem.pipeline"):
             p = _build_pipeline()
-        # Warning may appear in logs — pipeline still constructs cleanly
+        # Warning may appear in logs -- pipeline still constructs cleanly
         assert p is not None
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# answer() — Tier 2 path (default)
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
+# answer() -- Tier 2 path (default)
+# -----------------------------------------------------------------------------
 
 class TestTier2Path:
     def test_returns_pipeline_result(self):
@@ -292,13 +292,13 @@ class TestTier2Path:
         assert r.latency_ms > 0
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Tier 2 escalation
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 class TestTier2Escalation:
     def test_escalated_when_u_hat_below_threshold(self):
-        """û < 0.60 → Tier 3 escalation."""
+        """û < 0.60 -> Tier 3 escalation."""
         p = _build_pipeline(tier=2, u_hat=0.40)
         r = p.answer("q")
         assert r.escalated is True
@@ -317,9 +317,9 @@ class TestTier2Escalation:
         assert r.post_confidence is not None
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Tier 1 path
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 class TestTier1Path:
     def _make_tier1_pipeline(self, u_stored_memory: float = 0.80):
@@ -361,19 +361,19 @@ class TestTier1Path:
         assert r.escalated is False
 
     def test_stored_confidence_populated(self):
-        """Tier 1: stored_confidence is reconstructed from entry scores — no verifier call."""
+        """Tier 1: stored_confidence is reconstructed from entry scores -- no verifier call."""
         p = self._make_tier1_pipeline(u_stored_memory=0.82)
         r = p.answer("Who wrote Hamlet?")
         assert r.stored_confidence is not None
-        # u_stored is taken directly from the memory entry — verifier is NOT called
+        # u_stored is taken directly from the memory entry -- verifier is NOT called
         assert r.stored_confidence.u_stored == pytest.approx(0.82)
         # Verify the verifier was never called for this Tier 1 hit
         p.verifier.verify.assert_not_called()
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Tier 3 path (safety override)
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 class TestTier3Path:
     def test_tier_is_3(self):
@@ -387,7 +387,7 @@ class TestTier3Path:
         assert r.post_confidence is None
 
     def test_escalated_false(self):
-        """Tier 3 direct (not via escalation) → escalated = False."""
+        """Tier 3 direct (not via escalation) -> escalated = False."""
         p = _build_pipeline(tier=3, safety_override=True)
         r = p.answer("q")
         assert r.escalated is False
@@ -398,13 +398,13 @@ class TestTier3Path:
         assert r.routing_decision.safety_override is True
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Storage decision
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 class TestStorageDecision:
     def test_novel_verified_answer_stored(self):
-        """Novel query + û_stored ≥ threshold → stored."""
+        """Novel query + û_stored ≥ threshold -> stored."""
         store = EpisodicMemoryStore()
         p = _build_pipeline(tier=2, u_stored=0.75, memory_store=store)
         r = p.answer("New question never seen before?")
@@ -412,7 +412,7 @@ class TestStorageDecision:
         assert r.entry_id is not None
 
     def test_not_stored_below_threshold(self):
-        """û_stored < 0.50 → not stored."""
+        """û_stored < 0.50 -> not stored."""
         store = EpisodicMemoryStore()
         p = _build_pipeline(tier=2, u_stored=0.30, memory_store=store)
         r = p.answer("q?")
@@ -427,23 +427,23 @@ class TestStorageDecision:
         assert r.stored is False
 
     def test_duplicate_not_stored(self):
-        """Near-duplicate query → not stored again."""
+        """Near-duplicate query -> not stored again."""
         store = EpisodicMemoryStore()
         cfg = CAEMConfig()
         cfg.novelty_threshold = 0.00  # everything is "duplicate" (cosine ≥ 0.0)
         # Pre-populate with one entry so store is not empty
         store.add(make_episodic_entry(seed=0))
 
-        # Encoder always returns the same unit vector → cosine sim = 1.0 → duplicate
+        # Encoder always returns the same unit vector -> cosine sim = 1.0 -> duplicate
         p = _build_pipeline(tier=2, u_stored=0.80, memory_store=store, config=cfg)
         initial_size = store.size
         r = p.answer("Who wrote Hamlet?")
         # Size should not grow (either stored or not, depending on novelty)
-        # With novelty_threshold=0.00 and cosine=1.0: 1.0 > 0.00 → NOT novel → not stored
+        # With novelty_threshold=0.00 and cosine=1.0: 1.0 > 0.00 -> NOT novel -> not stored
         assert store.size == initial_size
 
     def test_empty_answer_not_stored(self):
-        """Empty answer string → not stored."""
+        """Empty answer string -> not stored."""
         store = EpisodicMemoryStore()
         p = _build_pipeline(tier=3, u_stored=0.80, memory_store=store, answer="")
         # Override verifier to return None (empty answer case)
@@ -461,9 +461,9 @@ class TestStorageDecision:
             assert store.size == initial + 1
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Retrieval stats (Tier 1)
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 class TestTier1RetrievalStats:
     def test_retrieval_count_incremented(self):
@@ -477,7 +477,7 @@ class TestTier1RetrievalStats:
         assert entry.retrieval_count == 1
 
     def test_u_stored_not_changed_by_retrieval(self):
-        """Tier 1 fast path skips verification — u_stored is NOT updated upward.
+        """Tier 1 fast path skips verification -- u_stored is NOT updated upward.
 
         Rationale: the verifier (MultiLayerVerifier) generates M=3 chains which
         would violate the Tier-1 '<400 ms, no generation' contract. The stored
@@ -489,14 +489,14 @@ class TestTier1RetrievalStats:
 
         p = _build_pipeline(tier=1, memory_store=store, u_stored=0.90)
         p.answer("Who wrote Hamlet?")
-        # u_stored should be unchanged — the verifier was never called
+        # u_stored should be unchanged -- the verifier was never called
         assert entry.u_stored == pytest.approx(0.60)
         p.verifier.verify.assert_not_called()
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Cycle tracking
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 class TestCycleTracking:
     def test_stored_entry_records_current_cycle(self):
@@ -531,9 +531,9 @@ class TestCycleTracking:
             assert entry.storage_cycle == 2
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Routing metadata
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 class TestRoutingMetadata:
     def test_routing_decision_attached(self):
@@ -549,9 +549,9 @@ class TestRoutingMetadata:
         assert r.pre_confidence.u_pre == pytest.approx(0.75)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # memory_summary
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 class TestMemorySummary:
     def test_summary_returns_dict(self):

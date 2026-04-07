@@ -1,9 +1,9 @@
-"""
+﻿"""
 tests/test_rag.py
 =================
 Unit tests for PassageStore and TierThreeRAG (Stage 6).
 
-Mock strategy: same pattern as prior modules — no real models or FAISS
+Mock strategy: same pattern as prior modules -- no real models or FAISS
 corpora. Controlled SBERT embeddings, tiny in-memory passage arrays.
 
 Coverage:
@@ -30,9 +30,9 @@ from caem.config import CAEMConfig
 from caem.retrieval.rag import PassageStore, TierThreeRAG
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Shared helpers
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 DIM = 768
 
@@ -88,9 +88,9 @@ def make_rag(
     return rag, store
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # PassageStore construction
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 class TestPassageStoreConstruction:
     def test_size_matches_input(self):
@@ -114,9 +114,9 @@ class TestPassageStoreConstruction:
         assert store.size == 0
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # PassageStore search
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 class TestPassageStoreSearch:
     def test_returns_k_results(self):
@@ -138,7 +138,7 @@ class TestPassageStoreSearch:
         assert scores == sorted(scores, reverse=True)
 
     def test_exact_match_scores_near_one(self):
-        """Searching with the same embedding as a stored passage → score ≈ 1.0."""
+        """Searching with the same embedding as a stored passage -> score ≈ 1.0."""
         emb = unit_vec(0)
         passages   = ["exact match passage"]
         embeddings = emb.reshape(1, DIM)
@@ -166,9 +166,9 @@ class TestPassageStoreSearch:
             assert p in passages
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # PassageStore save / load
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 class TestPassageStorePersistence:
     def test_save_and_load_roundtrip(self):
@@ -196,9 +196,9 @@ class TestPassageStorePersistence:
             assert math.isclose(s1, s2, abs_tol=1e-4)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # TierThreeRAG internal helpers
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 class TestRAGInternals:
     def test_retrieve_returns_list(self):
@@ -246,9 +246,9 @@ class TestRAGInternals:
         assert isinstance(ids, torch.Tensor)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # TierThreeRAG.generate()
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 class TestRAGGenerate:
     def test_generate_returns_string(self):
@@ -283,7 +283,7 @@ class TestRAGGenerate:
         assert answer == ""
 
     def test_generate_no_passages_uses_query_only(self):
-        """Empty passage store → falls back to query-only generation gracefully."""
+        """Empty passage store -> falls back to query-only generation gracefully."""
         store  = PassageStore([], np.empty((0, DIM), dtype=np.float32))
         enc    = make_mock_encoder(unit_vec(0))
         model  = make_mock_model()
@@ -293,7 +293,7 @@ class TestRAGGenerate:
         assert isinstance(answer, str)   # graceful, not crash
 
     def test_generate_uses_top_k_passages(self):
-        """model.generate is called once — retrieval happened beforehand."""
+        """model.generate is called once -- retrieval happened beforehand."""
         cfg = CAEMConfig()
         cfg.rag_top_k = 3
         rag, _ = make_rag(n_passages=10, config=cfg)
@@ -302,9 +302,9 @@ class TestRAGGenerate:
         assert rag.model.generate.call_count == 1
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # TierThreeRAG.retrieve() public endpoint
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 class TestRAGPublicRetrieve:
     def test_retrieve_returns_passage_score_pairs(self):
@@ -328,9 +328,9 @@ class TestRAGPublicRetrieve:
         assert len(results) == 4
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Config defaults
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 class TestRAGConfig:
     def test_rag_top_k_default(self):

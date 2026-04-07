@@ -1,4 +1,4 @@
-"""
+﻿"""
 scripts/hardware.py
 ====================
 Hardware detection and configuration for CAEM experiments.
@@ -6,7 +6,7 @@ Hardware detection and configuration for CAEM experiments.
 Supports local GPU (3060 / any CUDA card), Google Colab (A100/T4),
 university clusters (SLURM + CUDA), and CPU fallback.
 
-All CAEM scripts import get_device() from here — never hardcode "cuda" or "cpu".
+All CAEM scripts import get_device() from here -- never hardcode "cuda" or "cpu".
 
 Usage
 -----
@@ -18,11 +18,11 @@ Usage
 
 Hardware targets
 ----------------
-  RTX 3060 (12 GB VRAM)    — local dev machine; fp16 recommended, batch_size=8
-  A100 (40/80 GB)          — Colab Pro+; fp16 or bf16, batch_size=16
-  T4 (16 GB)               — Colab free; fp16, batch_size=8
-  V100 (16/32 GB)          — university clusters; fp16, batch_size=8-16
-  CPU fallback              — smoke tests only; batch_size=2
+  RTX 3060 (12 GB VRAM)    -- local dev machine; fp16 recommended, batch_size=8
+  A100 (40/80 GB)          -- Colab Pro+; fp16 or bf16, batch_size=16
+  T4 (16 GB)               -- Colab free; fp16, batch_size=8
+  V100 (16/32 GB)          -- university clusters; fp16, batch_size=8-16
+  CPU fallback              -- smoke tests only; batch_size=2
 """
 
 from __future__ import annotations
@@ -85,14 +85,14 @@ def get_hardware_profile() -> HardwareProfile:
             use_fp16=False,
             use_bf16=False,
             recommended_batch_size=2,
-            note="CPU only — smoke tests only; full experiments will be very slow.",
+            note="CPU only -- smoke tests only; full experiments will be very slow.",
         )
 
     if device == "mps":
         return HardwareProfile(
             device="mps",
             gpu_name="Apple Silicon MPS",
-            vram_gb=0.0,     # shared memory — hard to report
+            vram_gb=0.0,     # shared memory -- hard to report
             use_fp16=False,  # fp16 unstable on MPS as of PyTorch 2.x
             use_bf16=False,
             recommended_batch_size=4,
@@ -126,7 +126,7 @@ def get_hardware_profile() -> HardwareProfile:
             f"~12 GB VRAM (RTX 3060-class). "
             "fp16 enabled, batch_size=4. "
             "Flan-T5-Large (~3 GB) + NLI (~1.5 GB) + SBERT (~0.5 GB) "
-            "= ~5 GB total model footprint — fits with headroom for activations."
+            "= ~5 GB total model footprint -- fits with headroom for activations."
         )
     else:                      # < 10 GB (laptop GPUs, GTX 1080)
         use_fp16, use_bf16 = True, False
@@ -161,7 +161,7 @@ def get_hardware_info() -> dict:
 def apply_memory_flags(profile: Optional[HardwareProfile] = None) -> None:
     """Apply CUDA memory-saving flags based on hardware profile.
 
-    Safe to call unconditionally — no-ops on CPU/MPS.
+    Safe to call unconditionally -- no-ops on CPU/MPS.
     """
     if profile is None:
         profile = get_hardware_profile()
@@ -215,9 +215,9 @@ def move_model_to_device(model, profile: Optional[HardwareProfile] = None):
 def print_hardware_summary() -> HardwareProfile:
     """Print a formatted hardware summary and return the profile."""
     profile = get_hardware_profile()
-    print("\n" + "─" * 55)
+    print("\n" + "-" * 55)
     print("  CAEM Hardware Profile")
-    print("─" * 55)
+    print("-" * 55)
     print(f"  Device:     {profile.device.upper()}")
     if profile.gpu_name:
         print(f"  GPU:        {profile.gpu_name}")
@@ -225,5 +225,5 @@ def print_hardware_summary() -> HardwareProfile:
     print(f"  Precision:  {'bf16' if profile.use_bf16 else 'fp16' if profile.use_fp16 else 'fp32'}")
     print(f"  Batch size: {profile.recommended_batch_size} (recommended)")
     print(f"  Note:       {profile.note}")
-    print("─" * 55 + "\n")
+    print("-" * 55 + "\n")
     return profile

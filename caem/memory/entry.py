@@ -1,16 +1,16 @@
-"""
+﻿"""
 caem/memory/entry.py
 ====================
 Data schemas for the CAEM episodic memory system.
 
-Three distinct confidence value types are defined here — do NOT confuse them:
+Three distinct confidence value types are defined here -- do NOT confuse them:
 
-  PreRoutingConfidence  — computed in Stage 3, BEFORE routing, from 2 fast signals.
-  PostGenerationConfidence — computed in Stage 4a, Tier 2 ONLY, from 4 signals.
-  StoredConfidence      — derived from Stage 5 verification; stored with the episode.
+  PreRoutingConfidence  -- computed in Stage 3, BEFORE routing, from 2 fast signals.
+  PostGenerationConfidence -- computed in Stage 4a, Tier 2 ONLY, from 4 signals.
+  StoredConfidence      -- derived from Stage 5 verification; stored with the episode.
 
 The EpisodicEntry holds BOTH immutable content fields (never changed after storage,
-because the fine-tuning dataset is derived from them — a moving target would break
+because the fine-tuning dataset is derived from them -- a moving target would break
 training) AND mutable quality metadata (updated across cycles by retroactive
 re-verification and retrieval feedback).
 
@@ -26,9 +26,9 @@ from typing import Optional
 import numpy as np
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Core episode
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 @dataclass
 class EpisodicEntry:
@@ -39,22 +39,22 @@ class EpisodicEntry:
     These fields are set at storage time and NEVER updated afterward.
     Rationale: the fine-tuning dataset (Stage 8) is derived directly from
     these fields. Mutating them mid-cycle would mean training on a moving
-    target — an auditable, stable record is mandatory.
+    target -- an auditable, stable record is mandatory.
 
     Mutable fields
     --------------
     Quality and usage metadata are updated across cycles by:
       - Retrieval feedback loop (u_stored, success_rate, retrieval_count)
       - Retroactive re-verification (u_stored, nli_score, sc_score, se_score,
-        retroverified) — run once per improvement cycle on the full memory.
+        retroverified) -- run once per improvement cycle on the full memory.
     """
 
-    # ── Immutable content ────────────────────────────────────────────────── #
+    # -- Immutable content -------------------------------------------------- #
     question: str
     """Original query text."""
 
     reasoning_chain: str
-    """Chain-of-thought steps — the core transferable knowledge."""
+    """Chain-of-thought steps -- the core transferable knowledge."""
 
     answer: str
     """Final answer string."""
@@ -69,7 +69,7 @@ class EpisodicEntry:
     timestamp: float = field(default_factory=time.time)
     """Unix timestamp at storage time (set automatically if not provided)."""
 
-    # ── Mutable quality metadata ─────────────────────────────────────────── #
+    # -- Mutable quality metadata ------------------------------------------- #
     u_stored: float = 0.0
     """Combined stored confidence ∈ [0, 1].
     Initialised from Stage 5 verification output.
@@ -110,9 +110,9 @@ class EpisodicEntry:
         return time.time() - self.timestamp
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Confidence value types  (three distinct types — do not conflate)
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
+# Confidence value types  (three distinct types -- do not conflate)
+# -----------------------------------------------------------------------------
 
 @dataclass
 class PreRoutingConfidence:
@@ -149,7 +149,7 @@ class PreRoutingConfidence:
 class PostGenerationConfidence:
     """Stage 4a: computed in Tier 2 ONLY, AFTER generation, from 4 signals.
 
-    This is an EFFICIENCY GATE — not a quality gate.
+    This is an EFFICIENCY GATE -- not a quality gate.
     Purpose: catch obvious low-confidence outputs before committing to the
     full NLI + SC + SE verification pipeline (which is expensive).
     Verification (Stage 5) is the actual quality gate.
@@ -177,11 +177,11 @@ class PostGenerationConfidence:
     u_hat: float
     """Combined post-generation confidence.
     Formula uses weights from CAEMConfig.u_hat_weight_* (initially 0.25 each).
-    If u_hat ≥ CAEMConfig.u_hat_accept_threshold (0.60): accept → verify.
+    If u_hat ≥ CAEMConfig.u_hat_accept_threshold (0.60): accept -> verify.
     Else: escalate to Tier 3."""
 
     def should_accept(self, threshold: float = 0.60) -> bool:
-        """True if û meets the acceptance threshold; False → escalate to Tier 3."""
+        """True if û meets the acceptance threshold; False -> escalate to Tier 3."""
         return self.u_hat >= threshold
 
 
@@ -210,9 +210,9 @@ class StoredConfidence:
     Weights are design choices (Category 2) from CAEMConfig."""
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Routing decision record
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 @dataclass
 class RoutingDecision:
@@ -220,9 +220,9 @@ class RoutingDecision:
 
     Note on the two-mechanism design:
     CAEM uses two SEPARATE mechanisms that do NOT interact mathematically:
-      1. OR-condition: u_pre < safety_u_pre_min → hard veto → Tier 3.
+      1. OR-condition: u_pre < safety_u_pre_min -> hard veto -> Tier 3.
          This fires BEFORE any formula runs.
-      2. Routing score: 0.70·s + 0.30·û_stored → Tier 1 or Tier 2.
+      2. Routing score: 0.70·s + 0.30·û_stored -> Tier 1 or Tier 2.
          Only evaluated if the OR-condition did NOT fire.
 
     The separation is intentional: combining them into a single formula would

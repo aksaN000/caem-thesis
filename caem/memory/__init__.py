@@ -1,4 +1,4 @@
-"""caem.memory — Episodic memory subsystem."""
+﻿"""caem.memory -- Episodic memory subsystem."""
 
 from caem.memory.encoder import QueryEncoder
 from caem.memory.entry import (

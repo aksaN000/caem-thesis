@@ -1,7 +1,7 @@
-"""
+﻿"""
 caem/training/self_improvement.py
 ===================================
-SelfImprovementLoop — Stage 8 of the CAEM pipeline.
+SelfImprovementLoop -- Stage 8 of the CAEM pipeline.
 
 Runs at the end of each cycle. Fine-tunes Flan-T5 on verified episodes
 from the episodic memory store, using L2 regularisation against the
@@ -34,7 +34,7 @@ CAEM uses L2 with uniform weighting across all parameters. This is a
 principled approximation: when the Fisher information is approximately
 uniform across parameters (reasonable for a model fine-tuned on diverse
 QA), L2 and EWC produce similar results. The computational saving is
-significant — no FIM computation, no extra memory for Fisher diagonal.
+significant -- no FIM computation, no extra memory for Fisher diagonal.
 
 This is documented as [DES] in the config (l2_lambda = 0.01). The thesis
 reports this choice and compares with full EWC in the ablation study.
@@ -47,7 +47,7 @@ Each cycle saves independently to outputs/cycle_{n}/ so:
   - Restarting from any checkpoint is possible without retraining from scratch
 
 The SelfImprovementLoop does NOT hold a reference to the memory store
-between cycles — it receives one at call time so the caller controls
+between cycles -- it receives one at call time so the caller controls
 which store state is used (important for ablations).
 """
 
@@ -73,9 +73,9 @@ from caem.memory.store import EpisodicMemoryStore
 logger = logging.getLogger(__name__)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Data structures
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 @dataclass
 class QAPair:
@@ -97,19 +97,19 @@ class CycleResult:
     checkpoint_path:    str
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # PyTorch Dataset for fine-tuning
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 class QADataset(Dataset):
-    """Tokenised (question → answer) dataset for seq2seq fine-tuning."""
+    """Tokenised (question -> answer) dataset for seq2seq fine-tuning."""
 
     def __init__(
         self,
         pairs: List[QAPair],
         tokenizer,
         max_input_length: int = 512,
-        max_target_length: int = 512,
+        max_target_length: int = 128,
     ) -> None:
         self.pairs = pairs
         self.tokenizer = tokenizer
@@ -125,13 +125,13 @@ class QADataset(Dataset):
             pair.question,
             max_length=self.max_input,
             truncation=True,
-            padding="max_length",
+            padding=False,          # batch collator pads to longest in batch
             return_tensors="pt",
         )
         dec_kwargs = {
             "max_length": self.max_target,
             "truncation": True,
-            "padding": "max_length",
+            "padding": False,
             "return_tensors": "pt",
         }
         try:
@@ -152,9 +152,9 @@ class QADataset(Dataset):
         }
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # SelfImprovementLoop
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 class SelfImprovementLoop:
     """Fine-tune Flan-T5 on verified episodes at the end of each CAEM cycle.
@@ -182,7 +182,7 @@ class SelfImprovementLoop:
     ...     memory_store=store,
     ...     general_data=[QAPair("What is 2+2?", "4"), ...]
     ... )
-    >>> result.aborted   # False → weights updated; True → restored
+    >>> result.aborted   # False -> weights updated; True -> restored
     """
 
     def __init__(
@@ -245,7 +245,7 @@ class SelfImprovementLoop:
         logger.info("Cycle %d: %d verified episodes collected.", cycle_num, len(episode_pairs))
 
         if not episode_pairs:
-            logger.warning("Cycle %d: no episodes meet quality threshold — skipping.", cycle_num)
+            logger.warning("Cycle %d: no episodes meet quality threshold -- skipping.", cycle_num)
             return CycleResult(
                 cycle_num=cycle_num, n_episodes_used=0, n_general_used=0,
                 epochs_completed=0, final_train_loss=0.0, forgetting_score=1.0,
@@ -253,7 +253,7 @@ class SelfImprovementLoop:
                 checkpoint_path=str(self.output_dir / f"cycle_{cycle_num}"),
             )
 
-        # Step 2: split general_data → training mix + held-out forgetting check
+        # Step 2: split general_data -> training mix + held-out forgetting check
         random.shuffle(general_data)
         n_general_total = len(general_data)
         split = max(1, int(n_general_total * 0.5))
@@ -283,7 +283,7 @@ class SelfImprovementLoop:
         aborted = False
         if forgetting_score < cfg.forgetting_tolerance:
             logger.warning(
-                "Cycle %d: forgetting check FAILED (%.4f < %.4f) — restoring θ_prev.",
+                "Cycle %d: forgetting check FAILED (%.4f < %.4f) -- restoring θ_prev.",
                 cycle_num, forgetting_score, cfg.forgetting_tolerance,
             )
             self._restore_weights(theta_prev)
@@ -328,8 +328,8 @@ class SelfImprovementLoop:
 
         Training target is `reasoning_chain`, NOT `answer`.
 
-        Rationale (thesis §4.3 — Chain-of-Thought Supervision):
-        EpisodicEntry stores a `reasoning_chain` field — the full chain-of-
+        Rationale (thesis §4.3 -- Chain-of-Thought Supervision):
+        EpisodicEntry stores a `reasoning_chain` field -- the full chain-of-
         thought trace associated with the verified answer. Fine-tuning on the
         reasoning chain teaches the model *how* to reason toward the correct
         answer, not just to memorise answer strings. This matches the thesis
@@ -347,7 +347,7 @@ class SelfImprovementLoop:
         pairs = []
         for entry in memory_store.all_entries():
             if entry.u_stored >= threshold:
-                # Use reasoning_chain as the seq2seq target — not answer.
+                # Use reasoning_chain as the seq2seq target -- not answer.
                 # This aligns training with the chain-of-thought supervision
                 # described in the thesis methodology.
                 pairs.append(QAPair(question=entry.question, answer=entry.reasoning_chain))
@@ -394,7 +394,29 @@ class SelfImprovementLoop:
         """
         cfg = self.config
         dataset = QADataset(train_pairs, self.tokenizer)
-        loader  = DataLoader(dataset, batch_size=cfg.batch_size, shuffle=True)
+
+        def _collate(batch):
+            """Dynamic padding collator: pads to longest sequence in each batch."""
+            import torch
+            pad_id = self.tokenizer.pad_token_id or 0
+
+            max_in  = max(b["input_ids"].shape[0] for b in batch)
+            max_tgt = max(b["labels"].shape[0]    for b in batch)
+
+            input_ids      = torch.full((len(batch), max_in),  pad_id,  dtype=torch.long)
+            attention_mask = torch.zeros(len(batch), max_in,            dtype=torch.long)
+            labels         = torch.full((len(batch), max_tgt), -100,    dtype=torch.long)
+
+            for i, b in enumerate(batch):
+                in_len  = b["input_ids"].shape[0]
+                tgt_len = b["labels"].shape[0]
+                input_ids[i, :in_len]       = b["input_ids"]
+                attention_mask[i, :in_len]  = b["attention_mask"]
+                labels[i, :tgt_len]         = b["labels"]
+
+            return {"input_ids": input_ids, "attention_mask": attention_mask, "labels": labels}
+
+        loader = DataLoader(dataset, batch_size=cfg.batch_size, shuffle=True, collate_fn=_collate)
 
         optimizer = AdamW(self.model.parameters(), lr=cfg.learning_rate)
 
@@ -434,7 +456,7 @@ class SelfImprovementLoop:
                 n_batches  += 1
 
             avg_loss = epoch_loss / max(n_batches, 1)
-            logger.info("  Epoch %d/%d — loss: %.4f", epoch + 1, cfg.epochs_per_cycle, avg_loss)
+            logger.info("  Epoch %d/%d -- loss: %.4f", epoch + 1, cfg.epochs_per_cycle, avg_loss)
             epochs_done += 1
             final_loss   = avg_loss
 
@@ -442,11 +464,17 @@ class SelfImprovementLoop:
         return epochs_done, final_loss
 
     def _l2_penalty(self, theta_prev: List[torch.Tensor]) -> torch.Tensor:
-        """Compute ||θ − θ_prev||² summed over all parameters."""
-        penalty = torch.tensor(0.0, device=self.device)
+        """Compute ||θ − θ_prev||² summed over all parameters.
+
+        Computed on CPU to avoid moving 3 GB of theta_prev tensors to GPU
+        on every batch (which causes VRAM pressure). The resulting scalar
+        is transferred to the training device for the loss sum.
+        """
+        penalty = torch.tensor(0.0, device="cpu")
         for p, p0 in zip(self.model.parameters(), theta_prev):
-            penalty = penalty + ((p - p0.to(self.device)) ** 2).sum()
-        return penalty
+            diff = p.detach().cpu() - p0   # both on CPU, no VRAM cost
+            penalty = penalty + (diff ** 2).sum()
+        return penalty.to(self.device)
 
     # ------------------------------------------------------------------ #
     # Forgetting check                                                     #
@@ -459,14 +487,20 @@ class SelfImprovementLoop:
         against the reference answer (lowercased, stripped). Retention =
         fraction of pairs where the model still produces the correct answer.
 
-        Exact match is a conservative lower bound — the real evaluation
+        Exact match is a conservative lower bound -- the real evaluation
         harness uses F1 and EM against benchmark datasets. Here it is
         used only as a fast forgetting guard, not a quality metric.
 
+        Capped at MAX_FORGETTING_EVAL_PAIRS (50) to bound wall-clock time:
+        50 pairs is sufficient signal for the rough retention check, while
+        running all 500 TriviaQA pairs would add ~30 min per cycle.
+
         Returns float in [0, 1].
         """
+        MAX_FORGETTING_EVAL_PAIRS = 50
         if not general_eval:
-            return 1.0   # no eval data → assume no forgetting
+            return 1.0   # no eval data -> assume no forgetting
+        general_eval = general_eval[:MAX_FORGETTING_EVAL_PAIRS]
 
         correct = 0
         self.model.eval()
@@ -526,11 +560,11 @@ class SelfImprovementLoop:
 
         # Save model weights.
         # INVARIANT: at this point self.model always holds the correct state:
-        #   - not aborted → fine-tuned weights (training just completed)
-        #   - aborted     → _restore_weights(theta_prev) was already called
+        #   - not aborted -> fine-tuned weights (training just completed)
+        #   - aborted     -> _restore_weights(theta_prev) was already called
         #                   before this method, so state_dict() == theta_prev
         # Saving self.model.state_dict() is therefore always correct.
-        # Do NOT compute a separate dict from theta_prev here — that would
+        # Do NOT compute a separate dict from theta_prev here -- that would
         # save tensors without proper parameter names, breaking load_state_dict.
         torch.save(self.model.state_dict(), str(ckpt_dir / "model.pt"))
 

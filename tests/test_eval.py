@@ -1,4 +1,4 @@
-"""
+﻿"""
 tests/test_eval.py
 ==================
 Unit tests for the eval/ package (metrics, benchmarks, harness).
@@ -41,7 +41,7 @@ harness.py
 
 metrics.py (statistical)
   - bootstrap_ci: returns (mean, lower, upper), lower ≤ mean ≤ upper
-  - mcnemar_test: identical systems → p=1.0; different systems → p<0.05
+  - mcnemar_test: identical systems -> p=1.0; different systems -> p<0.05
 """
 
 from __future__ import annotations
@@ -75,9 +75,9 @@ from caem.pipeline import PipelineResult
 from caem.memory.entry import StoredConfidence
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Helpers
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 def _make_pipeline_result(
     answer: str = "William Shakespeare",
@@ -105,9 +105,9 @@ def _make_pipeline(answer: str = "answer_0", tier: int = 2, u_stored: float = 0.
     return pipeline
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# metrics.py — normalise
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
+# metrics.py -- normalise
+# -----------------------------------------------------------------------------
 
 class TestNormalise:
     def test_lowercase(self):
@@ -129,9 +129,9 @@ class TestNormalise:
         assert normalise("a an the") == ""
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# metrics.py — exact_match
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
+# metrics.py -- exact_match
+# -----------------------------------------------------------------------------
 
 class TestExactMatch:
     def test_exact_match_true(self):
@@ -153,9 +153,9 @@ class TestExactMatch:
         assert exact_match("", "Shakespeare") == 0.0
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# metrics.py — any_match_em
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
+# metrics.py -- any_match_em
+# -----------------------------------------------------------------------------
 
 class TestAnyMatchEM:
     def test_matches_first(self):
@@ -174,9 +174,9 @@ class TestAnyMatchEM:
         assert any_match_em("YES", ["yes"]) == 1.0
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# metrics.py — token_f1
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
+# metrics.py -- token_f1
+# -----------------------------------------------------------------------------
 
 class TestTokenF1:
     def test_perfect_match(self):
@@ -187,7 +187,7 @@ class TestTokenF1:
 
     def test_partial_overlap(self):
         # pred: hello world foo; gold: hello world bar
-        # common: hello, world → 2
+        # common: hello, world -> 2
         # precision = 2/3; recall = 2/3; f1 = 2/3
         f1 = token_f1("hello world foo", "hello world bar")
         assert f1 == pytest.approx(2 / 3)
@@ -202,7 +202,7 @@ class TestTokenF1:
         assert token_f1("hello", "") == pytest.approx(0.0)
 
     def test_subset(self):
-        # pred is subset of gold: precision=1, recall=0.5 → f1=2/3
+        # pred is subset of gold: precision=1, recall=0.5 -> f1=2/3
         f1 = token_f1("hello", "hello world")
         assert f1 == pytest.approx(2 / 3)
 
@@ -217,9 +217,9 @@ class TestBestTokenF1:
         assert best_token_f1("hello", []) == pytest.approx(0.0)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# metrics.py — fever
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
+# metrics.py -- fever
+# -----------------------------------------------------------------------------
 
 class TestFeverAccuracy:
     def test_supports_match(self):
@@ -259,9 +259,9 @@ class TestExtractFeverLabel:
         assert extract_fever_label("There is not enough info to support this.") == "not enough info"
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# metrics.py — hallucination_rate
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
+# metrics.py -- hallucination_rate
+# -----------------------------------------------------------------------------
 
 class TestHallucinationRate:
     def test_all_wrong_uncertain(self):
@@ -291,9 +291,9 @@ class TestHallucinationRate:
         assert hallucination_rate([], []) == pytest.approx(0.0)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# metrics.py — routing_distribution
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
+# metrics.py -- routing_distribution
+# -----------------------------------------------------------------------------
 
 class TestRoutingDistribution:
     def test_all_tiers(self):
@@ -312,9 +312,9 @@ class TestRoutingDistribution:
         assert dist == {"tier1_frac": 0.0, "tier2_frac": 0.0, "tier3_frac": 0.0}
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# metrics.py — aggregate
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
+# metrics.py -- aggregate
+# -----------------------------------------------------------------------------
 
 class TestAggregate:
     def test_keys_present(self):
@@ -347,9 +347,9 @@ class TestAggregate:
         assert agg["storage_rate"] == pytest.approx(2 / 3, abs=1e-3)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# benchmarks.py — make_synthetic_samples
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
+# benchmarks.py -- make_synthetic_samples
+# -----------------------------------------------------------------------------
 
 class TestMakeSyntheticSamples:
     def test_hotpotqa_count(self):
@@ -383,7 +383,7 @@ class TestMakeSyntheticSamples:
     def test_strategyqa_boolean_labels(self):
         samples = make_synthetic_samples("strategyqa", n=4)
         labels = {s["gold_label"] for s in samples}
-        # Alternating yes/no — both must appear in 4 samples
+        # Alternating yes/no -- both must appear in 4 samples
         assert "yes" in labels
         assert "no" in labels
 
@@ -394,7 +394,7 @@ class TestMakeSyntheticSamples:
 
     def test_fever_question_format(self):
         s = make_synthetic_samples("fever", n=1)[0]
-        # Uses the constrained label prompt — no free-form prefix
+        # Uses the constrained label prompt -- no free-form prefix
         assert "supports, refutes, not enough info" in s["question"]
 
     def test_unknown_benchmark_raises(self):
@@ -406,9 +406,9 @@ class TestMakeSyntheticSamples:
             load_benchmark("nonexistent", n=5)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# harness.py — EvalHarness
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
+# harness.py -- EvalHarness
+# -----------------------------------------------------------------------------
 
 class TestEvalHarness:
     def test_run_returns_eval_result(self):
@@ -473,16 +473,16 @@ class TestEvalHarness:
         assert r["em"] == pytest.approx(1.0)
 
     def test_strategyqa_scoring_path_correct(self):
-        """StrategyQA: pipeline returns 'yes', gold=yes → EM=1.0."""
-        # Synthetic samples alternate yes/no; seed=0, first sample → gold="yes"
+        """StrategyQA: pipeline returns 'yes', gold=yes -> EM=1.0."""
+        # Synthetic samples alternate yes/no; seed=0, first sample -> gold="yes"
         pipeline = _make_pipeline(answer="yes")
         harness = EvalHarness(pipeline)
-        samples = make_synthetic_samples("strategyqa", n=1)  # sample 0 → gold="yes"
+        samples = make_synthetic_samples("strategyqa", n=1)  # sample 0 -> gold="yes"
         r = harness.run("strategyqa", samples, cycle=0)
         assert r["em"] == pytest.approx(1.0)
 
     def test_strategyqa_scoring_path_wrong(self):
-        """StrategyQA: pipeline returns 'no', gold=yes → EM=0.0."""
+        """StrategyQA: pipeline returns 'no', gold=yes -> EM=0.0."""
         pipeline = _make_pipeline(answer="no")
         harness = EvalHarness(pipeline)
         samples = make_synthetic_samples("strategyqa", n=1)  # gold="yes"
@@ -510,7 +510,7 @@ class TestEvalHarness:
             assert data["meta"]["n"] == 2
 
     def test_error_in_pipeline_does_not_crash(self):
-        """fail_on_error=False: bad pipeline → em=0, harness continues."""
+        """fail_on_error=False: bad pipeline -> em=0, harness continues."""
         pipeline = MagicMock()
         pipeline.answer.side_effect = RuntimeError("model exploded")
         harness = EvalHarness(pipeline, fail_on_error=False)
@@ -564,9 +564,9 @@ class TestEvalHarness:
         assert r["mean_u_stored"] is None or isinstance(r["mean_u_stored"], float)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# metrics.py — bootstrap_ci
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
+# metrics.py -- bootstrap_ci
+# -----------------------------------------------------------------------------
 
 class TestBootstrapCI:
     def test_returns_three_values(self):
@@ -581,7 +581,7 @@ class TestBootstrapCI:
         assert lo <= mean <= hi
 
     def test_perfect_scores_narrow_ci(self):
-        """All 1.0 → mean=1.0, lower=1.0, upper=1.0."""
+        """All 1.0 -> mean=1.0, lower=1.0, upper=1.0."""
         mean, lo, hi = bootstrap_ci([1.0] * 20, n_bootstrap=200)
         assert mean == pytest.approx(1.0)
         assert lo == pytest.approx(1.0)
@@ -611,13 +611,13 @@ class TestBootstrapCI:
         assert r1[0] == pytest.approx(r2[0])
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# metrics.py — mcnemar_test
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
+# metrics.py -- mcnemar_test
+# -----------------------------------------------------------------------------
 
 class TestMcNemarTest:
     def test_identical_systems_p_is_one(self):
-        """No disagreements → statistic=0, p=1.0."""
+        """No disagreements -> statistic=0, p=1.0."""
         a = [1.0, 0.0, 1.0, 1.0]
         b = [1.0, 0.0, 1.0, 1.0]
         stat, p = mcnemar_test(a, b)
@@ -625,7 +625,7 @@ class TestMcNemarTest:
         assert p == pytest.approx(1.0)
 
     def test_completely_different_systems(self):
-        """A always wrong, B always right → large statistic, p≪1."""
+        """A always wrong, B always right -> large statistic, p≪1."""
         a = [0.0] * 20
         b = [1.0] * 20
         stat, p = mcnemar_test(a, b)

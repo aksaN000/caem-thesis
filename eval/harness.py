@@ -1,7 +1,7 @@
-"""
+﻿"""
 eval/harness.py
 ===============
-EvalHarness — runs a benchmark against CAEMPipeline and collects results.
+EvalHarness -- runs a benchmark against CAEMPipeline and collects results.
 
 Responsibilities
 ----------------
@@ -20,7 +20,7 @@ Per-sample (SampleResult dict):
   id, benchmark, question, prediction, gold_answers, gold_label,
   em, f1, tier, stored, u_stored, latency_ms, escalated
 
-Aggregate (EvalResult dict — one per run):
+Aggregate (EvalResult dict -- one per run):
   benchmark, cycle, n, em, f1, hallucination_rate,
   storage_rate, mean_u_stored, mean_latency_ms,
   tier1_frac, tier2_frac, tier3_frac
@@ -117,13 +117,13 @@ class EvalHarness:
 
         Parameters
         ----------
-        benchmark : str — "hotpotqa", "truthfulqa", or "fever"
+        benchmark : str -- "hotpotqa", "truthfulqa", or "fever"
         samples : list of BenchmarkSample
-        cycle : int — current self-improvement cycle (for filename and metadata)
+        cycle : int -- current self-improvement cycle (for filename and metadata)
 
         Returns
         -------
-        EvalResult dict — aggregate metrics for this run
+        EvalResult dict -- aggregate metrics for this run
         """
         benchmark = benchmark.lower()
         logger.info(
@@ -135,12 +135,12 @@ class EvalHarness:
 
         for i, sample in enumerate(samples):
             if self.log_every > 0 and i % self.log_every == 0:
-                logger.info("  [%s/%s] %s cycle=%d …", i, len(samples), benchmark, cycle)
+                logger.info("  [%s/%s] %s cycle=%d ...", i, len(samples), benchmark, cycle)
 
             sr = self._run_one(sample, benchmark)
             sample_results.append(sr)
 
-        # ── Aggregate ─────────────────────────────────────────────────── #
+        # -- Aggregate --------------------------------------------------- #
         em_scores = [sr["em"] for sr in sample_results]
         f1_scores = [sr["f1"] for sr in sample_results]
         tiers = [sr["tier"] for sr in sample_results]
@@ -170,7 +170,7 @@ class EvalHarness:
             agg["storage_rate"] * 100,
         )
 
-        # ── Save ──────────────────────────────────────────────────────── #
+        # -- Save -------------------------------------------------------- #
         full_output = {
             "meta": agg,
             "samples": sample_results,
@@ -181,7 +181,7 @@ class EvalHarness:
             fpath = self.output_dir / fname
             with open(fpath, "w", encoding="utf-8") as f:
                 json.dump(full_output, f, indent=2, ensure_ascii=False)
-            logger.info("Results saved → %s", fpath)
+            logger.info("Results saved -> %s", fpath)
 
         return agg
 
@@ -198,7 +198,7 @@ class EvalHarness:
         gold_answers = sample["answers"]
         gold_label = sample.get("gold_label")
 
-        # ── Pipeline call ────────────────────────────────────────────── #
+        # -- Pipeline call ---------------------------------------------- #
         try:
             result = self.pipeline.answer(question)
             prediction = result.answer
@@ -222,7 +222,7 @@ class EvalHarness:
             latency_ms = 0.0
             escalated = False
 
-        # ── Scoring ──────────────────────────────────────────────────── #
+        # -- Scoring ---------------------------------------------------- #
         em, f1 = self._score(prediction, gold_answers, gold_label, benchmark)
 
         return {
@@ -250,9 +250,9 @@ class EvalHarness:
     ):
         """Return (em, f1) for a prediction given the benchmark type.
 
-        HotpotQA  — EM + F1 against single gold answer
-        TruthfulQA — any-match EM + best F1 across accepted answers
-        FEVER      — label extraction + accuracy (F1 = EM for labels)
+        HotpotQA  -- EM + F1 against single gold answer
+        TruthfulQA -- any-match EM + best F1 across accepted answers
+        FEVER      -- label extraction + accuracy (F1 = EM for labels)
         """
         prediction = extract_cot_answer(prediction)
 
@@ -294,12 +294,12 @@ class EvalHarness:
 
         Parameters
         ----------
-        samples_by_benchmark : dict — {"hotpotqa": [...], "truthfulqa": [...], ...}
+        samples_by_benchmark : dict -- {"hotpotqa": [...], "truthfulqa": [...], ...}
         cycle : int
 
         Returns
         -------
-        dict — {"hotpotqa": EvalResult, ...}
+        dict -- {"hotpotqa": EvalResult, ...}
         """
         results = {}
         for benchmark, samples in samples_by_benchmark.items():
@@ -316,7 +316,7 @@ class EvalHarness:
 
         Parameters
         ----------
-        path : str or Path — path to the .json file saved by run()
+        path : str or Path -- path to the .json file saved by run()
 
         Returns
         -------
@@ -353,7 +353,7 @@ class EvalHarness:
         Parameters
         ----------
         benchmark : str
-        n : int — number of synthetic samples
+        n : int -- number of synthetic samples
         cycle : int
 
         Returns

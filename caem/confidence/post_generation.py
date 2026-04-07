@@ -1,22 +1,22 @@
-"""
+﻿"""
 caem/confidence/post_generation.py
 ====================================
-PostGenerationConfidenceEstimator — Stage 4a of the CAEM pipeline.
+PostGenerationConfidenceEstimator -- Stage 4a of the CAEM pipeline.
 
 Runs in Tier 2 ONLY, AFTER a full answer has been generated.
 
-Purpose — EFFICIENCY GATE, not a quality gate
+Purpose -- EFFICIENCY GATE, not a quality gate
 ----------------------------------------------
 Stage 4a decides whether to commit to the expensive verification pipeline
 (Stage 5: NLI + SC + SE, ~2–4 s). It catches obvious low-confidence
 outputs early, before spending compute on them.
 
     if û ≥ 0.60 (CAEMConfig.u_hat_accept_threshold):
-        → accept → pass to Stage 5 (MultiLayerVerifier)
+        -> accept -> pass to Stage 5 (MultiLayerVerifier)
     else:
-        → escalate to Tier 3 (full RAG generation)
+        -> escalate to Tier 3 (full RAG generation)
 
-Stage 4a does NOT determine answer quality — Stage 5 does. See writing-
+Stage 4a does NOT determine answer quality -- Stage 5 does. See writing-
 suggestions.md C4-05.
 
 Four signals
@@ -24,22 +24,22 @@ Four signals
 All four are literature-fixed in terms of their methodology; only the
 combination weights are calibrated.
 
-Signal 1 — u_token  [LIT: geometric mean of token log-probs]
+Signal 1 -- u_token  [LIT: geometric mean of token log-probs]
     Recomputed on the actual generated answer (not a short greedy prefix
     as in Stage 3). Captures per-token generation confidence.
 
-Signal 2 — u_dropout  [LIT: Gal & Ghahramani 2016, K=5 MC Dropout passes]
+Signal 2 -- u_dropout  [LIT: Gal & Ghahramani 2016, K=5 MC Dropout passes]
     Variance of output probabilities across K stochastic forward passes
     with dropout enabled at inference.
     u_dropout = 1 / (1 + Var[answer_probs across K passes])
     High variance = model is uncertain about its own answer.
 
-Signal 3 — u_consistency  [LIT: Wang et al. 2022, M=3 chains]
+Signal 3 -- u_consistency  [LIT: Wang et al. 2022, M=3 chains]
     Average pairwise cosine similarity of M independent chain-of-thought
     generations. High similarity = model produces consistent reasoning.
     Uses Sentence-BERT (same encoder as the memory store).
 
-Signal 4 — u_entropy  [LIT: Farquhar et al. 2024, K=10 samples at T=1.0]
+Signal 4 -- u_entropy  [LIT: Farquhar et al. 2024, K=10 samples at T=1.0]
     Semantic entropy over K stochastic samples. Samples are clustered by
     bidirectional NLI entailment (same meaning = same cluster). Entropy
     over the cluster distribution measures meaning-level uncertainty, not
@@ -54,7 +54,7 @@ Projected post-calibration:               0.20 / 0.20 / 0.20 / 0.40
 Actual calibrated weights: fitted on 500-sample calibration set after
 Cycle 1 and reported in Chapter 5. See: hyperparameter-reference.md.
 
-DO NOT initialise at 0.20/0.20/0.20/0.40 — start equal at 0.25 each.
+DO NOT initialise at 0.20/0.20/0.20/0.40 -- start equal at 0.25 each.
 """
 
 from __future__ import annotations
@@ -89,7 +89,7 @@ class PostGenerationConfidenceEstimator:
         Must already be initialised (shared with EpisodicMemoryStore).
     nli_model : optional
         RoBERTa-Large-MNLI for semantic entropy clustering.
-        If None, u_entropy falls back to 0.5 (neutral — no signal).
+        If None, u_entropy falls back to 0.5 (neutral -- no signal).
         Pass the actual model once available for full SE computation.
     nli_tokenizer : optional
         Tokenizer for nli_model.
@@ -105,7 +105,7 @@ class PostGenerationConfidenceEstimator:
     ...                    generated_answer="William Shakespeare",
     ...                    input_ids=input_ids)
     >>> pgc.u_hat          # e.g. 0.72
-    >>> pgc.should_accept()  # True → send to verifier; False → escalate Tier 3
+    >>> pgc.should_accept()  # True -> send to verifier; False -> escalate Tier 3
     """
 
     def __init__(
@@ -192,7 +192,7 @@ class PostGenerationConfidenceEstimator:
         )
 
     # ------------------------------------------------------------------ #
-    # Signal 1 — u_token                                                  #
+    # Signal 1 -- u_token                                                  #
     # ------------------------------------------------------------------ #
 
     def _compute_u_token(
@@ -258,21 +258,21 @@ class PostGenerationConfidenceEstimator:
             return float(np.clip(u_token, 0.0, 1.0))
 
         except Exception as exc:
-            logger.warning("u_token (post-gen): failed with %s — returning 0.0.", exc)
+            logger.warning("u_token (post-gen): failed with %s -- returning 0.0.", exc)
             return 0.0
 
     # ------------------------------------------------------------------ #
-    # Signal 2 — u_dropout (MC Dropout, K=5)                              #
+    # Signal 2 -- u_dropout (MC Dropout, K=5)                              #
     # ------------------------------------------------------------------ #
 
     def _compute_u_dropout(self, input_ids: torch.Tensor) -> float:
         """MC Dropout uncertainty: 1 / (1 + Var[answer_probs]) over K=5 passes.
 
         Method:
-          1. Switch model to train() mode → dropout layers activate.
+          1. Switch model to train() mode -> dropout layers activate.
           2. Run K independent forward passes (stochastic due to dropout).
           3. Collect the mean token probability of each generation.
-          4. Variance across K values → uncertainty.
+          4. Variance across K values -> uncertainty.
           5. Restore model to eval() mode.
 
         K=5 is fixed from Gal & Ghahramani (2016) [LIT].
@@ -288,7 +288,7 @@ class PostGenerationConfidenceEstimator:
                     out = self.model.generate(
                         input_ids,
                         max_new_tokens=self.config.cot_max_new_tokens,
-                        do_sample=False,       # Greedy — dropout is the only stochasticity
+                        do_sample=False,       # Greedy -- dropout is the only stochasticity
                         output_scores=True,
                         return_dict_in_generate=True,
                     )
@@ -308,7 +308,7 @@ class PostGenerationConfidenceEstimator:
                     else:
                         answer_probs.append(0.5)
         except Exception as exc:
-            logger.warning("u_dropout: failed with %s — returning 0.5.", exc)
+            logger.warning("u_dropout: failed with %s -- returning 0.5.", exc)
             return 0.5
         finally:
             self.model.eval()   # ALWAYS restore eval mode
@@ -321,7 +321,7 @@ class PostGenerationConfidenceEstimator:
         return float(np.clip(u_dropout, 0.0, 1.0))
 
     # ------------------------------------------------------------------ #
-    # Signal 3 — u_consistency (M=3 chain-of-thought chains)              #
+    # Signal 3 -- u_consistency (M=3 chain-of-thought chains)              #
     # ------------------------------------------------------------------ #
 
     def _compute_u_consistency(
@@ -363,7 +363,7 @@ class PostGenerationConfidenceEstimator:
                 embeddings = embeddings.reshape(1, -1)
 
             # Average pairwise cosine similarity
-            # (Embeddings are L2-normalised → cosine sim = dot product)
+            # (Embeddings are L2-normalised -> cosine sim = dot product)
             sims = []
             for i, j in itertools.combinations(range(len(embeddings)), 2):
                 sim = float(np.dot(embeddings[i], embeddings[j]))
@@ -373,11 +373,11 @@ class PostGenerationConfidenceEstimator:
             return float(np.clip(u_consistency, 0.0, 1.0))
 
         except Exception as exc:
-            logger.warning("u_consistency: failed with %s — returning 0.5.", exc)
+            logger.warning("u_consistency: failed with %s -- returning 0.5.", exc)
             return 0.5
 
     # ------------------------------------------------------------------ #
-    # Signal 4 — u_entropy (Semantic Entropy, Farquhar et al. 2024)       #
+    # Signal 4 -- u_entropy (Semantic Entropy, Farquhar et al. 2024)       #
     # ------------------------------------------------------------------ #
 
     def _compute_u_entropy(
@@ -391,7 +391,7 @@ class PostGenerationConfidenceEstimator:
           1. Sample K=10 answers at T=1.0 (maximum diversity).
           2. Cluster by bidirectional NLI entailment:
              Two answers are in the same semantic cluster iff
-             NLI(a→b) = ENTAILMENT  AND  NLI(b→a) = ENTAILMENT.
+             NLI(a->b) = ENTAILMENT  AND  NLI(b->a) = ENTAILMENT.
           3. Compute entropy over cluster size distribution:
              H = -Σ p_c · log2(p_c),   p_c = |cluster c| / K
           4. Normalise: Ĥ = H / log2(K)
@@ -429,9 +429,9 @@ class PostGenerationConfidenceEstimator:
                 H_sem = self._semantic_entropy_nli(samples, query)
             else:
                 # Fallback: surface-level distinct-answer entropy
-                # Less accurate — NLI-based clustering is the correct method.
+                # Less accurate -- NLI-based clustering is the correct method.
                 # This branch is used during development before RoBERTa is loaded.
-                logger.debug("u_entropy: NLI model not available — using surface fallback.")
+                logger.debug("u_entropy: NLI model not available -- using surface fallback.")
                 H_sem = self._semantic_entropy_surface(samples)
 
             h_norm = H_sem / math.log2(max(K, 2))
@@ -439,16 +439,16 @@ class PostGenerationConfidenceEstimator:
             return float(np.clip(u_entropy, 0.0, 1.0))
 
         except Exception as exc:
-            logger.warning("u_entropy: failed with %s — returning 0.5.", exc)
+            logger.warning("u_entropy: failed with %s -- returning 0.5.", exc)
             return 0.5
 
     def _semantic_entropy_nli(self, samples: List[str], query: str) -> float:
-        """Bidirectional NLI clustering → Shannon entropy (bits).
+        """Bidirectional NLI clustering -> Shannon entropy (bits).
 
         Two samples are semantically equivalent iff:
-          NLI(sample_i → sample_j) = ENTAILMENT
+          NLI(sample_i -> sample_j) = ENTAILMENT
           AND
-          NLI(sample_j → sample_i) = ENTAILMENT
+          NLI(sample_j -> sample_i) = ENTAILMENT
 
         Union-Find is used to group samples into semantic clusters.
         """
@@ -502,7 +502,7 @@ class PostGenerationConfidenceEstimator:
         """Surface-level entropy fallback (used when NLI model is unavailable).
 
         Groups by exact string match after lowercasing and stripping punctuation.
-        Significantly less accurate than NLI clustering for paraphrases — use
+        Significantly less accurate than NLI clustering for paraphrases -- use
         only during development. Logged as [DES-fallback] in implementation log.
         """
         import re

@@ -1,21 +1,21 @@
-"""
+﻿"""
 eval/metrics.py
 ===============
 Evaluation metrics for the CAEM benchmark harness.
 
 Metrics used per benchmark
 --------------------------
-HotpotQA   — Exact Match (EM) + Token F1
+HotpotQA   -- Exact Match (EM) + Token F1
              Standard formulation from Yang et al. 2018.
              Both are case-insensitive, after normalising punctuation and
              stripping articles ("a", "an", "the").
 
-TruthfulQA — ROUGE-L
+TruthfulQA -- ROUGE-L
              The dataset provides a list of acceptable answer strings; a
              response is scored via ROUGE-L (LCS F1) to give partial credit
              for overlapping n-grams, serving as an offline proxy for a judge.
 
-FEVER      — Label accuracy
+FEVER      -- Label accuracy
              Claims are labelled SUPPORTS / REFUTES / NOT ENOUGH INFO.
              Predicted label is compared directly to gold label (case-insensitive).
              This follows the standard FEVER evaluation protocol.
@@ -34,7 +34,7 @@ Reported alongside accuracy to show the memory utilisation curve across cycles.
 Notes
 -----
 All public functions are pure (no side effects) for easy unit testing.
-No imports from `caem` package — this module only uses stdlib + numpy.
+No imports from `caem` package -- this module only uses stdlib + numpy.
 """
 
 from __future__ import annotations
@@ -45,9 +45,9 @@ from collections import Counter
 from typing import Dict, List, Optional, Sequence, Tuple
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Text normalisation (shared by EM and F1)
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 _ARTICLES = frozenset({"a", "an", "the"})
 _PUNCT_TABLE = str.maketrans("", "", string.punctuation)
@@ -83,21 +83,21 @@ def extract_cot_answer(text: str) -> str:
     return text.strip()
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Exact Match
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 def exact_match(prediction: str, gold: str) -> float:
     """Return 1.0 if normalised prediction == normalised gold, else 0.0.
 
     Parameters
     ----------
-    prediction : str  — model's answer
-    gold : str        — single gold answer string
+    prediction : str  -- model's answer
+    gold : str        -- single gold answer string
 
     Returns
     -------
-    float — 1.0 or 0.0
+    float -- 1.0 or 0.0
     """
     return float(normalise(prediction) == normalise(gold))
 
@@ -108,19 +108,19 @@ def any_match_em(prediction: str, golds: Sequence[str]) -> float:
     Parameters
     ----------
     prediction : str
-    golds : sequence of str — acceptable answers
+    golds : sequence of str -- acceptable answers
 
     Returns
     -------
-    float — 1.0 or 0.0
+    float -- 1.0 or 0.0
     """
     norm_pred = normalise(prediction)
     return float(any(norm_pred == normalise(g) for g in golds))
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Token F1
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 def token_f1(prediction: str, gold: str) -> float:
     """Compute token-level F1 between prediction and gold.
@@ -136,7 +136,7 @@ def token_f1(prediction: str, gold: str) -> float:
 
     Returns
     -------
-    float — F1 score ∈ [0, 1]
+    float -- F1 score ∈ [0, 1]
     """
     pred_tokens = normalise(prediction).split()
     gold_tokens = normalise(gold).split()
@@ -203,9 +203,9 @@ def best_token_f1(prediction: str, golds: Sequence[str]) -> float:
     return max(token_f1(prediction, g) for g in golds)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # FEVER label accuracy
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 _FEVER_LABELS = frozenset({"supports", "refutes", "not enough info"})
 
@@ -217,12 +217,12 @@ def fever_accuracy(prediction: str, gold_label: str) -> float:
 
     Parameters
     ----------
-    prediction : str — model's predicted label (any case)
-    gold_label : str — ground-truth FEVER label
+    prediction : str -- model's predicted label (any case)
+    gold_label : str -- ground-truth FEVER label
 
     Returns
     -------
-    float — 1.0 or 0.0
+    float -- 1.0 or 0.0
     """
     return float(prediction.strip().lower() == gold_label.strip().lower())
 
@@ -234,9 +234,9 @@ def extract_fever_label(text: str) -> str:
     anywhere in the text. Returns the first match or "not enough info" if none.
 
     This handles Flan-T5 outputs like:
-      "The claim is supported by the evidence."  → "supports"
-      "REFUTES"                                   → "refutes"
-      "I don't have enough information."          → "not enough info"
+      "The claim is supported by the evidence."  -> "supports"
+      "REFUTES"                                   -> "refutes"
+      "I don't have enough information."          -> "not enough info"
     """
     text_lower = text.lower()
     if "not enough info" in text_lower or "not enough information" in text_lower:
@@ -248,9 +248,9 @@ def extract_fever_label(text: str) -> str:
     return "not enough info"   # conservative fallback
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Hallucination rate (operational proxy)
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 def hallucination_rate(
     em_scores: Sequence[float],
@@ -275,7 +275,7 @@ def hallucination_rate(
 
     Returns
     -------
-    float — fraction ∈ [0, 1]
+    float -- fraction ∈ [0, 1]
     """
     if not em_scores:
         return 0.0
@@ -292,16 +292,16 @@ def hallucination_rate(
     return count / n
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Routing distribution
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 def routing_distribution(tiers: Sequence[int]) -> Dict[str, float]:
     """Compute fraction of queries routed to each tier.
 
     Parameters
     ----------
-    tiers : sequence of int — one value per query (1, 2, or 3)
+    tiers : sequence of int -- one value per query (1, 2, or 3)
 
     Returns
     -------
@@ -319,9 +319,9 @@ def routing_distribution(tiers: Sequence[int]) -> Dict[str, float]:
     }
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Aggregate summary
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 def aggregate(
     benchmark: str,
@@ -336,17 +336,17 @@ def aggregate(
 
     Parameters
     ----------
-    benchmark : str — "hotpotqa", "truthfulqa", or "fever"
+    benchmark : str -- "hotpotqa", "truthfulqa", or "fever"
     em_scores : per-sample EM (0.0/1.0)
     f1_scores : per-sample F1 (for HotpotQA); set to em_scores for others
     tiers : per-sample tier (1/2/3)
     u_stored_values : per-sample û_stored or None
-    stored_flags : per-sample bool — was the answer stored in memory?
+    stored_flags : per-sample bool -- was the answer stored in memory?
     latencies_ms : per-sample wall clock time in ms
 
     Returns
     -------
-    dict — all metrics for this run
+    dict -- all metrics for this run
     """
     n = len(em_scores)
     if n == 0:
@@ -369,9 +369,9 @@ def aggregate(
     }
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Statistical significance utilities
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 def bootstrap_ci(
     scores: Sequence[float],
@@ -385,17 +385,17 @@ def bootstrap_ci(
 
     Parameters
     ----------
-    scores : sequence of float — per-sample metric values (e.g. EM scores)
-    n_bootstrap : int — number of bootstrap resamples (1000 is standard)
-    ci : float — confidence level (0.95 for 95% CI)
+    scores : sequence of float -- per-sample metric values (e.g. EM scores)
+    n_bootstrap : int -- number of bootstrap resamples (1000 is standard)
+    ci : float -- confidence level (0.95 for 95% CI)
     seed : int
 
     Returns
     -------
     (mean, lower, upper) : tuple of float
-        mean — point estimate
-        lower — lower CI bound
-        upper — upper CI bound
+        mean -- point estimate
+        lower -- lower CI bound
+        upper -- upper CI bound
 
     Example
     -------
@@ -429,24 +429,24 @@ def mcnemar_test(
     """McNemar's test for statistical significance between two systems.
 
     Appropriate for paired binary outcomes (correct/incorrect) on the same
-    test set — the standard significance test for NLP evaluation (Dror et
+    test set -- the standard significance test for NLP evaluation (Dror et
     al. 2018 "Deep Dominance").
 
     Parameters
     ----------
-    scores_a : sequence of float — EM scores for system A (0.0 or 1.0)
-    scores_b : sequence of float — EM scores for system B (0.0 or 1.0)
+    scores_a : sequence of float -- EM scores for system A (0.0 or 1.0)
+    scores_b : sequence of float -- EM scores for system B (0.0 or 1.0)
 
     Returns
     -------
     (statistic, p_value) : tuple of float
-        statistic — McNemar chi-squared statistic
-        p_value   — two-tailed p-value (p < 0.05 = statistically significant)
+        statistic -- McNemar chi-squared statistic
+        p_value   -- two-tailed p-value (p < 0.05 = statistically significant)
 
     Notes
     -----
     Requires scipy. If scipy is not installed, raises ImportError with
-    install instructions. scipy is an experiment-phase dependency —
+    install instructions. scipy is an experiment-phase dependency --
     it is not required during the implementation phase.
     """
     try:
@@ -464,7 +464,7 @@ def mcnemar_test(
     n10 = sum(1 for a, b in zip(scores_a, scores_b) if a == 1.0 and b == 0.0)
 
     if n01 + n10 == 0:
-        return 0.0, 1.0   # No disagreements — systems are identical
+        return 0.0, 1.0   # No disagreements -- systems are identical
 
     # McNemar statistic with continuity correction (Edwards 1948)
     statistic = (abs(n01 - n10) - 1) ** 2 / (n01 + n10)

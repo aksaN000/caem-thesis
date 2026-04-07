@@ -1,27 +1,27 @@
-"""
+﻿"""
 caem/pipeline.py
 =================
-CAEMPipeline — end-to-end orchestrator for the CAEM inference pipeline.
+CAEMPipeline -- end-to-end orchestrator for the CAEM inference pipeline.
 
 Ties all 8 stages together for a single query:
 
-  Stage 1 — EpisodicMemoryStore     encode + search
-  Stage 2 — QueryEncoder            produce L2-normalised embedding
-  Stage 3 — PreRoutingConfidence    u_pre (2 fast signals)
-  Stage 3 — AdaptiveRouter          Tier 1 / 2 / 3 dispatch
-  Stage 4a — PostGenerationConf.    û (4 signals, Tier 2 only)
-  Stage 5 — MultiLayerVerifier      û_stored (quality gate, all tiers)
-  Stage 6 — TierThreeRAG            retrieval-augmented generation
-  Stage 7 — Storage decision        novelty + û_stored threshold
-  Stage 8 — SelfImprovementLoop     (called externally; not triggered here)
+  Stage 1 -- EpisodicMemoryStore     encode + search
+  Stage 2 -- QueryEncoder            produce L2-normalised embedding
+  Stage 3 -- PreRoutingConfidence    u_pre (2 fast signals)
+  Stage 3 -- AdaptiveRouter          Tier 1 / 2 / 3 dispatch
+  Stage 4a -- PostGenerationConf.    û (4 signals, Tier 2 only)
+  Stage 5 -- MultiLayerVerifier      û_stored (quality gate, all tiers)
+  Stage 6 -- TierThreeRAG            retrieval-augmented generation
+  Stage 7 -- Storage decision        novelty + û_stored threshold
+  Stage 8 -- SelfImprovementLoop     (called externally; not triggered here)
 
 Inference flow
 --------------
 
-    query → encode → u_pre → memory search → route
-        Tier 1  → return stored answer → verify → maybe store
-        Tier 2  → generate → û → [escalate?] → verify → maybe store
-        Tier 3  → RAG generate → verify → maybe store
+    query -> encode -> u_pre -> memory search -> route
+        Tier 1  -> return stored answer -> verify -> maybe store
+        Tier 2  -> generate -> û -> [escalate?] -> verify -> maybe store
+        Tier 3  -> RAG generate -> verify -> maybe store
 
 The pipeline is stateful (the EpisodicMemoryStore grows across calls).
 Thread safety: NOT thread-safe. Add an external lock if parallelising.
@@ -64,9 +64,9 @@ from caem.verification.verifier import MultiLayerVerifier
 logger = logging.getLogger(__name__)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Result type
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 @dataclass
 class PipelineResult:
@@ -89,9 +89,9 @@ class PipelineResult:
     pre_confidence : PreRoutingConfidence
         u_pre and its components.
     post_confidence : PostGenerationConfidence or None
-        û and its components — None if Tier 1 or Tier 3.
+        û and its components -- None if Tier 1 or Tier 3.
     stored_confidence : StoredConfidence or None
-        û_stored from Stage 5 verification — None if verification was skipped.
+        û_stored from Stage 5 verification -- None if verification was skipped.
     entry_id : int or None
         FAISS entry ID if the answer was stored; None otherwise.
     escalated : bool
@@ -111,9 +111,9 @@ class PipelineResult:
     escalated: bool = False
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Pipeline
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 class CAEMPipeline:
     """End-to-end CAEM inference pipeline.
@@ -178,10 +178,10 @@ class CAEMPipeline:
             device = str(next(model.parameters()).device)
         self.device = device
 
-        # ── Stage 1: Episodic Memory ──────────────────────────────────── #
+        # -- Stage 1: Episodic Memory ------------------------------------ #
         self.memory_store = memory_store or EpisodicMemoryStore(self.config)
 
-        # ── Stage 3a: Pre-routing confidence ─────────────────────────── #
+        # -- Stage 3a: Pre-routing confidence --------------------------- #
         self.pre_estimator = PreRoutingConfidenceEstimator(
             model=model,
             tokenizer=tokenizer,
@@ -189,10 +189,10 @@ class CAEMPipeline:
             device=device,
         )
 
-        # ── Stage 3b: Adaptive Router ─────────────────────────────────── #
+        # -- Stage 3b: Adaptive Router ----------------------------------- #
         self.router = AdaptiveRouter(config=self.config)
 
-        # ── Stage 4a: Post-generation confidence (Tier 2 only) ───────── #
+        # -- Stage 4a: Post-generation confidence (Tier 2 only) --------- #
         self.post_estimator = PostGenerationConfidenceEstimator(
             model=model,
             tokenizer=tokenizer,
@@ -203,7 +203,7 @@ class CAEMPipeline:
             device=device,
         )
 
-        # ── Stage 5: Multi-layer verifier ────────────────────────────── #
+        # -- Stage 5: Multi-layer verifier ------------------------------ #
         self.verifier = MultiLayerVerifier(
             model=model,
             tokenizer=tokenizer,
@@ -214,11 +214,11 @@ class CAEMPipeline:
             device=device,
         )
 
-        # ── Stage 6: Tier 3 RAG ──────────────────────────────────────── #
+        # -- Stage 6: Tier 3 RAG ---------------------------------------- #
         if passage_store is None:
-            # Degenerate empty store — Tier 3 will fall back to query-only gen.
+            # Degenerate empty store -- Tier 3 will fall back to query-only gen.
             logger.warning(
-                "CAEMPipeline: no passage_store provided — Tier 3 will use "
+                "CAEMPipeline: no passage_store provided -- Tier 3 will use "
                 "query-only generation (no Wikipedia context). Provide a "
                 "PassageStore for full RAG functionality."
             )
@@ -256,20 +256,20 @@ class CAEMPipeline:
         """
         t_start = time.perf_counter()
 
-        # ── Stage 2: Encode query ─────────────────────────────────────── #
+        # -- Stage 2: Encode query --------------------------------------- #
         query_embedding = self._encode_query(query)
 
-        # ── Stage 3a: Pre-routing confidence ─────────────────────────── #
+        # -- Stage 3a: Pre-routing confidence --------------------------- #
         pre_conf = self.pre_estimator.estimate(query)
 
-        # ── Stage 1: Memory search (k=1 for routing) ─────────────────── #
+        # -- Stage 1: Memory search (k=1 for routing) ------------------- #
         # Use search_with_ids so Tier-1 stats updates can call back without
         # scanning private _metadata for the entry ID.
         search_with_ids = self.memory_store.search_with_ids(query_embedding, k=1)
-        # AdaptiveRouter only needs (entry, similarity) — strip the ID for routing.
+        # AdaptiveRouter only needs (entry, similarity) -- strip the ID for routing.
         search_results = [(e, sim) for e, _, sim in search_with_ids]
 
-        # ── Stage 3b: Route ───────────────────────────────────────────── #
+        # -- Stage 3b: Route --------------------------------------------- #
         routing = self.router.route(pre_conf, search_results)
 
         logger.debug(
@@ -278,7 +278,7 @@ class CAEMPipeline:
             routing.routing_score, routing.safety_override,
         )
 
-        # ── Tier dispatch ────────────────────────────────────────────── #
+        # -- Tier dispatch ---------------------------------------------- #
         answer_str: str
         post_conf: Optional[PostGenerationConfidence] = None
         stored_conf: Optional[StoredConfidence] = None
@@ -287,9 +287,9 @@ class CAEMPipeline:
         stored_flag = False
 
         if routing.tier == 1:
-            # ── Tier 1: fast path — NO Stage-5 verification ─────────── #
+            # -- Tier 1: fast path -- NO Stage-5 verification ----------- #
             # Rationale: Tier 1 is the <400 ms fast path. Running Stage 5
-            # (MultiLayerVerifier) would require generating M=3 chains — this
+            # (MultiLayerVerifier) would require generating M=3 chains -- this
             # violates the "no generation" principle and inflates measured Tier-1
             # latency, making it indistinguishable from Tier 2 in experiments.
             # The stored entry already holds a verified u_stored from its
@@ -301,7 +301,7 @@ class CAEMPipeline:
 
         elif routing.tier == 2:
             answer_str, post_conf, escalated = self._tier2(query, pre_conf)
-            # ── Stage 5: Verify (Tier 2 and escalated-to-3 answers) ─── #
+            # -- Stage 5: Verify (Tier 2 and escalated-to-3 answers) --- #
             stored_conf = self._verify(query, answer_str)
             entry_id, stored_flag = self._maybe_store(
                 query=query, answer=answer_str,
@@ -310,7 +310,7 @@ class CAEMPipeline:
 
         else:  # tier == 3
             answer_str = self._tier3(query)
-            # ── Stage 5: Verify ────────────────────────────────────────#
+            # -- Stage 5: Verify ----------------------------------------#
             stored_conf = self._verify(query, answer_str)
             entry_id, stored_flag = self._maybe_store(
                 query=query, answer=answer_str,
@@ -348,7 +348,7 @@ class CAEMPipeline:
 
         No model generation occurs. The reasoning chain and answer are read
         directly from the matched EpisodicEntry. Stage 5 (MultiLayerVerifier)
-        is deliberately skipped — see answer() for the full rationale.
+        is deliberately skipped -- see answer() for the full rationale.
 
         A StoredConfidence is reconstructed from the entry's stored scores so
         that PipelineResult.stored_confidence is always populated.
@@ -405,11 +405,11 @@ class CAEMPipeline:
                 output_ids[0], skip_special_tokens=True
             ).strip()
         except Exception as exc:
-            logger.error("Tier 2 generation failed: %s — escalating to Tier 3.", exc)
+            logger.error("Tier 2 generation failed: %s -- escalating to Tier 3.", exc)
             return self._tier3(query), None, True
 
         if not answer_str:
-            logger.warning("Tier 2 produced empty answer — escalating to Tier 3.")
+            logger.warning("Tier 2 produced empty answer -- escalating to Tier 3.")
             return self._tier3(query), None, True
 
         # Stage 4a: post-generation confidence
@@ -421,13 +421,13 @@ class CAEMPipeline:
             )
         except Exception as exc:
             logger.warning("PostGenerationConfidenceEstimator failed: %s", exc)
-            # Treat as low confidence → escalate
+            # Treat as low confidence -> escalate
             return self._tier3(query), None, True
 
         # Efficiency gate: escalate if û below threshold
         if not post_conf.should_accept(cfg.u_hat_accept_threshold):
             logger.debug(
-                "Tier 2 û=%.4f < %.2f → escalating to Tier 3.",
+                "Tier 2 û=%.4f < %.2f -> escalating to Tier 3.",
                 post_conf.u_hat, cfg.u_hat_accept_threshold,
             )
             escalated_answer = self._tier3(query)
@@ -441,7 +441,7 @@ class CAEMPipeline:
 
         Returns
         -------
-        str — may be empty string on complete failure.
+        str -- may be empty string on complete failure.
         """
         answer = self.rag.generate(query)
         logger.debug("Tier 3 RAG answer: '%s...'", answer[:80])
@@ -461,7 +461,7 @@ class CAEMPipeline:
         try:
             return self.verifier.verify(query, answer)
         except Exception as exc:
-            logger.error("Verification failed: %s — answer will not be stored.", exc)
+            logger.error("Verification failed: %s -- answer will not be stored.", exc)
             return None
 
     # ------------------------------------------------------------------ #
@@ -506,7 +506,7 @@ class CAEMPipeline:
 
         # Auto-prune if approaching capacity
         if self.memory_store._should_prune():
-            logger.info("Memory store near capacity — pruning before storing.")
+            logger.info("Memory store near capacity -- pruning before storing.")
             self.memory_store.prune()
 
         entry = EpisodicEntry(
@@ -541,7 +541,7 @@ class CAEMPipeline:
 
         The episode is not re-stored. retrieval_count and success_rate are
         updated via the public API. entry_id comes directly from
-        search_with_ids — no private _metadata scan required.
+        search_with_ids -- no private _metadata scan required.
 
         Acceptance is determined by whether the stored u_stored meets the
         quality threshold (it always should for a Tier 1 hit, but we check

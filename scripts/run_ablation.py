@@ -1,4 +1,4 @@
-"""
+﻿"""
 scripts/run_ablation.py
 ========================
 CAEM Ablation Studies + 6 Baseline Comparisons
@@ -6,17 +6,17 @@ CAEM Ablation Studies + 6 Baseline Comparisons
 Runs all comparison experiments for Chapter 5, Section 5.4 (Ablation Analysis).
 
 Six baselines (from benchmarks-and-baselines.md):
-  A0 — Zero-shot       : Flan-T5-Large, no system at all
-  A1 — CoT             : Chain-of-thought prompting, no memory
-  A2 — RAG-only        : Wikipedia retrieval, no memory or verification
-  A3 — Self-consistency: SC majority vote, no memory or fine-tuning
-  A4 — Vanilla FT      : Fine-tuned on unverified data (no verification gate)
-  A5 — Memory-only     : Episodic memory without self-improvement loop
+  A0 -- Zero-shot       : Flan-T5-Large, no system at all
+  A1 -- CoT             : Chain-of-thought prompting, no memory
+  A2 -- RAG-only        : Wikipedia retrieval, no memory or verification
+  A3 -- Self-consistency: SC majority vote, no memory or fine-tuning
+  A4 -- Vanilla FT      : Fine-tuned on unverified data (no verification gate)
+  A5 -- Memory-only     : Episodic memory without self-improvement loop
 
 Three ablation variants (what happens when you remove one CAEM mechanism):
-  AB1 — No memory      : Full CAEM pipeline but empty episodic store (always Tier 3)
-  AB2 — No verification: Skip MultiLayerVerifier (store everything, u_stored=0.5)
-  AB3 — No CoT         : Fine-tune on short answer strings, not reasoning chains
+  AB1 -- No memory      : Full CAEM pipeline but empty episodic store (always Tier 3)
+  AB2 -- No verification: Skip MultiLayerVerifier (store everything, u_stored=0.5)
+  AB3 -- No CoT         : Fine-tune on short answer strings, not reasoning chains
 
 Each condition runs on all 4 benchmarks for Cycle 0 and Cycle 3 states.
 Results are compared against full CAEM (loaded from outputs/all_cycle_results.json).
@@ -25,7 +25,7 @@ Thesis reference
 ----------------
   §5.4 Ablation analysis
   §5.5 Comparison with baselines
-  benchmarks-and-baselines.md — baseline descriptions
+  benchmarks-and-baselines.md -- baseline descriptions
 
 Usage
 -----
@@ -51,9 +51,9 @@ from typing import Dict, List, Optional
 logger = logging.getLogger(__name__)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Baseline implementations
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 class ZeroShotBaseline:
     """A0: Plain Flan-T5-Large with no system (floor baseline)."""
@@ -75,7 +75,7 @@ class ZeroShotBaseline:
 
 
 class CoTBaseline:
-    """A1: Chain-of-thought prompting — 'Let's think step by step' prefix."""
+    """A1: Chain-of-thought prompting -- 'Let's think step by step' prefix."""
 
     def __init__(self, model, tokenizer, device: str):
         self.model = model
@@ -100,7 +100,7 @@ class RAGOnlyBaseline:
     def __init__(self, model, tokenizer, encoder, passage_store, config, device: str):
         self.model = model
         self.tokenizer = tokenizer
-        self.encoder = encoder          # QueryEncoder — required by TierThreeRAG
+        self.encoder = encoder          # QueryEncoder -- required by TierThreeRAG
         self.passage_store = passage_store
         self.config = config
         self.device = device
@@ -129,7 +129,7 @@ class RAGOnlyBaseline:
 
 
 class SelfConsistencyBaseline:
-    """A3: Self-consistency majority vote — no memory or fine-tuning.
+    """A3: Self-consistency majority vote -- no memory or fine-tuning.
 
     Generates N=10 answers and returns the most frequent one.
     This isolates the memory + routing contribution over plain SC.
@@ -173,7 +173,7 @@ class VanillaFinetuneBaseline:
 
     In practice: load the CAEM Cycle 3 model but replace its
     memory store with one populated WITHOUT the verification filter
-    (u_stored threshold set to 0.0 — everything stored).
+    (u_stored threshold set to 0.0 -- everything stored).
     """
 
     def __init__(self, pipeline):
@@ -194,7 +194,7 @@ class VanillaFinetuneBaseline:
 
 
 class MemoryOnlyBaseline:
-    """A5: Memory without self-improvement — isolates what the fine-tuning loop adds.
+    """A5: Memory without self-improvement -- isolates what the fine-tuning loop adds.
 
     Uses the CAEM pipeline as-is but skips Stage 8 (SelfImprovementLoop).
     Run Cycles 1-3 of memory accumulation only (no model weight updates).
@@ -214,9 +214,9 @@ class MemoryOnlyBaseline:
         return result.answer
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # CAEM ablation variants
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 def build_no_memory_pipeline(base_pipeline):
     """AB1: Full CAEM without episodic memory.
@@ -254,7 +254,7 @@ def build_no_verification_pipeline(base_pipeline):
 
     Achieved by overriding MultiLayerVerifier to always return a pass
     with a fixed u_stored of 0.5. This shows the value of the verification
-    quality gate — without it, memory fills with unverified (potentially
+    quality gate -- without it, memory fills with unverified (potentially
     wrong) answers.
     """
     from caem.memory.entry import StoredConfidence
@@ -265,7 +265,7 @@ def build_no_verification_pipeline(base_pipeline):
             """Always pass at u_stored=0.5 (neutral confidence).
 
             StoredConfidence fields: p_entail, s_avg, h_norm, u_stored.
-            No passed_verification or trigger flags — those don't exist.
+            No passed_verification or trigger flags -- those don't exist.
             """
             from caem.memory.entry import StoredConfidence
             return StoredConfidence(
@@ -304,7 +304,7 @@ def build_no_cot_pipeline(base_pipeline):
         "and save to outputs/ablation/no_cot/. "
         "This ablation is placeholder if the checkpoint doesn't exist."
     )
-    return base_pipeline   # placeholder — returns base if no checkpoint
+    return base_pipeline   # placeholder -- returns base if no checkpoint
 
 def build_no_reverification_pipeline(base_pipeline):
     """AB4: Full pipeline but Retroactive Re-verification is disabled between cycles.
@@ -318,7 +318,7 @@ def build_no_reverification_pipeline(base_pipeline):
         "and save to outputs/ablation/no_reverif/. "
         "This ablation is placeholder if the checkpoint doesn't exist."
     )
-    return base_pipeline   # placeholder — returns base if no checkpoint
+    return base_pipeline   # placeholder -- returns base if no checkpoint
 
 def _clone_pipeline(base_pipeline):
     """Create a copy of the pipeline sharing model weights but with a fresh store."""
@@ -333,9 +333,9 @@ def _clone_pipeline(base_pipeline):
     )
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Generic eval runner for non-CAEM baselines
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 def eval_baseline(
     name: str,
@@ -347,14 +347,14 @@ def eval_baseline(
 
     Parameters
     ----------
-    name     : str — identifier for filenames (e.g. "zero_shot", "cot")
-    baseline : object with .answer(question: str) → str
-    samples  : dict[bm → list of BenchmarkSample]
+    name     : str -- identifier for filenames (e.g. "zero_shot", "cot")
+    baseline : object with .answer(question: str) -> str
+    samples  : dict[bm -> list of BenchmarkSample]
     output_dir: Path
 
     Returns
     -------
-    dict[bm → {em, f1, hallucination_rate}]
+    dict[bm -> {em, f1, hallucination_rate}]
     """
     from eval.metrics import (
         any_match_em, best_token_f1, exact_match, extract_fever_label,
@@ -366,7 +366,7 @@ def eval_baseline(
 
     for bm, bm_samples in samples.items():
         em_scores, f1_scores = [], []
-        logger.info("  %s | %s — evaluating %d samples …", name, bm, len(bm_samples))
+        logger.info("  %s | %s -- evaluating %d samples ...", name, bm, len(bm_samples))
 
         for sample in bm_samples:
             q = sample["question"]
@@ -409,14 +409,14 @@ def eval_baseline(
     out_path = output_dir / f"baseline_{name}.json"
     with open(out_path, "w") as f:
         json.dump(results, f, indent=2)
-    logger.info("  Saved → %s", out_path)
+    logger.info("  Saved -> %s", out_path)
 
     return results
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # MMLU Retention test (for forgetting measurement)
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 def eval_mmlu_retention(pipeline, n: int = 200) -> float:
     """Evaluate MMLU accuracy to check for catastrophic forgetting.
@@ -427,7 +427,7 @@ def eval_mmlu_retention(pipeline, n: int = 200) -> float:
 
     Returns
     -------
-    float — accuracy on MMLU (0–1)
+    float -- accuracy on MMLU (0–1)
     """
     try:
         from datasets import load_dataset
@@ -469,18 +469,18 @@ def eval_mmlu_retention(pipeline, n: int = 200) -> float:
     return accuracy
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Summary printer
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 def print_ablation_table(all_results: Dict, caem_results: Optional[Dict] = None) -> None:
     """Print comparison table: CAEM vs all baselines and ablation variants."""
-    print("\n" + "═" * 85)
+    print("\n" + "=" * 85)
     print("ABLATION & BASELINE COMPARISON TABLE  (Chapter 5, Table 2)")
-    print("═" * 85)
+    print("=" * 85)
     print(f"{'Condition':<22} {'HotpotQA EM':>12} {'TruthfulQA EM':>14} "
           f"{'FEVER EM':>9} {'StrategyQA EM':>14}")
-    print("─" * 85)
+    print("-" * 85)
 
     # CAEM rows first
     if caem_results:
@@ -491,7 +491,7 @@ def print_ablation_table(all_results: Dict, caem_results: Optional[Dict] = None)
                 em = cycle_res.get(bm, {}).get("em", float("nan"))
                 row += f"  {em:>10.4f}"
             print(row)
-        print("─" * 85)
+        print("-" * 85)
 
     # Baselines
     for name, res in all_results.items():
@@ -502,14 +502,14 @@ def print_ablation_table(all_results: Dict, caem_results: Optional[Dict] = None)
             row += f"  {em:>10.4f}"
         print(row)
 
-    print("═" * 85)
+    print("=" * 85)
     print("Interpretation: Each CAEM mechanism contributes if removing it (AB1/2/3)")
     print("hurts more than the respective baseline (A0-A5).\n")
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Main
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 def run_ablation(ns: argparse.Namespace) -> None:
     logging.basicConfig(
@@ -524,7 +524,7 @@ def run_ablation(ns: argparse.Namespace) -> None:
     profile = print_hardware_summary()
     apply_memory_flags(profile)
 
-    # ── Load model and dependencies ─────────────────────────────────────── #
+    # -- Load model and dependencies --------------------------------------- #
     import torch
     from transformers import AutoTokenizer, T5ForConditionalGeneration
     from caem.config import CAEMConfig
@@ -549,14 +549,14 @@ def run_ablation(ns: argparse.Namespace) -> None:
             "strategyqa": load_strategyqa(n=ns.n_questions),
         }
 
-    logger.info("Loading Flan-T5-Large …")
+    logger.info("Loading Flan-T5-Large ...")
     tokenizer = AutoTokenizer.from_pretrained("google/flan-t5-large")
 
     # Load Cycle 3 model if checkpoint provided
     model = T5ForConditionalGeneration.from_pretrained("google/flan-t5-large")
     cycle3_ckpt = Path(ns.cycle3_checkpoint)
     if (cycle3_ckpt / "model.pt").exists():
-        logger.info("Loading Cycle 3 checkpoint from %s …", cycle3_ckpt)
+        logger.info("Loading Cycle 3 checkpoint from %s ...", cycle3_ckpt)
         model.load_state_dict(torch.load(cycle3_ckpt / "model.pt", map_location="cpu"))
         logger.info("Cycle 3 model loaded.")
     else:
@@ -580,28 +580,28 @@ def run_ablation(ns: argparse.Namespace) -> None:
         config=config, device=device,
     )
 
-    # ── Run all conditions ─────────────────────────────────────────────── #
-    logger.info("═" * 60)
-    logger.info("ABLATION STUDY — running %d conditions", 10)
-    logger.info("═" * 60)
+    # -- Run all conditions ----------------------------------------------- #
+    logger.info("=" * 60)
+    logger.info("ABLATION STUDY -- running %d conditions", 10)
+    logger.info("=" * 60)
 
     all_baseline_results: Dict[str, Dict] = {}
 
-    # A0 — Zero-shot
-    logger.info("A0: Zero-shot baseline …")
+    # A0 -- Zero-shot
+    logger.info("A0: Zero-shot baseline ...")
     baseline_zs = ZeroShotBaseline(model, tokenizer, device)
     all_baseline_results["zero_shot"] = eval_baseline("zero_shot", baseline_zs, samples, output_dir)
 
-    # A1 — CoT
-    logger.info("A1: CoT baseline …")
+    # A1 -- CoT
+    logger.info("A1: CoT baseline ...")
     baseline_cot = CoTBaseline(model, tokenizer, device)
     all_baseline_results["cot"] = eval_baseline("cot", baseline_cot, samples, output_dir)
 
-    # A2 — RAG-only: load passage store from disk.
+    # A2 -- RAG-only: load passage store from disk.
     # passage_store=None causes TierThreeRAG to fall back to query-only generation
-    # (identical to zero-shot) — which would make this ablation meaningless.
+    # (identical to zero-shot) -- which would make this ablation meaningless.
     # Load from disk when available; warn clearly when not.
-    logger.info("A2: RAG-only baseline …")
+    logger.info("A2: RAG-only baseline ...")
     _passage_index_path = Path(ns.passage_index)
     if _passage_index_path.exists():
         from caem.retrieval.rag import PassageStore as _PassageStore
@@ -612,7 +612,7 @@ def run_ablation(ns: argparse.Namespace) -> None:
         _rag_passage_store = None
         logger.warning(
             "RAG baseline: passage index not found at %s. "
-            "RAG-only ablation will degrade to zero-shot generation — "
+            "RAG-only ablation will degrade to zero-shot generation -- "
             "build the index first with: "
             "python -m scripts.build_passage_index --output_dir %s",
             _passage_index_path, _passage_index_path,
@@ -620,56 +620,56 @@ def run_ablation(ns: argparse.Namespace) -> None:
     baseline_rag = RAGOnlyBaseline(model, tokenizer, encoder, _rag_passage_store, config, device)
     all_baseline_results["rag_only"] = eval_baseline("rag_only", baseline_rag, samples, output_dir)
 
-    # A3 — Self-consistency
-    logger.info("A3: Self-consistency baseline …")
+    # A3 -- Self-consistency
+    logger.info("A3: Self-consistency baseline ...")
     baseline_sc = SelfConsistencyBaseline(model, tokenizer, device)
     all_baseline_results["self_consistency"] = eval_baseline(
         "self_consistency", baseline_sc, samples, output_dir
     )
 
-    # A4 — Vanilla fine-tune (uses cycle3 model, bypasses memory)
-    logger.info("A4: Vanilla fine-tune baseline …")
+    # A4 -- Vanilla fine-tune (uses cycle3 model, bypasses memory)
+    logger.info("A4: Vanilla fine-tune baseline ...")
     baseline_vft = VanillaFinetuneBaseline(pipeline)
     all_baseline_results["vanilla_ft"] = eval_baseline("vanilla_ft", baseline_vft, samples, output_dir)
 
-    # A5 — Memory-only (same pipeline, but SIL was never run)
-    logger.info("A5: Memory-only baseline …")
+    # A5 -- Memory-only (same pipeline, but SIL was never run)
+    logger.info("A5: Memory-only baseline ...")
     # This uses the base model weights with memory from Cycle 0 accumulation
     # Load from cycle0 checkpoint if available
     baseline_mem = MemoryOnlyBaseline(pipeline)
     all_baseline_results["memory_only"] = eval_baseline("memory_only", baseline_mem, samples, output_dir)
 
-    # AB1 — No memory (ablation)
-    logger.info("AB1: No-memory ablation …")
+    # AB1 -- No memory (ablation)
+    logger.info("AB1: No-memory ablation ...")
     no_mem_pipeline = build_no_memory_pipeline(pipeline)
     from eval.harness import EvalHarness
     harness_nomem = EvalHarness(no_mem_pipeline, output_dir=str(output_dir / "ab1_no_memory"), log_every=50)
     all_baseline_results["ab_no_memory"] = harness_nomem.run_all(samples, cycle=3)
 
-    # AB2 — No verification (ablation)
-    logger.info("AB2: No-verification ablation …")
+    # AB2 -- No verification (ablation)
+    logger.info("AB2: No-verification ablation ...")
     no_verif_pipeline = build_no_verification_pipeline(pipeline)
     harness_noverif = EvalHarness(no_verif_pipeline, output_dir=str(output_dir / "ab2_no_verification"), log_every=50)
     all_baseline_results["ab_no_verification"] = harness_noverif.run_all(samples, cycle=3)
 
-    # AB3 — No CoT (ablation)
-    logger.info("AB3: No-CoT ablation …")
+    # AB3 -- No CoT (ablation)
+    logger.info("AB3: No-CoT ablation ...")
     no_cot_pipeline = build_no_cot_pipeline(pipeline)
     harness_nocot = EvalHarness(no_cot_pipeline, output_dir=str(output_dir / "ab3_no_cot"), log_every=50)
     all_baseline_results["ab_no_cot"] = harness_nocot.run_all(samples, cycle=3)
 
-    # AB4 — No Retroactive Re-verification (ablation)
-    logger.info("AB4: No Retroactive Re-verification ablation …")
+    # AB4 -- No Retroactive Re-verification (ablation)
+    logger.info("AB4: No Retroactive Re-verification ablation ...")
     no_reverif_pipeline = build_no_reverification_pipeline(pipeline)
     harness_noreverif = EvalHarness(no_reverif_pipeline, output_dir=str(output_dir / "ab4_no_reverif"), log_every=50)
     all_baseline_results["ab_no_reverif"] = harness_noreverif.run_all(samples, cycle=3)
 
-    # ── MMLU Retention ─────────────────────────────────────────────────── #
-    logger.info("Measuring MMLU retention …")
+    # -- MMLU Retention --------------------------------------------------- #
+    logger.info("Measuring MMLU retention ...")
     mmlu_score = eval_mmlu_retention(pipeline, n=200)
     logger.info("MMLU retention: %.4f (target ≥ 0.93)", mmlu_score)
 
-    # ── Load full CAEM results for comparison ────────────────────────────── #
+    # -- Load full CAEM results for comparison ------------------------------ #
     caem_results = None
     caem_path = Path(ns.caem_results)
     if caem_path.exists():
@@ -677,9 +677,9 @@ def run_ablation(ns: argparse.Namespace) -> None:
             caem_results = json.load(f)
         logger.info("Loaded CAEM results from %s.", caem_path)
     else:
-        logger.warning("CAEM results file not found at %s — comparison table will be incomplete.", caem_path)
+        logger.warning("CAEM results file not found at %s -- comparison table will be incomplete.", caem_path)
 
-    # ── Save ablation summary ─────────────────────────────────────────────── #
+    # -- Save ablation summary ----------------------------------------------- #
     summary = {
         "baselines": all_baseline_results,
         "mmlu_retention": mmlu_score,
@@ -688,17 +688,17 @@ def run_ablation(ns: argparse.Namespace) -> None:
     out_path = output_dir / "ablation_summary.json"
     with open(out_path, "w") as f:
         json.dump(summary, f, indent=2)
-    logger.info("Ablation summary saved → %s", out_path)
+    logger.info("Ablation summary saved -> %s", out_path)
 
-    # ── Print comparison table ─────────────────────────────────────────────── #
+    # -- Print comparison table ----------------------------------------------- #
     print_ablation_table(all_baseline_results, caem_results)
     print(f"\nMMUL Retention: {mmlu_score:.4f} (target ≥ 0.93)")
     logger.info("Ablation study complete. Results in: %s", output_dir)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # CLI
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 def _parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(

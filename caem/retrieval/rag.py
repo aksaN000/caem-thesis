@@ -1,7 +1,7 @@
-"""
+﻿"""
 caem/retrieval/rag.py
 ======================
-Tier 3 RAG — Stage 6 of the CAEM pipeline.
+Tier 3 RAG -- Stage 6 of the CAEM pipeline.
 
 Runs when a query is routed to Tier 3 by the AdaptiveRouter:
   - u_pre < safety_u_pre_min (OR-condition veto), OR
@@ -13,7 +13,7 @@ PassageStore
     Thin FAISS wrapper over a static Wikipedia passage corpus.
     Encodes queries with the same SBERT encoder used by EpisodicMemoryStore
     so both indices share the same SBERT embedding space (e.g. 768 or 384 dim).
-    The corpus is read-only at inference — passages are never modified.
+    The corpus is read-only at inference -- passages are never modified.
 
 TierThreeRAG
     Retrieves top-k passages from PassageStore, builds a context-augmented
@@ -36,15 +36,15 @@ the model's learned priors align with the prompt structure.
 
 RAG vs Tier 1/2
 ---------------
-Tier 1: direct answer from episodic memory — no model call.
+Tier 1: direct answer from episodic memory -- no model call.
 Tier 2: Flan-T5 generation conditioned on the query alone.
 Tier 3: Flan-T5 generation conditioned on retrieved Wikipedia passages.
 
-Tier 3 is the most expensive path but the most robust — it is used when
+Tier 3 is the most expensive path but the most robust -- it is used when
 the system is uncertain (low u_pre) or has no relevant memory.
 
 After Tier 3 generation the answer still passes through Stage 5
-(MultiLayerVerifier) and Stage 7 (storage decision) — Tier 3 answers
+(MultiLayerVerifier) and Stage 7 (storage decision) -- Tier 3 answers
 that verify well are stored so future similar queries hit Tier 1 or 2.
 """
 
@@ -64,9 +64,9 @@ from caem.config import CAEMConfig
 logger = logging.getLogger(__name__)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # PassageStore
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 class PassageStore:
     """Read-only FAISS index over a Wikipedia passage corpus.
@@ -105,7 +105,7 @@ class PassageStore:
         self.passages = passages
         self._dim = embeddings.shape[1]
 
-        # Inner-product index — cosine similarity because embeddings are
+        # Inner-product index -- cosine similarity because embeddings are
         # L2-normalised (same design as EpisodicMemoryStore).
         self._index = faiss.IndexFlatIP(self._dim)
         self._index.add(embeddings.astype(np.float32))
@@ -182,9 +182,9 @@ class PassageStore:
         return self._index.ntotal
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # TierThreeRAG
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 class TierThreeRAG:
     """Retrieve-then-generate for Tier 3 queries.
@@ -245,7 +245,7 @@ class TierThreeRAG:
         input_ids : torch.Tensor or None
             Pre-tokenized plain query (without context). If None, tokenized
             internally. Note: the RAG prompt is always re-tokenized with
-            context prepended — input_ids here is only used as a fallback
+            context prepended -- input_ids here is only used as a fallback
             if retrieval fails completely.
 
         Returns
@@ -255,15 +255,15 @@ class TierThreeRAG:
         """
         cfg = self.config
 
-        # Step 1: encode query → retrieve passages
+        # Step 1: encode query -> retrieve passages
         passages = self._retrieve(query, k=cfg.rag_top_k)
 
         # Step 2: build the RAG prompt
         if passages:
             prompt = self._build_prompt(query, passages)
         else:
-            # Degenerate: no passages found — fall back to query-only generation
-            logger.warning("RAG: no passages retrieved — falling back to query-only.")
+            # Degenerate: no passages found -- fall back to query-only generation
+            logger.warning("RAG: no passages retrieved -- falling back to query-only.")
             prompt = query
 
         # Step 3: tokenize prompt
@@ -287,7 +287,7 @@ class TierThreeRAG:
             return ""
 
     def retrieve(self, query: str, k: Optional[int] = None) -> List[Tuple[str, float]]:
-        """Public retrieval endpoint — returns (passage, score) pairs.
+        """Public retrieval endpoint -- returns (passage, score) pairs.
 
         Useful for inspection and ablation studies.
         """

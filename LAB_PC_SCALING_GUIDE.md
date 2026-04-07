@@ -128,27 +128,53 @@ batch_size = 16   # 4090 (24GB VRAM)
 
 ## 7. L2 Penalty: `theta_prev` on GPU — SPEED ONLY
 
-**Thesis config:** `theta_prev` stored on CPU RAM, transferred to GPU per batch over PCIe.
-This saves ~3.1 GB of VRAM on the RTX 3060.
+**Current implementation (all devices):** `_l2_penalty()` computes the EWC penalty
+entirely on CPU — `p.detach().cpu() - p0` — then transfers only the resulting scalar
+back to GPU. This was fixed in Session 26 (the original code incorrectly called
+`p0.to(self.device)` inside the batch loop, moving 3 GB of weights per batch).
+The CPU implementation is correct and VRAM-efficient on all devices.
 
-**Scaled config:** Keep `theta_prev` natively on GPU throughout fine-tuning.
+**Scaled config (4090/5090 only):** For 24GB+ VRAM GPUs, you can eliminate the
+per-batch CPU↔GPU parameter transfer entirely by moving `theta_prev` to GPU **once**
+before the training loop starts, then keeping it there for all batches.
 
-**Accuracy impact:** Zero. Mathematically identical L2 penalty — just without the
-PCIe round-trip per batch.
+**Accuracy impact:** Zero. Mathematically identical L2 penalty.
 
 **Speed impact:** ~3–4× faster fine-tuning per cycle on 24GB+ VRAM GPUs.
 This is the second most impactful change after batch size.
 
-**Code change** (in `caem/training/self_improvement.py`):
-```python
-# Before the epoch loop in _finetune(), add:
-theta_prev_gpu = [p0.to(self.device) for p0 in theta_prev]
+**Code change** (in `caem/training/self_improvement.py`, inside `_finetune()`):
 
-# Then redirect _l2_penalty() to use theta_prev_gpu instead of
-# mapping theta_prev dynamically per batch.
+Step 1 — Add one line just before the epoch loop (after `self.model.to(self.device)`):
+```python
+# Move theta_prev to GPU once — eliminates PCIe round-trips during training.
+# Only do this if VRAM >= 24 GB.
+theta_prev_gpu = [p0.to(self.device) for p0 in theta_prev]
 ```
 
-Only apply this if VRAM ≥ 24 GB. On RTX 3060, keep the CPU offload.
+Step 2 — Change the `_l2_penalty()` call inside the batch loop from:
+```python
+l2_loss = self._l2_penalty(theta_prev)
+```
+to:
+```python
+l2_loss = self._l2_penalty(theta_prev_gpu)
+```
+
+Step 3 — Update `_l2_penalty()` to skip the `.cpu()` detach (since both tensors
+are now on GPU):
+```python
+def _l2_penalty(self, theta_prev: List[torch.Tensor]) -> torch.Tensor:
+    """Compute ||theta - theta_prev||^2. theta_prev must already be on self.device."""
+    penalty = torch.tensor(0.0, device=self.device)
+    for p, p0 in zip(self.model.parameters(), theta_prev):
+        diff = p - p0   # both on GPU, no PCIe cost
+        penalty = penalty + (diff ** 2).sum()
+    return penalty
+```
+
+**Only apply this if VRAM >= 24 GB.** On RTX 3060, the current CPU implementation
+is correct and optimal — do not apply this patch.
 
 ---
 
@@ -161,6 +187,7 @@ When you get university GPU access (4090 or 5090), do this in order:
    - Everything else stays at thesis-standard values
 
 2. Apply the `theta_prev` GPU patch in `self_improvement.py` (speed only, no accuracy change)
+   — see Section 7 above for the exact 3-step code change
 
 3. Build the 5M passage index (optional — run in parallel/background):
    ```bash

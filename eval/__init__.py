@@ -1,13 +1,13 @@
-"""
+﻿"""
 eval/
 =====
 Evaluation harness for the CAEM benchmark experiments.
 
 Components
 ----------
-metrics.py    — EM, F1, FEVER accuracy, hallucination rate, routing distribution
-benchmarks.py — HotpotQA / TruthfulQA / FEVER loaders + synthetic data factory
-harness.py    — EvalHarness: run pipeline over samples, aggregate, save JSON
+metrics.py    -- EM, F1, FEVER accuracy, hallucination rate, routing distribution
+benchmarks.py -- HotpotQA / TruthfulQA / FEVER loaders + synthetic data factory
+harness.py    -- EvalHarness: run pipeline over samples, aggregate, save JSON
 
 Quick start
 -----------

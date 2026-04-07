@@ -1,4 +1,4 @@
-"""
+﻿"""
 scripts/run_calibration.py
 ===========================
 Temperature Scaling + Signal Weight Calibration (Category 3 hyperparameters)
@@ -7,10 +7,10 @@ Runs AFTER Cycle 0 evaluation is complete. Uses the 500-sample calibration
 set (non-overlapping with the purity validation set and eval set).
 
 Two calibration steps:
-  1. Temperature scaling — fits scalar T to minimise ECE (Expected Calibration
+  1. Temperature scaling -- fits scalar T to minimise ECE (Expected Calibration
      Error) on the calibration set using L-BFGS. Adjusts token probability
      confidence to be better calibrated.
-  2. Signal weight calibration — fits û signal weights (u_token, u_dropout,
+  2. Signal weight calibration -- fits û signal weights (u_token, u_dropout,
      u_consistency, u_entropy) to maximise AUROC on the calibration set using
      logistic regression (scikit-learn).
 
@@ -22,7 +22,7 @@ Results are:
 Thesis reference
 ----------------
   §4.5 Confidence calibration (temperature scaling)
-  hyperparameter-reference.md Category 3 — Empirically calibrated
+  hyperparameter-reference.md Category 3 -- Empirically calibrated
   Chapter 5: report actual calibrated weights here (not the projected 0.20/0.20/0.20/0.40)
 
 Usage
@@ -47,9 +47,9 @@ from typing import Dict, List, Optional, Tuple
 logger = logging.getLogger(__name__)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # ECE computation
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 def expected_calibration_error(
     confidences: List[float],
@@ -62,13 +62,13 @@ def expected_calibration_error(
 
     Parameters
     ----------
-    confidences : list of float — model confidence scores in [0, 1]
-    accuracies  : list of float — 1.0 if correct, 0.0 if wrong
-    n_bins      : int — number of bins (15 is standard)
+    confidences : list of float -- model confidence scores in [0, 1]
+    accuracies  : list of float -- 1.0 if correct, 0.0 if wrong
+    n_bins      : int -- number of bins (15 is standard)
 
     Returns
     -------
-    float — ECE in [0, 1]; lower is better
+    float -- ECE in [0, 1]; lower is better
     """
     if not confidences:
         return 0.0
@@ -93,9 +93,9 @@ def expected_calibration_error(
     return ece
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Temperature scaling
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 def fit_temperature_scalar(
     logits: List[float],
@@ -110,19 +110,19 @@ def fit_temperature_scalar(
 
     Parameters
     ----------
-    logits : list of float — raw pre-softmax model outputs (u_pre values
+    logits : list of float -- raw pre-softmax model outputs (u_pre values
              before sigmoid, or token log-probs)
-    labels : list of int  — 1 = correct answer, 0 = wrong answer
+    labels : list of int  -- 1 = correct answer, 0 = wrong answer
 
     Returns
     -------
-    float — fitted temperature T (T > 1 means model was over-confident)
+    float -- fitted temperature T (T > 1 means model was over-confident)
     """
     try:
         from scipy.optimize import minimize
         import numpy as np
     except ImportError:
-        logger.warning("scipy not available — temperature scaling skipped. "
+        logger.warning("scipy not available -- temperature scaling skipped. "
                        "Install: pip install scipy --break-system-packages")
         return 1.0
 
@@ -145,9 +145,9 @@ def fit_temperature_scalar(
     return T_fitted
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Signal weight calibration (AUROC-based)
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 def fit_signal_weights(
     signal_matrix: List[List[float]],
@@ -175,13 +175,13 @@ def fit_signal_weights(
 
     Returns
     -------
-    list of 4 floats — normalised weights summing to 1.0
+    list of 4 floats -- normalised weights summing to 1.0
     """
     try:
         from sklearn.linear_model import LogisticRegression
         import numpy as np
     except ImportError:
-        logger.warning("scikit-learn not available — signal weight calibration skipped. "
+        logger.warning("scikit-learn not available -- signal weight calibration skipped. "
                        "Install: pip install scikit-learn --break-system-packages")
         return [0.25, 0.25, 0.25, 0.25]
 
@@ -204,23 +204,23 @@ def fit_signal_weights(
 
     labels_str = ["u_token", "u_dropout", "u_consistency", "u_entropy"]
     for name, w in zip(labels_str, weights):
-        logger.info("  Calibrated weight — %s: %.4f", name, w)
+        logger.info("  Calibrated weight -- %s: %.4f", name, w)
 
     # AUROC for each signal
     try:
         from sklearn.metrics import roc_auc_score
         for i, name in enumerate(labels_str):
             auc = roc_auc_score(y, X[:, i])
-            logger.info("  AUROC — %s: %.4f", name, auc)
+            logger.info("  AUROC -- %s: %.4f", name, auc)
     except Exception:
         pass
 
     return weights
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Collect calibration signals from pipeline results
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 def collect_calibration_data(
     pipeline,
@@ -231,14 +231,14 @@ def collect_calibration_data(
     Parameters
     ----------
     pipeline     : CAEMPipeline
-    calib_samples: dict[bm → list of BenchmarkSample]
+    calib_samples: dict[bm -> list of BenchmarkSample]
 
     Returns
     -------
-    u_pre_logits    : list of float — raw u_pre (for temperature scaling)
-    u_pre_labels    : list of int   — 1 = EM correct
+    u_pre_logits    : list of float -- raw u_pre (for temperature scaling)
+    u_pre_labels    : list of int   -- 1 = EM correct
     signal_matrix   : list of [u_token, u_dropout, u_sc, u_entropy]
-    signal_labels   : list of int   — 1 = EM correct (same as u_pre_labels)
+    signal_labels   : list of int   -- 1 = EM correct (same as u_pre_labels)
     """
     from eval.benchmarks import make_synthetic_samples
     from eval.metrics import any_match_em, exact_match
@@ -248,7 +248,7 @@ def collect_calibration_data(
     signal_matrix: List[List[float]] = []
     signal_labels: List[int] = []  # labels *only* for Tier-2 samples (mirrors signal_matrix rows)
 
-    logger.info("Collecting calibration signals …")
+    logger.info("Collecting calibration signals ...")
 
     for bm, samples in calib_samples.items():
         for sample in samples:
@@ -273,7 +273,7 @@ def collect_calibration_data(
                 u_pre_logits.append(u_pre)
                 u_pre_labels.append(int(em))
 
-                # Signal matrix — only available for Tier 2 (post-generation conf)
+                # Signal matrix -- only available for Tier 2 (post-generation conf)
                 # PostGenerationConfidence fields: u_token, u_dropout,
                 # u_consistency (NOT u_sc), u_entropy (NOT h_entropy_norm)
                 # IMPORTANT: signal_labels must be co-indexed with signal_matrix.
@@ -308,9 +308,9 @@ def collect_calibration_data(
     return u_pre_logits, u_pre_labels, signal_matrix, signal_labels
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Main calibration function (called from run_experiment.py or standalone)
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 def calibrate_pipeline(
     pipeline,
@@ -325,9 +325,9 @@ def calibrate_pipeline(
     Parameters
     ----------
     pipeline      : CAEMPipeline
-    calib_samples : dict[bm → list of BenchmarkSample]
-    config        : CAEMConfig — updated in-place with fitted values
-    output_dir    : Path — save calibrated_config.json here
+    calib_samples : dict[bm -> list of BenchmarkSample]
+    config        : CAEMConfig -- updated in-place with fitted values
+    output_dir    : Path -- save calibrated_config.json here
 
     Returns
     -------
@@ -336,19 +336,19 @@ def calibrate_pipeline(
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # ── Collect raw signals ──────────────────────────────────────────────── #
+    # -- Collect raw signals ------------------------------------------------ #
     u_pre_logits, u_pre_labels, signal_matrix, signal_labels = \
         collect_calibration_data(pipeline, calib_samples)
 
     if not u_pre_logits:
-        logger.error("No calibration data collected — aborting calibration.")
+        logger.error("No calibration data collected -- aborting calibration.")
         return {}
 
-    # ── ECE before calibration ────────────────────────────────────────────── #
+    # -- ECE before calibration ---------------------------------------------- #
     ece_before = expected_calibration_error(u_pre_logits, [float(l) for l in u_pre_labels])
     logger.info("ECE before temperature scaling: %.6f", ece_before)
 
-    # ── Temperature scaling ───────────────────────────────────────────────── #
+    # -- Temperature scaling ------------------------------------------------- #
     # Convert u_pre [0,1] to logit space for temperature fitting
     import math
     logits = [math.log(max(u, 1e-7) / max(1 - u, 1e-7)) for u in u_pre_logits]
@@ -363,22 +363,22 @@ def calibrate_pipeline(
     ece_after = expected_calibration_error(calibrated_confs, [float(l) for l in u_pre_labels])
     logger.info("ECE after  temperature scaling: %.6f (ΔT=%.4f)", ece_after, T)
 
-    # ── Signal weight calibration ─────────────────────────────────────────── #
+    # -- Signal weight calibration ------------------------------------------- #
     if signal_matrix:
         new_weights = fit_signal_weights(signal_matrix, signal_labels)
     else:
-        logger.warning("No Tier 2 samples found in calibration set — "
+        logger.warning("No Tier 2 samples found in calibration set -- "
                        "signal weights not calibrated. Using equal weights (0.25 each).")
         new_weights = [0.25, 0.25, 0.25, 0.25]
 
-    # ── Update config in-place ────────────────────────────────────────────── #
+    # -- Update config in-place ---------------------------------------------- #
     config.temperature_scalar = T       # new field written to config
     config.u_hat_weight_token       = new_weights[0]
     config.u_hat_weight_dropout     = new_weights[1]
     config.u_hat_weight_consistency = new_weights[2]   # correct config field name
     config.u_hat_weight_entropy     = new_weights[3]
 
-    # ── Save results ──────────────────────────────────────────────────────── #
+    # -- Save results -------------------------------------------------------- #
     calib_result = {
         "temperature_scalar": T,
         "ece_before": ece_before,
@@ -398,7 +398,7 @@ def calibrate_pipeline(
             "u_entropy":     0.40,
         },
         "note": (
-            "Actual calibrated values — these replace the projected 0.20/0.20/0.20/0.40 "
+            "Actual calibrated values -- these replace the projected 0.20/0.20/0.20/0.40 "
             "estimates in the thesis plan. Report these in Chapter 5."
         ),
     }
@@ -406,12 +406,12 @@ def calibrate_pipeline(
     out_path = output_dir / "calibrated_config.json"
     with open(out_path, "w") as f:
         json.dump(calib_result, f, indent=2)
-    logger.info("Calibration results saved → %s", out_path)
+    logger.info("Calibration results saved -> %s", out_path)
 
     # Print summary
-    print("\n" + "─" * 55)
+    print("\n" + "-" * 55)
     print("  CALIBRATION RESULTS")
-    print("─" * 55)
+    print("-" * 55)
     print(f"  Temperature scalar T: {T:.4f}")
     print(f"  ECE before: {ece_before:.6f}")
     print(f"  ECE after:  {ece_after:.6f}  (improvement: {ece_before - ece_after:.6f})")
@@ -421,16 +421,16 @@ def calibrate_pipeline(
     for name, w, p in zip(names, new_weights, proj):
         delta = w - p
         print(f"    {name:<12} : {w:.4f}  (projected {p:.2f}, Δ={delta:+.4f})")
-    print("─" * 55)
-    print("  → Report actual values in Chapter 5 (Table: Category 3 calibration)")
-    print("─" * 55 + "\n")
+    print("-" * 55)
+    print("  -> Report actual values in Chapter 5 (Table: Category 3 calibration)")
+    print("-" * 55 + "\n")
 
     return calib_result
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Standalone entry point
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 def _parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
@@ -475,7 +475,7 @@ if __name__ == "__main__":
     pipeline = build_pipeline(config, ns, m)
 
     # Load calibration window: indices [500:n_calib] per benchmark.
-    # Indices 0-499 are the purity validation set (§5.3) — never used for calibration.
+    # Indices 0-499 are the purity validation set (§5.3) -- never used for calibration.
     # TruthfulQA has only 817 questions total; load all 817 and take [500:] to get 317.
     from eval.benchmarks import load_hotpotqa, load_truthfulqa, load_fever, load_strategyqa
     calib = {}

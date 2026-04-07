@@ -1,7 +1,7 @@
-"""
+﻿"""
 scripts/check_base_model.py
 ===========================
-Gap 1 — Standalone base-model accuracy check (zero-shot Flan-T5-Large).
+Gap 1 -- Standalone base-model accuracy check (zero-shot Flan-T5-Large).
 
 Purpose
 -------
@@ -24,7 +24,7 @@ provides partial credit for overlapping n-grams. Chapter 5 should note:
 GPT-judge model unavailable in offline settings."
 
 This script runs Flan-T5-Large DIRECTLY, with no CAEM pipeline, no memory,
-no verification, no routing. It is purely: tokenize → generate → evaluate.
+no verification, no routing. It is purely: tokenize -> generate -> evaluate.
 
 Usage
 -----
@@ -39,7 +39,7 @@ python scripts/check_base_model.py --device cpu
 
 Output
 ------
-outputs/base_model_check.json — JSON with per-benchmark EM, F1, and p > 0.5 status.
+outputs/base_model_check.json -- JSON with per-benchmark EM, F1, and p > 0.5 status.
 
 Thesis reference
 ----------------
@@ -64,9 +64,9 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Dependency check
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 def _check_deps():
     missing = []
@@ -82,9 +82,9 @@ def _check_deps():
         )
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Generation helpers
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 def generate_answer(model, tokenizer, question: str, device: str, max_new_tokens: int = 256) -> str:
     """Run greedy decoding on a single question. Returns stripped answer string."""
@@ -105,9 +105,9 @@ def generate_answer(model, tokenizer, question: str, device: str, max_new_tokens
     return answer
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Metric helpers (inline — no dependency on eval/metrics.py)
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
+# Metric helpers (inline -- no dependency on eval/metrics.py)
+# -----------------------------------------------------------------------------
 
 def _normalize(s: str) -> str:
     """Lowercase + strip punctuation/articles (standard QA normalisation)."""
@@ -201,9 +201,9 @@ def extract_strategyqa_label(prediction: str) -> str:
     return p[:10]
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Per-benchmark evaluation
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 def evaluate_benchmark(
     model,
@@ -246,7 +246,7 @@ def evaluate_benchmark(
 
         results.append({
             "id":         s.get("id", str(idx)),
-            "question":   question[:80] + "…" if len(question) > 80 else question,
+            "question":   question[:80] + "..." if len(question) > 80 else question,
             "prediction": pred,
             "gold":       gold[0] if gold else "",
             "em":         em,
@@ -288,9 +288,9 @@ def evaluate_benchmark(
     }
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Main
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 def main(args: argparse.Namespace) -> None:
     _check_deps()
@@ -298,7 +298,7 @@ def main(args: argparse.Namespace) -> None:
     import torch
     from transformers import T5ForConditionalGeneration, T5Tokenizer
 
-    # ── Device ──────────────────────────────────────────────────────────────
+    # -- Device --------------------------------------------------------------
     if args.device == "auto":
         device = "cuda" if torch.cuda.is_available() else "cpu"
     else:
@@ -306,14 +306,14 @@ def main(args: argparse.Namespace) -> None:
     logger.info("Device: %s", device)
     if device == "cpu":
         logger.warning(
-            "Running on CPU — this will be slow (~10–30 s/sample). "
+            "Running on CPU -- this will be slow (~10–30 s/sample). "
             "For 100 samples × 4 benchmarks, expect 1–3 hours. "
             "Use --n_samples 10 for a quick smoke test first."
         )
 
-    # ── Load model ──────────────────────────────────────────────────────────
+    # -- Load model ----------------------------------------------------------
     model_name = args.model
-    logger.info("Loading %s …", model_name)
+    logger.info("Loading %s ...", model_name)
     tokenizer = T5Tokenizer.from_pretrained(model_name)
     model = T5ForConditionalGeneration.from_pretrained(
         model_name,
@@ -323,8 +323,8 @@ def main(args: argparse.Namespace) -> None:
     n_params = sum(p.numel() for p in model.parameters()) / 1e6
     logger.info("Model loaded: %.0f M params on %s", n_params, device)
 
-    # ── Load benchmarks ──────────────────────────────────────────────────────
-    # Import loaders — resolve path relative to repo root.
+    # -- Load benchmarks ------------------------------------------------------
+    # Import loaders -- resolve path relative to repo root.
     import sys, os
     repo_root = Path(__file__).resolve().parent.parent
     if str(repo_root) not in sys.path:
@@ -333,7 +333,7 @@ def main(args: argparse.Namespace) -> None:
     from eval.benchmarks import load_hotpotqa, load_truthfulqa, load_fever, load_strategyqa
 
     n = args.n_samples
-    logger.info("Loading benchmarks (n=%d per benchmark) …", n)
+    logger.info("Loading benchmarks (n=%d per benchmark) ...", n)
 
     benchmarks = {
         "hotpotqa":   load_hotpotqa(n=n, seed=args.seed),
@@ -345,12 +345,12 @@ def main(args: argparse.Namespace) -> None:
     for bm, s in benchmarks.items():
         logger.info("  %s: %d samples", bm, len(s))
 
-    # ── Evaluate ─────────────────────────────────────────────────────────────
+    # -- Evaluate -------------------------------------------------------------
     results = {}
     all_pass = True
 
     for bm, samples in benchmarks.items():
-        logger.info("─" * 50)
+        logger.info("-" * 50)
         logger.info("Evaluating %s ...", bm)
         res = evaluate_benchmark(model, tokenizer, samples, bm, device)
         results[bm] = res
@@ -358,10 +358,10 @@ def main(args: argparse.Namespace) -> None:
             logger.info(
                 "  %s: ROUGE-L=%.3f  (EM not valid for TruthfulQA -- uses multi-phrase refs)  [%s]",
                 bm, res["f1"],
-                "✓ purity OK" if res["p_gt_0.5"] else "✗ low (metric artifact likely)",
+                "OK purity OK" if res["p_gt_0.5"] else "✗ low (metric artifact likely)",
             )
         else:
-            status = "✓ PASS" if res["p_gt_0.5"] else "✗ low zero-shot (expected for RAG benchmarks)"
+            status = "OK PASS" if res["p_gt_0.5"] else "✗ low zero-shot (expected for RAG benchmarks)"
             logger.info(
                 "  %s: EM=%.3f  F1=%.3f  [%s]",
                 bm, res["em"], res["f1"], status,
@@ -369,12 +369,12 @@ def main(args: argparse.Namespace) -> None:
         if not res["p_gt_0.5"]:
             all_pass = False
 
-    # ── Summary ──────────────────────────────────────────────────────────────
+    # -- Summary --------------------------------------------------------------
     logger.info("=" * 50)
     logger.info("BASE MODEL CHECK SUMMARY (zero-shot floor baseline)")
     logger.info("=" * 50)
     for bm, res in results.items():
-        flag = "✓" if res["p_gt_0.5"] else "(low zero-shot -- see notes)"
+        flag = "OK" if res["p_gt_0.5"] else "(low zero-shot -- see notes)"
         if bm == "truthfulqa":
             logger.info("  %-14s ROUGE-L=%.3f  %s", bm, res["f1"], flag)
         else:
@@ -404,16 +404,16 @@ def main(args: argparse.Namespace) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(summary, f, indent=2, ensure_ascii=False)
-    logger.info("Results saved → %s", output_path)
+    logger.info("Results saved -> %s", output_path)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # CLI
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 if __name__ == "__main__":
     p = argparse.ArgumentParser(
-        description="Gap 1 — Zero-shot base model accuracy check (no CAEM).",
+        description="Gap 1 -- Zero-shot base model accuracy check (no CAEM).",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     p.add_argument(

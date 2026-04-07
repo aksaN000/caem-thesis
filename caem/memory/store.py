@@ -1,4 +1,4 @@
-"""
+﻿"""
 caem/memory/store.py
 ====================
 EpisodicMemoryStore: FAISS-backed episodic memory for the CAEM pipeline.
@@ -7,8 +7,8 @@ Architecture
 ------------
 FAISS backend: IndexIDMap(IndexFlatIP)
   - IndexFlatIP: exact inner-product search on L2-normalised vectors
-    → equivalent to cosine similarity, no approximation error.
-  - IndexIDMap: maps external integer IDs → internal FAISS positions,
+    -> equivalent to cosine similarity, no approximation error.
+  - IndexIDMap: maps external integer IDs -> internal FAISS positions,
     enabling targeted remove_ids() calls during pruning.
   - Why not IndexIVFPQ (as the thesis spec mentions)?
     At 20k × 768 float32, the index is trivially within VRAM budget.
@@ -48,9 +48,9 @@ class EpisodicMemoryStore:
 
     Public interface
     ----------------
-    add(entry) → int                        Store a new episode; return its ID.
-    search(embedding, k) → list of (EpisodicEntry, float)  Top-k cosine search.
-    is_novel(embedding) → bool              True if no similar episode exists.
+    add(entry) -> int                        Store a new episode; return its ID.
+    search(embedding, k) -> list of (EpisodicEntry, float)  Top-k cosine search.
+    is_novel(embedding) -> bool              True if no similar episode exists.
     update_u_stored(entry_id, new_val)      Retrieval-feedback u_stored update.
     update_retrieval_stats(id, accepted)    Increment count; update success_rate.
     retroverify(verify_fn, threshold)       Per-cycle re-check of all episodes.
@@ -252,7 +252,7 @@ class EpisodicMemoryStore:
                 continue
             entry = self._metadata.get(int(eid))
             if entry is None:
-                logger.warning("FAISS returned ID %d not found in metadata — skipping.", eid)
+                logger.warning("FAISS returned ID %d not found in metadata -- skipping.", eid)
                 continue
             results.append((entry, float(sim)))
 
@@ -268,11 +268,11 @@ class EpisodicMemoryStore:
         Returns
         -------
         list of (EpisodicEntry, entry_id, similarity)
-            entry_id is the integer FAISS external ID — the same value used
+            entry_id is the integer FAISS external ID -- the same value used
             by update_u_stored(), update_retrieval_stats(), and remove().
 
         Use this instead of search() whenever downstream code needs to call
-        back into the store (e.g. update_retrieval_stats) — avoids scanning
+        back into the store (e.g. update_retrieval_stats) -- avoids scanning
         _metadata to recover IDs.
         """
         if self.is_empty:
@@ -294,7 +294,7 @@ class EpisodicMemoryStore:
             eid_int = int(eid)
             entry = self._metadata.get(eid_int)
             if entry is None:
-                logger.warning("FAISS returned ID %d not found in metadata — skipping.", eid_int)
+                logger.warning("FAISS returned ID %d not found in metadata -- skipping.", eid_int)
                 continue
             results.append((entry, eid_int, float(sim)))
 
@@ -308,7 +308,7 @@ class EpisodicMemoryStore:
         """Return all EpisodicEntry objects currently in the store.
 
         Used by SelfImprovementLoop to collect training data. Returns a
-        snapshot list — mutations to the store after this call are not
+        snapshot list -- mutations to the store after this call are not
         reflected in the returned list.
         """
         return list(self._metadata.values())
@@ -371,7 +371,7 @@ class EpisodicMemoryStore:
                 new_u = current - eta * current            # Nudge toward 0.0
             self.update_u_stored(entry_id, new_u)
             logger.debug(
-                "Feedback update: entry %d | accepted=%s | u_stored: %.4f → %.4f",
+                "Feedback update: entry %d | accepted=%s | u_stored: %.4f -> %.4f",
                 entry_id, was_accepted, current, new_u
             )
 
@@ -465,7 +465,7 @@ class EpisodicMemoryStore:
         Parameters
         ----------
         verify_fn : callable
-            Signature: (entry: EpisodicEntry) → StoredConfidence
+            Signature: (entry: EpisodicEntry) -> StoredConfidence
             Uses the CURRENT model weights (already updated by fine-tuning).
         threshold : float or None
             Remove episodes whose new u_stored falls below this.
@@ -492,7 +492,7 @@ class EpisodicMemoryStore:
                 new_scores = verify_fn(entry)
             except Exception as exc:
                 logger.warning(
-                    "retroverify: verify_fn raised %s for entry %d — skipping.",
+                    "retroverify: verify_fn raised %s for entry %d -- skipping.",
                     exc, eid
                 )
                 continue
@@ -500,12 +500,12 @@ class EpisodicMemoryStore:
             new_u = new_scores.u_stored
 
             if new_u < threshold:
-                # Episode quality has degraded — remove it.
+                # Episode quality has degraded -- remove it.
                 self.remove(eid)
                 n_removed += 1
                 logger.debug("Retroverify: removed episode %d (new u_stored=%.3f < %.3f).", eid, new_u, threshold)
             elif new_u > entry.u_stored:
-                # Quality improved — update upward only (don't downgrade).
+                # Quality improved -- update upward only (don't downgrade).
                 old_u = entry.u_stored
                 self.update_u_stored(eid, new_u)
                 entry.nli_score = new_scores.p_entail
@@ -514,11 +514,11 @@ class EpisodicMemoryStore:
                 entry.retroverified = True
                 n_updated += 1
                 logger.debug(
-                    "Retroverify: updated episode %d u_stored %.3f → %.3f.",
+                    "Retroverify: updated episode %d u_stored %.3f -> %.3f.",
                     eid, old_u, new_u
                 )
             else:
-                # New score is lower (but above threshold) — keep old u_stored.
+                # New score is lower (but above threshold) -- keep old u_stored.
                 # Mark as retroverified so we know it was checked this cycle.
                 entry.retroverified = True
 
@@ -536,8 +536,8 @@ class EpisodicMemoryStore:
         """Persist the full store (FAISS index + metadata) to disk.
 
         Saves two files:
-          {path}.faiss   — the FAISS index binary
-          {path}.meta    — pickled metadata dict
+          {path}.faiss   -- the FAISS index binary
+          {path}.meta    -- pickled metadata dict
 
         Parameters
         ----------
@@ -557,9 +557,9 @@ class EpisodicMemoryStore:
 
         if self._index is not None:
             faiss.write_index(self._index, faiss_path)
-            logger.info("Saved FAISS index → %s", faiss_path)
+            logger.info("Saved FAISS index -> %s", faiss_path)
         else:
-            logger.warning("save: index is None (empty store) — no .faiss file written.")
+            logger.warning("save: index is None (empty store) -- no .faiss file written.")
 
         with open(meta_path, "wb") as f:
             pickle.dump(
@@ -572,7 +572,7 @@ class EpisodicMemoryStore:
                 f,
             )
         logger.info(
-            "Saved metadata (%d episodes) → %s", len(self._metadata), meta_path
+            "Saved metadata (%d episodes) -> %s", len(self._metadata), meta_path
         )
 
     @classmethod
@@ -612,7 +612,7 @@ class EpisodicMemoryStore:
                 "Loaded FAISS index (%d vectors) from %s", store._index.ntotal, faiss_path
             )
         else:
-            logger.warning("No .faiss file found at %s — index will be rebuilt on next add.", faiss_path)
+            logger.warning("No .faiss file found at %s -- index will be rebuilt on next add.", faiss_path)
 
         logger.info("Loaded store: %d episodes.", store.size)
         return store

@@ -1,22 +1,22 @@
-"""
+﻿"""
 eval/benchmarks.py
 ==================
 Dataset loaders for the four CAEM evaluation benchmarks.
 
 Benchmarks
 ----------
-HotpotQA   (Yang et al. 2018)    — multi-hop QA; EM + F1
-TruthfulQA (Lin et al. 2022)     — factual QA; any-match EM
-FEVER      (Thorne et al. 2018)  — fact verification; label accuracy
-StrategyQA (Geva et al. 2021)    — implicit multi-hop boolean QA; EM
+HotpotQA   (Yang et al. 2018)    -- multi-hop QA; EM + F1
+TruthfulQA (Lin et al. 2022)     -- factual QA; any-match EM
+FEVER      (Thorne et al. 2018)  -- fact verification; label accuracy
+StrategyQA (Geva et al. 2021)    -- implicit multi-hop boolean QA; EM
 
 Loading strategy
 ----------------
-Each loader returns a list of BenchmarkSample dicts — a simple common
+Each loader returns a list of BenchmarkSample dicts -- a simple common
 schema that the EvalHarness consumes without knowing which benchmark
 it came from.
 
-Data source: HuggingFace `datasets` library (lazy-loaded — not imported
+Data source: HuggingFace `datasets` library (lazy-loaded -- not imported
 at module level so tests can mock it without importing it).  When the
 `datasets` package is unavailable, loaders raise ImportError.
 
@@ -25,7 +25,7 @@ On coverage gaps (Q3 in thesis framing)
 The Wikipedia Dec-2018 corpus (~21M passages) does NOT cover every
 question. When retrieval finds irrelevant passages:
   - The model may produce a low-confidence or hallucinated answer.
-  - The verifier scores it low → not stored.
+  - The verifier scores it low -> not stored.
   - EM is 0 for that sample.
 This is expected and is precisely what CAEM's self-improvement loop is
 designed to mitigate over successive cycles. See: thesis §5.3 "Retrieval
@@ -35,10 +35,10 @@ Sample schema
 -------------
 Each sample is a dict with:
   question   : str
-  answers    : list[str]   — acceptable answer strings (may have 1 entry)
-  gold_label : str | None  — FEVER label ("supports"/"refutes"/"not enough info")
-  id         : str         — original dataset ID for traceability
-  benchmark  : str         — "hotpotqa" | "truthfulqa" | "fever" | "strategyqa"
+  answers    : list[str]   -- acceptable answer strings (may have 1 entry)
+  gold_label : str | None  -- FEVER label ("supports"/"refutes"/"not enough info")
+  id         : str         -- original dataset ID for traceability
+  benchmark  : str         -- "hotpotqa" | "truthfulqa" | "fever" | "strategyqa"
 
 FEVER prompt design note
 ------------------------
@@ -66,9 +66,9 @@ logger = logging.getLogger(__name__)
 BenchmarkSample = Dict[str, Any]
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # HotpotQA
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 def load_hotpotqa(
     split: str = "validation",
@@ -105,7 +105,7 @@ def load_hotpotqa(
             "Install with: pip install datasets"
         ) from e
 
-    logger.info("Loading HotpotQA [%s] from HuggingFace…", split)
+    logger.info("Loading HotpotQA [%s] from HuggingFace...", split)
     ds = load_dataset("hotpot_qa", "distractor", split=split)
 
     samples: List[BenchmarkSample] = []
@@ -128,9 +128,9 @@ def load_hotpotqa(
     return samples
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # TruthfulQA
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 def load_truthfulqa(
     n: Optional[int] = None,
@@ -142,12 +142,12 @@ def load_truthfulqa(
     a list of incorrect answers. We use the 'generation' configuration which
     provides free-form answers (not the MC format).
 
-    Metric: any-match EM — correct if the prediction matches ANY answer
+    Metric: any-match EM -- correct if the prediction matches ANY answer
     in the `correct_answers` list.
 
     Parameters
     ----------
-    n : int or None — number of questions to sample. Dataset has 817 total.
+    n : int or None -- number of questions to sample. Dataset has 817 total.
     seed : int
 
     Returns
@@ -161,7 +161,7 @@ def load_truthfulqa(
             "HuggingFace `datasets` is required for TruthfulQA loading."
         ) from e
 
-    logger.info("Loading TruthfulQA [generation] from HuggingFace…")
+    logger.info("Loading TruthfulQA [generation] from HuggingFace...")
     ds = load_dataset("truthful_qa", "generation", split="validation")
 
     samples: List[BenchmarkSample] = []
@@ -185,9 +185,9 @@ def load_truthfulqa(
     return samples
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # FEVER
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 # Map HuggingFace label integers to canonical string labels.
 _FEVER_LABEL_MAP = {
@@ -281,9 +281,9 @@ def load_fever(
     return samples
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # StrategyQA
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 def load_strategyqa(
     n: Optional[int] = None,
@@ -307,7 +307,7 @@ def load_strategyqa(
     leave any samples for accuracy evaluation. We therefore use the `train`
     split (~2,290 questions, matching the thesis plan §5.3 table), which
     contains labelled boolean answers. This is standard practice when the
-    official test split has no public labels — we treat this split as the
+    official test split has no public labels -- we treat this split as the
     held-out evaluation set (it is never used for model fine-tuning; CAEM's
     SIL loop trains only on its own verified generations, not on dataset
     labels). State explicitly in §5.3: "StrategyQA evaluation uses the
@@ -322,7 +322,7 @@ def load_strategyqa(
 
     Parameters
     ----------
-    n : int or None — number of questions to sample. Train split has ~2290.
+    n : int or None -- number of questions to sample. Train split has ~2290.
     seed : int
 
     Returns
@@ -382,9 +382,9 @@ def load_strategyqa(
     return samples
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Unified loader
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 def load_benchmark(
     name: str,
@@ -396,10 +396,10 @@ def load_benchmark(
 
     Parameters
     ----------
-    name : str — "hotpotqa", "truthfulqa", "fever", or "strategyqa"
+    name : str -- "hotpotqa", "truthfulqa", "fever", or "strategyqa"
     n : int or None
     seed : int
-    **kwargs — passed to the specific loader
+    **kwargs -- passed to the specific loader
 
     Returns
     -------
@@ -421,9 +421,9 @@ def load_benchmark(
         )
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Synthetic data factory (for tests and dry-runs without downloading datasets)
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 def make_synthetic_samples(
     benchmark: str,
@@ -436,8 +436,8 @@ def make_synthetic_samples(
 
     Parameters
     ----------
-    benchmark : str — "hotpotqa", "truthfulqa", "fever", or "strategyqa"
-    n : int — number of samples to generate
+    benchmark : str -- "hotpotqa", "truthfulqa", "fever", or "strategyqa"
+    n : int -- number of samples to generate
     seed : int
 
     Returns
