@@ -16,6 +16,23 @@
 ---
 ---
 
+## Session 28 — 2026-04-07 (Cold-Start Seeding Completion)
+
+**Scope:** Successfully executed the production seeding script across HotpotQA, FEVER, and StrategyQA to initialize the episodic memory store for the final experiment cycles.
+
+### Seeding Results
+*   **Total Seeded**: 447 verified episodes.
+*   **HotpotQA**: 147 episodes (Processed: 1000). Many samples failed the precision gate (û_stored < 0.50), reflecting the high difficulty and multi-hop nature of this benchmark.
+*   **FEVER**: 150 episodes (Processed: 277). Extremely high precision; the verifier accepted over 50% of generations, reaching the target quickly.
+*   **StrategyQA**: 150 episodes (Processed: 466). Moderate difficulty; reasoning chains were generally stable and accepted by both SC and NLI.
+*   **TruthfulQA**: Skipped. Intentional design choice as TruthfulQA lacks a discrete training split suitable for the CAEM self-improvement methodology.
+
+### Technical Observations
+- **Memory Store**: Saved to `outputs/cold_start_memory/memory_store.faiss` (+ `.meta`). Verified that the 768-dim embeddings remain stable across all benchmarks.
+- **Verification Weights**: Used the design-default weights (0.50 NLI, 0.30 SC, 0.20 SE) for all seeding; these will be refined via calibration after Cycle 0.
+
+---
+
 ## Session 27 — 2026-04-07 (Mini-Run Preparation & Final Hardening)
 
 **Scope:** Final technical hardening before the 14-hour run on better device. Resolved blocking crashes found during the first mini-run attempt and performed a codebase-wide UTF-8 stability pass for Windows.

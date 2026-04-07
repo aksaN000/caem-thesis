@@ -11,13 +11,13 @@
 | Gap 2 — Passage index (500K) | ✅ DONE | `data/passage_index/` verified (1.5 GB). |
 | Smoke Test (Cycle 0→3) | ✅ DONE | Full pipeline verified on local RTX 3060. |
 | Codebase Hardening | ✅ DONE | UTF-8 stability, OOM fixes, RAG logic fixed. |
-| **Gap 3 — Cold-start seeding** | ⏳ **IN PROGRESS** | Target: 150 eps per benchmark (RTX 3060). |
-| **Mini Full Run (n=100)** | ❌ **NEXT** | Scheduled to auto-run after seeding. |
+| **Gap 3 — Cold-start seeding** | ✅ **DONE** | 447 verified episodes stored. |
+| **Mini Full Run (n=500)** | ⏳ **PROGRESS** | Validation before Lab PC run. |
 | **Full Experiment (n=5000)** | ❌ **PLANNED** | Pending Lab PC (4090/5090) access. |
 
 ---
 
-## Phase 1: Mini-Experiment (Right Now — RTX 3060)
+## Phase 1: Mini-Experiment (RTX 3060)
 
 The goal is to validate the *entire* 4-cycle loop with real data at a small scale (n=100) to ensure the 14-hour run won't fail.
 
@@ -36,7 +36,7 @@ The goal is to validate the *entire* 4-cycle loop with real data at a small scal
 
 ---
 
-## Phase 2: Full Scale Execution (Lab PC — RTX 4090/5090)
+## Phase 2: Full Scale Execution (Lab PC, RTX 4090/5090)
 
 Once the mini-run is verified, the orchestrator is ready for the definitive 14-hour run.
 

@@ -13,7 +13,7 @@ Current run sequence:
 2. Unit tests complete
 3. Integration tests complete
 4. Smoke runs complete
-5. Cold-start seeding in progress (you are running 150 episodes)
+5. Cold-start seeding in progress (running 150 episodes)
 6. Next: mini full pipeline run
 7. Then: full lab-device run with scaling from `LAB_PC_SCALING_GUIDE.md`
 
@@ -216,7 +216,6 @@ python scripts/run_experiment.py \
 ```bash
 python scripts/run_purity_validation.py --output_dir outputs/purity_validation
 python scripts/run_ablation.py --caem_results outputs/mini_experiment/all_cycle_results.json --cycle3_checkpoint outputs/mini_experiment/cycle_3 --output_dir outputs/ablation
-python scripts/run_calibration.py --output_dir outputs/calibration
 ```
 
 ## Lab-Scale Run Plan

@@ -14,8 +14,8 @@ expected gains and the academic justification (or lack thereof) for each change.
 
 | Parameter | Thesis config | Scaled config | Type of gain | Expected accuracy Δ | Safe to change? |
 |---|---|---|---|---|---|
-| `max_passages` | 500,000 | 5,000,000 | Accuracy (HotpotQA only) | +1–3% EM on HotpotQA | ✅ Yes — note in §5.3 |
-| `target_episodes` | 200 | 1,000 | Accuracy (Cycle 1 only) | +2–5% EM at Cycle 1 | ✅ Yes — converges by Cycle 3 |
+| `max_passages` | 500,000 | 5,000,000 | Accuracy (HotpotQA only) | +1–3% EM on HotpotQA | ✅ Yes, note in 5.3 |
+| `target_episodes` | 200 | 1,000 | Accuracy (Cycle 1 only) | +2–5% EM at Cycle 1 | ✅ Yes, converges by Cycle 3 |
 | `sc_chains_m` | 3 | 10 | Accuracy (marginal) | +0.5–1.5% EM | ⚠️ Requires justification |
 | `se_samples_k` | 10 | 20 | Accuracy (negligible) | <1% EM | ⚠️ Not worth it |
 | `mc_dropout_k` | 5 | 10 | Accuracy (negligible) | <1% | ⚠️ Not worth it |
@@ -180,7 +180,7 @@ is correct and optimal — do not apply this patch.
 
 ## Lab PC Run Checklist
 
-When you get university GPU access (4090 or 5090), do this in order:
+after getting university GPU access (4090 or 5090), do this in order:
 
 1. Open `caem/config.py`:
    - Set `batch_size = 16` (4090) or `batch_size = 32` (5090)
