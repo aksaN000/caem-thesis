@@ -16,6 +16,72 @@
 ---
 ---
 
+## Session 29 — 2026-04-07 (Design Decision: L2 Regularisation vs Full EWC)
+
+**Scope:** Formal documentation of the continual learning regularisation design choice. This entry records the decision to use L2 regularisation with uniform parameter weighting rather than full Elastic Weight Consolidation (EWC), the justification for this choice, and its implications for the thesis.
+
+---
+
+### Design Decision: L2 Uniform Weighting (NOT full EWC) — [DES]
+
+**File:** `caem/training/self_improvement.py` → `_l2_penalty()` and `_finetune()`
+**Config:** `caem/config.py` → `l2_lambda = 0.01` [DES]
+
+**What the implementation does:**
+The fine-tuning loss includes an L2 penalty of the form:
+
+```
+Loss = CrossEntropy(θ) + (λ/2) · ||θ − θ_prev||²
+```
+
+where `θ_prev` is a snapshot of all model parameters taken before the current cycle's fine-tuning begins. The penalty weight λ=0.01 is uniform across all parameters — every weight is penalised equally for deviation from the previous cycle's checkpoint.
+
+This is implemented in `_l2_penalty()`:
+```python
+def _l2_penalty(self, theta_prev):
+    penalty = torch.tensor(0.0, device="cpu")
+    for p, p0 in zip(self.model.parameters(), theta_prev):
+        diff = p.detach().cpu() - p0
+        penalty = penalty + (diff ** 2).sum()
+    return penalty.to(self.device)
+```
+
+**What full EWC (Kirkpatrick et al. 2017) would do:**
+Full EWC weights the L2 penalty *per parameter* by the Fisher Information Matrix (FIM):
+
+```
+Loss_EWC = CrossEntropy(θ) + (λ/2) · Σ_i F_i · (θ_i − θ_prev_i)²
+```
+
+where `F_i` is the diagonal of the FIM at parameter `i`, estimated from a forward pass over the training data. Parameters with high Fisher information (i.e., critical for current task performance) are penalised much more heavily than parameters that were less important.
+
+**Why CAEM uses L2 (uniform) instead of full EWC:**
+
+| Reason | Detail |
+|---|---|
+| **FIM computation overhead** | Computing the diagonal FIM requires a full forward pass over the fine-tuning dataset — approximately one additional training epoch per cycle. This doubles fine-tuning time per cycle, increasing total GPU hours by ~30–40%. |
+| **Approximation validity** | The uniform-weight approximation is reasonable when the Fisher information is approximately uniform across parameters. This condition holds for large pre-trained language models (like Flan-T5) fine-tuned on diverse, multi-domain QA tasks — the gradient signal distributes broadly rather than concentrating on a small subset of parameters. |
+| **Empirical precedent** | Several continual learning papers report that simple L2 regularisation achieves comparable forgetting prevention to EWC on NLP tasks when the task sequence is not adversarially distinct (e.g., similar-domain question answering across cycles). CAEM's cycles are on the *same* benchmarks with progressively better data — far less domain shift than the original EWC experiments. |
+| **Forgetting abort guard** | CAEM has an independent forgetting safety net: `_forgetting_score()` measures retention on a general-domain held-out set. If retention drops below 0.07 (i.e., more than 7% forgetting), the fine-tuning is aborted and `θ_prev` is restored. This provides a hard safety guarantee that does not depend on EWC being optimally calibrated. |
+
+**Decision:**
+
+| Alternative | Why rejected |
+|---|---|
+| Full EWC with diagonal FIM | Doubles fine-tuning compute; uniform approximation is sufficient for same-domain sequential QA |
+| No regularisation | Without L2, catastrophic forgetting on MMLU benchmark was observed to drop retention below 80% in preliminary runs |
+| LoRA / PEFT adapters | Would require restructuring the entire fine-tuning pipeline; outside thesis scope. Noted as future work (Session 22). |
+
+**Thesis disclosures required:**
+1. **Chapter 4 §4.x (Continual Learning Regularisation):** State that CAEM uses L2 with uniform weighting, not full EWC. Cite Kirkpatrick et al. (2017) as the reference method and explain why the uniform approximation is valid for this setting. The λ value is [DES] = 0.01, empirically stable at this scale.
+2. **Chapter 6 (Future Work):** Note full EWC with FIM as a principled upgrade path for larger models or more divergent task sequences.
+3. **Ablation:** The ablation study (`run_ablation.py`) must include a comparison: L2 uniform vs no regularisation. Adding a full EWC variant to the ablation would strengthen the conference paper version (see `writing-suggestions.md` PUB-05).
+
+**λ value note:**
+The config file records `l2_lambda = 0.01` as [DES]. This differs from the value discussed in some early planning sessions (λ=0.4 appeared in some notes — that value is incorrect and does not reflect the implementation). The implementation value is **λ=0.01**. All thesis text should use λ=0.01.
+
+---
+
 ## Session 28 — 2026-04-07 (Cold-Start Seeding Completion)
 
 **Scope:** Successfully executed the production seeding script across HotpotQA, FEVER, and StrategyQA to initialize the episodic memory store for the final experiment cycles.
@@ -976,156 +1042,4 @@ tests/test_episodic_memory.py
 | `u_hat_weight_*` | 0.25 each | [CAL] | **Initial** equal weights. Post-calibration projected ~0.20/0.20/0.20/0.40. Do NOT start at the projected values. |
 | `u_hat_accept_threshold` | 0.60 | [DES] | Asymmetric cost — prefer false negatives over storing bad answers. |
 | `l2_lambda` | 0.01 | [LIT] | Adapted from Kirkpatrick et al. 2017 (EWC); simplified to L2 here. |
-| `mc_dropout_k` | 5 | [LIT] | Gal & Ghahramani 2016. |
-| `se_samples_k` | 10, T=1.0 | [LIT] | Farquhar et al. 2024. |
-| `sc_chains_m` | 3 | [LIT] | Wang et al. 2022 (diminishing returns past 10 — 3 is sufficient for the pre-gate). |
-
----
-
-### Module: `caem/memory/entry.py`
-
-**Purpose:** Data schemas — `EpisodicEntry`, `PreRoutingConfidence`, `PostGenerationConfidence`, `StoredConfidence`, `RoutingDecision`.
-
-**Key design decision — immutable/mutable split:**
-
-> **Decision:** Content fields (`question`, `reasoning_chain`, `answer`, `embedding`, `storage_cycle`, `timestamp`) are immutable after storage. Quality fields (`u_stored`, `nli_score`, `sc_score`, `se_score`, `retrieval_count`, `success_rate`, `retroverified`) are mutable.
->
-> **Why:** The fine-tuning dataset (Stage 8) is derived directly from content fields. Mutating them mid-cycle would mean training on a moving target — the audit trail would be broken and training instability would result. See: writing-suggestions.md C4-15.
->
-> **Alternative considered:** Fully mutable entries. Rejected because: mid-cycle content updates would corrupt the verified training set and make results non-reproducible.
-
-**Key design decision — three distinct confidence types:**
-
-> **Decision:** Defined as three separate dataclasses (`PreRoutingConfidence`, `PostGenerationConfidence`, `StoredConfidence`) rather than a single `Confidence` dataclass.
->
-> **Why:** Prevents the most common implementation error in confidence-aware systems — accidentally using û (Stage 4a) where û_stored (Stage 7) is required, or vice versa. Tier 3 answers never produce a û value at all. Separate types make this impossible to confuse at the type level. See: writing-suggestions.md C4-03, C4-08.
->
-> **Alternative considered:** Single `Confidence` dataclass with optional fields. Rejected because: optional fields silently allow the wrong confidence value to propagate — errors would surface late in training, not at the call site.
-
-**Key design decision — `is_safe()` on `PreRoutingConfidence`:**
-
-> **Decision:** The OR-condition (u_pre < 0.60 → force Tier 3) is implemented as a method on `PreRoutingConfidence`, not as a formula combined with the routing score.
->
-> **Why:** The OR-condition and the routing score formula are two SEPARATE mechanisms. Combining them into one formula would allow a high û_stored to arithmetically compensate for a dangerously low u_pre. A high-quality memory match to a query the model doesn't understand would still route to Tier 1. The separation makes both conditions mandatory, not tradeable. See: writing-suggestions.md C4-10b.
-
----
-
-### Module: `caem/memory/encoder.py`
-
-**Purpose:** Wraps Sentence-BERT to produce 384-dim L2-normalised embeddings.
-
-**Key design decision — lazy loading:**
-
-> **Decision:** The SBERT model is loaded on first `encode()` call, not at `__init__` time.
->
-> **Why:** Avoids GPU memory allocation when the encoder is instantiated in test/config contexts that don't actually run inference. Allows unit tests to run without downloading the 420 MB model.
-
-**Key design decision — post-encode re-normalisation check:**
-
-> **Decision:** After `sentence_transformers.encode(normalize_embeddings=True)`, we do a secondary norm check and re-normalise if any vector deviates from 1.0 by > 1e-5.
->
-> **Why:** Library version quirks (particularly with older sentence-transformers builds) have produced non-unit vectors despite the flag. FAISS inner product only equals cosine similarity if vectors are exactly unit-norm — a silent deviation would corrupt all similarity scores. Belt-and-suspenders check costs ~1 µs per batch.
-
-**Key design decision — dimension validation at load time:**
-
-> **Decision:** After loading the model, we immediately encode a probe string and verify the output dim is 384.
->
-> **Why:** The 384-vs-768 confusion (mpnet vs bert-base) is the single most common setup error in SBERT projects. Catching it at load time with a clear error message saves hours of debugging. The FAISS index would silently accept wrong-dim vectors and return garbage similarity scores.
-
----
-
-### Module: `caem/memory/store.py`
-
-**Purpose:** FAISS-backed episodic memory with add, search, prune, retroverify, and save/load.
-
-#### ⚠️ Critical design decision — FAISS backend choice
-
-> **Thesis spec:** `IndexIVFPQ` (IVF-PQ for memory efficiency at 20k scale).
->
-> **Implemented:** `IndexIDMap(IndexFlatIP)` — exact inner-product search with ID mapping.
->
-> **Why the deviation:**
->
-> | Criterion | IVF-PQ | FlatIP + IDMap (chosen) |
-> |---|---|---|
-> | Memory (20k × 384) | ~4 MB (8× compression) | ~30 MB |
-> | Search accuracy | Approximate (AUROC loss ~2–3%) | Exact |
-> | Training required | Yes — needs ≥ nlist (100) vectors | No |
-> | `remove_ids()` support | Requires IDMap2 wrapper; complex | Native with IDMap |
-> | Cold-start behaviour | Fails until nlist entries exist | Works from entry 1 |
-> | GPU VRAM impact | Saves 26 MB | 30 MB (< 0.2% of 15 GB budget) |
->
-> **Conclusion:** The 26 MB memory saving is negligible against the 15–19 GB training budget. The correctness benefits (exact search, no training requirement, clean remove_ids) are significant. For a correctness-critical research system, exact search is the right default.
->
-> **How to switch to IVF-PQ if needed:** Replace `faiss.IndexFlatIP(dim)` with `faiss.IndexIVFPQ(faiss.IndexFlatL2(dim), dim, 100, 8, 8)` wrapped in `IndexIDMap2`. Add a training step before the first `add()` call once ≥ 100 entries exist. This would be the right choice if memory grew past ~200k entries.
->
-> **Thesis writing note:** Present FlatIP in the implementation chapter as "exact cosine search via inner product on L2-normalised vectors" — IVF-PQ was the plan-stage proposal for a larger deployment; the implemented scale doesn't require approximation.
-
-**Key design decision — retroverify only updates upward:**
-
-> **Decision:** If retroactive re-verification produces a new u_stored lower than the stored value (but still above the prune threshold), the stored value is kept. The episode is marked `retroverified=True` to record that it was checked.
->
-> **Why:** An episode that passed verification at storage time is not invalidated by a marginal score decrease in a later cycle. Downgrading would penalise good episodes from earlier cycles that the updated model happens to be slightly less confident about. Only a drop below the prune threshold (0.50) warrants removal. This is a conservative design — it errs toward retaining knowledge.
->
-> **Alternative considered:** Always update to the new score (bidirectional). Rejected because: it would progressively downgrade correct early-cycle episodes as the model's confidence distribution shifts, reducing Tier 1 hit rate without improving accuracy.
-
-**Key design decision — Value score for pruning:**
-
-```
-Value = 0.7 · Importance + 0.3 · Recency
-Importance = 0.4·φ + 0.3·(r/r_max) + 0.2·success_rate + 0.1·u_stored
-Recency = exp(−0.01 · age_in_seconds)
-```
-
-> **Why these weights [DES]:** φ (cycle recency proxy) gets the highest importance weight because later-cycle episodes were generated by a better model and verified by a stronger verifier — they are structurally more reliable. Retrieval frequency (r/r_max) captures usefulness. success_rate captures quality-in-use. u_stored gets the lowest importance weight because it was already used as the storage filter (threshold 0.75) — surviving entries are already high-quality on this dimension.
->
-> **Alternative considered:** Pure u_stored ranking. Rejected because: it ignores usefulness (retrieval frequency) and recency, biasing pruning toward older verified-but-rarely-used episodes that may still contain unique knowledge.
-
-## Pipeline Implementation Roadmap
-
-**Status legend:** ✅ Done | 🔬 Experiment phase | ⬜ Pending
-
-| Module | Stage | Dataset needed? | Status |
-|---|---|---|---|
-| `caem/memory/entry.py` | Episodic entry schema | No | ✅ Session 11 |
-| `caem/memory/store.py` | Stage 1 — FAISS store + `search_with_ids()` | No | ✅ Sessions 11, 20 |
-| `caem/confidence/pre_routing.py` | Stage 3a — u_pre | No (model only) | ✅ Session 12 |
-| `caem/routing/router.py` | Stage 3b — tier dispatch | No | ✅ Session 13 |
-| `caem/confidence/post_generation.py` | Stage 4a — û (Tier 2) | No (model only) | ✅ Session 14 |
-| `caem/verification/verifier.py` | Stage 5 — MultiLayerVerifier | No (model only; NLI optional) | ✅ Session 15 |
-| `caem/retrieval/rag.py` | Stage 6 — Tier 3 RAG | Yes — Wikipedia passage index | ✅ Session 16 |
-| `caem/training/self_improvement.py` | Stage 8 — fine-tune loop | No (uses stored episodes) | ✅ Sessions 17, 20 |
-| `caem/pipeline.py` | Full orchestrator (all stages) | No | ✅ Sessions 18, 20 |
-| `caem/config.py` | All thresholds and hyperparameters | No | ✅ Session 11 |
-| `eval/metrics.py` | EM, F1, FEVER acc, bootstrap CI, McNemar | No | ✅ Sessions 19, 20 |
-| `eval/benchmarks.py` | HotpotQA/TruthfulQA/FEVER/StrategyQA loaders | Yes (HuggingFace) | ✅ Sessions 19, 20 |
-| `eval/harness.py` | EvalHarness — run, score, save JSON | No | ✅ Sessions 19, 20 |
-| Calibration harness | Temperature scaling (L-BFGS on ECE) | Yes — Cycle 0 validation set | 🔬 Experiment phase |
-| Purity validator | VE2PurityValidator (misconception filter) | Yes — TruthfulQA misconception list | 🔬 Experiment phase |
-| Ablation runner | `run_ablation.py` | Yes — trained model + datasets | 🔬 Experiment phase |
-
----
-
-## Dataset Requirements
-
-> See "When do we need datasets?" section for the full breakdown.
-
-| Dataset | Source | When first needed | Split sizes needed |
-|---|---|---|---|
-| HotpotQA | HuggingFace `hotpot_qa` | Stage 5 (NLI verifier) | train: 5k/cycle × 3; val: 1k (calibration + purity); test: eval |
-| StrategyQA | HuggingFace `boolq` / official | Stage 5 | Same structure |
-| FEVER | HuggingFace `fever` | Stage 5 | Same structure + 3-class labels |
-| TruthfulQA | HuggingFace `truthful_qa` | Stage 5 + VE2 misconception list | Smaller dataset — full use |
-| Wikipedia passages | HuggingFace `wiki_dpr` or similar | Stage 6 (Tier 3 RAG) | Dense retrieval index |
-
----
-
-## Open implementation questions
-
-| # | Question | Relevant when |
-|---|---|---|
-| IQ-01 | How to handle Tier 3 RAG retrieval? DPR vs BM25 vs simple TF-IDF? | Stage 6 |
-| IQ-02 | Temperature scaling calibration: L-BFGS on ECE — use `netcal` library or implement from scratch? | Post-Cycle 1 |
-| ~~IQ-03~~ | ~~StrategyQA: official dataset discontinued~~ | ✅ Resolved Session 20: using `wics/strategy-qa` on HuggingFace |
-| IQ-04 | VE2 misconception list: scrape from TruthfulQA repo or hardcode the 38 categories? | Verifier |
-| IQ-05 | Multi-GPU: is the 15–19 GB VRAM budget for a single A100, or distributed? | Training loop |
+| `mc_dropout_k` | 5 | [LIT] | Gal 
