@@ -19,6 +19,72 @@ Add new entries at the bottom of the relevant chapter section.
 
 ---
 
+## Reference Stack — What to Have Open While Writing
+
+**This file alone is not enough.** It tells you *what* to write and *what to watch for*, but not the technical content itself. You need four documents open simultaneously:
+
+---
+
+### 1. `writing-suggestions.md` (this file) — THE DIRECTIVE
+**Purpose:** Tells you what to write, in what order, with what framing, and what errors to avoid.
+**Use it for:** Section structure, heading hierarchy, which entries apply to each subsection, visual element specs, algorithm source lines, known plan discrepancies.
+**Do not use it for:** Actual technical content, citation keys, equations, or numbers — those come from the other three.
+
+---
+
+### 2. `pre thesis 1 report/chapters/chapter_1.tex` and `chapter_2.tex` — THE VALIDATED SOURCE
+**Purpose:** The single authoritative source for citation keys, notation, and visual style. These chapters were submitted and validated — everything in them is confirmed correct and present in `bibliography/references.bib`.
+**Use it for:**
+- **Citation keys** — always get `\cite{}` keys from here, not from the unified plan. The plan may use different keys for the same paper, reference papers that were cut from `references.bib`, or use outdated keys. Chapter 1 and 2 are the ground truth. Search for the author name in these files to find the exact key.
+- **Cross-references** — if Chapter 4 refers to "the hallucination taxonomy introduced in Chapter 2", find the correct `\label{}` name in `chapter_2.tex` and use it exactly
+- **Notation consistency** — symbols for confidence values, thresholds, benchmarks, and model names must match what was already defined in Chapter 2
+- **TikZ visual style** — Chapter 1's architecture diagram defines the visual language (box styles, colours, arrow styles). Chapter 4's diagrams must match it. Copy the `\tikzstyle` definitions from `chapter_1.tex` line 78.
+- **Voice and register** — new chapters should read as a continuation of the same document, not a different author
+**Do not use it for:** Numbers or claims — Chapter 1's projected numbers (e.g. "20–30% hallucination reduction") are targets, not confirmed results. New citations needed for Chapters 3–6 that are not already in Chapter 1–2 should be added to `references.bib` directly.
+
+---
+
+### 3. `caem-unified-plan-v3.tex` — TECHNICAL CONTENT ONLY (not citations)
+**Purpose:** Contains deep technical explanations, mathematical derivations, worked examples, algorithm pseudocode templates, TikZ figure templates, and theorem statements. Use it to understand *what* to write and *how* to structure it — but strip out or verify all citation keys before using.
+**Use it for:**
+- Understanding *why* a design decision was made before writing about it
+- Adapting algorithm blocks and TikZ diagrams (source line numbers are in the Visual Elements section of this file)
+- Worked examples for theorems (clearly label them as pedagogical, not experimental)
+- Theorem content and proof structure (especially lines 3508, 4029, 4185)
+**Do not use it for:**
+- Citation keys — these may differ from the validated keys in the pre-thesis report. Always cross-check: find the cited paper in the plan, then find the same paper's key in Chapter 1 or 2 before writing `\cite{}`
+- Concrete numbers in Chapter 5 (must come from output files)
+- Field names, training targets, regularisation method — known discrepancies documented per-entry in this file
+
+---
+
+### 4. `hyperparameter-reference.md` — THE NUMBER SOURCE
+**Purpose:** The single authoritative table of every hyperparameter value, categorised as literature-fixed / design choice / empirically calibrated. Required before writing any equation or algorithm that mentions a numeric value.
+**Use it for:**
+- Every number that appears in an equation or algorithm in Chapter 4: check the category and state it explicitly in the text
+- Confirming λ=0.01 [DES] (not 0.4), embedding dim=768 (not 384), calibration after Cycle 0 (not Cycle 1), û weights 0.25 initial (not 0.20/0.20/0.20/0.40 — those are projected post-calibration)
+- Chapter 5: replace projected values with actual values from `calibrated_config.json` once the experiment runs
+**Do not use it for:** Chapter 5 result numbers — those come from `outputs/` files only.
+
+---
+
+### Summary: which file answers which question
+
+| Question while writing | File to check |
+|---|---|
+| "What should this subsection say and what must I avoid?" | `writing-suggestions.md` |
+| "What is the technical explanation / derivation / worked example?" | `caem-unified-plan-v3.tex` |
+| "What is the `\cite{}` key for this paper?" | **`chapter_1.tex` or `chapter_2.tex`** — validated keys only. Do NOT use the plan's keys directly. |
+| "This paper is cited in the plan but I can't find it in Ch1/Ch2 — what do I do?" | Add the citation to `bibliography/references.bib` manually, then use the new key |
+| "What line is the TikZ / algorithm template on?" | `writing-suggestions.md` Visual Elements section |
+| "Does my adapted algorithm match the actual implementation?" | `caem/[relevant module].py` (always check code before finalising) |
+| "What exact value does this hyperparameter have, and what category?" | `hyperparameter-reference.md` |
+| "What notation / symbol did Chapter 2 already define?" | `chapter_2.tex` |
+| "What `\label{}` name does Chapter 1's figure use for cross-reference?" | `chapter_1.tex` |
+| "What are the actual result numbers for Chapter 5?" | `outputs/` files (never copy from the plan) |
+
+---
+
 ## Thesis Template Structure (BracU CSE400 — FINAL)
 
 **Template:** `FINAL YEAR THESIS Template_CSE400_Fall 2024 ONWARDS/`
@@ -125,11 +191,11 @@ All CAEM content maps cleanly to the 6-chapter template:
 
 | Section | Entries to apply |
 |---|---|
-| §System Architecture Overview | C4-01, C4-03 (three-value table), GEN-01, GEN-11 |
+| §System Architecture Overview | C4-01, C4-03 (three-value table), GEN-01, GEN-11, **BM-02** (inverse scaling → architectural motivation) |
 | §Confidence Estimation / u_pre | C4-03b, C4-10 (provenance) |
-| §Confidence Estimation / Routing | C4-04, C4-10b, C4-20, IMPL-01, BM-01–06 |
+| §Confidence Estimation / Routing | C4-04, C4-10b, C4-20, IMPL-01 |
 | §Confidence Estimation / û | C4-05, C4-06, C4-07, C4-09 (blind-spot), C4-21 (field names) |
-| §Verification / Stage 5 | C4-08 (û_stored≠û), C4-22 (reasoning_chain target), IMPL-02, BM-03–05, GEN-05 |
+| §Verification / Stage 5 | C4-08 (û_stored≠û), C4-22 (reasoning_chain target), IMPL-02, **BM-03** (VE1/VE2 → TruthfulQA failure mode), **BM-04** (SC threshold distinction), GEN-05 |
 | §Verification / Memory | C4-15 (immutable/mutable), C4-21 |
 | §Self-Improvement / Stage 8 | C4-16 (ReST), C4-19 (L2 — name correctly), GEN-11 |
 | §Self-Improvement / Retroactive | IMPL-01 (freshness guarantee), C5-07 |
@@ -174,7 +240,7 @@ All CAEM content maps cleanly to the 6-chapter template:
 
 | Section | Entries to apply |
 |---|---|
-| §Setup / Benchmarks | BM-01–06, IMPL-04, C5-01 |
+| §Setup / Benchmarks | **BM-01** (selection justification), **BM-05** (FEVER NLI class), **BM-06** (constrained prompt), IMPL-04 (StrategyQA split), C5-01 |
 | §Setup / Calibration | C5-11, GEN-03, C4-07 (actual weights) |
 | §Main Results / Accuracy | C5-04 (narrative thread), GEN-02, GEN-09 |
 | §Main Results / Significance | C5-05, C5-12, GEN-12 |
@@ -221,16 +287,25 @@ All CAEM content maps cleanly to the 6-chapter template:
 
 ---
 
-## Chapter 3 / Chapter 4 — Benchmark Rationale
+## Chapter 4 — Benchmark Design Rationale
+> These entries belong in **Chapter 4** because they explain *why* specific verification rules exist and *why* CAEM needs an architectural approach — not mere benchmark descriptions. Write them when presenting the routing and verification sections.
 
-| # | Issue | Required Fix | Source | Status |
-|---|-------|-------------|--------|--------|
-| BM-01 | Benchmark selection must be justified by failure mode, not dataset popularity | For each benchmark, state explicitly: (1) what hallucination failure mode it tests, (2) why that failure mode matters for CAEM, (3) why the primary verification layer matches the failure mode. The complementary coverage argument is the thesis's strongest justification for using all four. | Session 2 | OPEN |
-| BM-02 | TruthfulQA inverse scaling finding | Must explain WHY larger models score worse (they more faithfully reproduce internet misconceptions). This is the strongest motivation for architectural intervention — scaling alone makes the problem worse. | Session 2 | OPEN |
-| BM-03 | VE1 + VE2 rules must be tied back to TruthfulQA's failure mode in the writing | When presenting VE1 (neutral NLI escalation) and VE2 (misconception flag), explicitly connect them to TruthfulQA's systematic confabulation failure mode. Reader should understand WHY these rules exist, not just what they do. | Session 2 | OPEN |
-| BM-04 | SC threshold distinction (Chapter 2 vs VE1) | Chapter 2 states u_SC > 0.85 for "high consistency" pass/fail. VE1 uses u_SC > 0.90 for neutral NLI escalation. Write explicit note in Chapter 4: "The general SC verification gate uses threshold 0.85. The VE1 escalation condition uses a stricter 0.90 threshold because systematic confabulation produces near-perfect consistency — the higher bar is needed to distinguish genuine consensus from pathological overconfidence." | Session 2 | OPEN |
-| BM-06 | FEVER evaluation uses a constrained enumerated prompt — state this explicitly | The FEVER evaluation prompt is constrained to enumerate valid labels: "Answer with one of: supports, refutes, not enough info. Claim: {claim}". This differs from the open-ended formulation in some prior work ("Is the following claim true, false, or uncertain?"). The constrained prompt prevents label extraction failures from free-form output, consistent with instruction-tuning evaluation practice (Wei et al. 2022, FLAN). Write: "FEVER claims are evaluated using a constrained prompt that enumerates the three valid labels — SUPPORTS, REFUTES, and NOT ENOUGH INFO — ensuring unambiguous extraction without relying on string heuristics." Note: StrategyQA similarly uses a constrained boolean prompt ("Answer yes or no. Question: {q}") for the same reason. | Session 20 Fix 6 / Impl Log | OPEN |
-| BM-05 | FEVER NOT ENOUGH INFO class needs explicit treatment | When describing FEVER evaluation, add: "For FEVER's NOT ENOUGH INFO class, the correct model behaviour is expressing uncertainty rather than generating a confident label. The verification pipeline treats a high-confidence generation on a NOT ENOUGH INFO ground-truth item as a failure — semantic entropy detects this through a high-entropy output distribution, and the neutral NLI result (VE1) prevents such episodes from entering memory." | Session 3 | OPEN |
+| # | Issue | Required Fix | Section | Source | Status |
+|---|-------|-------------|---------|--------|--------|
+| BM-02 | TruthfulQA inverse scaling finding | Must explain WHY larger models score worse (they more faithfully reproduce internet misconceptions). This is the strongest motivation for architectural intervention — scaling alone makes the problem worse. Use in §System Architecture Overview to justify CAEM's design. | Ch4 §System Architecture Overview | Session 2 | OPEN |
+| BM-03 | VE1 + VE2 rules must be tied back to TruthfulQA's failure mode in the writing | When presenting VE1 (neutral NLI escalation) and VE2 (misconception flag), explicitly connect them to TruthfulQA's systematic confabulation failure mode. Reader should understand WHY these rules exist, not just what they do. | Ch4 §Verification Pipeline | Session 2 | OPEN |
+| BM-04 | SC threshold distinction (Chapter 2 vs VE1) | Chapter 2 states u_SC > 0.85 for "high consistency" pass/fail. VE1 uses u_SC > 0.90 for neutral NLI escalation. Write explicit note: "The general SC verification gate uses threshold 0.85. The VE1 escalation condition uses a stricter 0.90 threshold because systematic confabulation produces near-perfect consistency — the higher bar is needed to distinguish genuine consensus from pathological overconfidence." | Ch4 §Verification Pipeline | Session 2 | OPEN |
+
+---
+
+## Chapter 5 — Benchmark Evaluation Setup
+> These entries belong in **Chapter 5 §Experimental Setup** because they describe *how* the benchmarks are evaluated, not why they were chosen. Write them when introducing the experimental setup subsection.
+
+| # | Issue | Required Fix | Section | Source | Status |
+|---|-------|-------------|---------|--------|--------|
+| BM-01 | Benchmark selection must be justified by failure mode, not dataset popularity | For each benchmark in §Experimental Setup, state explicitly: (1) what hallucination failure mode it tests, (2) why that failure mode matters for CAEM, (3) why the primary verification layer matches the failure mode. The complementary coverage argument is the thesis's strongest justification for using all four. | Ch5 §Experimental Setup | Session 2 | OPEN |
+| BM-05 | FEVER NOT ENOUGH INFO class needs explicit treatment | When describing FEVER evaluation, add: "For FEVER's NOT ENOUGH INFO class, the correct model behaviour is expressing uncertainty rather than generating a confident label. The verification pipeline treats a high-confidence generation on a NOT ENOUGH INFO ground-truth item as a failure — semantic entropy detects this through a high-entropy output distribution, and the neutral NLI result (VE1) prevents such episodes from entering memory." | Ch5 §Experimental Setup | Session 3 | OPEN |
+| BM-06 | FEVER evaluation uses a constrained enumerated prompt — state this explicitly | The FEVER evaluation prompt is constrained to enumerate valid labels: "Answer with one of: supports, refutes, not enough info. Claim: {claim}". Write: "FEVER claims are evaluated using a constrained prompt that enumerates the three valid labels — SUPPORTS, REFUTES, and NOT ENOUGH INFO — ensuring unambiguous extraction without relying on string heuristics." Note: StrategyQA similarly uses a constrained boolean prompt ("Answer yes or no. Question: {q}") for the same reason. | Ch5 §Experimental Setup | Session 20 Fix 6 / Impl Log | OPEN |
 
 ---
 

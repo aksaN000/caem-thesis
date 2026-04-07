@@ -1,5 +1,5 @@
 # CAEM — Master Execution & Writing Plan
-**Updated: 2026-04-07 | Session 29 — Sequential Flow from Current State to Submission**
+**Updated: 2026-04-07 | Session 30 — Sequential Flow from Current State to Submission**
 
 ---
 
@@ -13,6 +13,7 @@
 | Visual elements inventory | ✅ DONE | Full figures/algorithms/equations/theorems spec added to `writing-suggestions.md` |
 | Ch1 TikZ fix (IMPL-01a) | ✅ DONE | Tier 1 → Stage 5 arrow removed (2026-04-07) |
 | C2-04/C2-05 text fix | ✅ DONE | chapter_2.tex "384-dim" → "768-dimensional" (both §2.1.4 and §2.2.4) |
+| paper-writing skill (v0.4.0) | ⚠️ MANUAL STEP | Updated files in `plugin-skill-updates/` — apply manually to plugin folder |
 | Mini-run (n=500 per bm) | ⏳ IN PROGRESS | All 4 benchmarks active, restarted clean |
 | Full experiment (n=5000) | ❌ PLANNED | Pending lab PC (4090/5090) access |
 | Chapter writing | ❌ PLANNED | Ch3+Ch4 can start now; Ch5 blocked on data |
@@ -275,11 +276,11 @@ Write sections in this order, applying each writing-suggestions.md entry as you 
 
 | Section | Key prose entries | Visual elements to include |
 |---|---|---|
-| §4.1 Architecture Overview | C4-01, C4-03 (three-value table), GEN-01, GEN-11 | **FIG-C4-01** (main architecture) — extend from `chapter_1.tex` line 78 |
-| §4.2 Three-Tier Routing | C4-04, C4-10b, C4-20, IMPL-01, BM-01–BM-06 | **FIG-C4-02** (routing flowchart), **ALG-C4-02** (routing algorithm), **EQN-C4-02** (routing score) |
+| §4.1 Architecture Overview | C4-01, C4-03 (three-value table), GEN-01, GEN-11, BM-02 (inverse scaling motivation) | **FIG-C4-01** (main architecture) — extend from `chapter_1.tex` line 78 |
+| §4.2 Three-Tier Routing | C4-04, C4-10b, C4-20, IMPL-01 | **FIG-C4-02** (routing flowchart), **ALG-C4-02** (routing algorithm), **EQN-C4-02** (routing score) |
 | §4.3 Pre-Routing Confidence | C4-03b, C4-10 | **FIG-C4-03** (confidence architecture) — left panel only, **EQN-C4-01** |
 | §4.4 Post-Generation Confidence (û) | C4-05, C4-06, C4-07, C4-09, C4-21 | **FIG-C4-03** right panel, **EQN-C4-03** (û formula), **TAB** (blind-spot 4×4), **TAB** (three-value summary) |
-| §4.5 Verification Pipeline | C4-08, C4-22, IMPL-02 | **FIG-C4-04** (verification flowchart), **ALG-C4-03** (verification algorithm), **EQN-C4-04** (û_stored) |
+| §4.5 Verification Pipeline | C4-08, C4-22, IMPL-02, BM-03, BM-04, GEN-05 | **FIG-C4-04** (verification flowchart), **ALG-C4-03** (verification algorithm), **EQN-C4-04** (û_stored) |
 | §4.6 Episodic Memory | C4-15, C4-03 | **FIG-C4-05** (memory schema), **ALG-C4-05** (retroactive re-verification) |
 | §4.7 Self-Improvement Loop | C4-16, C4-19, GEN-11 | **FIG-C4-06** (self-improvement cycle), **ALG-C4-04** (Stage 8 algorithm), **EQN-C4-05** (L2 loss) |
 | §4.8 Calibration | IMPL-03 | **EQN-C4-06** (temperature scaling), **EQN-C4-07** (ECE) |
@@ -310,19 +311,23 @@ Write sections in this order, applying each writing-suggestions.md entry as you 
 **File:** `pre thesis 1 report/chapters/chapter_6.tex`
 **Status:** NOT WRITTEN — blocked on experiment data
 
-Write sections in this order, pulling numbers from specific output files:
+Write sections using the 6-`\section{}` structure (matches `writing-suggestions.md` LaTeX hierarchy). Each row shows: section → source files → writing entries → visual elements.
 
-| Section | Source file | Key entries |
-|---|---|---|
-| §5.1 Calibration Results | `calibration/calibrated_config.json` | C5-01, C5-11, GEN-03 | **TAB-C5-07** (calibration results table) |
-| §5.2 Main Results | `eval/{bm}_cycle{n}.json` | C5-04, C5-05, C5-12, GEN-12 | **TAB-C5-01** (main results), **TAB-C5-06** (significance), **FIG-C5-01** (accuracy chart) |
-| §5.3 Mechanism Evidence | `experiment_summary.csv` | C5-02, IMPL-04 | **TAB-C5-02** (mechanism table), **FIG-C5-02** (tier distribution chart) |
-| §5.4 Theory Validation | `purity_validation/theory_validation.json` | C5-03, TH-03, TH-04, C4-17 | **TAB-C5-03** (purity theorem), **TAB-C5-04** (convergence Δ) |
-| §5.5 Ablations | `ablation_results/ablation_summary.json` | C5-09 | **TAB-C5-05** (ablation table) |
-| §5.6 Baselines | `ablation_results/ablation_summary.json` | C5-09 (baseline sub-section) | (sub-section of TAB-C5-01 or separate table) |
-| §5.7 Computational Efficiency | `experiment_summary.csv` mean_latency_ms | C5-06, GEN-13 | **TAB-C5-08** (efficiency table), **FIG-C5-02** tier fraction growth |
-| §5.8 Stability-Plasticity | `ablation_summary.json` + `retroverify_cycle{n}.json` | C5-07 | **FIG-C5-03** (MMLU retention chart) |
-| §5.9 Memory + Error Analysis | `experiment_summary.csv` + qualitative | C5-10, C5-08 | (qualitative — no figure required) |
+| `\section{}` | `\subsection{}` | Source file | Key entries | Visual elements |
+|---|---|---|---|---|
+| **§5.1 Experimental Setup** | Benchmarks + Metrics | design knowledge | BM-01, BM-05, BM-06, IMPL-04, C5-01 | VIS-C3-02 (NFR table adapted) |
+| **§5.1 Experimental Setup** | Baselines | design knowledge | C5-09 (baseline descriptions) | — |
+| **§5.1 Experimental Setup** | Implementation Details | `calibration/calibrated_config.json` | C5-11, GEN-03, IMPL-04 | **TAB-C5-07** |
+| **§5.2 Main Results** | Primary Accuracy Table | `eval/{bm}_cycle{n}.json` | C5-04, GEN-02, GEN-09 | **FIG-C5-01**, **TAB-C5-01** |
+| **§5.2 Main Results** | Statistical Significance | `eval/{bm}_cycle{n}.json` | C5-05, C5-12, GEN-12 | **TAB-C5-06** |
+| **§5.3 Mechanism Analysis** | Five-Mechanism Evidence Table | `experiment_summary.csv` | C5-02 | **TAB-C5-02**, **FIG-C5-02** |
+| **§5.3 Mechanism Analysis** | Routing Distribution | `experiment_summary.csv` | C5-10 | — |
+| **§5.4 Ablation Study** | Per-Mechanism Ablations (A1/A2/A3 + others) | `ablation_results/ablation_summary.json` | C5-09, C5-07 | **TAB-C5-05** |
+| **§5.4 Ablation Study** | Signal Weight Ablation | `ablation_results/ablation_summary.json` | C5-07, MMLU retention | **FIG-C5-03** |
+| **§5.5 Theory Validation** | Purity Theorem Validation | `purity_validation/theory_validation.json` | C5-03, TH-03, TH-04, C4-17 | **TAB-C5-03**, **TAB-C5-04** |
+| **§5.5 Theory Validation** | Monotonicity + Convergence | `eval/*.json` + theory | C4-23, TH-04, C5-04 (closing thread) | TAB-C5-04 recap |
+| **§5.6 Latency and Error Analysis** | Per-Tier Latency | `experiment_summary.csv` mean_latency_ms | C5-06, GEN-13 | **TAB-C5-08** |
+| **§5.6 Latency and Error Analysis** | Failure Mode Analysis | qualitative (Cycle 3 outputs) | C5-08 | — |
 
 **Critical writing rules for Chapter 5:**
 - All numbers from output files — never copy from unified plan projections (GEN-02, GEN-09)
@@ -383,7 +388,7 @@ Run these checks on all chapters as a final pass:
 ### Group A — Write NOW (no experiment data required)
 
 All of Chapter 3, and these Chapter 4 / Chapter 6 entries:
-C3-01, C3-02, C4-01, C4-03, C4-03b, C4-04, C4-05, C4-06, C4-07 (present projected weights), C4-08, C4-09, C4-10, C4-10b, C4-15, C4-16, C4-17 (symbolic + illustrative only), C4-18, C4-19, C4-20, C4-21, C4-22, C4-23, IMPL-01 (Ch4 diagram), IMPL-02, IMPL-03, IMPL-04, IMPL-05, IMPL-06, BM-01–06, C2-03, GEN-01, GEN-04, GEN-05, GEN-06, GEN-07, GEN-08, GEN-11, PUB-02, TH-01, TH-02, C6-01, C6-02, C6-related limitation/future work entries
+C3-01, C3-02, C4-01, C4-03, C4-03b, C4-04, C4-05, C4-06, C4-07 (present projected weights), C4-08, C4-09, C4-10, C4-10b, C4-15, C4-16, C4-17 (symbolic + illustrative only), C4-18, C4-19, C4-20, C4-21, C4-22, C4-23, IMPL-01 (Ch4 diagram), IMPL-02, IMPL-03, IMPL-05, IMPL-06, **BM-02** (Ch4 architecture motivation), **BM-03** (Ch4 verification), **BM-04** (Ch4 verification), **BM-01/05/06** (Ch5 §Experimental Setup — write prose description now; actual benchmark numbers come from data), C2-03, GEN-01, GEN-04, GEN-05, GEN-06, GEN-07, GEN-08, GEN-11, PUB-02, TH-01, TH-02, C6-01, C6-02, C6-related limitation/future work entries
 
 ### Group B — Need `calibration/calibrated_config.json`
 
