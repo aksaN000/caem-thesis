@@ -729,15 +729,45 @@ def run_purity_validation(ns: argparse.Namespace) -> None:
             else:
                 logger.warning("Passage index not found at %s; continuing without RAG.", passage_index_path)
 
-        # Load purity validation samples (500 per benchmark)
-        purity_samples = {
-            "hotpotqa":   load_hotpotqa(n=500)[:500],
-            "truthfulqa": load_truthfulqa(n=500)[:500],
-            "fever":      load_fever(n=500)[:500],
-            "strategyqa": load_strategyqa(n=500)[:500],
-        }
-
         checkpoints_dir = ns.checkpoints_dir
+
+        # FIX: Load dataset splits to get exact purity_ids for the specific experiment run
+        splits_path = Path(checkpoints_dir) / "dataset_splits.json"
+        purity_ids_by_bm = {}
+        if splits_path.exists():
+            try:
+                with open(splits_path, "r", encoding="utf-8") as f:
+                    splits = json.load(f)
+                for bm, splits_dict in splits.items():
+                    purity_ids_by_bm[bm] = set(splits_dict.get("purity_ids", []))
+                logger.info("Loaded exact purity_ids from %s", splits_path)
+            except Exception as exc:
+                logger.warning("Failed to load dataset_splits.json: %s", exc)
+        else:
+            logger.warning("dataset_splits.json not found at %s. Falling back to top 500.", splits_path)
+
+        def load_and_filter(loader_func, bm_name):
+            # Load enough to ensure we find the dataset split IDs (default load all or n=2000)
+            # If we don't supply n, it loads the default max which is safer
+            samples = loader_func()
+            if bm_name in purity_ids_by_bm and purity_ids_by_bm[bm_name]:
+                target_ids = purity_ids_by_bm[bm_name]
+                # Match either the string ID or the fallback index
+                filtered = [s for i, s in enumerate(samples) if str(s.get("id", i)) in target_ids or s.get("id", i) in target_ids]
+                if filtered:
+                    logger.info("Filtered %s to %d precise purity_ids", bm_name, len(filtered))
+                    return filtered
+            # Fallback to top 500 if no splits file or no matching IDs
+            logger.info("Falling back to top 500 items for %s", bm_name)
+            return samples[:500]
+
+        # Load purity validation samples based on the exact IDs held out during the experiment
+        purity_samples = {
+            "hotpotqa":   load_and_filter(load_hotpotqa, "hotpotqa"),
+            "truthfulqa": load_and_filter(load_truthfulqa, "truthfulqa"),
+            "fever":      load_and_filter(load_fever, "fever"),
+            "strategyqa": load_and_filter(load_strategyqa, "strategyqa"),
+        }
 
         # Build a pipeline for each cycle checkpoint
         pipelines_by_cycle = {}
