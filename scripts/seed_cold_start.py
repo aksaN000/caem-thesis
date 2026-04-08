@@ -68,7 +68,7 @@ import logging
 import sys
 import time
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional, cast
 
 logging.basicConfig(
     level=logging.INFO,
@@ -90,7 +90,7 @@ def _check_deps():
                 try:
                     import faiss
                 except ImportError:
-                    import faiss_cpu  # noqa
+                    import faiss_cpu  # type: ignore
             else:
                 __import__(pkg)
         except ImportError:
@@ -136,7 +136,8 @@ def load_train_samples(benchmark: str, n: int, seed: int = 0) -> List[dict]:
         logger.info("Loading HotpotQA train split (n=%d) ...", n)
         ds = load_dataset("hotpot_qa", "distractor", split="train")
         samples = []
-        for row in ds:
+        for row in cast(Any, ds):
+            row = cast(Dict[str, Any], row)
             samples.append({
                 "question":   row["question"],
                 "answers":    [row["answer"]],
@@ -169,7 +170,8 @@ def load_train_samples(benchmark: str, n: int, seed: int = 0) -> List[dict]:
         }
         ds = load_dataset("lucadiliello/fever", split="train")
         samples = []
-        for row in ds:
+        for row in cast(Any, ds):
+            row = cast(Dict[str, Any], row)
             raw_label = row.get("label", 2)
             gold_label = _FEVER_LABEL_MAP.get(raw_label, "not enough info")
             claim = row.get("claim", "")
@@ -227,10 +229,10 @@ def build_pipeline(config, device: str):
     logger.info("Loading Flan-T5-Large for seeding ...")
     model_name = "google/flan-t5-large"
     tokenizer = AutoTokenizer.from_pretrained(model_name)
-    model = T5ForConditionalGeneration.from_pretrained(
+    model = cast(Any, T5ForConditionalGeneration.from_pretrained(
         model_name,
         torch_dtype=torch.float16 if device == "cuda" else torch.float32,
-    ).to(device).eval()
+    )).to(device).eval()
     logger.info(
         "Flan-T5-Large loaded (%.0f M params, %s).",
         sum(p.numel() for p in model.parameters()) / 1e6,
@@ -245,9 +247,9 @@ def build_pipeline(config, device: str):
     try:
         logger.info("Loading RoBERTa-Large-MNLI for verification ...")
         nli_tokenizer = AutoTokenizer.from_pretrained("roberta-large-mnli")
-        nli_model = AutoModelForSequenceClassification.from_pretrained(
+        nli_model = cast(Any, AutoModelForSequenceClassification.from_pretrained(
             "roberta-large-mnli"
-        ).to(device).eval()
+        )).to(device).eval()
         logger.info("NLI model loaded.")
     except Exception as exc:
         logger.warning("NLI load failed (%s) -- verification uses SC+SE only.", exc)
