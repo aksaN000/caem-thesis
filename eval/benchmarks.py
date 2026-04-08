@@ -58,7 +58,7 @@ from __future__ import annotations
 
 import logging
 import random
-from typing import Any, Dict, Iterator, List, Optional
+from typing import Any, Dict, Iterator, List, Optional, cast
 
 logger = logging.getLogger(__name__)
 
@@ -109,7 +109,8 @@ def load_hotpotqa(
     ds = load_dataset("hotpot_qa", "distractor", split=split)
 
     samples: List[BenchmarkSample] = []
-    for row in ds:
+    for row in cast(Any, ds):
+        row = cast(Dict[str, Any], row)
         if difficulty != "all" and row.get("level", "").lower() != difficulty.lower():
             continue
         samples.append({
@@ -165,7 +166,8 @@ def load_truthfulqa(
     ds = load_dataset("truthful_qa", "generation", split="validation")
 
     samples: List[BenchmarkSample] = []
-    for i, row in enumerate(ds):
+    for i, row in enumerate(cast(Any, ds)):
+        row = cast(Dict[str, Any], row)
         correct = row.get("correct_answers", [])
         if not correct:
             continue
@@ -252,7 +254,8 @@ def load_fever(
     ds = load_dataset("lucadiliello/fever", split=split)
 
     samples: List[BenchmarkSample] = []
-    for row in ds:
+    for row in cast(Any, ds):
+        row = cast(Dict[str, Any], row)
         raw_label = row.get("label", 2)
         gold_label = _FEVER_LABEL_MAP.get(raw_label, "not enough info")
 
@@ -358,7 +361,8 @@ def load_strategyqa(
             raise RuntimeError(f"Could not load StrategyQA from any source: {exc2}") from exc2
 
     samples: List[BenchmarkSample] = []
-    for i, row in enumerate(ds):
+    for i, row in enumerate(cast(Any, ds)):
+        row = cast(Dict[str, Any], row)
         answer_bool = row.get("answer", None)
         if answer_bool is None:
             continue
