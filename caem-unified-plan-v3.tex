@@ -2356,6 +2356,8 @@ Measure agreement via semantic similarity of answer embeddings.
 
 \textbf{Question:} ``Could a llama birth twice during War in Vietnam (1945-46)?''
 
+\textbf{Implementation note (Fix A, Session 30):} In the actual implementation, Tier 2 and Tier 3 generation for StrategyQA uses a task-aware CoT prompt that enforces the format \texttt{``Reasoning: <explanation> Answer: yes|no''}. The chains below show the equivalent reasoning content; the stored \texttt{reasoning\_chain} in memory carries the explicit ``Reasoning:'' prefix and embedded ``Answer:'' label. SC consistency is computed by extracting and comparing the label tokens across chains using \texttt{extract\_strategyqa\_label()}.
+
 \textbf{Chain 1 (original):}
 \begin{verbatim}
 War duration: 1945-46 = ~1 year = 12 months
@@ -2368,7 +2370,7 @@ Answer: No
 \textbf{Chain 2 (alternative):}
 \begin{verbatim}
 Llama pregnancy: approximately 11 months
-War duration: 1 year = 12 months  
+War duration: 1 year = 12 months
 If pregnant at war start: birth at month 11
 If pregnant immediately after: birth at month 22
 But war ends at month 12
@@ -4568,7 +4570,7 @@ From the episodes stored in memory after each cycle, draw a random sample and ch
 \textbf{Step 5 — Compare and report:}
 Report $p$, $\alpha$, $P_{\text{theory}}$, and $P_{\text{obs}}$ for each cycle in Chapter~5. The theorem is validated if $P_{\text{obs}} \approx P_{\text{theory}}$. A gap between them is itself a meaningful finding: overestimate suggests the false-positive and false-negative rates are asymmetric; underestimate suggests retroactive re-verification has cleaned episodes the formula did not account for.
 
-\textbf{Also verify the condition $p > (1-\alpha)$:} This condition must hold for the theorem to guarantee improvement. State measured $p$ and $1-\alpha$ explicitly in Chapter~5, confirming the condition is satisfied for the evaluated benchmarks.
+\textbf{Corrected condition:} The condition for $P > p$ is $\alpha > \frac{1}{2}$ (not $p > (1-\alpha)$ as stated in earlier drafts of this document --- that condition is mathematically incorrect). See the formal proof in \texttt{chapter\_4.tex} §4.9. State measured $\alpha$ explicitly in Chapter~5, confirming $\alpha > 0.5$.
 \end{designbox}
 
 \subsection{Baseline Comparisons}
@@ -4580,6 +4582,7 @@ Report $p$, $\alpha$, $P_{\text{theory}}$, and $P_{\text{obs}}$ for each cycle i
 \toprule
 \textbf{Baseline} & \textbf{Description} \\
 \midrule
+\multicolumn{2}{l}{\textit{Internal baselines (run on same CAEM benchmark splits):}} \\
 Zero-Shot & Flan-T5-Large with direct prompting, no retrieval \\
 Chain-of-Thought & Few-shot CoT prompting (3 examples) \\
 RAG & Retrieval-augmented generation with external docs \\
@@ -4587,10 +4590,19 @@ Self-Consistency & Generate multiple chains, majority vote \\
 Vanilla Fine-Tuning & Fine-tune on all generated data (no verification) \\
 Memory-Only & Episodic memory without fine-tuning \\
 \midrule
-\textbf{CAEM (Ours)} & \textbf{Full system with all components} \\
+\multicolumn{2}{l}{\textit{External baselines (published numbers, cite RA-ISF: Liu et al., ACL Findings 2024, arXiv:2403.06840):}} \\
+GPT-3.5 (vanilla) & Zero-shot GPT-3.5-turbo, no retrieval. HotpotQA EM: 22.1\%; StrategyQA: 65.2\%. \\
+GPT-3.5 + RAG & GPT-3.5 with standard retrieval. HotpotQA EM: 32.2\%; StrategyQA: 64.7\%. \\
+Self-RAG 13B & Self-RAG (Asai et al. 2023) at 13B scale. HotpotQA EM: 25.4\%; StrategyQA: 67.2\%. \\
+\midrule
+\textbf{CAEM (Ours)} & \textbf{Flan-T5-Large (780M), full system with all components, 3 cycles.} \\
 \bottomrule
 \end{tabular}
 \end{table}
+
+\begin{keyinsightbox}
+\textbf{Efficiency story (PUB-01 positioning):} Self-RAG 13B uses a model 17$\times$ larger than CAEM's Flan-T5-Large backbone. If CAEM Cycle~3 approaches or matches Self-RAG's HotpotQA EM (25.4\%), report this explicitly with the parameter ratio. The framing is: \textit{verified episodic self-improvement enables a small model to approach large-model RAG performance through progressive knowledge accumulation}. This is the efficiency contribution, and it survives the ``but GPT-4 does better'' objection entirely.
+\end{keyinsightbox}
 
 \newpage
 

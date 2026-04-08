@@ -3,7 +3,23 @@
 \usepackage[english]{babel}
 \usepackage[utf8]{inputenc}
 \usepackage{csquotes} % Provides advanced facilities for in-line and display quotations
-\usepackage{amsmath} % TO use mathematical equations 
+\usepackage{amsmath}   % Mathematical equations
+\usepackage{amsthm}    % Theorem / proof environments
+\usepackage{amssymb}   % Extra math symbols
+\usepackage{enumitem}  % Custom list labels (e.g. (a),(b),(c))
+\usepackage{booktabs}  % Professional table rules (\toprule, \midrule, \bottomrule)
+
+% ---- Theorem environments (must live in preamble) ----------------
+\theoremstyle{plain}
+\newtheorem{theorem}{Theorem}[chapter]
+\newtheorem{corollary}[theorem]{Corollary}
+\newtheorem{lemma}[theorem]{Lemma}
+\theoremstyle{definition}
+\newtheorem{definition}[theorem]{Definition}
+\theoremstyle{remark}
+\newtheorem{remark}[theorem]{Remark}
+% ------------------------------------------------------------------
+
 \pagestyle{plain} % Just a plain page number. For more http://www.emerson.emory.edu/services/latex/latex_129.html
 
 \usepackage[final]{graphicx} % to use the graphicx package (force figures to render)
@@ -33,6 +49,13 @@
 \urlstyle{same}
 
 \setlength{\parindent}{0em} % To control Indentation of paragraphs 
+
+% ---- Custom macros for CAEM notation (used in Chapters 4–6) ----
+\newcommand{\caem}{CAEM}
+\newcommand{\upre}{u_{\text{pre}}}
+\newcommand{\uhat}{\hat{u}}
+\newcommand{\ustored}{\hat{u}_{\text{stored}}}
+\newcommand{\Cconv}{C_{\text{conv}}}
 
 \usepackage{nomencl} % The nomenclature package can be used to generate and format a nomenclature using MakeIndex.
 \renewcommand{\nompreamble}{The next list describes several symbols \& abbreviation that will be later used within the body of the document}
@@ -113,6 +136,19 @@
 
 \chapter{Literature Review}
 \input{chapters/chapter_2.tex}
+
+\chapter{Requirements, Impacts and Constraints}
+\input{chapters/chapter_3.tex}
+
+\chapter{Methodology}
+\input{chapters/chapter_4.tex}
+
+% Chapter 5 (Results) and Chapter 6 (Conclusion) stubs — uncomment when ready:
+% \chapter{Results and Analysis}
+% \input{chapters/chapter_5.tex}
+%
+% \chapter{Conclusion}
+% \input{chapters/chapter_6.tex}
 
 \cleardoublepage
 \phantomsection

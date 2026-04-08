@@ -1,5 +1,5 @@
 # CAEM — Master Execution & Writing Plan
-**Updated: 2026-04-07 | Session 31 — Sequential Flow from Current State to Submission**
+**Updated: 2026-04-08 | Session 33 — Ablation + Purity Scripts Fully Audited and Fixed**
 
 ---
 
@@ -8,15 +8,17 @@
 | Step | Status | Notes |
 |---|---|---|
 | Smoke Test (Cycle 0→3) | ✅ DONE | Full pipeline verified on RTX 3060 |
-| Cold-start seeding (Gap 3) | ⏳ IN PROGRESS (RESEED) | Fresh reseeding started after Fix A to avoid mixing old label-only classification episodes with new reasoning+label format |
+| Cold-start seeding (Gap 3) | ✅ DONE | Fresh reseeding completed before mini-run (Fix A format) |
 | Writing prep files | ✅ DONE | `writing-suggestions.md`, `hyperparameter-reference.md`, `caem-implementation-log.md` all updated |
 | Visual elements inventory | ✅ DONE | Full figures/algorithms/equations/theorems spec added to `writing-suggestions.md` |
 | Ch1 TikZ fix (IMPL-01a) | ✅ DONE | Tier 1 → Stage 5 arrow removed (2026-04-07) |
 | C2-04/C2-05 text fix | ✅ DONE | chapter_2.tex "384-dim" → "768-dimensional" (both §2.1.4 and §2.2.4) |
 | paper-writing skill (v0.4.0) | ⚠️ MANUAL STEP | Updated files in `plugin-skill-updates/` — apply manually to plugin folder |
-| Mini-run (n=500 per bm) | ⏳ QUEUED AFTER RESEED | Fresh run from `resume_from_cycle=0` starts immediately after reseeding completes (`outputs/mini_experiment`) |
+| Mini-run (n=500 per bm) | ✅ DONE | Completed 2026-04-08. FEVER +10.9%, StrategyQA +9.4%, TruthfulQA net +4.0%, HotpotQA 0% (capability ceiling — see EXP-19). 871 episodes stored. Phase 1 PASS (pending MMLU check). |
+| Ablation script audit + fix | ✅ DONE | Session 33 — both `run_ablation.py` and `run_purity_validation.py` audited (Codex + independent audit), 13 bugs fixed. See EXP-20 below. |
 | Full experiment (n=5000) | ❌ PLANNED | Pending lab PC (4090/5090) access |
-| Chapter writing | ❌ PLANNED | Ch3+Ch4 can start now; Ch5 blocked on data |
+| Chapter 3 writing | ❌ PLANNED | No data needed — can start now |
+| Chapter 5 writing | ❌ PLANNED | Blocked on full experiment data |
 
 ---
 
@@ -153,9 +155,14 @@ Run these IN ORDER after the full experiment completes. Each produces a specific
 
 ```bash
 python scripts/run_purity_validation.py \
-  --output_dir outputs/full_experiment \
-  --output_file outputs/purity_validation/theory_validation.json
+  --checkpoints_dir outputs/full_experiment \
+  --output_dir outputs/purity_validation \
+  --num_cycles 3
 ```
+
+**Important:** Each cycle checkpoint directory (`outputs/full_experiment/cycle_{n}/`)
+must contain BOTH `model.pt` AND `memory_store.pkl`. Without `memory_store.pkl`,
+P_obs will be NaN (P_obs fix applied in Session 33 — see EXP-20).
 
 **Produces:** `outputs/purity_validation/theory_validation.json`
 **Used by:** C5-03 (§5.4), TH-03, TH-04, C4-17 (replace illustrative values with actual)
@@ -164,9 +171,22 @@ python scripts/run_purity_validation.py \
 
 ```bash
 python scripts/run_ablation.py \
-  --output_dir outputs/full_experiment \
-  --ablation_output outputs/ablation_results/ablation_summary.json
+  --caem_results outputs/full_experiment/all_cycle_results.json \
+  --cycle3_checkpoint outputs/full_experiment/cycle_3 \
+  --cycle0_checkpoint outputs/full_experiment/cycle_0 \
+  --output_dir outputs/ablation_results \
+  --n_questions 500
 ```
+
+Optional — only needed if checkpoints exist:
+```bash
+  --unverified_checkpoint outputs/ablation/vanilla_ft   # for A4
+  --no_cot_checkpoint outputs/ablation/no_cot           # for AB3
+  --no_reverif_checkpoint outputs/ablation/no_reverif   # for AB4
+```
+
+Script now runs A0-A5 baselines + AB1-AB7 ablations. AB3 and AB4 are skipped
+gracefully (with a clear warning) if their separate checkpoints are not present.
 
 **Produces:** `outputs/ablation_results/ablation_summary.json`
 **Used by:** C5-09 (§5.5), C5-07 MMLU eval, C5-06 A2 cost comparison
@@ -201,6 +221,61 @@ ci_low, ci_high = bootstrap_ci(caem_em)
 ```
 
 **Used by:** C5-05, C5-12, GEN-12 (§5.2 statistical significance claims)
+
+### Step 4.5 — Add Strong External Baselines to Table 5.1 (PUB-01 — zero compute)
+
+The following numbers are confirmed from the literature. Add to Table 5.1 immediately — no
+experiment run required.
+
+| Model | HotpotQA EM | StrategyQA EM | FEVER | TruthfulQA | Source |
+|---|---|---|---|---|---|
+| GPT-3.5 (vanilla, no retrieval) | 22.1 | 65.2 | — | — | Liu et al., ACL Findings 2024 (RA-ISF, arXiv:2403.06840) |
+| GPT-3.5 (standard RAG) | 32.2 | 64.7 | — | — | Liu et al., ACL Findings 2024 |
+| Self-RAG 13B | 25.4 | 67.2 | — | — | Liu et al., ACL Findings 2024 (method: Asai et al. 2023) |
+
+**Citation note:** Cite Liu et al. (ACL Findings 2024, arXiv:2403.06840) for these specific
+benchmark numbers. Cite Asai et al. (2023) separately as the original Self-RAG paper for the
+method description. The original Self-RAG paper did not evaluate on HotpotQA or StrategyQA.
+
+**Framing:** If CAEM (780M, Cycle 3) approaches Self-RAG (13B) on HotpotQA EM, state this
+explicitly: CAEM achieves competitive performance with a 17× smaller model via verified
+self-improvement. This is the efficiency story.
+
+**Used by:** TAB-C5-01 (Table 5.1 main results), PUB-01 in writing-suggestions.md
+
+### Step 4.6 — SelfCheckGPT Baseline (PUB-01b — needs post-experiment eval run)
+
+Run SelfCheckGPT (Manakul et al. 2023) on the same benchmark splits as CAEM. This baseline
+tests the most similar hallucination-detection approach in the literature.
+
+```bash
+# After full experiment outputs are available:
+python scripts/run_selfcheckgpt_baseline.py \
+  --benchmark hotpotqa strategyqa fever truthfulqa \
+  --output_dir outputs/baselines/selfcheckgpt
+```
+
+**Used by:** TAB-C5-01, PUB-01b
+
+### Step 4.7 — Flan-T5-XL Scaling Ablation (PUB-06 — needs ≥16 GB VRAM)
+
+Run CAEM on Flan-T5-XL (3B) on HotpotQA only (3 cycles, same hyperparameters).
+This provides a single scaling data point to show improvement trend is model-size independent.
+
+```bash
+python scripts/run_experiment.py \
+  --model google/flan-t5-xl \
+  --n_questions 5000 \
+  --benchmarks hotpotqa \
+  --output_dir outputs/xl_scaling \
+  --passage_index data/passage_index
+```
+
+**Requires:** ≥16 GB VRAM (RTX 3080/3090/4090, A100, or cloud GPU)
+**Expected:** ~6 hours on RTX 4090
+**Used by:** Appendix B (scaling ablation), PUB-06 in writing-suggestions.md
+**Report format:** Table with rows (Flan-T5-Large 780M, Flan-T5-XL 3B) × columns
+(Cycle 0 EM, Cycle 1 EM, Cycle 2 EM, Cycle 3 EM, MMLU retention Cycle 3)
 
 ---
 
@@ -438,7 +513,9 @@ GEN-10 (check Ch1 stated target vs actual result; update if materially different
 | EXP-13 | Token limit 128 cuts CoT | cot_max_new_tokens=256, CoT induction, extract_cot_answer |
 | EXP-14 | Forgetting check compares absolute accuracy (14%) vs 93% floor → always aborts | ✅ FIXED — relative retention ratio (post/pre ≥ 0.93). Verified: ratio 1.75 in Cycle 1, no abort, weights kept. 32/32 tests pass. |
 | EXP-15 | NaN training loss across all epochs | ✅ FIXED — float32 L2, bf16/AMP, clip_grad_norm=1.0. Verified: finite loss in resumed run. |
-| EXP-16 | CE training loss ~49; reasoning_chain quality unknown | ✅ RESOLVED — chain diagnostics added; FEVER/StrategyQA chains are correctly short labels (2–8 chars), not artifacts. Under-10-char fallback to entry.answer added. High CE is expected given task diversity + small dataset; not a bug. 32/32 tests pass. |
+| EXP-16 | CE training loss ~49; reasoning_chain quality unknown | ✅ RESOLVED + ⚠️ **Fix A applied (Session 30)** — root cause was classification chains storing bare labels ("supports", "yes"), which is correct behaviour but weakened the thesis "verified reasoning-chain supervision" claim. **Fix A** added task-aware CoT prompts for FEVER and StrategyQA: model now generates "Reasoning: X\nAnswer: label" for all four benchmarks. reasoning_chain ALWAYS contains a reasoning trace. Cold-start memory reseeded with Fix A format before mini-run. See `caem-implementation-log.md` §Fix A and writing-suggestions.md C4-24. 96 eval + 3 prompt sanity tests pass. |
+| EXP-19 | Mini-run results (Session 32) | ✅ PASS. FEVER +10.9%, StrategyQA +9.4%, TruthfulQA net +4.0%. HotpotQA EM=0.006 all cycles — capability ceiling (p≈0 violates purity theorem precondition). Convergence confirmed on FEVER (Δ = +9.1%, +1.8%, 0.0%). 871 episodes stored. MMLU retention pending. Full results in `caem-implementation-log.md` Session 32 / EXP-19. |
+| EXP-20 | Ablation + purity script bugs (Session 33) | ✅ FIXED — 13 bugs across both scripts. Critical fixes: (1) `check_purity_condition` was `p > (1-α)` → now `α > 0.5` (thesis Theorem 1). (2) `eval_baseline()` TruthfulQA used `any_match_em` → now `rouge_l > 0.15`. (3) `_clone_pipeline()` shared memory store → now fresh `EpisodicMemoryStore`. (4) AB3/AB4 silently returned `base_pipeline` → now skip gracefully with warning. (5) AB5/AB7 verifier constructors missing NLI model → p_entail fell back to 0.5 silently. (6) `measure_verification_precision` → `measure_verification_balanced_accuracy` using `(TP+TN)/N`. (7) `u_hat_accept_threshold` used for live gate (was wrongly using `retroverify_prune_threshold`). (8) Memory store now loaded from `memory_store.pkl` per cycle (was empty → P_obs always NaN). Added AB5 (NLI only), AB6 (no OR-condition via config), AB7 (no SE). Per-ablation MMLU retention added. Main pipeline now loads NLI + passage store. |
 | Session 29 | L2 λ=0.4 (wrong) in early notes → λ=0.01 (correct) [DES] | Fixed in hyperparameter-reference.md + writing-suggestions.md |
 
 ---

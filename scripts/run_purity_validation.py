@@ -7,7 +7,7 @@ Validates all three theoretical claims in the thesis:
 
   Theory 1 -- Data Purity Theorem
     Claim:   P = pα / (pα + (1-p)(1-α))   AND   P > p
-    Condition: p > (1-α)  must hold for the theorem to guarantee P > p
+    Condition: α > 0.5  must hold for the theorem to guarantee P > p
     CRITICAL: theorem guarantees P > p (base accuracy), NOT P > α.
     Protocol: measure p and α per cycle on the purity validation set;
               compute P_theory; compare with P_obs (actual memory accuracy).
@@ -23,9 +23,46 @@ Validates all three theoretical claims in the thesis:
 All three validations use the purity validation set (500 samples, separate
 from both the calibration set and the eval set).
 
+Fixes applied (audit 2025-04)
+------------------------------
+  FIX-1  check_purity_condition(): the correct sufficient condition for
+         P > p is α > 0.5, NOT p > (1-α). Theorem 1 (§4.9) states:
+         P > p iff α > ½. The old condition was a stricter and incorrect
+         restatement. This was a critical logic error in the validation.
+
+  FIX-2  measure_base_accuracy(): max_new_tokens raised 64→256 (was
+         truncating answers for multi-sentence benchmarks). TruthfulQA
+         now uses ROUGE-L > 0.15 (matches eval/harness.py L267-269);
+         StrategyQA now uses extract_strategyqa_label() (matches
+         eval/harness.py L272-275).
+
+  FIX-3  measure_verification_precision() renamed to
+         measure_verification_balanced_accuracy(). Old implementation
+         measured precision = TP/(TP+FP). Thesis Definition 4.2 requires
+         balanced accuracy α = (TP+TN)/N. The fix counts both correctly
+         accepted correct answers AND correctly rejected wrong answers.
+
+  FIX-4  Acceptance threshold for theorem α uses
+      retroverify_prune_threshold (the storage acceptance gate), not
+      u_hat_accept_threshold (Tier-2 post-generation gate). Theorem 1 is
+      about purity of accepted memory episodes, so it must use the
+      storage gate.
+
+  FIX-5  Memory store loading now matches run_experiment.py persistence
+      format: outputs/memory_store_cycle_{n}.faiss + .meta. This prevents
+      P_obs from being NaN due to searching for a non-existent
+      memory_store.pkl format.
+
+  FIX-6  α measurement no longer calls pipeline.answer() (which mutates
+      memory via Stage 7). It now runs generation + verifier directly,
+      keeping the loaded cycle memory unchanged during measurement.
+
+  FIX-7  Purity scoring now uses extract_cot_answer() before EM scoring,
+      matching eval/harness.py behavior for rationale-style outputs.
+
 Thesis reference
 ----------------
-  §4.8  Theoretical analysis (purity theorem + convergence)
+  §4.9  Theoretical analysis (purity theorem + convergence)
   §5.5  Theory validation (three protocols, one table each)
   §6.1  Conclusion: theoretical grounding distinguishes CAEM from heuristics
   benchmarks-and-baselines.md -- purity theorem protocol
@@ -35,13 +72,15 @@ Purity theorem note
 The theorem guarantees P > p -- purity in memory EXCEEDS BASE generation
 accuracy. It does NOT claim P > α (verification accuracy). Confusion between
 these two is a committee-facing risk (writing-suggestions.md C5-03).
+The sufficient condition is α > 0.5 (Theorem 1, §4.9). When α ≤ 0.5 the
+verifier is no better than chance and the theorem provides no guarantee.
 
 Usage
 -----
   python -m scripts.run_purity_validation \\
-      --cycle_results outputs/all_cycle_results.json \\
-      --purity_samples outputs/dataset_splits.json \\
-      --output_dir outputs/purity_validation
+      --checkpoints_dir outputs \\
+      --output_dir outputs/purity_validation \\
+      --num_cycles 3
 
   # Smoke test:
   python -m scripts.run_purity_validation --smoke_test
@@ -68,13 +107,13 @@ def purity_theorem(p: float, alpha: float) -> float:
 
     P = pα / (pα + (1-p)(1-α))
 
-    Valid when p > (1 - α).  If the condition fails, the theorem provides
-    no guarantee and is reported as violated.
+    Valid when α > 0.5.  If the condition fails, the theorem provides
+    no guarantee (P may be <= p) and is reported as violated.
 
     Parameters
     ----------
     p     : float -- base generation accuracy (fraction correct before verification)
-    alpha : float -- verification precision (fraction of stored answers that are correct)
+    alpha : float -- verification balanced accuracy (TP+TN)/N
 
     Returns
     -------
@@ -88,13 +127,86 @@ def purity_theorem(p: float, alpha: float) -> float:
 
 
 def check_purity_condition(p: float, alpha: float) -> bool:
-    """Return True if the purity theorem's condition p > (1 - α) holds."""
-    return p > (1 - alpha)
+    """Return True if the purity theorem's sufficient condition α > 0.5 holds.
+
+    FIX-1: Thesis Theorem 1 (§4.9) proves P > p if and only if α > ½.
+    The old implementation returned p > (1 - alpha), which is equivalent to
+    alpha > (1 - p). That is a strictly stronger condition than α > 0.5 and
+    is INCORRECT -- it would report the theorem as violated even when α > 0.5
+    (e.g., p=0.6, α=0.7: correct condition holds since 0.7 > 0.5, but old
+    code returned 0.6 > 0.3 = True by coincidence only because p was also > 0.5).
+    The clearest counterexample: p=0.3, α=0.8 -- correct: α=0.8 > 0.5 ✓,
+    old code: 0.3 > (1-0.8)=0.2 ✓ coincidentally, but for p=0.1, α=0.8:
+    old code: 0.1 > 0.2 = False ✗ WRONG (theorem still holds since α=0.8 > 0.5).
+
+    Parameters
+    ----------
+    p     : float -- base generation accuracy (unused in the correct condition,
+                     retained for API compatibility and HotpotQA boundary reporting)
+    alpha : float -- verification balanced accuracy
+
+    Returns
+    -------
+    bool -- True iff α > 0.5 (theorem guarantee holds)
+    """
+    return alpha > 0.5
+
+
+def _score_em(prediction: str, gold: List[str], gold_label: Optional[str], bm: str) -> float:
+    """Return EM score aligned with eval/harness.py benchmark-specific scoring."""
+    from eval.metrics import (
+        exact_match,
+        extract_cot_answer,
+        extract_fever_label,
+        extract_strategyqa_label,
+        fever_accuracy,
+        rouge_l,
+    )
+
+    pred = extract_cot_answer(prediction)
+    if bm == "fever":
+        pred_label = extract_fever_label(pred)
+        ref = gold_label or (gold[0] if gold else "not enough info")
+        return fever_accuracy(pred_label, ref)
+    if bm == "truthfulqa":
+        return float(rouge_l(pred, gold) > 0.15)
+    if bm == "strategyqa":
+        pred_label = extract_strategyqa_label(pred)
+        ref_label = extract_strategyqa_label(gold[0] if gold else "no")
+        return float(pred_label == ref_label) if pred_label and ref_label else 0.0
+    return exact_match(pred, gold[0] if gold else "")
+
+
+def _generate_greedy_answer(pipeline, query: str, max_new_tokens: int = 256) -> Tuple[str, Any]:
+    """Generate one deterministic answer and return (decoded_answer, input_ids)."""
+    import torch
+
+    inputs = pipeline.tokenizer(
+        query,
+        return_tensors="pt",
+        truncation=True,
+        max_length=512,
+    ).to(pipeline.device)
+
+    with torch.no_grad():
+        out = pipeline.model.generate(
+            **inputs,
+            max_new_tokens=max_new_tokens,
+            do_sample=False,
+        )
+
+    pred = pipeline.tokenizer.decode(out[0], skip_special_tokens=True)
+    return pred, inputs["input_ids"]
 
 
 def measure_base_accuracy(pipeline, purity_samples: List[dict], bm: str) -> float:
     """Measure p -- the fraction of questions the model answers correctly BEFORE
     verification. This is the raw generation accuracy on the purity validation set.
+
+    FIX-2: max_new_tokens raised from 64 to 256 to match harness.py (prevents
+    answer truncation on multi-sentence benchmarks). TruthfulQA scoring changed
+    to ROUGE-L > 0.15 (was any_match_em exact string match). StrategyQA scoring
+    changed to use extract_strategyqa_label() (was raw exact_match).
 
     Parameters
     ----------
@@ -106,11 +218,6 @@ def measure_base_accuracy(pipeline, purity_samples: List[dict], bm: str) -> floa
     -------
     float -- p (base accuracy in [0, 1])
     """
-    from eval.metrics import (
-        any_match_em, exact_match, extract_fever_label, fever_accuracy
-    )
-    import torch
-
     correct = 0
     total = 0
 
@@ -120,22 +227,13 @@ def measure_base_accuracy(pipeline, purity_samples: List[dict], bm: str) -> floa
         gold_label = sample.get("gold_label")
 
         try:
-            # Generate directly (bypass memory routing -- we want raw model accuracy)
-            inputs = pipeline.tokenizer(
-                q, return_tensors="pt", truncation=True, max_length=512
-            ).to(pipeline.device)
-            with torch.no_grad():
-                out = pipeline.model.generate(**inputs, max_new_tokens=64, do_sample=False)
-            pred = pipeline.tokenizer.decode(out[0], skip_special_tokens=True)
-
-            if bm == "fever":
-                pred_label = extract_fever_label(pred)
-                ref = gold_label or (gold[0] if gold else "not enough info")
-                em = fever_accuracy(pred_label, ref)
-            elif bm == "truthfulqa":
-                em = any_match_em(pred, gold)
-            else:
-                em = exact_match(pred, gold[0] if gold else "")
+            # Generate directly (bypass memory routing -- we want raw model accuracy).
+            pred, _ = _generate_greedy_answer(
+                pipeline,
+                q,
+                max_new_tokens=256,  # FIX-2: was 64 (too short for multi-sentence answers)
+            )
+            em = _score_em(pred, gold, gold_label, bm)
 
             correct += em
         except Exception as exc:
@@ -146,14 +244,31 @@ def measure_base_accuracy(pipeline, purity_samples: List[dict], bm: str) -> floa
     return correct / total if total > 0 else 0.0
 
 
-def measure_verification_precision(pipeline, purity_samples: List[dict], bm: str) -> float:
-    """Measure α -- verification precision on the purity validation set.
+def measure_verification_balanced_accuracy(
+    pipeline, purity_samples: List[dict], bm: str
+) -> float:
+    """Measure α -- verification BALANCED ACCURACY on the purity validation set.
 
-    α = (correctly verified answers that were actually correct) /
-        (all answers that passed verification)
+    α = (TP + TN) / N
 
-    This tells us: of the answers the verifier ACCEPTED, what fraction
-    were actually correct? A perfect verifier would have α = 1.0.
+    where:
+      TP = answer was correct   AND passed verification (u_stored >= threshold)
+      TN = answer was wrong     AND failed verification (u_stored <  threshold)
+      N  = total samples evaluated
+
+    FIX-3: The old implementation measured precision = TP/(TP+FP), i.e., only
+    counting accepted answers. Thesis Definition 4.2 defines α as balanced
+    accuracy over ALL samples, including correctly rejected wrong answers.
+    Balanced accuracy more faithfully represents verifier quality: a verifier
+    that rejects everything has precision=undefined but balanced accuracy=0.5.
+
+    FIX-4: The acceptance threshold for theorem α is retroverify_prune_threshold,
+    because Theorem 1 concerns memory purity of accepted/stored episodes.
+    u_hat_accept_threshold is the Tier-2 post-generation gate and is not the
+    storage acceptance criterion.
+
+    FIX-6: Uses generation + verifier directly instead of pipeline.answer() so
+    measurement does not mutate memory (Stage 7 storage side effects).
 
     Parameters
     ----------
@@ -163,14 +278,16 @@ def measure_verification_precision(pipeline, purity_samples: List[dict], bm: str
 
     Returns
     -------
-    float -- α (verification precision in [0, 1])
+    float -- α (verification balanced accuracy in [0, 1])
     """
-    from eval.metrics import (
-        any_match_em, exact_match, extract_fever_label, fever_accuracy
-    )
+    # FIX-4: Use the storage acceptance threshold for theorem α.
+    threshold = pipeline.config.retroverify_prune_threshold
 
-    accepted_and_correct = 0
-    accepted_total = 0
+    tp = 0  # correct answer, passed verification
+    tn = 0  # wrong answer,   failed verification
+    fp = 0  # wrong answer,   passed verification  (false acceptance)
+    fn = 0  # correct answer, failed verification  (false rejection)
+    total = 0
 
     for sample in purity_samples:
         q = sample["question"]
@@ -178,39 +295,88 @@ def measure_verification_precision(pipeline, purity_samples: List[dict], bm: str
         gold_label = sample.get("gold_label")
 
         try:
-            result = pipeline.answer(q)
-            if result.stored_confidence is None:
-                continue
+            pred, input_ids = _generate_greedy_answer(pipeline, q, max_new_tokens=256)
+            sc = pipeline.verifier.verify(query=q, answer=pred, input_ids=input_ids)
+            passed_verification = sc.u_stored >= threshold
+            is_correct = bool(_score_em(pred, gold, gold_label, bm))
 
-            # StoredConfidence has no passed_verification field.
-            # An answer "passed" verification iff u_stored >= prune threshold.
-            threshold = pipeline.config.retroverify_prune_threshold
-            if result.stored_confidence.u_stored < threshold:
-                continue
+            # Accumulate confusion matrix
+            if is_correct and passed_verification:
+                tp += 1
+            elif (not is_correct) and (not passed_verification):
+                tn += 1
+            elif (not is_correct) and passed_verification:
+                fp += 1
+            else:  # is_correct and not passed_verification
+                fn += 1
 
-            # Answer passed verification -- was it actually correct?
-            pred = result.answer
-            if bm == "fever":
-                pred_label = extract_fever_label(pred)
-                ref = gold_label or (gold[0] if gold else "not enough info")
-                em = fever_accuracy(pred_label, ref)
-            elif bm == "truthfulqa":
-                em = any_match_em(pred, gold)
-            else:
-                em = exact_match(pred, gold[0] if gold else "")
-
-            accepted_and_correct += em
-            accepted_total += 1
+            total += 1
         except Exception as exc:
-            logger.debug("measure_verification_precision: skipped (%s)", exc)
+            logger.debug("measure_verification_balanced_accuracy: skipped (%s)", exc)
 
-    if accepted_total == 0:
-        logger.warning("No accepted answers found -- α cannot be measured.")
+    if total == 0:
+        logger.warning("No samples evaluated for α -- balanced accuracy cannot be measured.")
         return 0.0
-    return accepted_and_correct / accepted_total
+
+    balanced_acc = (tp + tn) / total
+    logger.debug(
+        "Verifier confusion matrix (%s): TP=%d TN=%d FP=%d FN=%d "
+        "N=%d  α_balanced=%.4f  precision=%.4f",
+        bm, tp, tn, fp, fn, total,
+        balanced_acc,
+        tp / (tp + fp) if (tp + fp) > 0 else float("nan"),
+    )
+    return balanced_acc
 
 
-def measure_memory_purity(memory_store, purity_samples: List[dict], bm: str, pipeline) -> float:
+def load_memory_store_for_cycle(pipeline, cycle_num: int, checkpoints_dir: str):
+    """Load the memory store for a cycle.
+
+    FIX-5: When a pipeline is reconstructed from model.pt, its memory_store
+    is freshly initialised (empty). This causes P_obs = NaN for every cycle
+    since measure_memory_purity() finds no matching episodes.
+
+        This function loads the same persistence format produced by
+        run_experiment.py:
+            {checkpoints_dir}/memory_store_cycle_{n}.faiss
+            {checkpoints_dir}/memory_store_cycle_{n}.meta
+
+    Parameters
+    ----------
+    pipeline       : CAEMPipeline -- pipeline to update in place
+    cycle_num      : int
+    checkpoints_dir: str -- root dir containing cycle_{n}/ subdirs
+
+    Returns
+    -------
+    bool -- True if a memory store was loaded, False otherwise
+    """
+    from caem.memory.store import EpisodicMemoryStore
+
+    store_base = Path(checkpoints_dir) / f"memory_store_cycle_{cycle_num}"
+    meta_path = Path(str(store_base) + ".meta")
+
+    if not meta_path.exists():
+        logger.warning(
+            "FIX-5: memory store checkpoint not found at %s(.faiss/.meta) -- "
+            "P_obs may be NaN for cycle %d.",
+            store_base, cycle_num,
+        )
+        return False
+
+    try:
+        pipeline.memory_store = EpisodicMemoryStore.load(str(store_base))
+        logger.info(
+            "FIX-5: Loaded memory store for cycle %d (%d episodes) from %s.",
+            cycle_num, pipeline.memory_store.size, store_base,
+        )
+        return True
+    except Exception as exc:
+        logger.warning("FIX-5: Failed to load memory store from %s: %s", store_base, exc)
+        return False
+
+
+def measure_memory_purity(memory_store, purity_samples: List[dict], bm: str) -> float:
     """Measure P_obs -- the observed purity of episodes in the memory store.
 
     P_obs = (correct answers in memory) / (total answers in memory)
@@ -223,10 +389,11 @@ def measure_memory_purity(memory_store, purity_samples: List[dict], bm: str, pip
 
     Returns
     -------
-    float -- P_obs (observed memory purity in [0, 1])
+    float -- P_obs (observed memory purity in [0, 1]), NaN if no overlap found
     """
     from eval.metrics import (
-        any_match_em, exact_match, extract_fever_label, fever_accuracy
+        exact_match, extract_cot_answer, extract_fever_label, extract_strategyqa_label,
+        fever_accuracy, rouge_l,
     )
 
     # Build gold answer lookup from purity samples
@@ -234,7 +401,7 @@ def measure_memory_purity(memory_store, purity_samples: List[dict], bm: str, pip
     for s in purity_samples:
         gold_lookup[s["question"].strip().lower()] = s
 
-    # Use the public all_entries() method, not the private _metadata dict
+    # Use the public all_entries() method
     store_entries = memory_store.all_entries()
     correct_in_memory = 0
     checked = 0
@@ -247,14 +414,18 @@ def measure_memory_purity(memory_store, purity_samples: List[dict], bm: str, pip
         sample = gold_lookup[key]
         gold = sample.get("answers", [])
         gold_label = sample.get("gold_label")
-        pred = entry.answer
+        pred = extract_cot_answer(entry.answer)
 
         if bm == "fever":
             pred_label = extract_fever_label(pred)
             ref = gold_label or (gold[0] if gold else "not enough info")
             em = fever_accuracy(pred_label, ref)
         elif bm == "truthfulqa":
-            em = any_match_em(pred, gold)
+            em = float(rouge_l(pred, gold) > 0.15)
+        elif bm == "strategyqa":
+            pred_lbl = extract_strategyqa_label(pred)
+            ref_lbl  = extract_strategyqa_label(gold[0] if gold else "no")
+            em = float(pred_lbl == ref_lbl) if pred_lbl and ref_lbl else 0.0
         else:
             em = exact_match(pred, gold[0] if gold else "")
 
@@ -274,6 +445,7 @@ def run_purity_validation_protocol(
     pipelines_by_cycle: Mapping[int, Any],
     purity_samples: Dict[str, list],
     output_dir: Path,
+    checkpoints_dir: Optional[str] = None,
 ) -> Dict:
     """Run the 5-step purity validation protocol for all cycles.
 
@@ -284,6 +456,8 @@ def run_purity_validation_protocol(
                          At minimum cycle 0 and cycle 3 are required.
     purity_samples     : dict[bm -> list of BenchmarkSample] -- 500-sample set
     output_dir         : Path
+    checkpoints_dir    : str or None -- root dir for cycle checkpoint subdirs,
+                         used by FIX-5 to load memory stores
 
     Returns
     -------
@@ -297,22 +471,26 @@ def run_purity_validation_protocol(
     theory2_alpha_values: Dict[str, List[float]] = {}
 
     for cycle_num, pipeline in sorted(pipelines_by_cycle.items()):
+        # FIX-5: Load memory store for this cycle before measuring P_obs
+        if checkpoints_dir is not None:
+            load_memory_store_for_cycle(pipeline, cycle_num, checkpoints_dir)
+
         for bm, bm_samples in purity_samples.items():
             logger.info("Purity validation: cycle=%d  bm=%s ...", cycle_num, bm)
 
-            # Step 1: Measure p (base accuracy)
+            # Step 1: Measure p (base accuracy, bypassing memory routing)
             p = measure_base_accuracy(pipeline, bm_samples, bm)
 
-            # Step 2: Measure α (verification precision)
-            alpha = measure_verification_precision(pipeline, bm_samples, bm)
+            # Step 2: Measure α (verification balanced accuracy)   [FIX-3, FIX-4]
+            alpha = measure_verification_balanced_accuracy(pipeline, bm_samples, bm)
 
             # Step 3: Compute P_theory
             P_theory = purity_theorem(p, alpha)
 
             # Step 4: Measure P_obs (observed memory purity)
-            P_obs = measure_memory_purity(pipeline.memory_store, bm_samples, bm, pipeline)
+            P_obs = measure_memory_purity(pipeline.memory_store, bm_samples, bm)
 
-            # Step 5: Check condition p > (1 - α)
+            # Step 5: Check condition α > 0.5  [FIX-1]
             condition_holds = check_purity_condition(p, alpha)
 
             row = {
@@ -323,7 +501,8 @@ def run_purity_validation_protocol(
                 "P_theory": round(P_theory, 4),
                 "P_obs": round(P_obs, 4) if not math.isnan(P_obs) else None,
                 "P_obs_minus_p": round(P_obs - p, 4) if not math.isnan(P_obs) else None,
-                "condition_p_gt_1_minus_alpha": condition_holds,
+                # FIX-1: renamed from condition_p_gt_1_minus_alpha
+                "condition_alpha_gt_0_5": condition_holds,
                 "theorem_confirmed": (
                     condition_holds and
                     not math.isnan(P_obs) and
@@ -334,10 +513,10 @@ def run_purity_validation_protocol(
 
             logger.info(
                 "  Theory 1: p=%.4f  α=%.4f  P_theory=%.4f  P_obs=%.4f  "
-                "condition=%s  P_obs>p=%s",
+                "cond(α>0.5)=%s  P_obs>p=%s",
                 p, alpha, P_theory,
                 P_obs if not math.isnan(P_obs) else float("nan"),
-                "OK" if condition_holds else "✗",
+                "OK" if condition_holds else "✗ (α≤0.5, theorem no-guarantee)",
                 "OK" if (not math.isnan(P_obs) and P_obs > p) else "✗",
             )
 
@@ -377,10 +556,10 @@ def run_purity_validation_protocol(
     for bm in purity_samples:
         p_vals = theory2_p_values.get(bm, [])
         if len(p_vals) < 4:
-            logger.warning("Theory 3 (%s): need 4 cycles, got %d.", bm, len(p_vals))
+            logger.warning("Theory 3 (%s): need 4 cycles (0-3), got %d.", bm, len(p_vals))
             continue
         deltas = [p_vals[i + 1] - p_vals[i] for i in range(len(p_vals) - 1)]
-        # Δ(2->3) < Δ(1->2) for convergence
+        # Δ(2->3) < Δ(1->2) confirms converging (diminishing returns)
         converging = deltas[-1] < deltas[-2] if len(deltas) >= 2 else False
         theory3_rows.append({
             "benchmark": bm,
@@ -423,23 +602,25 @@ def _print_theory_tables(results: Dict) -> None:
     # -- Table 1: Purity Theorem --------------------------------------------- #
     print("\nTable T1 -- Data Purity Theorem: P = pα / (pα + (1-p)(1-α))")
     print("CRITICAL: theorem guarantees P > p (base accuracy), NOT P > α (verification)")
+    print("Sufficient condition: α > 0.5  [FIX-1: was p > (1-α), now corrected]")
     print("-" * 80)
     print(f"  {'Cycle':<5} {'BM':<12} {'p':>7} {'α':>7} {'P_theory':>10} "
-          f"{'P_obs':>8} {'P_obs>p':>8} {'Cond':>6} {'OK':>4}")
+          f"{'P_obs':>8} {'P>p':>5} {'α>0.5':>7} {'OK':>4}")
     print("-" * 80)
     for row in results["theory_1_purity_theorem"]:
         pobs_str = f"{row['P_obs']:.4f}" if row.get("P_obs") is not None else "  n/a "
         confirmed = "OK" if row.get("theorem_confirmed") else "✗"
-        cond = "OK" if row.get("condition_p_gt_1_minus_alpha") else "✗"
+        # FIX-1: column renamed from condition_p_gt_1_minus_alpha
+        cond = "OK" if row.get("condition_alpha_gt_0_5") else "✗"
         pobs_gt_p = "OK" if (row.get("P_obs_minus_p") or 0) > 0 else "✗"
         print(
             f"  {row['cycle']:<5} {row['benchmark']:<12} "
             f"{row['p']:>7.4f} {row['alpha']:>7.4f} "
             f"{row['P_theory']:>10.4f} {pobs_str:>8} "
-            f"{pobs_gt_p:>8} {cond:>6} {confirmed:>4}"
+            f"{pobs_gt_p:>5} {cond:>7} {confirmed:>4}"
         )
     print("-" * 80)
-    print("  Cond = p > (1-α) must hold. OK = theorem confirmed.\n")
+    print("  α>0.5 = sufficient condition for P>p. OK = both condition holds AND P_obs>p.\n")
 
     # -- Table 2: Monotonicity ----------------------------------------------- #
     print("Table T2 -- Coupled Improvement Recurrence (Monotonicity)")
@@ -502,9 +683,15 @@ def run_purity_validation(ns: argparse.Namespace) -> None:
         model = T5ForConditionalGeneration.from_pretrained("google/flan-t5-large")
         model = cast(Any, model).to(torch.device(profile.device))
         encoder = QueryEncoder(model_name=config.sbert_model, device=profile.device)
-        pipeline = CAEMPipeline(model=model, tokenizer=tokenizer, encoder=encoder,
-                                config=config, device=profile.device)
+        pipeline = CAEMPipeline(
+            model=model,
+            tokenizer=tokenizer,
+            encoder=encoder,
+            config=config,
+            device=profile.device,
+        )
         pipelines_by_cycle = {0: pipeline}
+        checkpoints_dir = None
     else:
         # Load all cycle pipelines
         import torch
@@ -512,13 +699,37 @@ def run_purity_validation(ns: argparse.Namespace) -> None:
         from caem.config import CAEMConfig
         from caem.memory.encoder import QueryEncoder
         from caem.pipeline import CAEMPipeline
+        from caem.retrieval.rag import PassageStore
         from eval.benchmarks import load_hotpotqa, load_truthfulqa, load_fever, load_strategyqa
 
         config = CAEMConfig()
         tokenizer = AutoTokenizer.from_pretrained("google/flan-t5-large")
 
-        # Load purity validation samples
-        # (first 500 per benchmark -- from dataset_splits.json or reload)
+        nli_model, nli_tokenizer = None, None
+        if not ns.no_nli:
+            try:
+                from transformers import AutoModelForSequenceClassification
+                logger.info("Loading RoBERTa-Large-MNLI for purity verification ...")
+                nli_tokenizer = AutoTokenizer.from_pretrained("roberta-large-mnli")
+                nli_model = AutoModelForSequenceClassification.from_pretrained(
+                    "roberta-large-mnli"
+                ).to(profile.device)
+                nli_model.eval()
+            except Exception as exc:
+                logger.warning("NLI model load failed (%s); continuing without NLI.", exc)
+
+        passage_store = None
+        if not ns.no_rag:
+            passage_index_path = Path(ns.passage_index)
+            if passage_index_path.exists():
+                try:
+                    passage_store = PassageStore.load(str(passage_index_path))
+                except Exception as exc:
+                    logger.warning("Passage store load failed (%s); continuing without RAG.", exc)
+            else:
+                logger.warning("Passage index not found at %s; continuing without RAG.", passage_index_path)
+
+        # Load purity validation samples (500 per benchmark)
         purity_samples = {
             "hotpotqa":   load_hotpotqa(n=500)[:500],
             "truthfulqa": load_truthfulqa(n=500)[:500],
@@ -526,10 +737,12 @@ def run_purity_validation(ns: argparse.Namespace) -> None:
             "strategyqa": load_strategyqa(n=500)[:500],
         }
 
+        checkpoints_dir = ns.checkpoints_dir
+
         # Build a pipeline for each cycle checkpoint
         pipelines_by_cycle = {}
         for cycle_num in range(ns.num_cycles + 1):
-            ckpt_dir = Path(ns.checkpoints_dir) / f"cycle_{cycle_num}"
+            ckpt_dir = Path(checkpoints_dir) / f"cycle_{cycle_num}"
             model_path = ckpt_dir / "model.pt"
 
             model = T5ForConditionalGeneration.from_pretrained("google/flan-t5-large")
@@ -537,7 +750,10 @@ def run_purity_validation(ns: argparse.Namespace) -> None:
                 logger.info("Loading cycle %d weights from %s ...", cycle_num, model_path)
                 model.load_state_dict(torch.load(model_path, map_location="cpu"))
             else:
-                logger.warning("Cycle %d checkpoint not found at %s -- using base weights.", cycle_num, model_path)
+                logger.warning(
+                    "Cycle %d checkpoint not found at %s -- using base weights.",
+                    cycle_num, model_path,
+                )
 
             if profile.use_fp16:
                 model = model.half()
@@ -548,13 +764,22 @@ def run_purity_validation(ns: argparse.Namespace) -> None:
             encoder = QueryEncoder(model_name=config.sbert_model, device=profile.device)
             pipeline = CAEMPipeline(
                 model=model, tokenizer=tokenizer, encoder=encoder,
+                nli_model=nli_model, nli_tokenizer=nli_tokenizer,
+                passage_store=passage_store,
                 config=config, device=profile.device, current_cycle=cycle_num,
             )
+            # FIX-5: memory store is loaded inside run_purity_validation_protocol
+            # just before measuring P_obs for each cycle
             pipelines_by_cycle[cycle_num] = pipeline
             logger.info("Cycle %d pipeline ready.", cycle_num)
 
     # -- Run validation ------------------------------------------------------ #
-    run_purity_validation_protocol(pipelines_by_cycle, purity_samples, output_dir)
+    run_purity_validation_protocol(
+        pipelines_by_cycle,
+        purity_samples,
+        output_dir,
+        checkpoints_dir=checkpoints_dir,
+    )
 
 
 # -----------------------------------------------------------------------------
@@ -567,11 +792,18 @@ def _parse_args() -> argparse.Namespace:
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     p.add_argument("--checkpoints_dir", default="outputs",
-                   help="Root directory containing cycle_{n}/ subdirectories.")
+                   help="Root directory containing cycle_{n}/ subdirectories. "
+                        "Memory checkpoints are expected as memory_store_cycle_{n}.faiss/.meta under this root.")
     p.add_argument("--output_dir", default="outputs/purity_validation",
                    help="Where to save validation results.")
     p.add_argument("--num_cycles", type=int, default=3,
-                   help="Number of self-improvement cycles (0–N).")
+                   help="Number of self-improvement cycles (0-N).")
+    p.add_argument("--passage_index", default="data/passage_index",
+                   help="Path to PassageStore directory (used for Tier-3 RAG during validation).")
+    p.add_argument("--no_nli", action="store_true",
+                   help="Disable loading RoBERTa-MNLI for verification.")
+    p.add_argument("--no_rag", action="store_true",
+                   help="Disable loading passage index for Tier-3 retrieval.")
     p.add_argument("--cycle_results", default="outputs/all_cycle_results.json",
                    help="Path to all_cycle_results.json (for cross-reference).")
     p.add_argument("--smoke_test", action="store_true",
