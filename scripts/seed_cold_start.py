@@ -115,11 +115,9 @@ def load_train_samples(benchmark: str, n: int, seed: int = 0) -> List[dict]:
         split not used in the 817-sample evaluation set. We skip TruthfulQA
         seeding unless the user explicitly enables it.
       - FEVER train (145K samples) -> sample n
-      - StrategyQA: we use the train split for EVALUATION (§benchmarks.py fix),
-        so seed from a held-out portion NOT in the eval split IDs. The eval
-        split uses indices [1000:], so seed from indices [0:n] which are in
-        the purity/calib windows and are fine to use for seeding because they
-        are never used for accuracy evaluation.
+      - StrategyQA: uses a unified eval split with no separate train split. Like
+        TruthfulQA, we skip cold-start seeding entirely to prevent data leakage into
+        the purity validation dataset.
 
     Parameters
     ----------
@@ -194,31 +192,14 @@ def load_train_samples(benchmark: str, n: int, seed: int = 0) -> List[dict]:
 
     elif benchmark == "strategyqa":
         # EXP-08 fix: wics/strategy-qa uses a legacy script, load from GitHub instead.
-        # Seed from indices [0:1000] (the purity/calib window not used for eval).
-        logger.info("Loading StrategyQA seed slice from GitHub JSON (n=%d) ...", n)
-        import json as _json, urllib.request as _ur
-        _SQA_URL = "https://raw.githubusercontent.com/eladsegal/strategyqa/main/data/strategyqa/train.json"
-        with _ur.urlopen(_SQA_URL, timeout=30) as resp:
-            sqa_data = _json.loads(resp.read().decode())
-        samples = []
-        for i, row in enumerate(sqa_data):
-            if i >= 1000:  # only use the purity/calib window
-                break
-            answer_bool = row.get("answer", None)
-            if answer_bool is None:
-                continue
-            gold = "yes" if answer_bool else "no"
-            question_text = row.get("question", "")
-            samples.append({
-                "question":   f"Answer yes or no. Question: {question_text}",
-                "answers":    [gold],
-                "gold_label": gold,
-                "id":         str(row.get("qid", i)) + "_seed",
-                "benchmark":  "strategyqa",
-            })
-        rng = random.Random(seed)
-        rng.shuffle(samples)
-        return samples[:n]
+        # StrategyQA uses a single unified dataset with 2061 samples. Since we already
+        # split these for eval/purity/calib, seeding from it would cause a massive
+        # data leak (Purity Validation would evaluate on seeded data).
+        logger.info(
+            "StrategyQA: no separate training split available -- skipping cold-start seeding "
+            "to prevent data leakage into Purity Validation. Memory starts empty."
+        )
+        return []
 
     else:
         logger.warning("Unknown benchmark '%s' -- skipping.", benchmark)
