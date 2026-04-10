@@ -8,6 +8,61 @@
 % ============================================================
 
 % ---------------------------------------------------------------
+%% ---- Notation ------------------------------------------------
+\section*{Notation}
+\label{sec:notation-ch4}
+\addcontentsline{toc}{section}{Notation}
+
+The following symbols are used consistently throughout this chapter.
+Bold lower-case letters denote vectors; calligraphic upper-case letters
+denote sets or modules; $\theta$ always refers to the language model weights.
+
+\begin{center}
+\renewcommand{\arraystretch}{1.1}
+\scriptsize
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Symbol} & \textbf{Definition} \\
+\midrule
+$q$ & Natural-language query (input to CAEM) \\
+$\phi(q)$ & Sentence-BERT embedding of $q$ \\
+$e^*$ & Nearest episode retrieved from memory $\mathcal{M}$ \\
+$s$ & FAISS cosine similarity between $\phi(q)$ and $\phi(e^*)$ \\
+$r$ & Combined routing score: $r = 0.7\,s + 0.3\,\ustored(e^*)$ \\
+$\upre$ & Pre-generation confidence (encoder-only, Stage~3) \\
+$\Cconv$ & Conversational coherence signal (Stage~3) \\
+$u_{\text{MC-pre}}$ & MC-dropout confidence before generation \\
+$\uhat$ & Post-generation confidence (Tier~2, Stage~4a) \\
+$\ustored$ & Stored quality score assigned at verification (Stage~5) \\
+$c$ & Chain-of-thought reasoning produced by the model \\
+$a$ & Final answer produced by the model \\
+$p$ & RAG-retrieved passage (Tier~3 only) \\
+$\mathcal{M}$ & Episodic memory (FAISS index + metadata store) \\
+$K$ & Number of answer samples for semantic entropy ($K=10$) \\
+$M$ & Number of reasoning chains for NLI/SC layers ($M=3$) \\
+$\theta$ & Language model weights (Phi-2 base) \\
+$\theta_{\text{prev}}$ & Weights before the current self-improvement cycle \\
+$\lambda$ & L2 regularisation coefficient ($\lambda = 0.01$) \\
+$\rho_{\min}$ & Forgetting abort threshold ($\rho_{\min} = 0.93$) \\
+$p_{\text{entail}}$ & Mean NLI entailment probability (verification Layer~1) \\
+$s_{\text{avg}}$ & Mean pairwise chain cosine similarity (Layer~2) \\
+$h_{\text{norm}}$ & Normalised semantic entropy (Layer~3) \\
+$p_n$ & Data purity of memory at cycle $n$ \\
+$\alpha$ & True-positive rate of the verifier \\
+$P$ & Probability query is from the target distribution \\
+$T$ & Temperature parameter for sampling \\
+$\text{ECE}$ & Expected Calibration Error ($M$-bin, $M=10$) \\
+\midrule
+\multicolumn{2}{@{}l}{\textbf{Hyperparameter Origin Tags}} \\
+\midrule
+$[\text{LIT}]$ & Fixed from literature (requires citation) \\
+$[\text{DES}]$ & Design choice (principled starting value, e.g., thresholds) \\
+$[\text{CAL}]$ & Empirically calibrated (derived from calibration data) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+% ---------------------------------------------------------------
 \section{System Architecture Overview}
 \label{sec:architecture-overview}
 % ---------------------------------------------------------------
@@ -32,68 +87,163 @@ learns, not simply to scale it up.
 
 \subsection*{The Eight-Stage Pipeline}
 
-\caem{} processes every query through a fixed eight-stage pipeline.
-The stages are grouped into three functional phases: routing and generation (Stages~1--4a),
-verification and storage (Stages~5--7), and cyclic improvement (Stage~8).
+\caem{} processes every query through a fixed eight-stage pipeline,
+grouped into three functional phases: \textit{routing \& generation} (Stages~1--4a),
+\textit{verification \& storage} (Stages~5--7), and \textit{cyclic improvement} (Stage~8).
 
-\begin{enumerate}[label=\textbf{Stage~\arabic*.}]
-  \item \textbf{Input.} Accept a natural language question $q$.
-  \item \textbf{Encode.} Compute a 768-dimensional SBERT embedding
-        $\phi(q)$ using \texttt{all-mpnet-base-v2} \cite{reimers-gurevych-2019-sentence}.
-        Simultaneously, search the episodic memory for the nearest stored episode
-        and retrieve its similarity score $s$ and stored confidence $\ustored$.
-  \item \textbf{Pre-routing confidence.} Compute lightweight pre-routing confidence
-        $\upre$ from encoder-only signals (Section~\ref{sec:upre}).
-        No generation is performed at this stage.
-  \item \textbf{Route.} Assign the query to one of three tiers based on a routing score
-        and an OR-condition safety override (Section~\ref{sec:routing}).
-  \item[4a.] \textbf{Post-generation gate (Tier~2 only).} After Tier~2 generation,
-        compute post-generation confidence $\uhat$ from four expensive signals.
-        Accept if $\uhat \geq 0.6$; otherwise escalate to Tier~3
-        (Section~\ref{sec:uhat}).
-  \item \textbf{Verify.} Apply the multi-signal verification pipeline
-        (NLI + self-consistency + semantic entropy) to the candidate answer
-        (Section~\ref{sec:verification}).
-        Tier~1 answers are served directly from memory without re-running verification
-        per query; freshness is maintained by retroactive re-verification
-        (Section~\ref{sec:retroverify}).
-  \item \textbf{Output.} Return the verified answer to the user.
-  \item \textbf{Store (if verified).} Compute $\ustored$ from the verification pipeline's
-        outputs and store the episode in episodic memory
-        (Section~\ref{sec:memory}).
-  \item \textbf{Self-improvement (end of cycle).} Fine-tune the model on all verified
-        episodes accumulated in the current cycle (Section~\ref{sec:self-improvement}).
-\end{enumerate}
-
-\subsection*{The Three-Tier Routing Strategy}
-
-The routing architecture is the mechanism by which \caem{} trades computational cost
-against answer quality.
-Table~\ref{tab:tier-summary} summarises the three tiers.
-
-\begin{table}[htbp]
-\centering
-\caption{Three-tier routing summary. Fractions are design targets; actual values are
-reported in Chapter~5 from \texttt{experiment\_summary.csv}.
-Latency figures are engineering estimates; actuals come from \texttt{mean\_latency\_ms}
-in the experiment output.}
-\label{tab:tier-summary}
-\small
-\begin{tabular}{@{}lllll@{}}
+\renewcommand{\arraystretch}{1.45}
+\begin{center}
+\footnotesize
+\begin{tabular}{@{}
+  >{\bfseries}c
+  l
+  >{\itshape}l
+  p{7.8cm}
+@{}}
 \toprule
-\textbf{Tier} & \textbf{Condition} & \textbf{Source} & \textbf{Est.\ latency}
-              & \textbf{Design fraction} \\
+\normalfont\textbf{Stage} & \textbf{Name} & \normalfont\textbf{Phase} & \textbf{Description} \\
 \midrule
-1 & $0.7s + 0.3\ustored \geq 0.90$ & Episodic memory retrieval & $<$400\,ms & $\sim$50\% \\
-2 & $s > 0.75$ \textbf{AND} $\upre \geq 0.6$ \textbf{AND} $r(q,e) < 0.90$ & Fine-tuned model generation & $<$2.5\,s & $\sim$35\% \\
-3 & $s \leq 0.75$ \textbf{OR} $\upre < 0.6$ & RAG + Wikipedia retrieval & $<$6\,s & $\sim$15\% \\
+1   & Input                     & Routing \& Gen.
+    & Accept a natural language question $q$. \\[2pt]
+2   & Encode                    & Routing \& Gen.
+    & Compute SBERT embedding $\phi(q)$ (768-d, \texttt{all-mpnet-base-v2}).
+      Retrieve nearest episode from memory; obtain similarity $s$ and $\ustored$. \\[2pt]
+3   & Pre-routing confidence    & Routing \& Gen.
+    & Compute lightweight $\upre$ from encoder-only signals
+      (Section~\ref{sec:upre}).  No generation at this stage. \\[2pt]
+4   & Route                     & Routing \& Gen.
+    & Assign query to Tier~1, 2, or 3 via routing score and OR-condition
+      safety veto (Section~\ref{sec:routing}). \\[2pt]
+4a  & Post-gen.\ gate           & Routing \& Gen.
+    & \textit{Tier~2 only.} Compute $\uhat$ from four signals;
+      accept if $\uhat \geq 0.6$, else escalate to Tier~3
+      (Section~\ref{sec:uhat}). \\
+\midrule
+5   & Verify                    & Verification \& Storage
+    & Run NLI + self-consistency + semantic entropy pipeline
+      (Section~\ref{sec:verification}).
+      Tier~1 skips per-query re-verification; freshness maintained by
+      retroactive re-verification (Section~\ref{sec:retroverify}). \\[2pt]
+6   & Output                    & Verification \& Storage
+    & Return the verified answer $a$ to the user. \\[2pt]
+7   & Store                     & Verification \& Storage
+    & If accepted, compute $\ustored$ and persist the episode in memory
+      (Section~\ref{sec:memory}). \\
+\midrule
+8   & Self-improve              & Cyclic Improvement
+    & Fine-tune $\theta$ on all verified episodes from the current cycle;
+      apply forgetting abort guard and retroactive re-verification
+      (Section~\ref{sec:self-improvement}). \\
 \bottomrule
 \end{tabular}
-\end{table}
+\captionof{table}{CAEM eight-stage pipeline overview.}
+\label{tab:eight-stage}
+\end{center}
+\renewcommand{\arraystretch}{1}
 
-As Tier~1 memory coverage grows across cycles, the average query latency falls: the system
-becomes computationally cheaper as it becomes more knowledgeable.
-This ``computational dividend'' is reported in Chapter~5~(\S5.6).
+\begin{center}
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[
+    stg/.style={rectangle, draw=#1!70!black, line width=1.8pt, fill=#1!8,
+                text width=3.4cm, align=center, minimum height=2.0cm,
+                rounded corners=6pt, font=\large\bfseries},
+    mem/.style={cylinder, draw=green!60!black, line width=1.8pt,
+               shape border rotate=90, aspect=0.3,
+               minimum height=2.0cm, minimum width=3.6cm,
+               fill=green!8, font=\large\bfseries, align=center},
+    arr/.style={->, >=stealth, line width=2.0pt, #1},
+    darr/.style={->, >=stealth, line width=1.8pt, dashed, #1},
+    lbl/.style={font=\small, inner sep=3pt, fill=white}
+]
+% ---- main spine (left column) ----
+\node[stg=teal]   (s1)  at (0,    0)   {\textbf{S1}\\Input $q$};
+\node[stg=teal]   (s2)  at (0, -4.0)   {\textbf{S2}\\Encode\\{\normalsize SBERT 768-d}};
+\node[stg=teal]   (s3)  at (0, -8.0)   {\textbf{S3}\\Pre-conf.\\{\normalsize $\upre$}};
+\node[stg=teal]   (s4)  at (0,-12.0)   {\textbf{S4}\\Route};
+% ---- memory store ----
+\node[mem]        (mem) at (5.2, -4.0)  {Memory\\$K\!=\!20K$};
+% ---- three routing branches ----
+\node[stg=green]  (t1)  at (7.2, -8.0)  {\textbf{Tier~1}\\Retrieve\\{\normalsize $r\!\geq\!0.90$}};
+\node[stg=orange] (t2)  at (7.2,-12.0)  {\textbf{Tier~2}\\Generate\\{\normalsize $s\!>\!0.75$}};
+\node[stg=orange] (s4a) at (7.2,-16.0)  {\textbf{S4a}\\Conf.\ gate\\{\normalsize $\uhat\!\geq\!0.6$?}};
+\node[stg=red]    (t3)  at (7.2,-20.0)  {\textbf{Tier~3}\\RAG\\{\normalsize $s\!\leq\!0.75$}};
+% ---- verify + output ----
+\node[stg=teal]   (s5)  at (14.0,-16.0) {\textbf{S5}\\Verify\\{\normalsize NLI+SC+SE}};
+\node[stg=teal]   (s6)  at (14.0,-20.0) {\textbf{S6}\\Output $a$};
+% ---- store + self-improve ----
+\node[mem]        (s7)  at (7.2,-24.0)  {\textbf{S7}\\Store\\{\normalsize $\ustored$}};
+\node[stg=purple] (s8)  at (0, -24.0)   {\textbf{S8}\\Self-improve\\{\normalsize end-of-cycle}};
+% ---- spine arrows ----
+\draw[arr=teal!70]   (s1) -- (s2);
+\draw[arr=teal!70]   (s2) -- (s3);
+\draw[arr=teal!70]   (s3) -- (s4);
+\draw[darr=teal!60]  (s2) -- node[above, lbl] {search} (mem);
+\draw[darr=green!60] (mem) -- node[right, lbl] {$\ustored$} (t1);
+% ---- routing branches ----
+\draw[arr=green!60!black] (s4) to[out=30,in=-150]
+    node[above, lbl] {$r\!\geq\!0.90$} (t1);
+\draw[arr=orange!70] (s4) --
+    node[above, lbl] {$s\!>\!0.75$} (t2);
+\draw[arr=red!60!black] (s4) to[out=-30,in=150]
+    node[below, lbl] {$s\!\leq\!0.75$ / low $\upre$} (t3);
+% ---- Tier 1: direct to output (arc over S5) ----
+\draw[arr=green!60!black] (t1) to[out=0,in=120]
+    node[above, lbl, pos=0.35] {direct (skip S5)} (s6);
+% ---- Tier 2 path ----
+\draw[arr=orange!70]   (t2)  -- (s4a);
+\draw[arr=orange!70]   (s4a) -- node[above, lbl] {pass} (s5);
+\draw[darr=red!50]     (s4a) -- node[right, lbl] {escalate} (t3);
+% ---- Tier 3 to Stage 5 ----
+\draw[arr=red!60!black] (t3) -- node[above, lbl] {} (s5);
+% ---- S5 → S6 → S7 → S8 ----
+\draw[arr=teal!70]    (s5) -- (s6);
+\draw[darr=purple!70] (s6) to[out=-135,in=0]
+    node[above, lbl, pos=0.55] {if verified} (s7);
+\draw[darr=purple!70] (s7) --
+    node[above, lbl] {train data} (s8);
+% ---- feedback loop S8 → S2 ----
+\draw[darr=purple!70, rounded corners=8pt] (s8.west) -- ++(-3.0,0) |- 
+    node[pos=0.25, left, lbl] {updated $\theta$} (s2.west);
+\end{tikzpicture}
+}%
+\captionof{figure}{CAEM eight-stage pipeline with three-tier routing.}
+\label{fig:arch-ch4}
+\end{center}
+
+\par\vspace{4pt}
+\noindent\rule{\linewidth}{0.8pt}\nopagebreak
+\captionof{algorithm}{CAEM per-query processing pipeline (Stages~1--7).}
+\label{alg:master-pipeline}
+\par\noindent\rule{\linewidth}{0.4pt}\nopagebreak
+\begin{algorithmic}[1]
+\Require{Query $q$, episodic memory $\mathcal{M}$, model $\theta$, config $\mathcal{C}$}
+\Ensure{Answer $a$, updated $\mathcal{M}$}
+\StatePar{$\phi(q) \leftarrow \textsc{SBERT}(q)$;\quad $(e^*,\,s) \leftarrow \textsc{FAISSSearch}(\mathcal{M},\,\phi(q))$ \Comment{Stages 1--2}}
+\StatePar{$\upre \leftarrow 0.60\,u_{\text{token}}(q) + 0.40\,u_{\text{cconv}}(q)$ \Comment{Stage 3}}
+\If{$\upre < \mathcal{C}.\texttt{safety\_u\_pre\_min}$} \Comment{OR-condition: force Tier~3}
+  \StatePar{$(c,\,a) \leftarrow \textsc{RAGGenerate}(q)$;\quad $\text{tier} \leftarrow 3$}
+\ElsIf{$0.7\,s + 0.3\,\ustored(e^*) \geq 0.90$} \Comment{Tier~1: retrieve from memory}
+  \StatePar{\Return $(e^*.\texttt{answer},\;\mathcal{M})$ \Comment{Stages 4a and 5 skipped}}
+\ElsIf{$s > 0.75$} \Comment{Tier~2: generate with CoT}
+  \StatePar{$(c,\,a) \leftarrow \theta(q,\;\text{CoT prompt})$}
+  \StatePar{$\uhat \leftarrow \textsc{PostGenConf}(q,\,c,\,a)$ \Comment{Stage 4a; Eq.~\ref{eq:uhat}}}
+  \If{$\uhat < 0.60$} \Comment{Escalate to Tier~3}
+    \StatePar{$(c,\,a) \leftarrow \textsc{RAGGenerate}(q)$;\quad $\text{tier} \leftarrow 3$}
+  \Else
+    \StatePar{$\text{tier} \leftarrow 2$}
+  \EndIf
+\Else \Comment{Tier~3: similarity too low}
+  \StatePar{$(c,\,a) \leftarrow \textsc{RAGGenerate}(q)$;\quad $\text{tier} \leftarrow 3$}
+\EndIf
+\StatePar{$(\mathit{accept},\,\ustored) \leftarrow \textsc{Verify}(q,\,c,\,a)$ \Comment{Stage 5; Alg.~\ref{alg:verification}}}
+\StatePar{Output $a$ to user \Comment{Stage 6}}
+\If{$\mathit{accept}$}
+  \StatePar{$\mathcal{M}.\textsc{Store}(q,\,c,\,a,\,\phi(q),\,\ustored)$ \Comment{Stage 7: persist verified episode}}
+\EndIf
+\end{algorithmic}
+\par\noindent\rule{\linewidth}{0.4pt}
+\vspace{4pt}
+
 
 \subsection*{Continual Learning Positioning}
 
@@ -106,7 +256,7 @@ Catastrophic forgetting therefore manifests as degradation of general-domain lan
 capabilities, not as forgetting a prior task.
 The L2 regularisation mechanism in Stage~8 (Section~\ref{sec:self-improvement}) addresses
 this by penalising large deviations from the previous cycle's weights.
-The complete architecture is illustrated in Figure~\ref{fig:architecture} (Chapter~1).
+Chapter~1 provides a higher-level overview of the same architecture (Figure~\ref{fig:architecture}).
 
 % ---------------------------------------------------------------
 \section{Confidence Estimation and Adaptive Routing}
@@ -128,14 +278,10 @@ They must not be confused:
         Used in Tier~1 routing score and pruning priority.
 \end{itemize}
 
-These three values are summarised in Table~\ref{tab:three-confidences}.
+These three values are summarised in Table~\ref{tab:three-confidences}; their signal
+composition diagrams appear in Figure~\ref{fig:confidence-arch} at the end of this section.
 
-\begin{table}[htbp]
-\centering
-\caption{Three confidence values in \caem{}, ordered by pipeline stage.
-$\ustored$ is derived from the verification pipeline, not from $\uhat$; this is critical
-because Tier~3 episodes never produce $\uhat$ yet still require $\ustored$
-for Tier~1 routing.}
+\begin{center}
 \label{tab:three-confidences}
 \small
 \begin{tabular}{@{}p{1.6cm}p{2.2cm}p{3.2cm}p{2.4cm}p{2.0cm}@{}}
@@ -147,7 +293,8 @@ $\uhat$ & 4a (post-gen, Tier~2 only) & $\sum w_i \cdot s_i$ (4 signals) & Accept
 $\ustored$ & 7 (at storage) & $0.5\,p_{\text{entail}} + 0.3\,s_{\text{avg}} + 0.2(1{-}h_{\text{norm}})$ & Tier~1 routing; pruning & Zero at query time \\
 \bottomrule
 \end{tabular}
-\end{table}
+\captionof{table}{Three confidence values used in CAEM.}
+\end{center}
 
 \subsection{Pre-Routing Confidence Estimation}
 \label{sec:upre}
@@ -193,6 +340,31 @@ representational stability.
 \subsection{Three-Tier Adaptive Routing}
 \label{sec:routing}
 
+The routing architecture is the mechanism by which \caem{} trades computational cost
+against answer quality.
+Table~\ref{tab:tier-summary} summarises the three tiers.
+
+\begin{center}
+\footnotesize
+\begin{tabular}{@{}l p{4.2cm} p{3.6cm} ll@{}}
+\toprule
+\textbf{Tier} & \textbf{Condition} & \textbf{Source} & \textbf{Est.\ latency} & \textbf{Fraction} \\
+\midrule
+1 & $0.7s + 0.3\ustored \geq 0.90$ & Episodic memory retrieval & $<$400\,ms & $\sim$50\% \\
+2 & $s > 0.75$ \textbf{AND} $\upre \geq 0.6$ \newline \textbf{AND} $r(q,e) < 0.90$ & Fine-tuned model \newline generation & $<$2.5\,s & $\sim$35\% \\
+3 & $s \leq 0.75$ \textbf{OR} $\upre < 0.6$ & RAG + Wikipedia \newline retrieval & $<$6\,s & $\sim$15\% \\
+\bottomrule
+\end{tabular}
+\captionof{table}{Three-tier routing summary.}
+\label{tab:tier-summary}
+\end{center}
+
+
+As Tier~1 memory coverage grows across cycles, the average query latency falls: the system
+becomes computationally cheaper as it becomes more knowledgeable.
+This ``computational dividend'' is reported in Chapter~5~(5.6).
+
+
 The routing decision applies two mechanisms sequentially.
 They are deliberately separated and do not interact mathematically.
 
@@ -225,6 +397,29 @@ The routing decision is:
       r(q,e) < 0.90\;\text{AND}\; s > 0.75\;\text{AND}\; \upre \geq 0.6 \quad &\Rightarrow \quad \text{Tier~2: generate} \label{eq:tier2} \\
   s \leq 0.75 \;\text{OR}\; \upre < 0.6 \quad &\Rightarrow \quad \text{Tier~3: RAG} \label{eq:tier3}
 \end{align}
+
+The decision process is formally defined as pseudocode in Algorithm~\ref{alg:routing}.\par\vspace{4pt}
+\noindent\rule{\linewidth}{0.8pt}\nopagebreak
+\captionof{algorithm}{Three-tier routing decision.}
+\label{alg:routing}
+\par\noindent\rule{\linewidth}{0.4pt}\nopagebreak
+\begin{algorithmic}[1]
+\Require{Pre-routing confidence $\upre$; nearest episode $e^*$ with sim $s$ and $\ustored(e^*)$}
+\Ensure{Routing decision $\in \{\text{Tier~1},\;\text{Tier~2},\;\text{Tier~3}\}$}
+\If{$\upre < 0.60$}
+  \StatePar{\Return Tier~3 \Comment{OR-condition: safety override, checked first}}
+\EndIf
+\StatePar{$r \leftarrow 0.7\,s + 0.3\,\ustored(e^*)$ \Comment{routing score}}
+\If{$r \geq 0.90$}
+  \StatePar{\Return Tier~1 \Comment{$\texttt{tier1\_combined\_threshold}$}}
+\ElsIf{$s > 0.75$}
+  \StatePar{\Return Tier~2 \Comment{$\texttt{tier2\_similarity\_threshold}$}}
+\Else
+  \StatePar{\Return Tier~3}
+\EndIf
+\end{algorithmic}
+\par\noindent\rule{\linewidth}{0.4pt}
+\vspace{4pt}
 
 \noindent\textbf{Hyperparameter provenance.}
 The routing score weights (0.7/0.3) are design choices [DES]: similarity dominates because
@@ -291,18 +486,14 @@ to converge towards $\approx 0.20/0.20/0.20/0.40$, with semantic entropy receivi
 weight based on its superior AUROC for confabulation detection (AUROC $\approx 0.79$,
 Farquhar et al.\ 2024).
 \emph{The 0.20/0.20/0.20/0.40 values are planning projections, not pre-set values.}
-Actual calibrated weights are reported in Chapter~5 from
-\texttt{calibration/calibrated\_config.json}.
+Actual calibrated weights are reported in Chapter~5's calibration results.
 If $\uhat < 0.6$, the Tier~2 answer is discarded and the query is escalated to Tier~3.
 
 \noindent\textbf{Each signal catches a distinct failure mode.}
 No single signal is sufficient for reliable hallucination detection.
 Table~\ref{tab:blind-spots} shows the failure mode each signal addresses and its blind spot.
 
-\begin{table}[htbp]
-\centering
-\caption{Signal coverage and blind spots. Each signal addresses a distinct hallucination
-failure mode; their combination provides complementary coverage.}
+\begin{center}
 \label{tab:blind-spots}
 \small
 \begin{tabular}{@{}p{2.3cm}p{3.5cm}p{4.5cm}@{}}
@@ -315,7 +506,74 @@ $u_{\text{consistency}}$ & Reasoning instability; multiple incoherent chains & C
 $u_{\text{entropy}}$ (SE) & Systematic misconceptions; confabulation & Diverse but partially correct answers (may over-penalise) \\
 \bottomrule
 \end{tabular}
-\end{table}
+\captionof{table}{Verification signal coverage and blind spots.}
+\end{center}
+
+Figure~\ref{fig:confidence-arch} summarises the signal architecture for both
+$\upre$ and $\uhat$; having introduced both estimates in the preceding
+subsections, the two-panel layout can now be read as a unified reference.
+
+\begin{center}
+\resizebox{0.65\textwidth}{!}{%
+\begin{tikzpicture}[
+    sig/.style={rectangle, draw=#1!70!black, fill=#1!10, line width=1.2pt,
+                text width=2.8cm, align=center, minimum height=1.1cm,
+                rounded corners=3pt, font=\scriptsize\bfseries},
+    comboA/.style={rectangle, draw=teal!80!black, fill=teal!8, line width=1.4pt,
+                  text width=7.0cm, align=center, minimum height=1.1cm,
+                  rounded corners=4pt, font=\small},
+    arr/.style={->, >=stealth, line width=1.4pt, #1},
+    lbl/.style={font=\scriptsize, fill=white, inner sep=2pt}
+]
+%% ---- PANEL A: u_pre ----
+\node[font=\large\bfseries] (la) at (0, 0.6)
+    {(a)~Pre-routing confidence $\upre$ (Stage~3)};
+\node[sig=teal] (cconv)  at (-2.5, -1.2)  {$\Cconv$\\conv.\ uncertainty};
+\node[sig=teal] (umcpre) at ( 2.5, -1.2)  {$u_{\text{MC-pre}}$\\MC Dropout\\(encoder only)};
+\node[comboA]   (upre)   at (0, -3.2)
+    {$\upre = 0.60\,\Cconv + 0.40\,u_{\text{MC-pre}}$};
+\draw[arr=teal!70] (cconv.south)  -- node[left,  lbl, xshift=-1mm] {$w\!=\!0.60$} (upre.145);
+\draw[arr=teal!70] (umcpre.south) -- node[right, lbl, xshift=1mm] {$w\!=\!0.40$} (upre.35);
+\draw[gray!40, dashed, line width=0.8pt, rounded corners=5pt]
+    (-5.0, -4.2) rectangle (5.0, 0.0);
+\end{tikzpicture}%
+}
+
+\par\vspace{1.5em}
+
+\resizebox{0.85\textwidth}{!}{%
+\begin{tikzpicture}[
+    sig/.style={rectangle, draw=#1!70!black, fill=#1!10, line width=1.2pt,
+                text width=2.8cm, align=center, minimum height=1.1cm,
+                rounded corners=3pt, font=\scriptsize\bfseries},
+    comboB/.style={rectangle, draw=orange!80!black, fill=orange!8, line width=1.4pt,
+                   text width=10.0cm, align=center, minimum height=1.2cm,
+                   rounded corners=4pt, font=\small},
+    arr/.style={->, >=stealth, line width=1.4pt, #1},
+    lbl/.style={font=\scriptsize, fill=white, inner sep=2pt}
+]
+%% ---- PANEL B: u_hat ----
+\node[font=\large\bfseries] (lb) at (0, 0.6)
+    {(b)~Post-generation confidence $\uhat$ (Stage~4a, Tier~2 only)};
+\node[sig=orange] (utok)  at (-4.8, -1.2)  {$u_{\text{token}}$\\token log-prob};
+\node[sig=orange] (udrop) at (-1.6, -1.2)  {$u_{\text{dropout}}$\\MC Dropout\\(full model)};
+\node[sig=orange] (ucon)  at ( 1.6, -1.2)  {$u_{\text{consistency}}$\\SC samples\\$M\!=\!3$};
+\node[sig=orange] (uent)  at ( 4.8, -1.2)  {$u_{\text{entropy}}$\\Sem.\ Entropy\\$K\!=\!10$};
+\node[comboB]     (uhat)  at (0, -3.4)
+    {$\uhat = w_1\,u_{\text{token}} + w_2\,u_{\text{dropout}}
+            + w_3\,u_{\text{consistency}} + w_4\,u_{\text{entropy}}$\\[6pt]
+     {\footnotesize Initial $w_i\!=\!0.25$;\; calibrated after Cycle~0 (Section~\ref{sec:calibration})}};
+\draw[arr=orange!70] (utok.south)  -- (uhat.160);
+\draw[arr=orange!70] (udrop.south) -- (uhat.115);
+\draw[arr=orange!70] (ucon.south)  -- (uhat.65);
+\draw[arr=orange!70] (uent.south)  -- (uhat.20);
+\draw[gray!40, dashed, line width=0.8pt, rounded corners=5pt]
+    (-6.5, -4.8) rectangle (6.5, 0.0);
+\end{tikzpicture}%
+}
+\captionof{figure}{Confidence signal architecture: $\upre$ (Stage~3) and $\uhat$ (Stage~4a).}
+\label{fig:confidence-arch}
+\end{center}
 
 % ---------------------------------------------------------------
 \section{Verification Pipeline and Episodic Memory}
@@ -357,7 +615,7 @@ score in Equation~\ref{eq:ustored}.
 After Session~30 Fix~A, Tier~2 and Tier~3 generation uses task-aware prompts that
 produce structured reasoning traces for all four benchmarks.
 For classification benchmarks (FEVER, StrategyQA), the generated output has the form
-``Reasoning: \textit{<explanation>}$\backslash$nAnswer: \textit{<label>}''.
+\mbox{``\texttt{Reasoning: <explanation>}''} followed by \mbox{``\texttt{Answer: <label>}''}.
 At evaluation time, dedicated extraction functions (\texttt{extract\_fever\_label()} and
 \texttt{extract\_strategyqa\_label()}) use regular-expression matching to parse the label
 from the rationale-style output before scoring.
@@ -396,18 +654,44 @@ This captures \emph{confident confabulation} --- the most harmful failure mode.
 Low-confidence or verification-rejected wrong answers do not satisfy this condition;
 the metric focuses on wrong answers that remain high-confidence after the storage-quality gate.
 
+The verification pipeline is formally defined as pseudocode in Algorithm~\ref{alg:verification}.\par\vspace{4pt}
+\noindent\rule{\linewidth}{0.8pt}\nopagebreak
+\captionof{algorithm}{Multi-signal verification pipeline (Stage~5)}
+\label{alg:verification}
+\par\noindent\rule{\linewidth}{0.4pt}\nopagebreak
+\begin{algorithmic}[1]
+\Require{Query $q$, reasoning chain $c$, answer $a$}
+\Ensure{$(\mathit{accept} \in \{\mathrm{T},\mathrm{F}\},\;\ustored \in [0,1])$}
+\Statex \textit{--- Layer 1: NLI Entailment ---}
+\StatePar{Sample $M\!=\!3$ chains $\{c_j\}$ at temperature $T\!=\!0.7$}
+\For{each chain $c_j$}
+  \StatePar{$p_j \leftarrow \textsc{RoBERTa\text{-}MNLI}(c_j \Rightarrow a)$}
+\EndFor
+\StatePar{$p_{\text{entail}} \leftarrow \tfrac{1}{M}\sum_j p_j$}
+\Statex \textit{--- Layer 2: Self-Consistency ---}
+\StatePar{$s_{\text{avg}} \leftarrow$ mean pairwise cosine similarity of $\{c_j\}$ \Comment{reuse chains from Layer~1}}
+\Statex \textit{--- Layer 3: Semantic Entropy ---}
+\StatePar{Sample $K\!=\!10$ answers $\{a_k\}$ at $T\!=\!1.0$}
+\StatePar{Cluster $\{a_k\}$ by NLI-based semantic equivalence (agglomerative)}
+\StatePar{$h_{\text{norm}} \leftarrow H_{\text{SE}}/\log_2 K$,\quad $H_{\text{SE}} = -\sum_c P(c)\log P(c)$}
+\Statex \textit{--- Combine and Gate ---}
+\StatePar{$\ustored \leftarrow 0.5\,p_{\text{entail}} + 0.3\,s_{\text{avg}} + 0.2\,(1-h_{\text{norm}})$ \Comment{Eq.~\ref{eq:ustored}}}
+\If{$\ustored \geq 0.50$}
+  \StatePar{\Return $(\mathrm{True},\;\ustored)$}
+\Else
+  \StatePar{\Return $(\mathrm{False},\;\ustored)$}
+\EndIf
+\end{algorithmic}
+\par\noindent\rule{\linewidth}{0.4pt}
+\vspace{4pt}
+
 \subsection{Episodic Memory Architecture}
 \label{sec:memory}
 
 Each stored episode is a structured record with two classes of fields:
 \emph{immutable} content fields and \emph{mutable} quality fields.
 
-\begin{table}[htbp]
-\centering
-\caption{Episode schema. Content fields are immutable after storage to ensure the
-fine-tuning dataset is derived from a stable, auditable set of verified answers.
-Quality fields are updated across cycles by retroactive re-verification and retrieval
-feedback.}
+\begin{center}
 \label{tab:episode-schema}
 \small
 \begin{tabular}{@{}llp{5.5cm}@{}}
@@ -432,7 +716,8 @@ feedback.}
 \texttt{retroverified} & bool & Whether re-scored by retroactive re-verification \\
 \bottomrule
 \end{tabular}
-\end{table}
+\captionof{table}{Episodic memory episode schema.}
+\end{center}
 
 \noindent\textbf{Why content fields are immutable.}
 The fine-tuning dataset for Stage~8 is derived directly from stored reasoning chains.
@@ -470,6 +755,67 @@ distinct hallucination failure modes that a single score cannot separate;
 providing an inference-time dividend that ReST does not offer; and
 (3) retroactive re-verification propagates model improvements backwards into memory quality.
 
+The four-cycle structure is illustrated in Figure~\ref{fig:self-improvement-cycles}.
+
+\begin{center}
+\resizebox{0.88\textwidth}{!}{%
+\begin{tikzpicture}[
+    cyc/.style={rectangle, draw=#1!70!black, fill=#1!8, line width=1.5pt,
+                text width=3.2cm, align=center, minimum height=1.5cm,
+                rounded corners=6pt, font=\small\bfseries},
+    act/.style={rectangle, draw=gray!50, fill=gray!5, line width=1.0pt,
+                text width=2.8cm, align=center, minimum height=1.0cm,
+                rounded corners=3pt, font=\scriptsize},
+    arr/.style={->, >=stealth, line width=1.6pt, #1},
+    lbl/.style={font=\scriptsize, fill=white, inner sep=2pt}
+]
+%% Four cycle nodes
+\node[cyc=teal]   (c0) at (0,   0)   {\textbf{Cycle~0}\\Base model $\theta_0$\\+\,calibration};
+\node[cyc=orange] (c1) at (6.5, 0)   {\textbf{Cycle~1}\\Fine-tuned $\theta_1$\\+\,retroverify};
+\node[cyc=orange] (c2) at (6.5,-5.5) {\textbf{Cycle~2}\\Fine-tuned $\theta_2$\\+\,retroverify};
+\node[cyc=green]  (c3) at (0,  -5.5) {\textbf{Cycle~3}\\Fine-tuned $\theta_3$\\(final weights)};
+
+%% Activity annotations
+\node[act] (inf)  at (3.25, 1.8)   {Query processing\\(Alg.~\ref{alg:master-pipeline})};
+\node[act] (ft)   at (9.2, -2.75)  {Stage~8 fine-tune\\(Alg.~\ref{alg:stage8})\\$\mathcal{L}_{\text{CE}}+L_2$};
+\node[act] (rver) at (3.25,-7.3)   {Retroactive\\re-verification\\(Alg.~\ref{alg:retroverify})};
+\node[act] (cal)  at (-3.6, 0)     {Calibration\\(Cycle~0 only)\\temperature $T$};
+
+%% Cycle arrows
+\draw[arr=teal!70]         (c0) -- node[above, lbl] {verified episodes} (c1);
+\draw[arr=orange!70]       (c1) -- node[left, lbl] {verified episodes} (c2);
+\draw[arr=orange!70]       (c2) -- node[below, lbl] {verified episodes} (c3);
+
+%% The green dashed return arrow (final weights)
+%% Goes from c3 up to c0, bulging left
+\draw[arr=green!60!black, dashed]
+    (c3.north west) to[bend left=25] 
+    node[left, lbl, align=right] {final $\theta_3$\\(inference)} 
+    (c0.south west);
+
+%% The purple purity theorem arrow
+%% Goes from c0 down to c3, bulging slightly right (inside the box)
+\draw[->, >=stealth, line width=2pt, purple!70]
+    (c0.south) to[bend left=15]
+    node[right, font=\scriptsize\bfseries, text=purple!70, align=left, xshift=1mm] 
+        {$P_n$ increases\\(Thm.~\ref{thm:monotone})}
+    (c3.north);
+
+%% Activity connectors (light dashed)
+\draw[->, >=stealth, dashed, gray!50, line width=0.9pt] (inf)  -- (c0.north east);
+\draw[->, >=stealth, dashed, gray!50, line width=0.9pt] (inf)  -- (c1.north west);
+\draw[->, >=stealth, dashed, gray!50, line width=0.9pt] (ft)   -- (c1.south east);
+\draw[->, >=stealth, dashed, gray!50, line width=0.9pt] (ft)   -- (c2.north east);
+\draw[->, >=stealth, dashed, gray!50, line width=0.9pt] (rver) -- (c2.south west);
+\draw[->, >=stealth, dashed, gray!50, line width=0.9pt] (rver) -- (c3.south east);
+\draw[->, >=stealth, dashed, gray!50, line width=0.9pt] (cal)  -- (c0.west);
+
+\end{tikzpicture}
+}%
+\captionof{figure}{CAEM self-improvement cycle structure (C0--C3). Calibration runs once after Cycle~0 (Section~\ref{sec:calibration}). Retroactive re-verification refreshes memory quality scores at cycle end. Memory purity $P_n$ increases monotonically across cycles (Theorem~\ref{thm:monotone}, \S\ref{sec:monotonicity}). The dashed return arrow indicates the final $\theta_3$ weights used for inference.}
+\label{fig:self-improvement-cycles}
+\end{center}
+
 \noindent\textbf{Training objective.}
 The fine-tuning objective trains on the full reasoning chain:
 \begin{equation}
@@ -487,13 +833,11 @@ All four benchmarks use structured generation prompts that ensure \texttt{reason
 always contains genuine reasoning content:
 \begin{itemize}
   \item \textbf{Open-ended} (HotpotQA, TruthfulQA):
-        ``\texttt{Question: \{q\}\textbackslash nThink step by step:\textbackslash nAnswer:}''
+        \begin{quote}\ttfamily Question: \{q\}\\ Think step by step:\\ Answer:\end{quote}
   \item \textbf{Classification} (FEVER):
-        ``\texttt{Determine whether the claim [supports/refutes/not enough info].\textbackslash n
-        Format: Reasoning: <explanation>\textbackslash nAnswer: <label>}''
+        \begin{quote}\ttfamily Determine whether the claim [supports/refutes/not enough info].\\ Format: Reasoning: <explanation>\\ Answer: <label>\end{quote}
   \item \textbf{Classification} (StrategyQA):
-        ``\texttt{Answer with reasoning.\textbackslash n
-        Format: Reasoning: <explanation>\textbackslash nAnswer: yes|no}''
+        \begin{quote}\ttfamily Answer with reasoning.\\ Format: Reasoning: <explanation>\\ Answer: yes|no\end{quote}
 \end{itemize}
 
 \noindent\textbf{Stability-plasticity tradeoff.}
@@ -533,53 +877,35 @@ If $\rho < 0.93$ (relative retention ratio falls below 93\%), fine-tuning weight
 that cycle are discarded and $\theta_{\text{prev}}$ is restored.
 This hard safety net operates independently of $\lambda$ calibration.
 
-\begin{figure}[htbp]
-\centering
-\small
-\fbox{%
-\begin{minipage}{0.92\textwidth}
-\textbf{Algorithm 4.1:} CAEM Cyclic Self-Improvement (Stage~8)\\[4pt]
-\textbf{Input:} Verified episode set $\mathcal{D}_{\text{verified}}$; general QA pool $\mathcal{D}_{\text{general}}$;
-weights $\theta_{\text{prev}}$;
-$\lambda = 0.01$; retention threshold $\rho_{\min} = 0.93$ \\
-\textbf{Output:} Updated weights $\theta$ (or $\theta_{\text{prev}}$ if forgetting check fails)\\[4pt]
-\begin{enumerate}[leftmargin=2em, label=\arabic{*}.]
-  \item Split $\mathcal{D}_{\text{general}}$ into training and held-out sets:
-        $\mathcal{D}_{\text{gen-train}},\mathcal{D}_{\text{gen-eval}}$
-  \item Build mixed training set
-        $\mathcal{D}_{\text{train}} = \textsc{Mix}(\mathcal{D}_{\text{verified}},\mathcal{D}_{\text{gen-train}}; 90\%/10\%)$
-  \item Compute pre-training retention baseline:
-        $A_{\text{pre}} \leftarrow \textsc{Evaluate}(\theta_{\text{prev}}, \mathcal{D}_{\text{gen-eval}})$
-  \item Initialise $\theta \leftarrow \theta_{\text{prev}}$
-  \item \textbf{For each} epoch in fine-tuning schedule \textbf{do}
-  \begin{enumerate}[leftmargin=2em, label=5.\arabic{*}.]
-      \item \textbf{For each} batch $(q, c, a) \in \mathcal{D}_{\text{train}}$ \textbf{do}
-    \begin{enumerate}[leftmargin=2em, label=5.1.\arabic{*}.]
-      \item Compute $\mathcal{L} \leftarrow -\log P_\theta(c, a \mid q)
-                + \tfrac{\lambda}{2}\|\theta - \theta_{\text{prev}}\|^2$
-      \item Update $\theta$ via AdamW gradient descent on $\mathcal{L}$;
-            clip gradient norm to $1.0$
-    \end{enumerate}
-  \end{enumerate}
-  \item Compute post-training retention score:
-        $A_{\text{post}} \leftarrow \textsc{Evaluate}(\theta, \mathcal{D}_{\text{gen-eval}})$
-  \item \textbf{If} $A_{\text{post}} / A_{\text{pre}} < \rho_{\min}$ \textbf{then}
-  \begin{enumerate}[leftmargin=2em, label=7.\arabic{*}.]
-    \item \textbf{Abort:} restore $\theta \leftarrow \theta_{\text{prev}}$
-          \hfill\textit{(catastrophic forgetting detected)}
-  \end{enumerate}
-  \item \textbf{Else}
-  \begin{enumerate}[leftmargin=2em, label=8.\arabic{*}.]
-    \item \textbf{Accept:} set $\theta_{\text{prev}} \leftarrow \theta$
-  \end{enumerate}
-  \item \textbf{Return} $\theta$
-\end{enumerate}
-\end{minipage}%
-}
-\caption{Stage~8 cyclic self-improvement procedure. The forgetting abort guard
-(steps~7--8) provides a hard safety net independent of $\lambda$ calibration.}
+\par\vspace{4pt}
+\noindent\rule{\linewidth}{0.8pt}\nopagebreak
+\captionof{algorithm}{CAEM cyclic self-improvement (Stage~8).}
 \label{alg:stage8}
-\end{figure}
+\par\noindent\rule{\linewidth}{0.4pt}\nopagebreak
+\begin{algorithmic}[1]
+\Require{Verified episode set $\mathcal{D}_{\text{verified}}$; general QA pool $\mathcal{D}_{\text{general}}$; $\theta_{\text{prev}}$; $\lambda = 0.01$; $\rho_{\min} = 0.93$}
+\Ensure{Updated weights $\theta$ (or $\theta_{\text{prev}}$ if forgetting abort fires)}
+\StatePar{Split $\mathcal{D}_{\text{general}}$ into $\mathcal{D}_{\text{gen-train}}$ and held-out $\mathcal{D}_{\text{gen-eval}}$}
+\StatePar{$\mathcal{D}_{\text{train}} \leftarrow \textsc{Mix}(\mathcal{D}_{\text{verified}},\,\mathcal{D}_{\text{gen-train}};\;90\%/10\%)$}
+\StatePar{$A_{\text{pre}} \leftarrow \textsc{Evaluate}(\theta_{\text{prev}},\,\mathcal{D}_{\text{gen-eval}})$ \Comment{pre-tuning retention baseline}}
+\StatePar{$\theta \leftarrow \theta_{\text{prev}}$}
+\For{each epoch in fine-tuning schedule}
+  \For{each batch $(q,\,c,\,a) \in \mathcal{D}_{\text{train}}$}
+    \StatePar{$\mathcal{L} \leftarrow -\log P_\theta(c,\,a \mid q)
+            + \tfrac{\lambda}{2}\|\theta - \theta_{\text{prev}}\|^2$}
+    \StatePar{Update $\theta$ via AdamW on $\mathcal{L}$;\quad clip gradient norm to $1.0$}
+  \EndFor
+\EndFor
+\StatePar{$A_{\text{post}} \leftarrow \textsc{Evaluate}(\theta,\,\mathcal{D}_{\text{gen-eval}})$ \Comment{post-tuning retention}}
+\If{$A_{\text{post}} / A_{\text{pre}} < \rho_{\min}$} \Comment{catastrophic forgetting}
+  \StatePar{\Return $\theta_{\text{prev}}$ \Comment{abort: restore previous cycle's weights}}
+\Else
+  \StatePar{$\theta_{\text{prev}} \leftarrow \theta$}
+  \StatePar{\Return $\theta$}
+\EndIf
+\end{algorithmic}
+\par\noindent\rule{\linewidth}{0.4pt}
+\vspace{4pt}
 
 \subsection{Retroactive Re-verification}
 \label{sec:retroverify}
@@ -602,6 +928,30 @@ a consequence of Theorem~\ref{thm:monotone} (Chapter~4,~\S\ref{sec:monotonicity}
 Tier~1 quality assurance is therefore maintained without per-query re-verification cost.
 The retroactive batch adds one verification pass per cycle (not per query),
 which is substantially cheaper than running Stage~5 at every Tier~1 retrieval.
+Algorithm~\ref{alg:retroverify} formalises the procedure.
+
+\par\vspace{4pt}
+\noindent\rule{\linewidth}{0.8pt}\nopagebreak
+\captionof{algorithm}{Retroactive re-verification (end of cycle).}
+\label{alg:retroverify}
+\par\noindent\rule{\linewidth}{0.4pt}\nopagebreak
+\begin{algorithmic}[1]
+\Require{Memory $\mathcal{M}$; updated model $\theta$; eviction threshold $\tau = 0.50$}
+\Ensure{Updated $\mathcal{M}$ with refreshed quality scores}
+\For{each episode $e \in \mathcal{M}$}
+  \StatePar{$(\mathit{ok},\,\ustored') \leftarrow \textsc{Verify}(\theta,\;
+         e.\texttt{question},\;e.\texttt{reasoning\_chain},\;e.\texttt{answer})$}
+  \If{$\ustored' < \tau$}
+    \StatePar{Remove $e$ from $\mathcal{M}$ \Comment{quality eviction}}
+  \Else
+    \StatePar{$e.\texttt{u\_stored} \leftarrow \ustored'$;\quad
+           $e.\texttt{retroverified} \leftarrow \mathrm{True}$}
+  \EndIf
+\EndFor
+\StatePar{\Return $\mathcal{M}$}
+\end{algorithmic}
+\par\noindent\rule{\linewidth}{0.4pt}
+\vspace{4pt}
 
 \subsection{Confidence Calibration}
 \label{sec:calibration}
@@ -621,6 +971,16 @@ a 500-sample held-out calibration set using L-BFGS:
   \label{eq:temp-scaling}
 \end{equation}
 where $z$ is the logit vector and $T > 1$ softens the distribution (reduces overconfidence).
+ECE is formally defined as:
+\begin{equation}
+  \mathrm{ECE} = \sum_{b=1}^{M} \frac{|B_b|}{N}
+    \bigl|\,\mathrm{acc}(B_b) - \mathrm{conf}(B_b)\bigr|
+  \label{eq:ece}
+\end{equation}
+where $M=10$ bins, $B_b$ is the set of predictions with confidence in bin~$b$,
+$\mathrm{acc}(B_b)$ is the fraction correct in that bin, and
+$\mathrm{conf}(B_b)$ is the mean predicted confidence.
+A perfectly calibrated model has $\mathrm{ECE}=0$.
 Temperature scaling is the most parameter-efficient calibration method and achieves
 competitive ECE reduction without degrading accuracy \cite{pmlr-v70-guo17a}.
 
@@ -641,8 +1001,7 @@ for theory validation in Chapter~5.
 
 \noindent\textbf{Reported values.}
 The fitted $T$ value and the actual calibrated signal weights are reported in Chapter~5
-(\S5.1.3) from \texttt{calibration/calibrated\_config.json}, which is generated by
-\texttt{scripts/run\_calibration.py} after the full experiment completes.
+(\S5.1.3), generated through the automated calibration suite after the full experiment completes.
 The 0.20/0.20/0.20/0.40 projection appearing in this chapter is a planning estimate only;
 Chapter~5 reports the actual measurements.
 
@@ -663,8 +1022,7 @@ monotone but bounded by a practical ceiling.
 
 All statements in this section use symbolic variables only. Actual empirical values
 (measured $p$, $\alpha$, and $P_{\text{obs}}$ from the experiment) appear in
-Section~\ref{sec:theory-validation} of Chapter~5, sourced from
-\texttt{outputs/purity\_validation/theory\_validation.json}.
+Chapter~5, within the theory-validation results.
 
 % -------------------------------------------------------------------
 \subsection{Notation and Definitions}
@@ -742,12 +1100,12 @@ which establishes \eqref{eq:purity}.
 \textit{Proving $P > p \Leftrightarrow \alpha > \frac{1}{2}$.}
 Starting from $P > p$ with $p \in (0, 1)$ and the denominator of \eqref{eq:purity} positive:
 \begin{align}
-\frac{\alpha p}{\alpha p + (1-\alpha)(1-p)} &> p \notag \\
+\qquad \frac{\alpha p}{\alpha p + (1-\alpha)(1-p)} &> p \notag \\
 \alpha p &> p \bigl[\alpha p + (1-\alpha)(1-p)\bigr] \notag \\
 \alpha   &> \alpha p + (1-\alpha)(1-p)   \tag{dividing by $p > 0$} \\
 \alpha   &> \alpha p + 1 - \alpha - p + \alpha p \notag \\
 2\alpha  &> 2\alpha p + 1 - p \notag \\
-2\alpha(1-p) &> 1 - p. \notag
+\qquad 2\alpha(1-p) &> 1 - p. \notag
 \end{align}
 Since $p < 1$, we have $(1-p) > 0$ and may divide both sides by $(1-p)$:
 \begin{equation}
@@ -771,7 +1129,7 @@ P = \frac{0.70 \times 0.85}{0.70 \times 0.85 + 0.30 \times 0.15}
 \]
 The stored memory is 92.9\% correct, compared to the model's 70\% base accuracy.
 \textbf{These numbers are illustrative only.} Actual measured values replace them in
-Chapter~5 (Section~\ref{sec:theory-validation}).
+Chapter~5 in the theory-validation results subsection.
 \end{remark}
 
 % -------------------------------------------------------------------
@@ -832,8 +1190,8 @@ The following hold:
 \begin{enumerate}[label=(\alph*)]
     \item $\Delta P > 0$ if and only if $\alpha > \frac{1}{2}$ (from Theorem~\ref{thm:purity}).
     \item $\Delta P \to 0$ as $p \to 1$ (diminishing returns as accuracy approaches 1).
-    \item $\Delta P$ is maximised at $p = p^* = \frac{1}{2}$ with maximum value
-          $\Delta P^* = \dfrac{2\alpha - 1}{4}$.
+    \item $\Delta P$ is maximised at $p = p^* = \frac{\sqrt{\alpha(1-\alpha)} - (1-\alpha)}{2\alpha - 1}$ with maximum value
+          $\Delta P^* = \dfrac{1 - 2\sqrt{\alpha(1-\alpha)}}{2\alpha - 1}$.
     \item The sequence $\{p_t\}$ is monotonically non-decreasing and bounded above by 1;
           hence it converges.
 \end{enumerate}
@@ -845,13 +1203,15 @@ The following hold:
 \textit{Part (b).} As $p \to 1$, the numerator $p(1-p)(2\alpha - 1) \to 0$ while
 the denominator $\to \alpha > 0$. Therefore $\Delta P \to 0$.
 
-\textit{Part (c).} Setting $\partial(\Delta P)/\partial p = 0$ and solving yields $p^* = \frac{1}{2}$
-(by symmetry of the numerator, which is maximised at $p = \frac{1}{2}$). At $p = \frac{1}{2}$:
+\textit{Part (c).} Setting $\partial(\Delta P)/\partial p = 0$ leads to the quadratic equation 
+$(2\alpha - 1)p^2 + 2(1-\alpha)p - (1-\alpha) = 0$.
+Solving for $p \in (0, 1)$ yields:
 \[
-\Delta P^* = \frac{\tfrac{1}{2} \cdot \tfrac{1}{2} \cdot (2\alpha-1)}
-                  {\alpha \cdot \tfrac{1}{2} + (1-\alpha) \cdot \tfrac{1}{2}}
-           = \frac{\tfrac{1}{4}(2\alpha-1)}{\tfrac{1}{2}}
-           = \frac{2\alpha - 1}{4}.
+p^* = \frac{\sqrt{\alpha(1-\alpha)} - (1-\alpha)}{2\alpha - 1}.
+\]
+Substituting $p^*$ back into the expression for $\Delta P$ simplifies to the exact maximum value:
+\[
+\Delta P^* = \frac{1 - 2\sqrt{\alpha(1-\alpha)}}{2\alpha - 1}.
 \]
 
 \textit{Part (d).} $\{p_t\}$ is non-decreasing by Theorem~\ref{thm:monotone} and bounded
@@ -867,17 +1227,13 @@ The practical ceiling is jointly determined by the base model's capacity ($p$) a
 verification pipeline's accuracy ($\alpha$): even a perfect verifier ($\alpha = 1$) cannot
 improve accuracy beyond what the model can generate given its parameters. Empirically, the
 signal that the system is approaching its ceiling is diminishing improvement magnitude between
-consecutive cycles --- confirmed in Chapter~5 (Section~\ref{sec:convergence-results}) by
+consecutive cycles --- confirmed in Chapter~5 by
 comparing $\Delta_{\text{avg}}$ from Cycle~1$\to$2 against Cycle~2$\to$3.
 \end{remark}
 
 \begin{remark}[Practical significance for a 3-cycle experiment]
 \label{rem:3cycle}
-Theorem~\ref{thm:convergence}(c) shows that the maximum per-cycle purity gain is
-$(2\alpha - 1)/4$. For $\alpha = 0.85$, this gives $\Delta P^* = 0.175$. The gain decreases
-for $p$ above or below 0.5. For a model starting at $p_0 \approx 0.60$ (above 0.5 but not
-near 1), the first cycle captures the largest gain, with subsequent cycles capturing
-progressively smaller gains. Three cycles therefore provide a practical approximation of the
-converging trajectory, capturing the dominant improvement while staying within the
-computational budget.
+Theorem~\ref{thm:convergence}(c) shows that the maximum per-cycle purity gain occurs at a specific accuracy $p^* < 0.5$.
+For $\alpha = 0.85$, the maximum gain is $\Delta P^* \approx 0.408$, which occurs exactly at $p^* \approx 0.296$.
+For a model starting with a base accuracy of $p_0 \approx 0.60$, the system operates to the right of the peak ($p_0 > p^*$). In this region, $\Delta P$ is strictly monotonically decreasing as $p$ approaches 1. Therefore, the first cycle captures the largest gain, with subsequent cycles capturing progressively smaller gains as accuracy improves. Three cycles therefore provide a practical approximation of the converging trajectory, capturing the dominant improvement while staying within the computational budget.
 \end{remark}

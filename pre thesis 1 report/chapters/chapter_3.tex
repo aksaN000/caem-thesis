@@ -1,39 +1,67 @@
 % Chapter 3 — Requirements, Impacts and Constraints
 %
 % (Standalone-safety) If this chapter is compiled directly, keep natbib-style
-% citation commands from erroring.
+% citation commands from erroring, and define CAEM macros.
 \providecommand{\citet}{\textcite}
 \providecommand{\citep}{\parencite}
+\providecommand{\caem}{CAEM}
+\providecommand{\upre}{u_{\text{pre}}}
+\providecommand{\uhat}{\hat{u}}
+\providecommand{\ustored}{\hat{u}_{\text{stored}}}
+\providecommand{\Cconv}{C_{\text{conv}}}
 
-\section{System Requirements}
-
-This chapter specifies the requirements for CAEM (Confidence-Aware Episodic Memory with
-Self-Improvement), documents the hardware constraints that directly shaped each design
-decision, analyses the system's broader societal and ethical impact, and outlines the
-project management plan used to deliver the research within the available timeline and
-resources.
+% ---------------------------------------------------------------
+% Chapter preamble — appears before §3.1
+% ---------------------------------------------------------------
+This chapter specifies the requirements for \caem{} (Confidence-Aware Episodic Memory
+with Self-Improvement), documents the hardware constraints that directly shaped each
+design decision, analyses the system's broader societal and ethical impact, and outlines
+the project management plan used to deliver the research within the available timeline
+and resources.
 
 The requirements presented here follow directly from the three architectural problems
-identified in Chapter 1 --- stateless operation, poor confidence calibration, and the
+identified in Chapter~1 --- stateless operation, poor confidence calibration, and the
 absence of self-improvement --- and from the eight processing stages described in the
-methodology overview. Every functional requirement corresponds to exactly one pipeline
-stage. Every non-functional requirement maps to a measurable threshold that determines
-whether the system has succeeded.
+methodology overview.
+Every functional requirement corresponds to exactly one pipeline stage.
+Every non-functional requirement maps to a measurable threshold that determines whether
+the system has succeeded.
+
+% -------------------------------------------------------------------
+\section{System Requirements}
+\label{sec:requirements}
+% -------------------------------------------------------------------
 
 % -------------------------------------------------------------------
 \subsection{Functional Requirements}
+\label{sec:functional-requirements}
 % -------------------------------------------------------------------
 
 The CAEM pipeline processes a query through eight sequential stages. Each stage constitutes
 a functional requirement of the system. Table~\ref{tab:functional-requirements} summarises
 all eight requirements. The following paragraphs elaborate on their design intent.
 
-\begin{table}[htbp]
-\centering
-\caption[Functional Requirements]{CAEM functional requirements derived from the
-eight-stage pipeline architecture.}
+\textbf{FR-01} and \textbf{FR-02} impose a strict ordering constraint: pre-routing
+confidence must be estimated from the query alone, before any generation occurs.
+
+This is a deliberate design decision that avoids the cost of generating an answer only
+to discard it at the routing stage.
+
+\textbf{FR-03} introduces the OR-condition safety veto as a hard constraint separate
+from the routing score formula. A dangerously low $\upre$ signals that the model does
+not understand the query well enough to trust any memory match, regardless of how
+similar the retrieved episode appears. Combining these two mechanisms into a single
+formula would allow a high-quality memory match to arithmetically mask an untrustworthy
+model state --- the OR-condition prevents this.
+
+\textbf{FR-05} establishes an asymmetric acceptance gate: the $\uhat$ threshold of
+0.60 is set to preserve recall (avoid rejecting correct answers too early) while still
+escalating uncertain Tier-2 outputs to Tier 3. Stage 5 then computes the independent
+stored-confidence signal $\ustored$ and applies the storage gate.
+\begin{center}
 \label{tab:functional-requirements}
-\renewcommand{\arraystretch}{1.25}
+\renewcommand{\arraystretch}{1.15}
+\footnotesize
 \begin{tabular}{@{}p{0.8cm} p{3.2cm} p{8.5cm}@{}}
 \toprule
 \textbf{FR} & \textbf{Stage} & \textbf{Requirement} \\
@@ -78,24 +106,10 @@ FR-08 & Self-improvement (Stage 8) &
   held-out general-domain retention ratio (post/pre) drops below 0.93. \\
 \bottomrule
 \end{tabular}
-\end{table}
+\captionof{table}[Functional Requirements]{CAEM functional requirements derived from the
+eight-stage pipeline architecture.}
+\end{center}
 
-\textbf{FR-01} and \textbf{FR-02} impose a strict ordering constraint: pre-routing
-confidence must be estimated from the query alone, before any generation occurs.
-This is a deliberate design decision that avoids the cost of generating an answer only
-to discard it at the routing stage.
-
-\textbf{FR-03} introduces the OR-condition safety veto as a hard constraint separate
-from the routing score formula. A dangerously low $\upre$ signals that the model does
-not understand the query well enough to trust any memory match, regardless of how
-similar the retrieved episode appears. Combining these two mechanisms into a single
-formula would allow a high-quality memory match to arithmetically mask an untrustworthy
-model state --- the OR-condition prevents this.
-
-\textbf{FR-05} establishes an asymmetric acceptance gate: the $\uhat$ threshold of
-0.60 is set to preserve recall (avoid rejecting correct answers too early) while still
-escalating uncertain Tier-2 outputs to Tier 3. Stage 5 then computes the independent
-stored-confidence signal $\ustored$ and applies the storage gate.
 
 \textbf{FR-08} introduces a forgetting circuit-breaker. Unlike naive continual
 learning approaches, which have been shown to produce 30--50\% degradation of prior
@@ -108,6 +122,7 @@ benchmarks never come at the cost of general language competence.
 
 % -------------------------------------------------------------------
 \subsection{Non-Functional Requirements}
+\label{sec:nfr}
 % -------------------------------------------------------------------
 
 Non-functional requirements constrain \emph{how} the system meets its functional
@@ -115,9 +130,8 @@ obligations. The targets in Table~\ref{tab:nfr} are derived from three sources: 
 thesis's computational budget, theoretical conditions of the data purity theorem, and
 the system's intended deployment context.
 
-\begin{table}[htbp]
-\centering
-\caption[Non-Functional Requirements]{CAEM non-functional requirements with targets,
+\begin{center}
+\captionof{table}[Non-Functional Requirements]{CAEM non-functional requirements with targets,
 sources, and measurement methods.}
 \label{tab:nfr}
 \renewcommand{\arraystretch}{1.3}
@@ -159,7 +173,7 @@ Embedding dimension &
   Verified at initialisation \\
 \bottomrule
 \end{tabular}
-\end{table}
+\end{center}
 
 The latency targets define the three tiers as a performance spectrum rather than
 an arbitrary categorisation. Tier 1 must be fast enough to represent a meaningful
@@ -182,6 +196,7 @@ this a hard safety constraint rather than a best-effort target.
 
 % -------------------------------------------------------------------
 \subsection{Hardware Constraints as Design Drivers}
+\label{sec:hw-constraints}
 % -------------------------------------------------------------------
 
 The hardware available for this research --- an NVIDIA RTX 3060 with 12\,GB VRAM and
@@ -193,9 +208,8 @@ reduction is achievable within real-world resource limits, not in spite of them.
 Table~\ref{tab:hw-constraints} documents each constraint and the design decision it
 forced.
 
-\begin{table}[htbp]
-\centering
-\caption[Hardware Constraints and Design Decisions]{How each hardware constraint
+\begin{center}
+\captionof{table}[Hardware Constraints and Design Decisions]{How each hardware constraint
 produced a specific CAEM design decision.}
 \label{tab:hw-constraints}
 \renewcommand{\arraystretch}{1.3}
@@ -224,7 +238,7 @@ Memory store capacity &
   mechanism that activates at 95\% capacity. \\
 \bottomrule
 \end{tabular}
-\end{table}
+\end{center}
 
 The RTX 3060's 12\,GB VRAM also prevents loading the NLI model (RoBERTa-Large-MNLI,
 355M parameters) and the main model (Flan-T5-Large, 780M parameters) simultaneously
@@ -234,18 +248,24 @@ at the system level rather than a runtime workaround.
 
 These constraints are a research contribution in themselves. Much of the existing
 self-improvement literature assumes access to multi-GPU clusters or 70B-scale models.
-CAEM demonstrates a complete verified self-improvement loop under single-GPU, 12\,GB
+\caem{} demonstrates a complete verified self-improvement loop under single-GPU, 12\,GB
 constraints, making the approach reproducible at institutions without dedicated
 AI infrastructure. If the full experiment is later rerun on a higher-capacity device
-(e.g.\ RTX 4090 or A100), Chapter 5 will report latency numbers from that device; the
+(e.g.\ RTX 4090 or A100), Chapter~5 will report latency numbers from that device; the
 architectural decisions above remain unchanged regardless.
+
+With the functional, non-functional, and hardware requirements established, the next
+section turns to the broader question of impact: the societal value the system can
+deliver, the risks it introduces, and the boundaries within which its claims hold.
 
 % ===================================================================
 \section{Societal and Ethical Impact}
+\label{sec:impact}
 % ===================================================================
 
 % -------------------------------------------------------------------
 \subsection{Potential Benefits and Societal Value}
+\label{sec:benefits}
 % -------------------------------------------------------------------
 
 The primary societal benefit of CAEM is reducing the rate at which factually incorrect
@@ -277,6 +297,7 @@ from purely generative systems.
 
 % -------------------------------------------------------------------
 \subsection{Risks and Ethical Considerations}
+\label{sec:risks-ethics}
 % -------------------------------------------------------------------
 
 CAEM introduces several risks that must be acknowledged alongside its benefits.
@@ -317,6 +338,7 @@ not that it is verified against a trusted external ground truth.
 
 % -------------------------------------------------------------------
 \subsection{Scope and Deployment Limitations}
+\label{sec:scope-limits}
 % -------------------------------------------------------------------
 
 This research is an undergraduate thesis project and its claims are correspondingly
@@ -331,21 +353,72 @@ model-generated content, and all training data is either pre-existing (Flan-T5's
 original training) or generated by the model itself. No personally identifiable
 information is collected or processed.
 
+With the impact and risk analysis complete, the final section describes how the research
+is managed to deliver these components within the available time and resource constraints.
+
 % ===================================================================
 \section{Project Management}
+\label{sec:project-management}
 % ===================================================================
 
 % -------------------------------------------------------------------
 \subsection{Phases and Timeline}
+\label{sec:timeline}
 % -------------------------------------------------------------------
 
-The research was structured into four sequential phases, each with defined deliverables
-and dependencies. Table~\ref{tab:timeline} presents the planned allocation across a
-twelve-month period.
+The research is structured into four sequential phases, each with defined deliverables
+and gate conditions that must pass before the subsequent phase begins.
+Figure~\ref{fig:timeline} gives a visual overview of the four-phase progression;
+Table~\ref{tab:timeline} details the deliverables for each phase.
 
-\begin{table}[htbp]
-\centering
-\caption[Project Timeline]{Phase-based project plan with deliverables and dependencies.}
+\begin{center}
+\begin{tikzpicture}[
+    phase/.style={rectangle, rounded corners=4pt, draw=black!60, fill=#1,
+                  minimum width=2.4cm, minimum height=1.1cm,
+                  text width=2.2cm, align=center, font=\small\bfseries},
+    gate/.style={diamond, draw=black!50, fill=yellow!20, aspect=1.8,
+                 inner sep=1pt, font=\tiny, align=center},
+    arr/.style={->, >=stealth, line width=1.1pt, black!60},
+    sub/.style={font=\scriptsize, text=black!70, align=center, text width=2.4cm}
+]
+% Phase boxes
+\node[phase=blue!15]   (p1) at (0,   0) {Phase 1\\Months 1--3};
+\node[phase=teal!20]   (p2) at (3.6, 0) {Phase 2\\Months 4--7};
+\node[phase=orange!20] (p3) at (7.2, 0) {Phase 3\\Months 8--10};
+\node[phase=red!15]    (p4) at (10.8,0) {Phase 4\\Months 11--12};
+
+% Gate diamonds
+\node[gate] (g1) at (1.8,  0) {smoke\\test};
+\node[gate] (g2) at (5.4,  0) {mini-\\run};
+\node[gate] (g3) at (9.0,  0) {full\\exp.};
+
+% Arrows
+\draw[arr] (p1) -- (g1);
+\draw[arr] (g1) -- (p2);
+\draw[arr] (p2) -- (g2);
+\draw[arr] (g2) -- (p3);
+\draw[arr] (p3) -- (g3);
+\draw[arr] (g3) -- (p4);
+
+% Annotations below
+\node[sub] at (0,   -1.0) {Design \&\\Literature};
+\node[sub] at (3.6, -1.0) {Implementation\\(critical path)};
+\node[sub] at (7.2, -1.0) {Experiments\\\& Ablation};
+\node[sub] at (10.8,-1.0) {Writing \&\\Submission};
+\end{tikzpicture}
+\captionof{figure}{Four-phase project timeline. Each diamond represents a gate condition
+(smoke test, mini-run validation, and full-scale experiment completion respectively)
+that must pass before the next phase begins. Phase~2 is the critical path: the
+full-scale experiment cannot start until all eight pipeline stages run end-to-end
+without failures.}
+\label{fig:timeline}
+\end{center}
+
+The twelve-month allocation across phases and the deliverables for each gate are
+described in Table~\ref{tab:timeline}.
+
+\begin{center}
+\captionof{table}[Project Timeline]{Phase-based project plan with deliverables and dependencies.}
 \label{tab:timeline}
 \renewcommand{\arraystretch}{1.3}
 \begin{tabular}{@{}p{0.6cm} p{2.3cm} p{2.3cm} p{7.0cm}@{}}
@@ -376,7 +449,7 @@ twelve-month period.
   Chapter writing (Ch.\ 3--6). Final corrections. Thesis submission. \\
 \bottomrule
 \end{tabular}
-\end{table}
+\end{center}
 
 Phase 2 is the critical path. The full-scale experiment (Phase 3) cannot begin until
 all eight pipeline stages pass the smoke test with no exception-raising failures.
@@ -384,14 +457,14 @@ Chapter 5 similarly cannot be written until Phase 3 is complete.
 
 % -------------------------------------------------------------------
 \subsection{Risk Register}
+\label{sec:risk-register}
 % -------------------------------------------------------------------
 
 Table~\ref{tab:risks} identifies the four highest-impact risks to the project timeline
 and documents the contingency action for each.
 
-\begin{table}[htbp]
-\centering
-\caption[Risk Register]{Key project risks, likelihood, and mitigation actions.}
+\begin{center}
+\captionof{table}[Risk Register]{Key project risks, likelihood, and mitigation actions.}
 \label{tab:risks}
 \renewcommand{\arraystretch}{1.3}
 \begin{tabular}{@{}p{3.8cm} p{1.4cm} p{1.4cm} p{6.0cm}@{}}
@@ -422,10 +495,11 @@ Full-scale GPU device unavailable in Phase 3 &
   if available before submission. \\
 \bottomrule
 \end{tabular}
-\end{table}
+\end{center}
 
 % -------------------------------------------------------------------
 \subsection{Development Methodology}
+\label{sec:dev-methodology}
 % -------------------------------------------------------------------
 
 The implementation follows a test-driven development approach. Each pipeline stage is
@@ -434,7 +508,7 @@ common failure modes (e.g.\ empty memory store, NLI model unavailable, FAISS ind
 built). At the time of writing, 96 unit tests and 3 prompt sanity tests pass with no
 failures across the complete pipeline codebase.
 
-Configuration management uses a centralised \texttt{CAEMConfig} dataclass (\texttt{caem/config.py})
+Configuration management uses a centralised \texttt{CAEMConfig} dataclass
 from which all numeric constants are drawn. No magic numbers appear in pipeline code.
 Every hyperparameter is annotated with its category (literature-fixed, design choice,
 or empirically calibrated) and its source, enabling full traceability from thesis claim
@@ -443,4 +517,25 @@ to implementation constant.
 Version control and reproducibility are maintained throughout. The implementation log
 (\texttt{caem-implementation-log.md}) records every resolved bug, design revision, and
 experimental result chronologically, providing a complete record of decisions made
-between Chapters 2 and 5.
+between Chapters~2 and 5.
+
+% -------------------------------------------------------------------
+% Chapter summary
+% -------------------------------------------------------------------
+\bigskip
+\noindent
+This chapter has established the complete specification boundary for \caem{}.
+Section~\ref{sec:requirements} grounded eight functional requirements in the pipeline
+stages and bounded performance through measurable non-functional targets; the hardware
+subsection showed that real resource constraints drove specific architectural choices
+rather than limiting the design arbitrarily.
+Section~\ref{sec:impact} framed the societal value of the work and documented the
+risks --- particularly false positive storage and miscalibrated confidence --- that
+experimental evaluation in Chapter~5 must address.
+Section~\ref{sec:project-management} defined the gated four-phase delivery plan and
+the test-driven development practice that keeps implementation and specification
+aligned throughout.
+Chapter~4 now translates these requirements into the full technical methodology:
+the mathematical formalisation of each pipeline stage, the confidence estimation
+equations, the verification protocol, and the theoretical analysis of the
+self-improvement dynamics.

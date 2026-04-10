@@ -566,6 +566,79 @@ These entries identify gaps between the current thesis and conference-submission
 
 ---
 
+## Visual Element Placement Convention (applies to ALL 6 chapters)
+
+> **Standing rule — set in Session 33, applies to all future chapter work.**
+
+### Where to place figures, algorithms, and tables
+
+**All visual elements (figures, algorithms, tables) are inline floating environments — NOT hyperlinks, NOT appendix-only, NOT separate sections.**
+
+The correct LaTeX pattern is:
+
+```latex
+% In prose: "... as shown in Figure~\ref{fig:routing-flowchart} ..."
+% Then immediately after the paragraph that introduces it:
+\begin{figure}[htbp]
+  \centering
+  ...
+  \caption{...}
+  \label{fig:routing-flowchart}
+\end{figure}
+```
+
+LaTeX's `[htbp]` specifier tries placement in order: **h**ere → **t**op of page → **b**ottom of page → separate **p**age. This floats the figure close to where it is introduced without manual intervention.
+
+**Rule: Place the `\begin{figure}` or boxed algorithm block immediately after the paragraph that first describes its content.** Never put a figure before the paragraph that explains it.
+
+### Cross-referencing across chapters
+
+- Always define `\label{fig:...}` or `\label{alg:...}` inside the float
+- Reference from any chapter with `Figure~\ref{fig:arch-ch4}` or `Algorithm~\ref{alg:routing}`
+- When referencing a figure from another chapter, add "(Chapter~N)" after the reference: `Figure~\ref{fig:arch-ch4} (Chapter~4)`
+- **Do NOT use appendix hyperlinks or "see Appendix" cross-references for core methodology figures.** Appendices are for supplementary material (implementation details, scaling notes, raw tables).
+
+### Chapter 5 pending figures (data-dependent)
+
+For figures that cannot be drawn until experimental data arrives:
+1. Write the `\label{fig:xxx}` definition in a placeholder comment block in the `.tex` file
+2. Use `\ref{fig:xxx}` in the prose **now** — it will compile with `??` until the figure is added
+3. Use a `% [PLACEHOLDER: FIG-C5-XX — insert after full_experiment data]` comment to mark the gap
+4. When data arrives, drop the figure float into the gap and the reference resolves automatically
+
+Example placeholder pattern:
+```latex
+Figure~\ref{fig:accuracy-by-cycle} shows accuracy across cycles for all benchmarks.
+% [PLACEHOLDER: FIG-C5-01 — grouped bar chart from experiment_summary.csv]
+% \begin{figure}[htbp] ... \label{fig:accuracy-by-cycle} ... \end{figure}
+```
+
+### Algorithm typesetting convention
+
+Chapter 4 established the boxed-figure algorithm style (no external `algorithm` package needed):
+
+```latex
+\begin{figure}[htbp]
+\centering
+\small
+\fbox{\begin{minipage}{0.92\textwidth}
+\textbf{Algorithm N.M:} Title\\[4pt]
+\textbf{Input:} ...\\
+\textbf{Output:} ...\\[4pt]
+\begin{enumerate}[leftmargin=2em, label=\arabic{*}.]
+  \item Step 1 \hfill \textit{[comment]}
+  ...
+\end{enumerate}
+\end{minipage}}
+\caption{...}
+\label{alg:name}
+\end{figure}
+```
+
+**Use this pattern for all algorithm blocks in Chapters 4–6.** The `enumitem` package is already loaded in `main.tex`. Do NOT add `\usepackage{algorithm}` — it is not needed and may conflict.
+
+---
+
 ## Visual & Formal Elements
 
 **This section specifies every non-prose element required in each chapter.** For each element: what it is, what it must show, which source file or implementation module to use, which writing-suggestions entries it satisfies, and what implementation-vs-plan discrepancies to watch for.
