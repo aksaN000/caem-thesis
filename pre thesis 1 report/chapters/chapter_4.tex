@@ -601,8 +601,13 @@ The average pairwise cosine similarity $s_{\text{avg}}$ measures agreement acros
 High consistency is a necessary (though not sufficient) signal of reliable generation.
 
 \noindent\textbf{Layer~3 --- Semantic Entropy (SE).}
-Semantic entropy $H_{\text{SE}}$ is computed from $K=10$ samples \cite{farquhar2024semantic}
-using agglomerative clustering with NLI-based equivalence.
+Semantic entropy $H_{\text{SE}}$ is computed by unconditionally generating $K=10$ diverse 
+candidate answers at elevated temperature ($T=1.0$) \cite{farquhar2024semantic}. 
+These candidates are grouped into semantic equivalence classes using the NLI model. 
+Specifically, agglomerative clustering is applied where two answers are placed in the same 
+cluster $G_c$ if and only if they demonstrate bidirectional entailment. 
+The probability of each cluster is defined proportionally, $p_c = |G_c| / K$, allowing 
+entropy to be computed across distinct meanings as $H_{\text{SE}} = -\strut\smash{\sum_c p_c \log p_c}$.
 A high-entropy output distribution indicates that the model is generating diverse meanings ---
 the hallmark of confabulation rather than genuine uncertainty about phrasing.
 
