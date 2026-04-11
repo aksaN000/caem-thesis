@@ -1,4 +1,4 @@
-"""
+﻿"""
 caem/retrieval/rag.py
 ======================
 Tier 3 RAG -- Stage 6 of the CAEM pipeline.
@@ -72,9 +72,12 @@ logger = logging.getLogger(__name__)
 class PassageStore:
     """Read-only FAISS index over a Wikipedia passage corpus.
 
-    Each passage is a ~100-word chunk from Wikipedia (DPR-style split,
-    Karpukhin et al. 2020). Embeddings are N-dim SBERT vectors, L2-normalised,
-    stored in a flat inner-product index (cosine similarity via dot product).
+        Each passage is a ~100-word chunk from Wikipedia (DPR-style split,
+        Karpukhin et al. 2020). Embeddings are N-dim SBERT vectors, L2-normalised.
+
+        Index backend is configurable via CAEMConfig.rag_index_type:
+            - "ivf_pq" (plan default): scalable ANN retrieval for large corpora.
+            - "flat_ip": exact cosine search, useful for tiny debug corpora.
 
     Parameters
     ----------
@@ -111,14 +114,77 @@ class PassageStore:
             )
 
         self.passages = passages
+        emb_f32 = np.ascontiguousarray(embeddings.astype(np.float32))
 
-        # Inner-product index -- cosine similarity because embeddings are
-        # L2-normalised (same design as EpisodicMemoryStore).
-        self._index = faiss.IndexFlatIP(self._dim)
-        # FAISS SWIG stubs expose low-level signatures; runtime supports add(x).
-        cast(Any, self._index).add(embeddings.astype(np.float32))
+        index_type = str(getattr(self.config, "rag_index_type", "ivf_pq")).lower()
+        if index_type == "ivf_pq":
+            requested_nlist = int(getattr(self.config, "rag_faiss_nlist", 65_536))
+            nprobe = int(getattr(self.config, "rag_faiss_nprobe", 64))
+            pq_m = int(getattr(self.config, "rag_faiss_pq_m", 64))
+            pq_nbits = int(getattr(self.config, "rag_faiss_pq_nbits", 8))
+            train_cap = int(getattr(self.config, "rag_faiss_train_sample_size", 500_000))
 
-        logger.info("PassageStore: %d passages indexed (dim=%d).", len(passages), self._dim)
+            # Keep nlist feasible for smaller debug indexes while preserving
+            # the plan target on large corpora.
+            effective_nlist = min(requested_nlist, max(1, emb_f32.shape[0] // 8))
+
+            try:
+                quantizer = faiss.IndexFlatIP(self._dim)
+                try:
+                    ivf = faiss.IndexIVFPQ(
+                        quantizer,
+                        self._dim,
+                        effective_nlist,
+                        pq_m,
+                        pq_nbits,
+                        faiss.METRIC_INNER_PRODUCT,
+                    )
+                except TypeError:
+                    ivf = faiss.IndexIVFPQ(
+                        quantizer,
+                        self._dim,
+                        effective_nlist,
+                        pq_m,
+                        pq_nbits,
+                    )
+                    if hasattr(ivf, "metric_type"):
+                        ivf.metric_type = faiss.METRIC_INNER_PRODUCT
+
+                if train_cap > 0 and emb_f32.shape[0] > train_cap:
+                    rng = np.random.default_rng(seed=0)
+                    idx = rng.choice(emb_f32.shape[0], size=train_cap, replace=False)
+                    train_vecs = emb_f32[idx]
+                else:
+                    train_vecs = emb_f32
+
+                cast(Any, ivf).train(np.ascontiguousarray(train_vecs))
+                cast(Any, ivf).add(emb_f32)
+                ivf.nprobe = nprobe
+                self._index = ivf
+                logger.info(
+                    "PassageStore: %d passages indexed with IVF-PQ "
+                    "(dim=%d, nlist=%d, nprobe=%d, m=%d, nbits=%d).",
+                    len(passages),
+                    self._dim,
+                    effective_nlist,
+                    nprobe,
+                    pq_m,
+                    pq_nbits,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "PassageStore IVF-PQ build failed (%s); falling back to FlatIP.",
+                    exc,
+                )
+                self._index = faiss.IndexFlatIP(self._dim)
+                cast(Any, self._index).add(emb_f32)
+                logger.info("PassageStore: %d passages indexed with FlatIP fallback.", len(passages))
+        else:
+            # Inner-product index -- cosine similarity because embeddings are
+            # L2-normalised.
+            self._index = faiss.IndexFlatIP(self._dim)
+            cast(Any, self._index).add(emb_f32)
+            logger.info("PassageStore: %d passages indexed with FlatIP (dim=%d).", len(passages), self._dim)
 
     # ------------------------------------------------------------------ #
     # Search                                                               #
@@ -180,9 +246,15 @@ class PassageStore:
 
         # Reconstruct: wrap existing index directly
         store = cls.__new__(cls)
+        store.config = CAEMConfig()
         store.passages = passages
         store._dim = index.d
         store._index = index
+        try:
+            ivf = faiss.extract_index_ivf(index)
+            ivf.nprobe = int(getattr(store.config, "rag_faiss_nprobe", ivf.nprobe))
+        except Exception:
+            pass
         logger.info("PassageStore loaded from %s (%d passages).", path, len(passages))
         return store
 

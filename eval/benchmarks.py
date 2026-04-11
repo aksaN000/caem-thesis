@@ -1,14 +1,17 @@
 """
 eval/benchmarks.py
 ==================
-Dataset loaders for the four CAEM evaluation benchmarks.
+Dataset loaders for CAEM training/evaluation benchmarks.
 
 Benchmarks
 ----------
-HotpotQA   (Yang et al. 2018)    -- multi-hop QA; EM + F1
-TruthfulQA (Lin et al. 2022)     -- factual QA; any-match EM
-FEVER      (Thorne et al. 2018)  -- fact verification; label accuracy
-StrategyQA (Geva et al. 2021)    -- implicit multi-hop boolean QA; EM
+FEVER              (Thorne et al. 2018)  -- fact verification; label accuracy
+TriviaQA           (Joshi et al. 2017)   -- open-domain QA; EM/F1
+Natural Questions  (Kwiatkowski et al. 2019) -- open-domain QA; EM/F1
+TruthfulQA         (Lin et al. 2022)     -- factual QA; ROUGE-L thresholded EM proxy
+StrategyQA         (Geva et al. 2021)    -- implicit multi-hop boolean QA; EM
+ARC-Challenge      (Clark et al. 2018)   -- multiple-choice science QA; label EM
+HotpotQA           (Yang et al. 2018)    -- optional legacy multi-hop QA loader
 
 Loading strategy
 ----------------
@@ -38,7 +41,10 @@ Each sample is a dict with:
   answers    : list[str]   -- acceptable answer strings (may have 1 entry)
   gold_label : str | None  -- FEVER label ("supports"/"refutes"/"not enough info")
   id         : str         -- original dataset ID for traceability
-  benchmark  : str         -- "hotpotqa" | "truthfulqa" | "fever" | "strategyqa"
+    benchmark  : str         -- benchmark key such as
+                                                            "fever", "triviaqa", "natural_questions",
+                                                            "truthfulqa", "strategyqa", "arc_challenge",
+                                                            or "hotpotqa"
 
 FEVER prompt design note
 ------------------------
@@ -192,10 +198,16 @@ def load_truthfulqa(
 # -----------------------------------------------------------------------------
 
 # Map HuggingFace label integers to canonical string labels.
+# lucadiliello/fever label schema (verified against dataset card):
+#   0 -> SUPPORTS
+#   1 -> NOT ENOUGH INFO
+#   2 -> REFUTES
+# NOTE: this differs from naive alphabetical ordering. Using the wrong mapping
+# swaps refutes and NEI gold labels, corrupting both training and evaluation.
 _FEVER_LABEL_MAP = {
     0: "supports",
-    1: "refutes",
-    2: "not enough info",
+    1: "not enough info",
+    2: "refutes",
     # Some versions of the dataset use string keys directly.
     "SUPPORTS": "supports",
     "REFUTES": "refutes",
@@ -204,7 +216,7 @@ _FEVER_LABEL_MAP = {
 
 
 def load_fever(
-    split: str = "dev",
+    split: str = "paper_dev",
     n: Optional[int] = None,
     seed: int = 42,
     exclude_nei: bool = False,
@@ -219,9 +231,9 @@ def load_fever(
     dataset script (fever.py) which is no longer supported by the current
     HuggingFace datasets library (raises RuntimeError at load time).
     We use 'lucadiliello/fever' which is a Parquet-based mirror of the same
-    FEVER dataset with identical content. Splits: 'train', 'test', 'dev'.
-    We use 'dev' (~19,998 samples) = the original paper_dev split.
-    Label schema: integer {0: supports, 1: refutes, 2: not enough info}.
+    FEVER dataset with identical content. Splits: 'train', 'paper_dev', 'paper_test'.
+    We use 'paper_dev' (~19,998 samples) = the original FEVER paper evaluation split.
+    Label schema per dataset card: integer {0: supports, 1: not enough info, 2: refutes}.
 
     Constrained prompt design: the prompt explicitly enumerates the three
     valid labels so Flan-T5 produces clean, parseable outputs:
@@ -232,7 +244,9 @@ def load_fever(
     Parameters
     ----------
     split : str
-        "dev" (~19,998 samples, default) or "train" or "test".
+        "paper_dev" (~19,998 samples, default -- standard eval split) or
+        "train" (145K samples, for SIL pool) or "paper_test" (unlabeled).
+        Use "paper_dev" for all evaluation to avoid data leakage from train.
     n : int or None
     seed : int
     exclude_nei : bool
@@ -289,8 +303,10 @@ def load_fever(
 # -----------------------------------------------------------------------------
 
 def load_strategyqa(
+    split: str = "test",
     n: Optional[int] = None,
     seed: int = 42,
+    allow_train_fallback: bool = False,
 ) -> List[BenchmarkSample]:
     """Load StrategyQA samples (Geva et al. 2021).
 
@@ -298,24 +314,12 @@ def load_strategyqa(
     decomposing a query into sub-questions without any explicit reasoning
     chain in the question text. Answers are boolean (yes/no).
 
-    Dataset note (IQ-03 resolution)
-    --------------------------------
-    The original StrategyQA repository is no longer maintained. We use the
-    HuggingFace `wics/strategy-qa` dataset. The task is identical: implicit
-    strategy-based boolean QA.
-
-    Split choice (IQ-03b fix):
-    The `test` split of wics/strategy-qa has only ~490 questions, which is
-    too small to survive the 500+500 purity+calibration allocation and still
-    leave any samples for accuracy evaluation. We therefore use the `train`
-    split (~2,290 questions, matching the thesis plan §5.3 table), which
-    contains labelled boolean answers. This is standard practice when the
-    official test split has no public labels -- we treat this split as the
-    held-out evaluation set (it is never used for model fine-tuning; CAEM's
-    SIL loop trains only on its own verified generations, not on dataset
-    labels). State explicitly in §5.3: "StrategyQA evaluation uses the
-    wics/strategy-qa train split (~2,290 questions) because the test split
-    provides no public ground-truth labels."
+    Split behavior
+    --------------
+    Plan-default is `test` (transfer eval) and strict by default.
+    We first try HuggingFace `wics/strategy-qa` for the requested split.
+    If unavailable or unlabeled, we raise an error unless
+    `allow_train_fallback=True` is explicitly requested.
 
     Prompt format: "Answer yes or no. Question: {question}"
     This is consistent with instruction-tuning evaluation of boolean tasks
@@ -325,8 +329,14 @@ def load_strategyqa(
 
     Parameters
     ----------
-    n : int or None -- number of questions to sample. Train split has ~2290.
+    split : str
+        Requested split, usually "test" for transfer evaluation.
+    n : int or None -- number of questions to sample.
     seed : int
+    allow_train_fallback : bool
+        If True, allows fallback to official train.json when the requested
+        split is unavailable or unlabeled. Keep False for strict transfer
+        evaluation compliance.
 
     Returns
     -------
@@ -339,50 +349,67 @@ def load_strategyqa(
             "HuggingFace `datasets` is required for StrategyQA loading."
         ) from e
 
-    # EXP-08 fix (2026-04-01): 'wics/strategy-qa' uses a legacy dataset script
-    # no longer supported by HF datasets. Load the official StrategyQA JSON
-    # directly from GitHub (same data, same schema: qid, question, answer bool).
-    _SQA_URL = "https://raw.githubusercontent.com/eladsegal/strategyqa/main/data/strategyqa/train.json"
-    try:
-        logger.info("Loading StrategyQA from official GitHub JSON...")
-        import json as _json, urllib.request as _ur
-        with _ur.urlopen(_SQA_URL, timeout=30) as resp:
-            sqa_data = _json.loads(resp.read().decode())
-        # sqa_data is a list of dicts with keys: qid, question, answer (bool), facts, decomposition
-        ds = sqa_data
-    except Exception as exc:
-        logger.warning("StrategyQA GitHub load failed (%s) -- trying HF fallback.", exc)
-        try:
-            ds_hf = load_dataset("json",
-                data_files={"train": _SQA_URL},
-            )
-            ds = list(ds_hf["train"])
-        except Exception as exc2:
-            raise RuntimeError(f"Could not load StrategyQA from any source: {exc2}") from exc2
+    split = split.strip().lower()
+
+    def _normalise_rows(rows: List[Dict[str, Any]], source_name: str) -> List[BenchmarkSample]:
+        samples_local: List[BenchmarkSample] = []
+        for i, row in enumerate(rows):
+            answer_bool = row.get("answer", None)
+            if answer_bool is None:
+                continue
+            gold = "yes" if bool(answer_bool) else "no"
+            question_text = row.get("question", "")
+            question = f"Answer yes or no. Question: {question_text}"
+            samples_local.append({
+                "question": question,
+                "answers": [gold],
+                "gold_label": gold,
+                "id": str(row.get("id", row.get("qid", i))),
+                "benchmark": "strategyqa",
+            })
+        if samples_local:
+            logger.info("StrategyQA: %d samples loaded from %s.", len(samples_local), source_name)
+        return samples_local
 
     samples: List[BenchmarkSample] = []
-    for i, row in enumerate(cast(Any, ds)):
-        row = cast(Dict[str, Any], row)
-        answer_bool = row.get("answer", None)
-        if answer_bool is None:
-            continue
-        gold = "yes" if answer_bool else "no"
-        question_text = row.get("question", "")
-        # Constrained boolean prompt.
-        question = f"Answer yes or no. Question: {question_text}"
-        samples.append({
-            "question": question,
-            "answers": [gold],
-            "gold_label": gold,
-            "id": str(row.get("id", i)),
-            "benchmark": "strategyqa",
-        })
+
+    # Attempt 1: requested HF split.
+    try:
+        logger.info("Loading StrategyQA [wics/strategy-qa, %s] from HuggingFace...", split)
+        ds_hf = load_dataset("wics/strategy-qa", split=split)
+        hf_rows = [cast(Dict[str, Any], r) for r in cast(Any, ds_hf)]
+        samples = _normalise_rows(hf_rows, f"wics/strategy-qa:{split}")
+    except Exception as exc:
+        logger.warning("StrategyQA HF split '%s' unavailable (%s).", split, exc)
+
+    # Attempt 2 (optional): train JSON fallback only when explicitly enabled.
+    if not samples:
+        if allow_train_fallback:
+            _SQA_URL = "https://raw.githubusercontent.com/eladsegal/strategyqa/main/data/strategyqa/train.json"
+            try:
+                logger.warning(
+                    "Falling back to official StrategyQA train.json (requested split=%s).",
+                    split,
+                )
+                import json as _json
+                import urllib.request as _ur
+                with _ur.urlopen(_SQA_URL, timeout=30) as resp:
+                    sqa_data = _json.loads(resp.read().decode())
+                samples = _normalise_rows(cast(List[Dict[str, Any]], sqa_data), "official train.json")
+            except Exception as exc:
+                raise RuntimeError(f"Could not load StrategyQA from any source: {exc}") from exc
+        else:
+            raise RuntimeError(
+                "StrategyQA split '%s' unavailable or unlabeled, and "
+                "allow_train_fallback=False. "
+                "Use a valid labeled split or call with allow_train_fallback=True "
+                "for non-thesis exploratory runs." % split
+            )
 
     if n is not None and n < len(samples):
         rng = random.Random(seed)
         samples = rng.sample(samples, n)
 
-    logger.info("StrategyQA: %d samples loaded.", len(samples))
     return samples
 
 # -----------------------------------------------------------------------------
@@ -469,7 +496,7 @@ def load_natural_questions(
 # -----------------------------------------------------------------------------
 
 def load_arc_challenge(
-    split: str = "validation",
+    split: str = "test",
     n: Optional[int] = None,
     seed: int = 42,
 ) -> List[BenchmarkSample]:
@@ -523,7 +550,10 @@ def load_benchmark(
 
     Parameters
     ----------
-    name : str -- "hotpotqa", "truthfulqa", "fever", or "strategyqa"
+    name : str
+        One of: "fever", "triviaqa", "natural_questions" (training benchmarks)
+        or "truthfulqa", "strategyqa", "arc_challenge" (transfer eval benchmarks)
+        or "hotpotqa" (legacy, removed from main training loop).
     n : int or None
     seed : int
     **kwargs -- passed to the specific loader
@@ -568,7 +598,9 @@ def make_synthetic_samples(
 
     Parameters
     ----------
-    benchmark : str -- "hotpotqa", "truthfulqa", "fever", or "strategyqa"
+    benchmark : str
+        One of: "fever", "triviaqa", "natural_questions", "truthfulqa",
+        "strategyqa", "arc_challenge", or "hotpotqa" (legacy).
     n : int -- number of samples to generate
     seed : int
 

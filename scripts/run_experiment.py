@@ -1,15 +1,13 @@
 """
 scripts/run_experiment.py
 ==========================
-CAEM Experiment Orchestrator -- Cycle 0 -> Cycle 3
+CAEM Experiment Orchestrator -- Cycle 0 -> N (default N=10)
 
 Runs the full self-improvement experiment loop:
 
   Cycle 0  -- baseline evaluation (zero episodic memory, no fine-tuning)
   Calibration -- temperature scaling + signal weight fitting on 500-sample set
-  Cycle 1  -- SelfImprovementLoop -> evaluate all 4 benchmarks
-  Cycle 2  -- SelfImprovementLoop -> evaluate all 4 benchmarks
-  Cycle 3  -- SelfImprovementLoop -> evaluate all 4 benchmarks
+    Cycle 1..N -- SelfImprovementLoop -> evaluate selected benchmarks
 
 All results are saved as JSON to outputs/eval/. Cycle checkpoints are saved
 to outputs/cycle_{n}/. A summary CSV is written to outputs/experiment_summary.csv
@@ -21,8 +19,9 @@ From the repo root (requires A100 GPU, ~15-19 GB VRAM):
 
     python -m scripts.run_experiment \\
         --output_dir outputs \\
-        --n_questions 500 \\
-        --benchmarks hotpotqa truthfulqa fever strategyqa
+        --num_cycles 10 \\
+        --n_questions 5000 \\
+        --benchmarks fever triviaqa natural_questions truthfulqa strategyqa arc_challenge
 
 For a smoke-test (CPU, tiny N):
     python -m scripts.run_experiment --smoke_test
@@ -222,7 +221,23 @@ def load_sil_training_pool(ns: argparse.Namespace, m: Dict[str, Any]) -> Dict[st
     """Load Train split data for episodic memory generation."""
     n = ns.n_questions
     samples = {}
-    benchmarks = ["fever", "triviaqa", "natural_questions"]
+    requested = [bm.strip().lower() for bm in ns.benchmarks]
+    train_capable = {"fever", "triviaqa", "natural_questions"}
+    benchmarks = [bm for bm in requested if bm in train_capable]
+    if not benchmarks:
+        benchmarks = ["fever", "triviaqa", "natural_questions"]
+        logger.warning(
+            "No train-split SIL benchmarks requested; falling back to %s.",
+            benchmarks,
+        )
+
+    skipped = [bm for bm in requested if bm not in train_capable]
+    if skipped:
+        logger.info(
+            "Skipping SIL train-pool load for benchmarks without configured train-split SIL usage: %s",
+            skipped,
+        )
+
     for bm in benchmarks:
         logger.info("Loading SIL pool %s (n=%d) ...", bm, n)
         split = "train"
@@ -233,16 +248,21 @@ def load_eval_transfer_pool(ns: argparse.Namespace, m: Dict[str, Any]) -> Dict[s
     """Load Evaluation data (zero data leakage)."""
     n = ns.n_questions
     samples = {}
-    benchmarks = ["fever", "triviaqa", "natural_questions", "truthfulqa", "strategyqa", "arc_challenge"]
+    benchmarks = [bm.strip().lower() for bm in ns.benchmarks]
+    split_map = {
+        "fever": "paper_dev",        # lucadiliello/fever eval split (data-leakage safe)
+        "triviaqa": "validation",
+        "natural_questions": "validation",
+        "strategyqa": "test",
+        "arc_challenge": "test",
+    }
+
     for bm in benchmarks:
         logger.info("Loading Eval pool %s (n=%d) ...", bm, n)
-        # Only fever uses 'dev', others use validation by default in our loaders for standard HF datasets
-        split = "dev" if bm == "fever" else "validation"
-        
-        # OOD datasets ignore split argument as they only have validation loaded by default
-        if bm in ["truthfulqa", "strategyqa", "arc_challenge"]:
+        if bm == "truthfulqa":
             samples[bm] = m["load_benchmark"](bm, n=n)
         else:
+            split = split_map.get(bm, "validation")
             samples[bm] = m["load_benchmark"](bm, split=split, n=n)
     return samples
 
@@ -471,11 +491,12 @@ def save_summary_csv(all_cycle_results: List[Dict], output_dir: Path) -> None:
 def print_mechanism_table(all_cycle_results: List[Dict]) -> None:
     """Print the five-mechanism evidence table to stdout (Chapter 5, Table 1).
 
-    Targets (from thesis plan):
-      Tier 1 fraction: ~5% (C0) -> ~18% (C1) -> ~30% (C2) -> ~38% (C3)
-      Hallucination reduction: +10% / +20% / +28% vs cycle 0
-      MMLU Retention: ≥93% (requires separate MMLU eval, not run here)
-      Mean u_stored: rising across cycles (retroactive re-verification working)
+    Targets (from 10-cycle final plan):
+      Tier 1 fraction: ~5% (C0) -> growing per cycle -> ~50% at equilibrium (C7-C9)
+      Hallucination reduction: growing per cycle; practical equilibrium expected at C7-C9
+      MMLU Retention: >=93% across all cycles (requires separate MMLU eval, not run here)
+      Mean u_stored: rising monotonically across cycles (retroactive re-verification working)
+      Data Purity: rising as low-quality episodes are pruned and high-quality ones dominate
     """
     print("\n" + "=" * 90)
     print("MECHANISM EVIDENCE TABLE  (Chapter 5, Table 1)")
@@ -532,10 +553,17 @@ def run_experiment(ns: argparse.Namespace) -> None:
     config = m["CAEMConfig"]()
     # Override n_questions if specified
     config.questions_per_cycle = ns.n_questions
+    config.num_cycles = ns.num_cycles
+
+    if ns.resume_from_cycle < 0 or ns.resume_from_cycle > config.num_cycles:
+        raise ValueError(
+            f"--resume_from_cycle must be between 0 and {config.num_cycles}, "
+            f"got {ns.resume_from_cycle}."
+        )
 
     # -- Build pipeline ------------------------------------------------------ #
     logger.info("=" * 60)
-    logger.info("CAEM EXPERIMENT -- Session 21")
+    logger.info("CAEM EXPERIMENT -- Full Scale Run (10 cycles, 1M episodes, full DPR Wikipedia)")
     logger.info("=" * 60)
     pipeline = build_pipeline(config, ns, m)
 
@@ -556,8 +584,12 @@ def run_experiment(ns: argparse.Namespace) -> None:
     if ns.smoke_test:
         logger.info("SMOKE TEST MODE -- using synthetic samples (n=10)")
         from eval.benchmarks import make_synthetic_samples
-        sil_samples = {bm: make_synthetic_samples(bm, n=10) for bm in ["fever", "triviaqa", "natural_questions"]}
-        eval_samples = {bm: make_synthetic_samples(bm, n=10) for bm in ns.benchmarks}
+        requested = [bm.strip().lower() for bm in ns.benchmarks]
+        sil_benchmarks = [bm for bm in requested if bm in {"fever", "triviaqa", "natural_questions"}]
+        if not sil_benchmarks:
+            sil_benchmarks = ["fever", "triviaqa", "natural_questions"]
+        sil_samples = {bm: make_synthetic_samples(bm, n=10) for bm in sil_benchmarks}
+        eval_samples = {bm: make_synthetic_samples(bm, n=10) for bm in requested}
         
         purity_samples = {bm: s[:5] for bm, s in sil_samples.items()}
         calib_samples = {bm: s[5:] for bm, s in sil_samples.items()}
@@ -657,7 +689,7 @@ def run_experiment(ns: argparse.Namespace) -> None:
             
         pipeline.current_cycle = prev_cycle
 
-    # -- CYCLES 1–3 ----------------------------------------------------------- #
+    # -- CYCLES 1..N --------------------------------------------------------- #
     start_cycle = max(1, ns.resume_from_cycle)
     for cycle_num in range(start_cycle, config.num_cycles + 1):
         logger.info("-" * 60)
@@ -755,7 +787,7 @@ def run_experiment(ns: argparse.Namespace) -> None:
 
 def _parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
-        description="CAEM Experiment Orchestrator (Cycle 0->3)",
+        description="CAEM Experiment Orchestrator (Cycle 0->N, default N=10)",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     p.add_argument(
@@ -767,12 +799,16 @@ def _parse_args() -> argparse.Namespace:
         help="Questions per benchmark (full run = 5000; smoke test sets this to 10).",
     )
     p.add_argument(
+        "--num_cycles", type=int, default=10,
+        help="Number of self-improvement cycles to run after Cycle 0 baseline.",
+    )
+    p.add_argument(
         "--benchmarks", nargs="+",
         default=["truthfulqa", "strategyqa", "fever", "triviaqa", "natural_questions", "arc_challenge"],
         help="Which benchmarks to evaluate (for the evaluation metrics).",
     )
     p.add_argument(
-        "--passage_index", default="outputs/passage_index",
+        "--passage_index", default="data/passage_index",
         help="Path to pre-built Wikipedia FAISS passage index (for Tier 3 RAG).",
     )
     p.add_argument(
@@ -801,7 +837,7 @@ def _parse_args() -> argparse.Namespace:
     )
     p.add_argument(
         "--resume_from_cycle", type=int, default=0,
-        help="Resume experiment from a specific cycle (1 to 3). Bypasses earlier cycles and reloads memory/weights.",
+        help="Resume experiment from a specific cycle (1 to --num_cycles). Bypasses earlier cycles and reloads memory/weights.",
     )
     return p.parse_args()
 

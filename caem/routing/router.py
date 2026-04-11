@@ -53,7 +53,7 @@ If the episodic store is empty (no retrieved episode), similarity = 0.0 and
 from __future__ import annotations
 
 import logging
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Union
 
 from caem.config import CAEMConfig
 from caem.memory.entry import EpisodicEntry, PreRoutingConfidence, RoutingDecision
@@ -86,7 +86,7 @@ class AdaptiveRouter:
     def route(
         self,
         pre_confidence: PreRoutingConfidence,
-        search_results: List[Tuple[EpisodicEntry, float]],
+        search_results: List[Union[Tuple[EpisodicEntry, float], Tuple[EpisodicEntry, int, float]]],
     ) -> RoutingDecision:
         """Compute a routing decision for one query.
 
@@ -94,8 +94,9 @@ class AdaptiveRouter:
         ----------
         pre_confidence : PreRoutingConfidence
             Output of PreRoutingConfidenceEstimator.estimate(query).
-        search_results : list of (EpisodicEntry, float)
-            Output of EpisodicMemoryStore.search(embedding, k=1).
+        search_results : list of tuples
+            Output of EpisodicMemoryStore.search() as (entry, similarity),
+            or search_with_ids() as (entry, entry_id, similarity).
             May be empty if the store has no episodes yet.
 
         Returns
@@ -109,13 +110,13 @@ class AdaptiveRouter:
 
         # -- Unpack memory search result ----------------------------------- #
         if search_results:
-            best_entry, similarity = search_results[0]
+            first = search_results[0]
+            if len(first) == 3:
+                best_entry, retrieved_entry_id, similarity = first
+            else:
+                best_entry, similarity = first
+                retrieved_entry_id = None
             u_stored_retrieved = best_entry.u_stored
-            retrieved_entry_id = None
-            # Recover the entry_id -- EpisodicEntry doesn't store its own ID,
-            # so we carry it via the caller if needed. Stored as None here;
-            # the store's search() can be extended to return IDs if required.
-            # For routing purposes, we only need u_stored and similarity.
         else:
             # Empty memory -- no episode retrieved.
             best_entry = None

@@ -5,10 +5,23 @@ Evaluation metrics for the CAEM benchmark harness.
 
 Metrics used per benchmark
 --------------------------
-HotpotQA   -- Exact Match (EM) + Token F1
-             Standard formulation from Yang et al. 2018.
-             Both are case-insensitive, after normalising punctuation and
-             stripping articles ("a", "an", "the").
+FEVER          -- Label accuracy (3-class: supports / refutes / not enough info).
+                  extract_fever_label() parses the constrained-prompt output.
+
+TriviaQA       -- any-match EM + best token F1 across all answer aliases.
+                  (TriviaQA provides 10-40 valid aliases per question.)
+
+Natural Questions -- same as TriviaQA (multiple valid answer strings).
+
+TruthfulQA     -- ROUGE-L (LCS F1) as offline judge proxy; EM = ROUGE-L > 0.15.
+
+StrategyQA     -- Boolean EM: extract_strategyqa_label() + exact match on yes/no.
+
+ARC-Challenge  -- Multiple-choice letter EM: extract_arc_label() + exact match.
+
+Generic EM/F1  -- exact_match + token_f1 for single-answer open-ended QA.
+                  (Both are case-insensitive after normalising punctuation and
+                  stripping articles "a", "an", "the" -- matches SQuAD/HotpotQA.)
 
 TruthfulQA -- ROUGE-L
              The dataset provides a list of acceptable answer strings; a
@@ -367,7 +380,8 @@ def aggregate(
 
     Parameters
     ----------
-    benchmark : str -- "hotpotqa", "truthfulqa", or "fever"
+    benchmark : str -- one of "fever", "triviaqa", "natural_questions",
+                       "truthfulqa", "strategyqa", or "arc_challenge"
     em_scores : per-sample EM (0.0/1.0)
     f1_scores : per-sample F1 (for HotpotQA); set to em_scores for others
     tiers : per-sample tier (1/2/3)

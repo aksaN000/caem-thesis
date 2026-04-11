@@ -14,17 +14,17 @@ Six baselines (from benchmarks-and-baselines.md):
   A5 -- Memory-only     : Episodic memory without self-improvement loop
 
 Seven ablation variants (what happens when you remove one CAEM mechanism):
-  AB1 -- No memory           : Full CAEM pipeline but empty episodic store (always Tier 3)
-  AB2 -- No verification     : Skip MultiLayerVerifier (store everything, u_stored=0.5)
-  AB3 -- No CoT              : Fine-tune on short answer strings, not reasoning chains
-                               (requires separate checkpoint -- skipped if not found)
-  AB4 -- No re-verification  : Retroactive re-verification disabled between cycles
-                               (requires separate checkpoint -- skipped if not found)
-  AB5 -- NLI only            : Verification uses only NLI layer (no SC, no SE)
-  AB6 -- No OR-condition     : Safety veto (u_pre < 0.60 → Tier 3) removed
-  AB7 -- No semantic entropy : Verification uses NLI + SC only (SE layer removed)
+    AB4 (plan A1)        -- No re-verification  : Retroactive re-verification disabled
+    AB1 (plan A2)        -- No memory           : Full CAEM but empty episodic store
+    AB6 (plan A3)        -- No OR-condition     : Safety veto removed
+    A4 baseline (plan A4)-- Vanilla FT          : Fine-tune without verification gate
+    A5 baseline (plan A5)-- Memory-only         : Memory routing without SIL fine-tuning
+    AB7 (plan A6)        -- No semantic entropy : Verification uses NLI + SC only
+    AB3 (plan A7)        -- No CoT              : Fine-tune without reasoning chains
+    AB5 (plan A-NLI)     -- NLI only            : Verification uses only NLI signal
+    AB2 (plan A-verify)  -- No verification     : Store everything at neutral confidence
 
-Each condition runs on all 4 benchmarks against the Cycle 3 state.
+Each condition runs on all 4 benchmarks against the selected target-cycle state.
 Results are compared against full CAEM (loaded from outputs/all_cycle_results.json).
 
 Fixes applied (audit 2025-04)
@@ -35,9 +35,9 @@ Fixes applied (audit 2025-04)
   FIX-2  _clone_pipeline(): creates fresh EpisodicMemoryStore instead of sharing
          the base pipeline's memory store (prevents cross-contamination).
   FIX-3  VanillaFinetuneBaseline: loads unverified-data checkpoint if present;
-         warns and uses Cycle 3 weights as fallback.
+      warns and uses target-cycle weights as fallback.
   FIX-4  MemoryOnlyBaseline: uses Cycle 0 checkpoint (base weights + no SIL);
-         warns and uses Cycle 3 weights as fallback.
+      warns and uses target-cycle weights as fallback.
   FIX-5  AB3/AB4: skip gracefully with a clear warning when checkpoint is absent
          (previously silently returned base_pipeline, producing identical results
          to full CAEM and corrupting the ablation table).
@@ -56,13 +56,15 @@ Usage
 -----
   python -m scripts.run_ablation \\
       --caem_results outputs/all_cycle_results.json \\
-      --cycle3_checkpoint outputs/cycle_3 \\
+      --cycle3_checkpoint outputs/cycle_10 \\
+      --target_cycle 10 \\
       --output_dir outputs/ablation_results \\
       --n_questions 500
 
   # With optional separate checkpoints:
   python -m scripts.run_ablation \\
-      --cycle3_checkpoint outputs/cycle_3 \\
+      --cycle3_checkpoint outputs/cycle_10 \\
+      --target_cycle 10 \\
       --cycle0_checkpoint outputs/cycle_0 \\
       --unverified_checkpoint outputs/ablation/vanilla_ft \\
       --no_cot_checkpoint outputs/ablation/no_cot \\
@@ -70,6 +72,25 @@ Usage
 
   # Smoke test (CPU, synthetic data):
   python -m scripts.run_ablation --smoke_test
+
+  # Add published baselines from literature (no compute):
+  python -m scripts.run_ablation \
+      --published_baselines_json published_baselines.template.json
+
+  # Generate PUB-04+05 checkpoints first:
+  python -m scripts.run_pub0405_variants \\
+      --base_checkpoint outputs/cycle_10 \\
+      --memory_store outputs/memory_store_cycle_10 \\
+      --output_root outputs/pub0405
+
+  # Optional extended experiments (checkpoint-driven):
+  python -m scripts.run_ablation \
+      --run_pub0405 \
+      --pub0405_full_ft_ewc_checkpoint outputs/pub0405/full_ft_ewc \
+      --pub0405_lora_l2_checkpoint outputs/pub0405/lora_l2 \
+      --pub0405_lora_only_checkpoint outputs/pub0405/lora_only \
+      --run_pub06 \
+      --pub06_xl_checkpoint outputs/pub06/flan_t5_xl_fever
 """
 
 from __future__ import annotations
@@ -77,11 +98,27 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import re
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Mapping, Optional, cast
+from typing import Any, Dict, List, Mapping, Optional, Tuple, cast
 
 logger = logging.getLogger(__name__)
+
+
+# -----------------------------------------------------------------------------
+# Shared constants
+# -----------------------------------------------------------------------------
+
+BENCHMARK_ORDER = ["fever", "truthfulqa", "strategyqa", "arc_challenge"]
+
+
+def infer_cycle_from_checkpoint(path: Path) -> int:
+    """Infer cycle number from a checkpoint directory like cycle_10."""
+    m = re.search(r"cycle_(\d+)$", path.name.lower())
+    if not m:
+        return 3
+    return int(m.group(1))
 
 
 # -----------------------------------------------------------------------------
@@ -233,10 +270,10 @@ class MemoryOnlyBaseline:
     """A5: Memory without self-improvement -- isolates what the fine-tuning loop adds.
 
     Uses the Cycle 0 model (base Flan-T5-Large weights, no SIL updates) with
-    episodic memory routing enabled. Comparing its Cycle 3 EM against full CAEM
-    Cycle 3 quantifies the self-improvement loop contribution.
+    episodic memory routing enabled. Comparing its target-cycle EM against full
+    CAEM at the same target cycle quantifies the self-improvement contribution.
 
-    FIX-4: Previously this was using the Cycle 3 model (post fine-tuning weights),
+    FIX-4: Previously this was using the target-cycle model (post fine-tuning),
     which tested 'full CAEM but calling it memory-only'. Now it loads the Cycle 0
     checkpoint (base weights). The memory store is populated normally during Cycle 0
     accumulation -- only the SIL fine-tuning step is absent.
@@ -666,6 +703,156 @@ def eval_baseline(
     return results
 
 
+def load_published_baselines(
+    json_path: str,
+) -> Tuple[Dict[str, Dict[str, Dict[str, float]]], Dict[str, str], Dict[str, str]]:
+    """Load literature baselines from JSON and normalise to harness-style schema.
+
+    Expected schema per entry:
+      {
+        "label": "GPT-3.5 vanilla (Liu et al. 2024)",
+        "source": "arXiv:2403.06840",
+        "results": {
+          "fever": {"em": 0.0, "f1": 0.0},
+          "truthfulqa": {"em": 0.0, "f1": 0.0},
+          "strategyqa": {"em": 0.0, "f1": 0.0},
+          "arc_challenge": {"em": 0.0, "f1": 0.0}
+        },
+        "mmlu_retention": 0.0
+      }
+    """
+    p = Path(json_path)
+    if not p.exists():
+        logger.warning("Published baselines file not found: %s", p)
+        return {}, {}, {}
+
+    with open(p, "r", encoding="utf-8") as f:
+        raw = json.load(f)
+
+    if not isinstance(raw, dict):
+        logger.warning("Published baselines JSON must be an object at top-level: %s", p)
+        return {}, {}, {}
+
+    normalised: Dict[str, Dict[str, Dict[str, float]]] = {}
+    labels: Dict[str, str] = {}
+    sources: Dict[str, str] = {}
+
+    for key, payload in raw.items():
+        if not isinstance(payload, dict):
+            logger.warning("Skipping published baseline '%s' (payload is not an object).", key)
+            continue
+
+        baseline_key = f"pub_{key}"
+        labels[baseline_key] = str(payload.get("label", key))
+        if "source" in payload:
+            sources[baseline_key] = str(payload.get("source", ""))
+
+        bm_results = payload.get("results", {})
+        if not isinstance(bm_results, dict):
+            logger.warning("Skipping published baseline '%s' (results is not an object).", key)
+            continue
+
+        entry: Dict[str, Dict[str, float]] = {}
+        for bm in BENCHMARK_ORDER:
+            bm_payload = bm_results.get(bm)
+            if not isinstance(bm_payload, dict):
+                continue
+            em = float(bm_payload.get("em", float("nan")))
+            f1 = float(bm_payload.get("f1", em))
+            n = int(bm_payload.get("n", 0)) if bm_payload.get("n") is not None else 0
+            entry[bm] = {"em": em, "f1": f1, "n": n}
+
+        if not entry:
+            logger.warning("Skipping published baseline '%s' (no benchmark results found).", key)
+            continue
+
+        normalised[baseline_key] = entry
+
+    logger.info("Loaded %d published baselines from %s", len(normalised), p)
+    return normalised, labels, sources
+
+
+def load_t5_variant_model(
+    model_name: str,
+    device: str,
+    use_fp16: bool,
+    use_bf16: bool,
+    checkpoint_dir: Optional[str] = None,
+):
+    """Load a T5 model and optionally apply checkpoint/adapters.
+
+    Supported checkpoint layouts:
+      - <dir>/model.pt                        (full state_dict)
+      - <dir>/adapter_config.json (+ peft)    (LoRA/PEFT adapter)
+    """
+    import torch
+    from transformers import T5ForConditionalGeneration
+
+    model = T5ForConditionalGeneration.from_pretrained(model_name)
+
+    if checkpoint_dir:
+        ckpt_dir = Path(checkpoint_dir)
+        state_dict_path = ckpt_dir / "model.pt"
+        adapter_cfg_path = ckpt_dir / "adapter_config.json"
+
+        if state_dict_path.exists():
+            model.load_state_dict(torch.load(state_dict_path, map_location="cpu"))
+            logger.info("Loaded checkpoint weights from %s", state_dict_path)
+        elif adapter_cfg_path.exists():
+            try:
+                import importlib
+                peft_mod = importlib.import_module("peft")
+                PeftModel = getattr(peft_mod, "PeftModel")
+            except Exception as exc:
+                logger.warning(
+                    "PEFT adapter found at %s but peft is not available (%s).",
+                    ckpt_dir,
+                    exc,
+                )
+                return None
+
+            try:
+                peft_model = PeftModel.from_pretrained(model, str(ckpt_dir))
+                model = peft_model.merge_and_unload()
+                logger.info("Loaded and merged PEFT adapter from %s", ckpt_dir)
+            except Exception as exc:
+                logger.warning("Failed to load PEFT adapter from %s (%s).", ckpt_dir, exc)
+                return None
+        else:
+            logger.warning(
+                "Checkpoint directory %s has neither model.pt nor adapter_config.json.",
+                ckpt_dir,
+            )
+            return None
+
+    if use_fp16:
+        model = model.half()
+    if use_bf16:
+        model = model.bfloat16()
+    return cast(Any, model).to(torch.device(device)).eval()
+
+
+def clone_pipeline_with_model(base_pipeline, model_variant):
+    """Clone CAEM pipeline wiring while swapping in a different base model."""
+    import copy
+    from caem.pipeline import CAEMPipeline
+    from caem.memory.store import EpisodicMemoryStore
+
+    cloned_config = copy.deepcopy(base_pipeline.config)
+    return CAEMPipeline(
+        model=model_variant,
+        tokenizer=base_pipeline.tokenizer,
+        encoder=base_pipeline.encoder,
+        nli_model=getattr(base_pipeline.verifier, "nli_model", None),
+        nli_tokenizer=getattr(base_pipeline.verifier, "nli_tokenizer", None),
+        passage_store=base_pipeline.rag.passage_store
+            if hasattr(base_pipeline, "rag") and base_pipeline.rag else None,
+        config=cloned_config,
+        memory_store=EpisodicMemoryStore(cloned_config),
+        device=base_pipeline.device,
+    )
+
+
 # -----------------------------------------------------------------------------
 # MMLU Retention test (for forgetting measurement)
 # FIX-7: Now accepts a label so per-ablation retention can be measured.
@@ -737,15 +924,40 @@ def eval_mmlu_retention(pipeline, n: int = 200, label: str = "pipeline") -> floa
 
 def print_ablation_table(
     all_results: Dict,
-    caem_results: Optional[Dict] = None,
+    caem_results: Optional[Any] = None,
     mmlu_by_condition: Optional[Dict[str, float]] = None,
+    label_overrides: Optional[Dict[str, str]] = None,
 ) -> None:
     """Print comparison table: CAEM vs all baselines and ablation variants."""
     print("\n" + "=" * 95)
     print("ABLATION & BASELINE COMPARISON TABLE  (Chapter 5, Table 2)")
     print("=" * 95)
-    print(f"{'Condition':<26} {'HotpotQA':>10} {'TruthfulQA':>12} "
-          f"{'FEVER':>8} {'StrategyQA':>12} {'MMLU':>7}")
+    bm_order = BENCHMARK_ORDER
+    display_labels = {
+        "zero_shot": "A0 Zero-shot",
+        "cot": "A1 CoT baseline",
+        "rag_only": "A2 RAG-only baseline",
+        "self_consistency": "A3 Self-consistency",
+        "vanilla_ft": "A4 Vanilla FT (plan A4)",
+        "memory_only": "A5 Memory-only (plan A5)",
+        "ab_no_reverif": "AB4 / plan A1",
+        "ab_no_memory": "AB1 / plan A2",
+        "ab_no_or_condition": "AB6 / plan A3",
+        "ab_no_se": "AB7 / plan A6",
+        "ab_no_cot": "AB3 / plan A7",
+        "ab_nli_only": "AB5 / plan A-NLI",
+        "ab_no_verification": "AB2 / plan A-verify",
+        "pub0405_full_ft_l2": "PUB-04+05 full FT+L2",
+        "pub0405_full_ft_ewc": "PUB-04+05 full FT+EWC",
+        "pub0405_lora_l2": "PUB-04+05 LoRA+L2",
+        "pub0405_lora_only": "PUB-04+05 LoRA-only",
+        "pub06_flan_t5_xl_fever": "PUB-06 Flan-T5-XL",
+    }
+    if label_overrides:
+        display_labels.update(label_overrides)
+
+    print(f"{'Condition':<26} {'FEVER':>8} {'TruthfulQA':>12} "
+          f"{'StrategyQA':>12} {'ARC-Chal':>10} {'MMLU':>7}")
     print("-" * 95)
 
     # CAEM rows first
@@ -757,7 +969,7 @@ def print_ablation_table(
             if __import__("math").isnan(mmlu) and cycle_num == last_cycle_idx:
                 mmlu = (mmlu_by_condition or {}).get("full_caem", float("nan"))
             row = f"  {label:<24}"
-            for bm in ["hotpotqa", "truthfulqa", "fever", "strategyqa"]:
+            for bm in bm_order:
                 em = cycle_res.get(bm, {}).get("em", float("nan"))
                 row += f"  {em:>8.4f}"
             row += f"  {mmlu:>5.4f}" if not __import__("math").isnan(mmlu) else "     n/a"
@@ -767,22 +979,23 @@ def print_ablation_table(
     # Baselines and ablations
     for name, res in all_results.items():
         if res is None:
-            label = name.replace("_", " ").title()
+            label = str(display_labels.get(name, name.replace("_", " ").title()))
             print(f"  {label[:24]:<24}  [SKIPPED -- checkpoint not found]")
             continue
-        label = name.replace("_", " ").title()
+        label = str(display_labels.get(name, name.replace("_", " ").title()))
         mmlu = (mmlu_by_condition or {}).get(name, float("nan"))
         row = f"  {label[:24]:<24}"
-        for bm in ["hotpotqa", "truthfulqa", "fever", "strategyqa"]:
+        for bm in bm_order:
             em = res.get(bm, {}).get("em", float("nan"))
             row += f"  {em:>8.4f}"
         row += f"  {mmlu:>5.4f}" if not __import__("math").isnan(mmlu) else "     n/a"
         print(row)
 
     print("=" * 95)
-    print("MMLU target: >= 0.93 retention. Ablations AB3/AB4 require separate checkpoints.")
-    print("Interpretation: each CAEM mechanism contributes if removing it (AB1-7)")
-    print("hurts more than the respective baseline (A0-A5).\n")
+    print("MMLU target: >= 0.93 retention. AB3/AB4 require separate checkpoints.")
+    print("Interpretation: plan labels A1/A2/A3/A6/A7 map to AB4/AB1/AB6/AB7/AB3.")
+    print("Extra plan aliases: A-NLI=AB5, A-verify=AB2.")
+    print("Extended options: published baselines + PUB-04+05 + PUB-06 are optional.\n")
 
 
 # -----------------------------------------------------------------------------
@@ -811,35 +1024,36 @@ def run_ablation(ns: argparse.Namespace) -> None:
 
     device = profile.device
     config = CAEMConfig()
+    cycle3_ckpt = Path(ns.cycle3_checkpoint)
+    target_cycle = ns.target_cycle if ns.target_cycle is not None else infer_cycle_from_checkpoint(cycle3_ckpt)
 
     if ns.smoke_test:
         from eval.benchmarks import make_synthetic_samples
         samples = {bm: make_synthetic_samples(bm, n=8)
-                   for bm in ["hotpotqa", "truthfulqa", "fever", "strategyqa"]}
+                   for bm in ["fever", "truthfulqa", "strategyqa", "arc_challenge"]}
     else:
         from eval.benchmarks import (
-            load_hotpotqa, load_truthfulqa, load_fever, load_strategyqa
+            load_truthfulqa, load_fever, load_strategyqa, load_arc_challenge
         )
         samples = {
-            "hotpotqa":   load_hotpotqa(n=ns.n_questions),
-            "truthfulqa": load_truthfulqa(n=ns.n_questions),
             "fever":      load_fever(n=ns.n_questions),
-            "strategyqa": load_strategyqa(n=ns.n_questions),
+            "truthfulqa": load_truthfulqa(n=ns.n_questions),
+            "strategyqa": load_strategyqa(split="test", n=ns.n_questions),
+            "arc_challenge": load_arc_challenge(split="test", n=ns.n_questions),
         }
 
-    logger.info("Loading Flan-T5-Large (Cycle 3 weights) ...")
+    logger.info("Loading Flan-T5-Large (target cycle=%d) ...", target_cycle)
     tokenizer = AutoTokenizer.from_pretrained("google/flan-t5-large")
 
-    # --- Cycle 3 model (used by A3/A4/VanillaFT and ablation variants) --- #
+    # --- Target-cycle model (used by A3/A4/VanillaFT and ablation variants) --- #
     model_c3 = T5ForConditionalGeneration.from_pretrained("google/flan-t5-large")
-    cycle3_ckpt = Path(ns.cycle3_checkpoint)
     if (cycle3_ckpt / "model.pt").exists():
-        logger.info("Loading Cycle 3 checkpoint from %s ...", cycle3_ckpt)
+        logger.info("Loading target-cycle checkpoint from %s ...", cycle3_ckpt)
         model_c3.load_state_dict(torch.load(cycle3_ckpt / "model.pt", map_location="cpu"))
-        logger.info("Cycle 3 model loaded.")
+        logger.info("Target-cycle model loaded.")
     else:
         logger.warning(
-            "No Cycle 3 checkpoint found at %s. "
+            "No target-cycle checkpoint found at %s. "
             "Ablations requiring fine-tuned weights will use base Flan-T5-Large.",
             cycle3_ckpt,
         )
@@ -851,7 +1065,7 @@ def run_ablation(ns: argparse.Namespace) -> None:
     model_c3 = cast(Any, model_c3).to(torch.device(device)).eval()
 
     # --- Cycle 0 / base model (used by A5 MemoryOnly, A0/A1/A2/A3 baselines) --- #
-    # FIX-4: A5 (MemoryOnlyBaseline) must use base weights, not Cycle 3 weights.
+    # FIX-4: A5 (MemoryOnlyBaseline) must use base weights, not target-cycle weights.
     # Load Cycle 0 checkpoint if provided; otherwise fall back to base Flan-T5-Large.
     cycle0_ckpt = Path(ns.cycle0_checkpoint)
     model_base = T5ForConditionalGeneration.from_pretrained("google/flan-t5-large")
@@ -879,12 +1093,12 @@ def run_ablation(ns: argparse.Namespace) -> None:
     else:
         logger.warning(
             "Unverified-FT checkpoint not found at %s. "
-            "A4 (VanillaFT) will use Cycle 3 weights as fallback -- "
+            "A4 (VanillaFT) will use target-cycle weights as fallback -- "
             "results will be identical to full CAEM. "
             "To fix: re-train with --no_verification_filter.",
             unverif_ckpt,
         )
-        model_unverif = model_c3  # fallback: same as Cycle 3
+        model_unverif = model_c3  # fallback: same as target-cycle model
     if profile.use_fp16:
         model_unverif = model_unverif.half()
     if profile.use_bf16:
@@ -924,7 +1138,7 @@ def run_ablation(ns: argparse.Namespace) -> None:
             passage_index_path,
         )
 
-    # Build full CAEM pipeline (Cycle 3 weights, for ablation variants)
+    # Build full CAEM pipeline (target-cycle weights, for ablation variants)
     pipeline_c3 = CAEMPipeline(
         model=model_c3, tokenizer=tokenizer, encoder=encoder,
         nli_model=nli_model, nli_tokenizer=nli_tokenizer,
@@ -947,6 +1161,8 @@ def run_ablation(ns: argparse.Namespace) -> None:
 
     all_baseline_results: Dict[str, Optional[Dict]] = {}
     mmlu_by_condition: Dict[str, float] = {}
+    dynamic_labels: Dict[str, str] = {}
+    published_sources: Dict[str, str] = {}
 
     # A0 -- Zero-shot (base model, no system)
     logger.info("A0: Zero-shot baseline ...")
@@ -981,13 +1197,13 @@ def run_ablation(ns: argparse.Namespace) -> None:
     )
 
     # A4 -- Vanilla fine-tune (trained on unverified data)
-    # FIX-3: Uses dedicated unverified-FT checkpoint, not Cycle 3 model
+    # FIX-3: Uses dedicated unverified-FT checkpoint, not target-cycle model
     logger.info("A4: Vanilla fine-tune baseline ...")
     baseline_vft = VanillaFinetuneBaseline(model_unverif, tokenizer, device)
     all_baseline_results["vanilla_ft"] = eval_baseline("vanilla_ft", baseline_vft, samples, output_dir)
 
     # A5 -- Memory-only (Cycle 0 model weights, memory routing enabled)
-    # FIX-4: Uses Cycle 0 model (base weights, no SIL), not Cycle 3 model
+    # FIX-4: Uses Cycle 0 model (base weights, no SIL), not target-cycle model
     logger.info("A5: Memory-only baseline ...")
     baseline_mem = MemoryOnlyBaseline(pipeline_base)
     all_baseline_results["memory_only"] = eval_baseline("memory_only", baseline_mem, samples, output_dir)
@@ -997,14 +1213,14 @@ def run_ablation(ns: argparse.Namespace) -> None:
     no_mem_pipeline = build_no_memory_pipeline(pipeline_c3)
     from eval.harness import EvalHarness
     harness_nomem = EvalHarness(no_mem_pipeline, output_dir=str(output_dir / "ab1_no_memory"), log_every=50)
-    all_baseline_results["ab_no_memory"] = harness_nomem.run_all(samples, cycle=3)
+    all_baseline_results["ab_no_memory"] = harness_nomem.run_all(samples, cycle=target_cycle)
     mmlu_by_condition["ab_no_memory"] = eval_mmlu_retention(no_mem_pipeline, n=200, label="ab1_no_memory")
 
     # AB2 -- No verification (ablation): stores everything at u_stored=0.5
     logger.info("AB2: No-verification ablation ...")
     no_verif_pipeline = build_no_verification_pipeline(pipeline_c3)
     harness_noverif = EvalHarness(no_verif_pipeline, output_dir=str(output_dir / "ab2_no_verification"), log_every=50)
-    all_baseline_results["ab_no_verification"] = harness_noverif.run_all(samples, cycle=3)
+    all_baseline_results["ab_no_verification"] = harness_noverif.run_all(samples, cycle=target_cycle)
     mmlu_by_condition["ab_no_verification"] = eval_mmlu_retention(no_verif_pipeline, n=200, label="ab2_no_verification")
 
     # AB3 -- No CoT (ablation): requires separately trained checkpoint
@@ -1013,7 +1229,7 @@ def run_ablation(ns: argparse.Namespace) -> None:
     no_cot_pipeline = build_no_cot_pipeline(pipeline_c3, no_cot_ckpt_dir=ns.no_cot_checkpoint)
     if no_cot_pipeline is not None:
         harness_nocot = EvalHarness(no_cot_pipeline, output_dir=str(output_dir / "ab3_no_cot"), log_every=50)
-        all_baseline_results["ab_no_cot"] = harness_nocot.run_all(samples, cycle=3)
+        all_baseline_results["ab_no_cot"] = harness_nocot.run_all(samples, cycle=target_cycle)
         mmlu_by_condition["ab_no_cot"] = eval_mmlu_retention(no_cot_pipeline, n=200, label="ab3_no_cot")
     else:
         all_baseline_results["ab_no_cot"] = None
@@ -1025,7 +1241,7 @@ def run_ablation(ns: argparse.Namespace) -> None:
     no_reverif_pipeline = build_no_reverification_pipeline(pipeline_c3, no_reverif_ckpt_dir=ns.no_reverif_checkpoint)
     if no_reverif_pipeline is not None:
         harness_noreverif = EvalHarness(no_reverif_pipeline, output_dir=str(output_dir / "ab4_no_reverif"), log_every=50)
-        all_baseline_results["ab_no_reverif"] = harness_noreverif.run_all(samples, cycle=3)
+        all_baseline_results["ab_no_reverif"] = harness_noreverif.run_all(samples, cycle=target_cycle)
         mmlu_by_condition["ab_no_reverif"] = eval_mmlu_retention(no_reverif_pipeline, n=200, label="ab4_no_reverif")
     else:
         all_baseline_results["ab_no_reverif"] = None
@@ -1035,31 +1251,32 @@ def run_ablation(ns: argparse.Namespace) -> None:
     logger.info("AB5: NLI-only verification ablation ...")
     nli_only_pipeline = build_nli_only_pipeline(pipeline_c3)
     harness_nlionly = EvalHarness(nli_only_pipeline, output_dir=str(output_dir / "ab5_nli_only"), log_every=50)
-    all_baseline_results["ab_nli_only"] = harness_nlionly.run_all(samples, cycle=3)
+    all_baseline_results["ab_nli_only"] = harness_nlionly.run_all(samples, cycle=target_cycle)
     mmlu_by_condition["ab_nli_only"] = eval_mmlu_retention(nli_only_pipeline, n=200, label="ab5_nli_only")
 
     # AB6 -- No OR-condition (ablation): safety veto removed from router
     logger.info("AB6: No-OR-condition ablation ...")
     no_or_pipeline = build_no_or_condition_pipeline(pipeline_c3)
     harness_noor = EvalHarness(no_or_pipeline, output_dir=str(output_dir / "ab6_no_or_condition"), log_every=50)
-    all_baseline_results["ab_no_or_condition"] = harness_noor.run_all(samples, cycle=3)
+    all_baseline_results["ab_no_or_condition"] = harness_noor.run_all(samples, cycle=target_cycle)
     mmlu_by_condition["ab_no_or_condition"] = eval_mmlu_retention(no_or_pipeline, n=200, label="ab6_no_or_cond")
 
     # AB7 -- No semantic entropy (ablation): NLI + SC only
     logger.info("AB7: No-semantic-entropy ablation ...")
     no_se_pipeline = build_no_se_pipeline(pipeline_c3)
     harness_nose = EvalHarness(no_se_pipeline, output_dir=str(output_dir / "ab7_no_se"), log_every=50)
-    all_baseline_results["ab_no_se"] = harness_nose.run_all(samples, cycle=3)
+    all_baseline_results["ab_no_se"] = harness_nose.run_all(samples, cycle=target_cycle)
     mmlu_by_condition["ab_no_se"] = eval_mmlu_retention(no_se_pipeline, n=200, label="ab7_no_se")
 
     # -- MMLU Retention for full CAEM pipeline ----------------------------- #
-    logger.info("Measuring MMLU retention for full CAEM (Cycle 3) ...")
-    mmlu_c3 = eval_mmlu_retention(pipeline_c3, n=200, label="full_caem_cycle3")
+    logger.info("Measuring MMLU retention for full CAEM (cycle %d) ...", target_cycle)
+    mmlu_c3 = eval_mmlu_retention(pipeline_c3, n=200, label=f"full_caem_cycle{target_cycle}")
     mmlu_by_condition["full_caem"] = mmlu_c3
+    mmlu_by_condition[f"caem_cycle_{target_cycle}"] = mmlu_c3
     mmlu_by_condition["caem_cycle_3"] = mmlu_c3
     logger.info("Full CAEM MMLU retention: %.4f (target >= 0.93)", mmlu_c3)
 
-    # -- Load full CAEM results for comparison ------------------------------ #
+    # -- Load full CAEM results for comparison ---------------------------- #
     caem_results = None
     caem_path = Path(ns.caem_results)
     if caem_path.exists():
@@ -1072,12 +1289,138 @@ def run_ablation(ns: argparse.Namespace) -> None:
             caem_path,
         )
 
+    # -- Published baselines (no compute, loaded from JSON) -------------- #
+    if ns.published_baselines_json:
+        pub_results, pub_labels, pub_sources = load_published_baselines(ns.published_baselines_json)
+        all_baseline_results.update(pub_results)
+        dynamic_labels.update(pub_labels)
+        published_sources.update(pub_sources)
+
+        try:
+            with open(ns.published_baselines_json, "r", encoding="utf-8") as f:
+                raw_pub = json.load(f)
+            for key, entry in raw_pub.items():
+                if isinstance(entry, dict) and "mmlu_retention" in entry:
+                    mmlu_by_condition[f"pub_{key}"] = float(entry["mmlu_retention"])
+        except Exception as exc:
+            logger.warning("Could not parse mmlu_retention from published baselines JSON (%s).", exc)
+
+    # -- PUB-04+05 optional checkpoint-driven variants -------------------- #
+    if ns.run_pub0405:
+        from eval.harness import EvalHarness
+        logger.info("PUB-04+05: running optional extended fine-tuning variants ...")
+
+        # Full FT + L2 corresponds to the default CAEM training setup.
+        if caem_results:
+            all_baseline_results["pub0405_full_ft_l2"] = caem_results[-1]
+        else:
+            harness_pub_full_l2 = EvalHarness(
+                pipeline_c3,
+                output_dir=str(output_dir / "pub0405_full_ft_l2"),
+                log_every=50,
+            )
+            all_baseline_results["pub0405_full_ft_l2"] = harness_pub_full_l2.run_all(samples, cycle=target_cycle)
+        mmlu_by_condition["pub0405_full_ft_l2"] = mmlu_c3
+
+        pub0405_variants = [
+            ("pub0405_full_ft_ewc", ns.pub0405_full_ft_ewc_checkpoint),
+            ("pub0405_lora_l2", ns.pub0405_lora_l2_checkpoint),
+            ("pub0405_lora_only", ns.pub0405_lora_only_checkpoint),
+        ]
+
+        for variant_key, ckpt_dir in pub0405_variants:
+            if not ckpt_dir:
+                all_baseline_results[variant_key] = None
+                logger.warning("%s skipped -- checkpoint path not provided.", variant_key)
+                continue
+
+            variant_model = load_t5_variant_model(
+                model_name="google/flan-t5-large",
+                device=device,
+                use_fp16=profile.use_fp16,
+                use_bf16=profile.use_bf16,
+                checkpoint_dir=ckpt_dir,
+            )
+            if variant_model is None:
+                all_baseline_results[variant_key] = None
+                logger.warning("%s skipped -- checkpoint could not be loaded.", variant_key)
+                continue
+
+            variant_pipeline = clone_pipeline_with_model(pipeline_c3, variant_model)
+            harness_variant = EvalHarness(
+                variant_pipeline,
+                output_dir=str(output_dir / variant_key),
+                log_every=50,
+            )
+            all_baseline_results[variant_key] = harness_variant.run_all(samples, cycle=target_cycle)
+            mmlu_by_condition[variant_key] = eval_mmlu_retention(
+                variant_pipeline,
+                n=ns.pub_mmlu_n,
+                label=variant_key,
+            )
+
+    # -- PUB-06 optional FEVER-only Flan-T5-XL run ----------------------- #
+    if ns.run_pub06:
+        from eval.harness import EvalHarness
+        logger.info("PUB-06: running optional Flan-T5-XL FEVER-only evaluation ...")
+        xl_model = load_t5_variant_model(
+            model_name="google/flan-t5-xl",
+            device=device,
+            use_fp16=profile.use_fp16,
+            use_bf16=profile.use_bf16,
+            checkpoint_dir=ns.pub06_xl_checkpoint,
+        )
+        if xl_model is None:
+            all_baseline_results["pub06_flan_t5_xl_fever"] = None
+            logger.warning("PUB-06 skipped -- XL model/checkpoint could not be loaded.")
+        else:
+            xl_pipeline = clone_pipeline_with_model(pipeline_c3, xl_model)
+            fever_only = {"fever": samples.get("fever", [])}
+            harness_xl = EvalHarness(
+                xl_pipeline,
+                output_dir=str(output_dir / "pub06_flan_t5_xl_fever"),
+                log_every=50,
+            )
+            all_baseline_results["pub06_flan_t5_xl_fever"] = harness_xl.run_all(fever_only, cycle=target_cycle)
+            if ns.pub_mmlu_n > 0:
+                mmlu_by_condition["pub06_flan_t5_xl_fever"] = eval_mmlu_retention(
+                    xl_pipeline,
+                    n=ns.pub_mmlu_n,
+                    label="pub06_flan_t5_xl_fever",
+                )
+
     # -- Save ablation summary ----------------------------------------------- #
+    caem_target_cycle_results = None
+    if caem_results:
+        if isinstance(caem_results, list) and len(caem_results) > target_cycle:
+            caem_target_cycle_results = caem_results[target_cycle]
+        elif isinstance(caem_results, list):
+            caem_target_cycle_results = caem_results[-1]
+
     summary = {
         "baselines": {k: v for k, v in all_baseline_results.items() if v is not None},
         "skipped_ablations": [k for k, v in all_baseline_results.items() if v is None],
+        "plan_aliases": {
+            "A1_no_retroverify": "ab_no_reverif",
+            "A2_all_tier3": "ab_no_memory",
+            "A3_no_or_override": "ab_no_or_condition",
+            "A4_vanilla_ft": "vanilla_ft",
+            "A5_memory_only": "memory_only",
+            "A6_remove_semantic_entropy": "ab_no_se",
+            "A7_no_cot": "ab_no_cot",
+            "A_NLI_single_layer": "ab_nli_only",
+            "A_verify_store_all": "ab_no_verification",
+        },
+        "published_baseline_sources": published_sources,
+        "extended_options": {
+            "run_pub0405": bool(ns.run_pub0405),
+            "run_pub06": bool(ns.run_pub06),
+            "published_baselines_json": ns.published_baselines_json,
+        },
+        "target_cycle": target_cycle,
         "mmlu_retention_by_condition": mmlu_by_condition,
-        "caem_cycle3_results": caem_results[-1] if caem_results else None,
+        "caem_target_cycle_results": caem_target_cycle_results,
+        "caem_cycle3_results": caem_target_cycle_results,
     }
     out_path = output_dir / "ablation_summary.json"
     with open(out_path, "w") as f:
@@ -1085,7 +1428,7 @@ def run_ablation(ns: argparse.Namespace) -> None:
     logger.info("Ablation summary saved -> %s", out_path)
 
     # -- Print comparison table ----------------------------------------------- #
-    print_ablation_table(all_baseline_results, caem_results, mmlu_by_condition)
+    print_ablation_table(all_baseline_results, caem_results, mmlu_by_condition, label_overrides=dynamic_labels)
     print(f"\nFull CAEM MMLU Retention: {mmlu_c3:.4f} (target >= 0.93)")
     if summary["skipped_ablations"]:
         print(f"Skipped ablations (checkpoint not found): {summary['skipped_ablations']}")
@@ -1103,8 +1446,14 @@ def _parse_args() -> argparse.Namespace:
     )
     p.add_argument("--caem_results", default="outputs/all_cycle_results.json",
                    help="Path to all_cycle_results.json from run_experiment.py.")
-    p.add_argument("--cycle3_checkpoint", default="outputs/cycle_3",
-                   help="Directory containing the Cycle 3 model checkpoint (model.pt).")
+    p.add_argument("--cycle3_checkpoint", default="outputs/cycle_10",
+                   help="Directory containing the target-cycle model checkpoint (model.pt).")
+    p.add_argument(
+        "--target_cycle",
+        type=int,
+        default=None,
+        help="Cycle label for output metadata. If omitted, inferred from --cycle3_checkpoint.",
+    )
     p.add_argument("--cycle0_checkpoint", default="outputs/cycle_0",
                    help="Directory containing the Cycle 0 model checkpoint (model.pt). "
                         "Used by A5 (MemoryOnly) to ensure base weights, not fine-tuned weights.")
@@ -1133,6 +1482,50 @@ def _parse_args() -> argparse.Namespace:
             "Required for the RAG-only baseline to be genuine RAG; "
             "without it the baseline degrades to zero-shot."
         ),
+    )
+    p.add_argument(
+        "--published_baselines_json",
+        default=None,
+        help=(
+            "Optional JSON file with literature baseline scores (e.g., GPT-3.5, Self-RAG). "
+            "These are injected into the comparison table without running model inference."
+        ),
+    )
+    p.add_argument(
+        "--run_pub0405",
+        action="store_true",
+        help="Run optional PUB-04+05 checkpoint variants (full FT+EWC, LoRA+L2, LoRA-only).",
+    )
+    p.add_argument(
+        "--pub0405_full_ft_ewc_checkpoint",
+        default=None,
+        help="Checkpoint directory for PUB-04+05 full FT + EWC variant.",
+    )
+    p.add_argument(
+        "--pub0405_lora_l2_checkpoint",
+        default=None,
+        help="Checkpoint directory for PUB-04+05 LoRA + L2 variant.",
+    )
+    p.add_argument(
+        "--pub0405_lora_only_checkpoint",
+        default=None,
+        help="Checkpoint directory for PUB-04+05 LoRA-only variant.",
+    )
+    p.add_argument(
+        "--run_pub06",
+        action="store_true",
+        help="Run optional PUB-06 Flan-T5-XL FEVER-only evaluation.",
+    )
+    p.add_argument(
+        "--pub06_xl_checkpoint",
+        default=None,
+        help="Optional checkpoint directory for PUB-06 Flan-T5-XL variant.",
+    )
+    p.add_argument(
+        "--pub_mmlu_n",
+        type=int,
+        default=200,
+        help="MMLU sample count for optional PUB variants.",
     )
     return p.parse_args()
 

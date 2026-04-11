@@ -28,11 +28,11 @@ Aggregate (EvalResult dict -- one per run):
 Usage
 -----
 >>> harness = EvalHarness(pipeline, output_dir="outputs/eval")
->>> result = harness.run(benchmark="hotpotqa", samples=samples, cycle=0)
->>> result["em"]          # e.g. 0.312
+>>> result = harness.run(benchmark="fever", samples=samples, cycle=0)
+>>> result["em"]          # e.g. 0.55 (FEVER accuracy at Cycle 0)
 >>> result["tier3_frac"]  # e.g. 0.884 (mostly Tier 3 before memory warms up)
 
-The output JSON at outputs/eval/hotpotqa_cycle0.json can be fed directly
+The output JSON at outputs/eval/fever_cycle0.json can be fed directly
 into the analysis scripts for Chapter 5 figures.
 """
 
@@ -86,8 +86,8 @@ class EvalHarness:
     Usage
     -----
     >>> harness = EvalHarness(pipeline, output_dir="outputs/eval")
-    >>> samples = load_hotpotqa(n=500)
-    >>> result = harness.run("hotpotqa", samples, cycle=1)
+    >>> samples = load_benchmark("fever", n=500, split="paper_dev")
+    >>> result = harness.run("fever", samples, cycle=1)
     """
 
     def __init__(
@@ -120,7 +120,7 @@ class EvalHarness:
 
         Parameters
         ----------
-        benchmark : str -- "hotpotqa", "truthfulqa", or "fever"
+        benchmark : str -- "fever", "triviaqa", "natural_questions", "truthfulqa", "strategyqa", or "arc_challenge"
         samples : list of BenchmarkSample
         cycle : int -- current self-improvement cycle (for filename and metadata)
 
@@ -253,9 +253,13 @@ class EvalHarness:
     ):
         """Return (em, f1) for a prediction given the benchmark type.
 
-        HotpotQA  -- EM + F1 against single gold answer
-        TruthfulQA -- any-match EM + best F1 across accepted answers
-        FEVER      -- label extraction + accuracy (F1 = EM for labels)
+        FEVER        -- label extraction + accuracy (f1 == em for 3-class labels)
+        TruthfulQA   -- any-match EM via ROUGE-L threshold + best ROUGE-L F1
+        StrategyQA   -- boolean yes/no label extraction + EM
+        ARC-Challenge -- multiple-choice letter extraction + EM
+        TriviaQA     -- any-match EM + best token F1 across all answer aliases
+        Natural Questions -- same as TriviaQA (multiple valid answer strings)
+        Generic fallback -- single gold answer EM + token F1
         """
         prediction = extract_cot_answer(prediction)
 
@@ -285,7 +289,19 @@ class EvalHarness:
             em = exact_match(pred_label, gold)
             return em, em
 
-        else:  # hotpotqa and any future QA benchmarks
+        elif benchmark in ("triviaqa", "natural_questions"):
+            # Both benchmarks provide multiple valid answer strings (aliases).
+            # any_match_em scores 1.0 if prediction matches ANY alias;
+            # best_token_f1 returns the highest F1 across all aliases.
+            # IMPORTANT: do NOT fall through to the else branch here -- using
+            # gold_answers[0] alone silently ignores 10-40 valid aliases per
+            # TriviaQA question, producing severely under-counted EM scores.
+            em = any_match_em(prediction, gold_answers)
+            f1 = best_token_f1(prediction, gold_answers)
+            return em, f1
+
+        else:
+            # Generic open-ended QA fallback (single gold answer).
             gold = gold_answers[0] if gold_answers else ""
             em = exact_match(prediction, gold)
             f1 = token_f1(prediction, gold)
@@ -305,12 +321,12 @@ class EvalHarness:
 
         Parameters
         ----------
-        samples_by_benchmark : dict -- {"hotpotqa": [...], "truthfulqa": [...], ...}
+        samples_by_benchmark : dict -- {"fever": [...], "triviaqa": [...], ...}
         cycle : int
 
         Returns
         -------
-        dict -- {"hotpotqa": EvalResult, ...}
+        dict -- {"fever": EvalResult, "triviaqa": EvalResult, ...}
         """
         results = {}
         for benchmark, samples in samples_by_benchmark.items():
@@ -355,7 +371,7 @@ class EvalHarness:
 
     def smoke_test(
         self,
-        benchmark: str = "hotpotqa",
+        benchmark: str = "fever",
         n: int = 5,
         cycle: int = 0,
     ) -> EvalResult:
@@ -364,6 +380,9 @@ class EvalHarness:
         Parameters
         ----------
         benchmark : str
+            Benchmark to use for synthetic samples. Defaults to "fever"
+            (primary training benchmark). Use "triviaqa" or "natural_questions"
+            to exercise the any_match_em scoring path.
         n : int -- number of synthetic samples
         cycle : int
 

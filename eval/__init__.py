@@ -1,4 +1,4 @@
-﻿"""
+"""
 eval/
 =====
 Evaluation harness for the CAEM benchmark experiments.
@@ -6,12 +6,23 @@ Evaluation harness for the CAEM benchmark experiments.
 Components
 ----------
 metrics.py    -- EM, F1, FEVER accuracy, hallucination rate, routing distribution
-benchmarks.py -- HotpotQA / TruthfulQA / FEVER loaders + synthetic data factory
+benchmarks.py -- benchmark loaders + synthetic data factory
 harness.py    -- EvalHarness: run pipeline over samples, aggregate, save JSON
+
+Benchmark roles
+---------------
+Training benchmarks (SIL pool -- train split):
+  fever, triviaqa, natural_questions
+
+Transfer eval benchmarks (held-out -- never used for SIL):
+  truthfulqa, strategyqa, arc_challenge
+
+Legacy (removed from main loop, kept for ablations):
+  hotpotqa
 
 Quick start
 -----------
->>> from eval.benchmarks import load_hotpotqa, make_synthetic_samples
+>>> from eval.benchmarks import load_benchmark, make_synthetic_samples
 >>> from eval.harness import EvalHarness
 >>> from caem.pipeline import CAEMPipeline
 >>>
@@ -19,20 +30,23 @@ Quick start
 >>> harness = EvalHarness(pipeline, output_dir="outputs/eval")
 >>>
 >>> # Smoke test (no dataset download needed)
->>> result = harness.smoke_test("hotpotqa", n=5)
+>>> result = harness.smoke_test("fever", n=5)
 >>>
->>> # Real evaluation
->>> samples = load_hotpotqa(n=500)
->>> result = harness.run("hotpotqa", samples, cycle=0)
+>>> # Real evaluation (paper_dev = data-leakage-safe FEVER eval split)
+>>> samples = load_benchmark("fever", n=500, split="paper_dev")
+>>> result = harness.run("fever", samples, cycle=0)
 >>> result["em"], result["f1"]
 """
 
 from eval.benchmarks import (
     BenchmarkSample,
     load_benchmark,
+    load_arc_challenge,
     load_fever,
-    load_hotpotqa,
+    load_hotpotqa,      # legacy -- kept for ablations only; not part of main loop
+    load_natural_questions,
     load_strategyqa,
+    load_triviaqa,
     load_truthfulqa,
     make_synthetic_samples,
 )
@@ -43,11 +57,14 @@ from eval.metrics import (
     best_token_f1,
     bootstrap_ci,
     exact_match,
+    extract_arc_label,
     extract_fever_label,
+    extract_strategyqa_label,
     fever_accuracy,
     hallucination_rate,
     mcnemar_test,
     normalise,
+    rouge_l,
     routing_distribution,
     token_f1,
 )
@@ -56,10 +73,13 @@ __all__ = [
     # benchmarks
     "BenchmarkSample",
     "load_benchmark",
+    "load_arc_challenge",
     "load_hotpotqa",
     "load_truthfulqa",
     "load_fever",
     "load_strategyqa",
+    "load_triviaqa",
+    "load_natural_questions",
     "make_synthetic_samples",
     # harness
     "EvalHarness",
@@ -73,6 +93,9 @@ __all__ = [
     "best_token_f1",
     "fever_accuracy",
     "extract_fever_label",
+    "extract_strategyqa_label",
+    "extract_arc_label",
+    "rouge_l",
     "hallucination_rate",
     "routing_distribution",
     "aggregate",

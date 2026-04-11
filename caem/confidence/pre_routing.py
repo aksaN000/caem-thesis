@@ -129,16 +129,18 @@ class PreRoutingConfidenceEstimator:
 
         cfg = self.config
         confidence_from_cconv = 1.0 / (1.0 + c_conv)
-        u_pre = (
+        raw_u_pre = (
             cfg.u_pre_token_weight * u_token
             + cfg.u_pre_cconv_weight * confidence_from_cconv
         )
-        u_pre = float(np.clip(u_pre, 0.0, 1.0))
+        raw_u_pre = float(np.clip(raw_u_pre, 0.0, 1.0))
+        u_pre = self._apply_temperature_scaling(raw_u_pre)
 
         logger.debug(
             "u_pre estimate | query='%s...' | u_token=%.4f | c_conv=%.4f | "
-            "conf_cconv=%.4f | u_pre=%.4f | safe=%s",
-            query[:50], u_token, c_conv, confidence_from_cconv, u_pre,
+            "conf_cconv=%.4f | raw_u_pre=%.4f | T=%.4f | u_pre=%.4f | safe=%s",
+            query[:50], u_token, c_conv, confidence_from_cconv,
+            raw_u_pre, cfg.temperature_scalar, u_pre,
             u_pre >= cfg.safety_u_pre_min,
         )
 
@@ -161,7 +163,7 @@ class PreRoutingConfidenceEstimator:
         Geometric mean = exp(mean(log_probs)), which equals the per-token
         average probability under the model -- a natural confidence measure.
 
-        Returns float in [0, 1]. Returns 0.0 on error (fail-safe to Tier 3).
+        Returns float in [0, 1]. Returns 0.0 on failure (fail-safe to Tier 3).
         """
         try:
             outputs = self.model.generate(
@@ -182,8 +184,8 @@ class PreRoutingConfidenceEstimator:
         # outputs.sequences for encoder-decoder: [decoder_start, tok_1, ..., tok_n]
         # scores[t] = logits at step t before softmax, shape (batch, vocab)
         if not scores:
-            logger.warning("u_token: no scores returned -- returning 0.5.")
-            return 0.5
+            logger.warning("u_token: no scores returned -- returning 0.0.")
+            return 0.0
 
         log_probs = []
         for t, step_scores in enumerate(scores):
@@ -197,7 +199,8 @@ class PreRoutingConfidenceEstimator:
             log_probs.append(log_prob)
 
         if not log_probs:
-            return 0.5
+            logger.warning("u_token: no non-EOS tokens scored -- returning 0.0.")
+            return 0.0
 
         # Geometric mean: exp(mean(log_probs))
         u_token = math.exp(sum(log_probs) / len(log_probs))
@@ -280,6 +283,23 @@ class PreRoutingConfidenceEstimator:
             padding=False,
         )
         return {k: v.to(self.device) for k, v in inputs.items()}
+
+    def _apply_temperature_scaling(self, prob: float) -> float:
+        """Apply sigmoid(logit(prob)/T) for calibrated confidence.
+
+        Temperature scaling is calibrated offline and stored in config.
+        T=1.0 leaves values unchanged.
+        """
+        T = float(getattr(self.config, "temperature_scalar", 1.0) or 1.0)
+        p = float(np.clip(prob, 0.0, 1.0))
+        if T <= 0.0 or abs(T - 1.0) < 1e-8:
+            return p
+
+        p = float(np.clip(p, 1e-7, 1.0 - 1e-7))
+        logit = math.log(p / (1.0 - p))
+        scaled = float(np.clip(logit / T, -60.0, 60.0))
+        calibrated = 1.0 / (1.0 + math.exp(-scaled))
+        return float(np.clip(calibrated, 0.0, 1.0))
 
     # ------------------------------------------------------------------ #
     # Batch estimation (for calibration / evaluation harness)             #

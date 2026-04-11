@@ -13,9 +13,9 @@ What it does
 3. Encodes all passages with the same SBERT model used by EpisodicMemoryStore
     (sentence-transformers/all-mpnet-base-v2 -> 768-dim vectors).
 4. L2-normalises every embedding (required for cosine similarity via inner
-   product in FAISS IndexFlatIP).
+    product in FAISS retrieval).
 5. Saves the result as a PassageStore: two files in --output_dir:
-         passages.faiss   -- FAISS IndexFlatIP (N × D, float32)
+            passages.faiss   -- FAISS index (IVF-PQ by default)
        passages.pkl     -- matching list of passage strings
 
 Usage
@@ -331,6 +331,12 @@ def build_passage_index(
     resume: bool = False,
     dataset_name: str = "wikipedia",
     dataset_config: str = "20220301.en",
+    index_type: str = "ivf_pq",
+    nlist: int = 65_536,
+    nprobe: int = 64,
+    pq_m: int = 64,
+    pq_nbits: int = 8,
+    train_sample_size: int = 500_000,
 ) -> None:
     """Build and save a PassageStore from Wikipedia.
 
@@ -446,9 +452,18 @@ def build_passage_index(
     # Import here so the script can be run without the full caem package in PYTHONPATH
     # as long as the caem/ directory is on the path.
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+    from caem.config import CAEMConfig
     from caem.retrieval.rag import PassageStore
 
-    store = PassageStore(all_passages, all_embeddings)
+    cfg = CAEMConfig()
+    cfg.rag_index_type = index_type
+    cfg.rag_faiss_nlist = nlist
+    cfg.rag_faiss_nprobe = nprobe
+    cfg.rag_faiss_pq_m = pq_m
+    cfg.rag_faiss_pq_nbits = pq_nbits
+    cfg.rag_faiss_train_sample_size = train_sample_size
+
+    store = PassageStore(all_passages, all_embeddings, config=cfg)
     store.save(str(out))
     logger.info("PassageStore saved to %s (%d passages).", out, len(all_passages))
 
@@ -572,6 +587,42 @@ def _parse_args() -> argparse.Namespace:
         default="20231101.en",
         help="HuggingFace dataset config / subset. Default is 20231101.en (Nov 2023 English dump).",
     )
+    p.add_argument(
+        "--index_type",
+        default="ivf_pq",
+        choices=["ivf_pq", "flat_ip"],
+        help="Passage FAISS backend. Use ivf_pq for thesis-scale indexes.",
+    )
+    p.add_argument(
+        "--nlist",
+        type=int,
+        default=65_536,
+        help="IVF coarse centroid count for passage index.",
+    )
+    p.add_argument(
+        "--nprobe",
+        type=int,
+        default=64,
+        help="Number of IVF lists to probe at query time.",
+    )
+    p.add_argument(
+        "--pq_m",
+        type=int,
+        default=64,
+        help="Number of subquantizers for IVF-PQ.",
+    )
+    p.add_argument(
+        "--pq_nbits",
+        type=int,
+        default=8,
+        help="Bits per IVF-PQ subquantizer code.",
+    )
+    p.add_argument(
+        "--train_sample_size",
+        type=int,
+        default=500_000,
+        help="Maximum vectors sampled to train IVF-PQ quantizers.",
+    )
     return p.parse_args()
 
 
@@ -592,4 +643,10 @@ if __name__ == "__main__":
         resume=ns.resume,
         dataset_name=ns.dataset_name,
         dataset_config=ns.dataset_config,
+        index_type=ns.index_type,
+        nlist=ns.nlist,
+        nprobe=ns.nprobe,
+        pq_m=ns.pq_m,
+        pq_nbits=ns.pq_nbits,
+        train_sample_size=ns.train_sample_size,
     )

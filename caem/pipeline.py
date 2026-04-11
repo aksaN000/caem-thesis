@@ -266,11 +266,9 @@ class CAEMPipeline:
         # Use search_with_ids so Tier-1 stats updates can call back without
         # scanning private _metadata for the entry ID.
         search_with_ids = self.memory_store.search_with_ids(query_embedding, k=1)
-        # AdaptiveRouter only needs (entry, similarity) -- strip the ID for routing.
-        search_results = [(e, sim) for e, _, sim in search_with_ids]
 
         # -- Stage 3b: Route --------------------------------------------- #
-        routing = self.router.route(pre_conf, search_results)
+        routing = self.router.route(pre_conf, search_with_ids)
 
         logger.debug(
             "Routing: Tier %d | u_pre=%.4f | sim=%.4f | score=%.4f | safety=%s",

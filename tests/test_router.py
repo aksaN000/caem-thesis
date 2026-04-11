@@ -66,6 +66,11 @@ def make_results(similarity: float, u_stored: float = 0.85):
     return [(make_entry(u_stored=u_stored), similarity)]
 
 
+def make_results_with_id(similarity: float, u_stored: float = 0.85, entry_id: int = 7):
+    """Return a search_results list including entry_id."""
+    return [(make_entry(u_stored=u_stored), entry_id, similarity)]
+
+
 def routing_score(sim: float, u_stored: float, lam: float = 0.70) -> float:
     return lam * sim + (1 - lam) * u_stored
 
@@ -180,6 +185,11 @@ class TestTier1Routing:
         router = AdaptiveRouter(make_config())
         d = router.route(make_pc(0.75), make_results(0.95, 0.95))
         assert math.isclose(d.similarity, 0.95, abs_tol=1e-6)
+
+    def test_retrieved_entry_id_propagated_when_present(self):
+        router = AdaptiveRouter(make_config())
+        d = router.route(make_pc(0.75), make_results_with_id(0.95, 0.95, entry_id=42))
+        assert d.retrieved_entry_id == 42
 
 
 # -----------------------------------------------------------------------------

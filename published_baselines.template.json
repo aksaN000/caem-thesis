@@ -1,0 +1,35 @@
+{
+  "gpt35_vanilla": {
+    "label": "GPT-3.5 vanilla (Liu et al. 2024)",
+    "source": "RA-ISF / arXiv:2403.06840",
+    "results": {
+      "fever": {"em": 0.0, "f1": 0.0, "n": 0},
+      "truthfulqa": {"em": 0.0, "f1": 0.0, "n": 0},
+      "strategyqa": {"em": 0.0, "f1": 0.0, "n": 0},
+      "arc_challenge": {"em": 0.0, "f1": 0.0, "n": 0}
+    },
+    "mmlu_retention": 0.0
+  },
+  "gpt35_rag": {
+    "label": "GPT-3.5 + RAG (Liu et al. 2024)",
+    "source": "RA-ISF / arXiv:2403.06840",
+    "results": {
+      "fever": {"em": 0.0, "f1": 0.0, "n": 0},
+      "truthfulqa": {"em": 0.0, "f1": 0.0, "n": 0},
+      "strategyqa": {"em": 0.0, "f1": 0.0, "n": 0},
+      "arc_challenge": {"em": 0.0, "f1": 0.0, "n": 0}
+    },
+    "mmlu_retention": 0.0
+  },
+  "self_rag_13b": {
+    "label": "Self-RAG 13B (Liu et al. 2024)",
+    "source": "RA-ISF / arXiv:2403.06840",
+    "results": {
+      "fever": {"em": 0.0, "f1": 0.0, "n": 0},
+      "truthfulqa": {"em": 0.0, "f1": 0.0, "n": 0},
+      "strategyqa": {"em": 0.0, "f1": 0.0, "n": 0},
+      "arc_challenge": {"em": 0.0, "f1": 0.0, "n": 0}
+    },
+    "mmlu_retention": 0.0
+  }
+}

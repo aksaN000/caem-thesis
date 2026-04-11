@@ -26,12 +26,14 @@ metrics.py
   - aggregate: shape and keys
 
 benchmarks.py
-  - make_synthetic_samples: hotpotqa / truthfulqa / fever / strategyqa / unknown
+  - make_synthetic_samples: hotpotqa / triviaqa / natural_questions /
+                            truthfulqa / fever / strategyqa / unknown
   - load_benchmark: unknown name raises ValueError
 
 harness.py
   - EvalHarness.run: returns EvalResult with correct keys
-  - EvalHarness._score: hotpotqa / truthfulqa / fever paths
+  - EvalHarness._score: hotpotqa / fever / truthfulqa / strategyqa /
+                        triviaqa / natural_questions paths
   - EvalHarness._run_one: error path (fail_on_error=False)
   - EvalHarness.run saves JSON to output_dir
   - EvalHarness.load_result reloads saved file
@@ -516,6 +518,46 @@ class TestEvalHarness:
         samples = make_synthetic_samples("strategyqa", n=1)  # gold="yes"
         r = harness.run("strategyqa", samples, cycle=0)
         assert r["em"] == pytest.approx(1.0)
+
+    def test_triviaqa_scoring_path_matches_any_alias(self):
+        """TriviaQA: prediction matches second alias -> EM=1.0.
+
+        This specifically tests the any_match_em path. If the harness fell
+        through to the generic else-branch and only checked gold_answers[0],
+        this test would produce EM=0.0 instead of 1.0.
+        """
+        # Synthetic TriviaQA sample has answers=["answer_0", "alias_0", "alias_1"].
+        # Return "alias_0" (not the first answer) to force the any-match path.
+        pipeline = _make_pipeline(answer="alias_0")
+        harness = EvalHarness(pipeline)
+        samples = make_synthetic_samples("triviaqa", n=1)
+        r = harness.run("triviaqa", samples, cycle=0)
+        assert r["em"] == pytest.approx(1.0)
+
+    def test_triviaqa_scoring_path_wrong_answer(self):
+        """TriviaQA: prediction matches no alias -> EM=0.0."""
+        pipeline = _make_pipeline(answer="completely wrong")
+        harness = EvalHarness(pipeline)
+        samples = make_synthetic_samples("triviaqa", n=1)
+        r = harness.run("triviaqa", samples, cycle=0)
+        assert r["em"] == pytest.approx(0.0)
+
+    def test_natural_questions_scoring_path_correct(self):
+        """NQ: prediction matches gold answer -> EM=1.0."""
+        # Synthetic NQ sample has answers=["year_0"].
+        pipeline = _make_pipeline(answer="year_0")
+        harness = EvalHarness(pipeline)
+        samples = make_synthetic_samples("natural_questions", n=1)
+        r = harness.run("natural_questions", samples, cycle=0)
+        assert r["em"] == pytest.approx(1.0)
+
+    def test_natural_questions_scoring_path_wrong(self):
+        """NQ: prediction does not match -> EM=0.0."""
+        pipeline = _make_pipeline(answer="wrong answer")
+        harness = EvalHarness(pipeline)
+        samples = make_synthetic_samples("natural_questions", n=1)
+        r = harness.run("natural_questions", samples, cycle=0)
+        assert r["em"] == pytest.approx(0.0)
 
     def test_saves_json_to_output_dir(self):
         with tempfile.TemporaryDirectory() as tmpdir:

@@ -13,12 +13,12 @@ Validates all three theoretical claims in the thesis:
               compute P_theory; compare with P_obs (actual memory accuracy).
 
   Theory 2 -- Coupled Improvement Recurrence (Monotonicity)
-    Claim:   p_0 < p_1 < p_2 < p_3  AND  α_0 < α_1 < α_2 < α_3
+        Claim:   p_0 < p_1 < ... < p_N  AND  α_0 < α_1 < ... < α_N
     Protocol: report p and α per cycle; confirm strict monotonicity.
 
   Theory 3 -- Convergence
-    Claim:   Δ(2->3) < Δ(1->2)   where Δ(k->k+1) = p_{k+1} - p_k
-    Protocol: compute Δ per cycle pair; confirm diminishing improvement.
+        Claim:   late-cycle Δ shrinks, where Δ(k->k+1) = p_{k+1} - p_k
+        Protocol: compare the last two Δ values; confirm diminishing improvement.
 
 All three validations use the purity validation set (500 samples, separate
 from both the calibration set and the eval set).
@@ -80,7 +80,8 @@ Usage
   python -m scripts.run_purity_validation \\
       --checkpoints_dir outputs \\
       --output_dir outputs/purity_validation \\
-      --num_cycles 3
+            --num_cycles 10 \\
+            --benchmarks fever triviaqa natural_questions
 
   # Smoke test:
   python -m scripts.run_purity_validation --smoke_test
@@ -96,6 +97,19 @@ from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Tuple, cast
 
 logger = logging.getLogger(__name__)
+
+
+PURITY_BENCHMARK_DEFAULTS = ["fever", "triviaqa", "natural_questions"]
+PURITY_BENCHMARK_SPLITS = {
+    # Purity/calibration sets are carved from the SIL training pool.
+    "fever": "train",
+    "triviaqa": "train",
+    "natural_questions": "train",
+    # Transfer-only benchmarks are optional here and usually do not have purity_ids.
+    "truthfulqa": "validation",
+    "strategyqa": "test",
+    "arc_challenge": "test",
+}
 
 
 # -----------------------------------------------------------------------------
@@ -142,7 +156,7 @@ def check_purity_condition(p: float, alpha: float) -> bool:
     Parameters
     ----------
     p     : float -- base generation accuracy (unused in the correct condition,
-                     retained for API compatibility and HotpotQA boundary reporting)
+                     retained for API compatibility)
     alpha : float -- verification balanced accuracy
 
     Returns
@@ -156,6 +170,7 @@ def _score_em(prediction: str, gold: List[str], gold_label: Optional[str], bm: s
     """Return EM score aligned with eval/harness.py benchmark-specific scoring."""
     from eval.metrics import (
         exact_match,
+        extract_arc_label,
         extract_cot_answer,
         extract_fever_label,
         extract_strategyqa_label,
@@ -174,6 +189,10 @@ def _score_em(prediction: str, gold: List[str], gold_label: Optional[str], bm: s
         pred_label = extract_strategyqa_label(pred)
         ref_label = extract_strategyqa_label(gold[0] if gold else "no")
         return float(pred_label == ref_label) if pred_label and ref_label else 0.0
+    if bm == "arc_challenge":
+        pred_label = extract_arc_label(pred)
+        ref = gold[0] if gold else ""
+        return exact_match(pred_label, ref)
     return exact_match(pred, gold[0] if gold else "")
 
 
@@ -391,11 +410,6 @@ def measure_memory_purity(memory_store, purity_samples: List[dict], bm: str) -> 
     -------
     float -- P_obs (observed memory purity in [0, 1]), NaN if no overlap found
     """
-    from eval.metrics import (
-        exact_match, extract_cot_answer, extract_fever_label, extract_strategyqa_label,
-        fever_accuracy, rouge_l,
-    )
-
     # Build gold answer lookup from purity samples
     gold_lookup: Dict[str, dict] = {}
     for s in purity_samples:
@@ -414,20 +428,7 @@ def measure_memory_purity(memory_store, purity_samples: List[dict], bm: str) -> 
         sample = gold_lookup[key]
         gold = sample.get("answers", [])
         gold_label = sample.get("gold_label")
-        pred = extract_cot_answer(entry.answer)
-
-        if bm == "fever":
-            pred_label = extract_fever_label(pred)
-            ref = gold_label or (gold[0] if gold else "not enough info")
-            em = fever_accuracy(pred_label, ref)
-        elif bm == "truthfulqa":
-            em = float(rouge_l(pred, gold) > 0.15)
-        elif bm == "strategyqa":
-            pred_lbl = extract_strategyqa_label(pred)
-            ref_lbl  = extract_strategyqa_label(gold[0] if gold else "no")
-            em = float(pred_lbl == ref_lbl) if pred_lbl and ref_lbl else 0.0
-        else:
-            em = exact_match(pred, gold[0] if gold else "")
+        em = _score_em(entry.answer, gold, gold_label, bm)
 
         correct_in_memory += em
         checked += 1
@@ -453,7 +454,7 @@ def run_purity_validation_protocol(
     ----------
     pipelines_by_cycle : dict[cycle_num -> CAEMPipeline]
                          The pipeline at each cycle state (post fine-tuning).
-                         At minimum cycle 0 and cycle 3 are required.
+                         At least 4 cycle states are required for Theory 3.
     purity_samples     : dict[bm -> list of BenchmarkSample] -- 500-sample set
     output_dir         : Path
     checkpoints_dir    : str or None -- root dir for cycle checkpoint subdirs,
@@ -556,23 +557,34 @@ def run_purity_validation_protocol(
     for bm in purity_samples:
         p_vals = theory2_p_values.get(bm, [])
         if len(p_vals) < 4:
-            logger.warning("Theory 3 (%s): need 4 cycles (0-3), got %d.", bm, len(p_vals))
+            logger.warning("Theory 3 (%s): need at least 4 cycle points, got %d.", bm, len(p_vals))
             continue
         deltas = [p_vals[i + 1] - p_vals[i] for i in range(len(p_vals) - 1)]
-        # Δ(2->3) < Δ(1->2) confirms converging (diminishing returns)
-        converging = deltas[-1] < deltas[-2] if len(deltas) >= 2 else False
+        # Tail comparison confirms diminishing returns in late cycles.
+        tail_prev_idx = len(p_vals) - 3
+        tail_last_idx = len(p_vals) - 2
+        delta_tail_prev = deltas[-2]
+        delta_tail_last = deltas[-1]
+        converging = delta_tail_last < delta_tail_prev
         theory3_rows.append({
             "benchmark": bm,
             "deltas": [round(d, 4) for d in deltas],
+            "tail_prev_pair": f"{tail_prev_idx}->{tail_prev_idx + 1}",
+            "tail_last_pair": f"{tail_last_idx}->{tail_last_idx + 1}",
+            "delta_tail_prev": round(delta_tail_prev, 4),
+            "delta_tail_last": round(delta_tail_last, 4),
+            # Legacy fields kept for backward compatibility with prior analysis notebooks.
             "delta_1_2": round(deltas[1], 4) if len(deltas) > 1 else None,
             "delta_2_3": round(deltas[2], 4) if len(deltas) > 2 else None,
             "theory_3_confirmed": converging,
         })
         logger.info(
-            "  Theory 3 (%s): Δ(1->2)=%.4f  Δ(2->3)=%.4f  converging=%s",
+            "  Theory 3 (%s): Δ(%s)=%.4f  Δ(%s)=%.4f  converging=%s",
             bm,
-            deltas[1] if len(deltas) > 1 else float("nan"),
-            deltas[2] if len(deltas) > 2 else float("nan"),
+            f"{tail_prev_idx}->{tail_prev_idx + 1}",
+            delta_tail_prev,
+            f"{tail_last_idx}->{tail_last_idx + 1}",
+            delta_tail_last,
             "OK" if converging else "✗",
         )
 
@@ -635,16 +647,18 @@ def _print_theory_tables(results: Dict) -> None:
     print("-" * 80 + "\n")
 
     # -- Table 3: Convergence ----------------------------------------------- #
-    print("Table T3 -- Convergence: Δ(2->3) < Δ(1->2)")
+    print("Table T3 -- Convergence: tail Δ decreases")
     print("-" * 80)
     for row in results["theory_3_convergence"]:
         d_str = " -> ".join(f"{d:+.4f}" for d in row["deltas"])
         ok = "OK" if row["theory_3_confirmed"] else "✗"
-        d12 = row.get("delta_1_2") or float("nan")
-        d23 = row.get("delta_2_3") or float("nan")
+        pair_prev = row.get("tail_prev_pair") or "n/a"
+        pair_last = row.get("tail_last_pair") or "n/a"
+        d_prev = row.get("delta_tail_prev")
+        d_last = row.get("delta_tail_last")
         print(
             f"  {row['benchmark']:<12}  Δ: {d_str}  "
-            f"Δ(1->2)={d12:+.4f}  Δ(2->3)={d23:+.4f}  [{ok}]"
+            f"Δ({pair_prev})={float(d_prev):+.4f}  Δ({pair_last})={float(d_last):+.4f}  [{ok}]"
         )
     print("=" * 80 + "\n")
 
@@ -669,7 +683,7 @@ def run_purity_validation(ns: argparse.Namespace) -> None:
         from eval.benchmarks import make_synthetic_samples
         purity_samples = {
             bm: make_synthetic_samples(bm, n=10)
-            for bm in ["hotpotqa", "truthfulqa", "fever", "strategyqa"]
+            for bm in PURITY_BENCHMARK_DEFAULTS
         }
         # Build a single dummy pipeline for smoke test
         import torch
@@ -700,7 +714,14 @@ def run_purity_validation(ns: argparse.Namespace) -> None:
         from caem.memory.encoder import QueryEncoder
         from caem.pipeline import CAEMPipeline
         from caem.retrieval.rag import PassageStore
-        from eval.benchmarks import load_hotpotqa, load_truthfulqa, load_fever, load_strategyqa
+        from eval.benchmarks import (
+            load_arc_challenge,
+            load_fever,
+            load_natural_questions,
+            load_strategyqa,
+            load_triviaqa,
+            load_truthfulqa,
+        )
 
         config = CAEMConfig()
         tokenizer = AutoTokenizer.from_pretrained("google/flan-t5-large")
@@ -730,6 +751,25 @@ def run_purity_validation(ns: argparse.Namespace) -> None:
                 logger.warning("Passage index not found at %s; continuing without RAG.", passage_index_path)
 
         checkpoints_dir = ns.checkpoints_dir
+        requested_benchmarks = [bm.strip().lower() for bm in ns.benchmarks if bm.strip()]
+        if not requested_benchmarks:
+            requested_benchmarks = list(PURITY_BENCHMARK_DEFAULTS)
+
+        loader_by_benchmark = {
+            "fever": lambda: load_fever(split=PURITY_BENCHMARK_SPLITS["fever"]),
+            "triviaqa": lambda: load_triviaqa(split=PURITY_BENCHMARK_SPLITS["triviaqa"]),
+            "natural_questions": lambda: load_natural_questions(split=PURITY_BENCHMARK_SPLITS["natural_questions"]),
+            "truthfulqa": lambda: load_truthfulqa(),
+            "strategyqa": lambda: load_strategyqa(split=PURITY_BENCHMARK_SPLITS["strategyqa"]),
+            "arc_challenge": lambda: load_arc_challenge(split=PURITY_BENCHMARK_SPLITS["arc_challenge"]),
+        }
+
+        unknown_benchmarks = [bm for bm in requested_benchmarks if bm not in loader_by_benchmark]
+        if unknown_benchmarks:
+            raise ValueError(
+                f"Unknown benchmarks for purity validation: {unknown_benchmarks}. "
+                f"Supported: {sorted(loader_by_benchmark.keys())}"
+            )
 
         # FIX: Load dataset splits to get exact purity_ids for the specific experiment run
         splits_path = Path(checkpoints_dir) / "dataset_splits.json"
@@ -746,10 +786,9 @@ def run_purity_validation(ns: argparse.Namespace) -> None:
         else:
             logger.warning("dataset_splits.json not found at %s. Falling back to top 500.", splits_path)
 
-        def load_and_filter(loader_func, bm_name):
-            # Load enough to ensure we find the dataset split IDs (default load all or n=2000)
-            # If we don't supply n, it loads the default max which is safer
-            samples = loader_func()
+        def load_and_filter(bm_name: str):
+            # Load from the benchmark's configured split for purity validation.
+            samples = loader_by_benchmark[bm_name]()
             if bm_name in purity_ids_by_bm and purity_ids_by_bm[bm_name]:
                 target_ids = purity_ids_by_bm[bm_name]
                 # Match either the string ID or the fallback index
@@ -761,12 +800,31 @@ def run_purity_validation(ns: argparse.Namespace) -> None:
             logger.info("Falling back to top 500 items for %s", bm_name)
             return samples[:500]
 
+        # Prefer benchmarks with explicit purity_ids from this experiment run.
+        benchmarks_with_purity_ids = [
+            bm for bm in requested_benchmarks
+            if bm in purity_ids_by_bm and purity_ids_by_bm[bm]
+        ]
+
+        if benchmarks_with_purity_ids:
+            selected_benchmarks = benchmarks_with_purity_ids
+            skipped_no_ids = [bm for bm in requested_benchmarks if bm not in set(selected_benchmarks)]
+            if skipped_no_ids:
+                logger.info(
+                    "Skipping benchmarks without purity_ids in dataset_splits.json: %s",
+                    skipped_no_ids,
+                )
+        else:
+            selected_benchmarks = requested_benchmarks
+            logger.warning(
+                "No purity_ids found for requested benchmarks; using top-500 fallback slices for: %s",
+                selected_benchmarks,
+            )
+
         # Load purity validation samples based on the exact IDs held out during the experiment
         purity_samples = {
-            "hotpotqa":   load_and_filter(load_hotpotqa, "hotpotqa"),
-            "truthfulqa": load_and_filter(load_truthfulqa, "truthfulqa"),
-            "fever":      load_and_filter(load_fever, "fever"),
-            "strategyqa": load_and_filter(load_strategyqa, "strategyqa"),
+            bm: load_and_filter(bm)
+            for bm in selected_benchmarks
         }
 
         # Build a pipeline for each cycle checkpoint
@@ -826,8 +884,17 @@ def _parse_args() -> argparse.Namespace:
                         "Memory checkpoints are expected as memory_store_cycle_{n}.faiss/.meta under this root.")
     p.add_argument("--output_dir", default="outputs/purity_validation",
                    help="Where to save validation results.")
-    p.add_argument("--num_cycles", type=int, default=3,
+    p.add_argument("--num_cycles", type=int, default=10,
                    help="Number of self-improvement cycles (0-N).")
+    p.add_argument(
+        "--benchmarks",
+        nargs="+",
+        default=list(PURITY_BENCHMARK_DEFAULTS),
+        help=(
+            "Benchmarks to validate. Defaults to SIL purity benchmarks "
+            "used by run_experiment (fever, triviaqa, natural_questions)."
+        ),
+    )
     p.add_argument("--passage_index", default="data/passage_index",
                    help="Path to PassageStore directory (used for Tier-3 RAG during validation).")
     p.add_argument("--no_nli", action="store_true",

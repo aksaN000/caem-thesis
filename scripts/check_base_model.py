@@ -6,15 +6,15 @@ Gap 1 -- Standalone base-model accuracy check (zero-shot Flan-T5-Large).
 Purpose
 -------
 Before running any CAEM cycles, confirm that the base model's generation
-accuracy p > (1 − α) on all four benchmarks. The purity theorem requires
+accuracy p > (1 − α) on the selected benchmark suite. The purity theorem requires
 p > (1 − α) ≈ 0.10–0.25 for purity, and p > 0.5 for the convergence guarantee.
 The convergence guarantee p > 0.5 applies to the FULL PIPELINE p (Tier 3 RAG),
 not zero-shot. Zero-shot p is a floor baseline only.
 
-NOTE on benchmarks requiring retrieval context (HotpotQA, FEVER):
-These benchmarks are designed for RAG-augmented evaluation. Zero-shot scores
-are expected to be low (FEVER ≈ random 33%). The relevant p for the purity
-theorem is measured from Cycle 0 Tier 3 RAG outputs, not from this script.
+NOTE on retrieval-sensitive benchmarks (especially FEVER):
+Some tasks rely heavily on retrieved evidence. Zero-shot scores may be low.
+The relevant p for the purity theorem is measured from Cycle 0 Tier 3 RAG
+outputs, not from this script.
 
 NOTE on TruthfulQA metric:
 EM is invalid for TruthfulQA -- correct_answers contains multiple valid
@@ -39,7 +39,7 @@ python scripts/check_base_model.py --device cpu
 
 Output
 ------
-outputs/base_model_check.json -- JSON with per-benchmark EM, F1, and p > 0.5 status.
+outputs/base_model_check.json -- JSON with per-benchmark metrics and p-threshold status.
 
 Thesis reference
 ----------------
@@ -55,6 +55,7 @@ import logging
 import sys
 import time
 from pathlib import Path
+from typing import Any, cast
 
 logging.basicConfig(
     level=logging.INFO,
@@ -201,6 +202,19 @@ def extract_strategyqa_label(prediction: str) -> str:
     return p[:10]
 
 
+def extract_arc_label(prediction: str) -> str:
+    """Extract ARC option label A/B/C/D from model output."""
+    p = prediction.strip().upper()
+    if not p:
+        return ""
+    if p[0] in {"A", "B", "C", "D"}:
+        return p[0]
+    for ch in ("A", "B", "C", "D"):
+        if f"({ch})" in p or f" {ch} " in f" {p} ":
+            return ch
+    return p[:1]
+
+
 # -----------------------------------------------------------------------------
 # Per-benchmark evaluation
 # -----------------------------------------------------------------------------
@@ -233,6 +247,10 @@ def evaluate_benchmark(
         elif benchmark == "strategyqa":
             pred_label = extract_strategyqa_label(pred)
             em = 1.0 if pred_label in [g.lower() for g in gold] else 0.0
+            f1 = em
+        elif benchmark == "arc_challenge":
+            pred_label = extract_arc_label(pred)
+            em = 1.0 if pred_label in [g.upper() for g in gold] else 0.0
             f1 = em
         elif benchmark == "truthfulqa":
             # EM is invalid for TruthfulQA: correct_answers contains multiple
@@ -315,10 +333,11 @@ def main(args: argparse.Namespace) -> None:
     model_name = args.model
     logger.info("Loading %s ...", model_name)
     tokenizer = T5Tokenizer.from_pretrained(model_name)
-    model = T5ForConditionalGeneration.from_pretrained(
+    model = cast(Any, T5ForConditionalGeneration.from_pretrained(
         model_name,
         torch_dtype=torch.float16 if device == "cuda" else torch.float32,
-    ).to(device)
+    ))
+    model = cast(Any, model).to(torch.device(device))
     model.eval()
     n_params = sum(p.numel() for p in model.parameters()) / 1e6
     logger.info("Model loaded: %.0f M params on %s", n_params, device)
@@ -330,16 +349,25 @@ def main(args: argparse.Namespace) -> None:
     if str(repo_root) not in sys.path:
         sys.path.insert(0, str(repo_root))
 
-    from eval.benchmarks import load_hotpotqa, load_truthfulqa, load_fever, load_strategyqa
+    from eval.benchmarks import (
+        load_arc_challenge,
+        load_fever,
+        load_natural_questions,
+        load_strategyqa,
+        load_triviaqa,
+        load_truthfulqa,
+    )
 
     n = args.n_samples
     logger.info("Loading benchmarks (n=%d per benchmark) ...", n)
 
     benchmarks = {
-        "hotpotqa":   load_hotpotqa(n=n, seed=args.seed),
-        "truthfulqa": load_truthfulqa(n=n, seed=args.seed),
         "fever":      load_fever(n=n, seed=args.seed),
-        "strategyqa": load_strategyqa(n=n, seed=args.seed),
+        "triviaqa":   load_triviaqa(n=n, seed=args.seed),
+        "natural_questions": load_natural_questions(n=n, seed=args.seed),
+        "truthfulqa": load_truthfulqa(n=n, seed=args.seed),
+        "strategyqa": load_strategyqa(split="test", n=n, seed=args.seed),
+        "arc_challenge": load_arc_challenge(split="test", n=n, seed=args.seed),
     }
 
     for bm, s in benchmarks.items():
@@ -383,9 +411,9 @@ def main(args: argparse.Namespace) -> None:
     logger.info("")
     logger.info("INTERPRETATION:")
     logger.info("  These are zero-shot baselines (no RAG, no memory).")
-    logger.info("  HotpotQA/FEVER low scores are expected -- these benchmarks need retrieval context.")
+    logger.info("  FEVER may be low in zero-shot mode because retrieval context is absent.")
     logger.info("  The purity theorem p is measured from Cycle 0 Tier 3 RAG, not from this script.")
-    logger.info("  Pilot run already showed FEVER=0.60, StrategyQA=0.633 with full pipeline.")
+    logger.info("  Compare these floors against Cycle 0/target-cycle pipeline results, not directly to theorem claims.")
     logger.info("  Safe to proceed to Gap 2 (build_passage_index) and Gap 3 (seed_cold_start).")
 
     summary = {

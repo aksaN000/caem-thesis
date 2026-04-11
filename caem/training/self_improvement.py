@@ -600,19 +600,19 @@ class SelfImprovementLoop:
     def _l2_penalty(self, theta_prev: List[torch.Tensor]) -> torch.Tensor:
         """Compute ||θ − θ_prev||² summed over all parameters.
 
-        Computed on CPU to avoid moving 3 GB of theta_prev tensors to GPU
-        on every batch (which causes VRAM pressure). The resulting scalar
-        is transferred to the training device for the loss sum.
+        Kept on the training device so gradients can flow to current
+        parameters. theta_prev is treated as a constant reference snapshot.
         """
-        penalty = torch.tensor(0.0, device="cpu")
+        penalty = torch.tensor(0.0, device=self.device)
         for p, p0 in zip(self.model.parameters(), theta_prev):
             # Cast to fp32 before computing diff. p0 is already fp32 (stored by
             # _snapshot_weights). Without .float() here, fp16 model params produce
             # fp16 subtraction whose squared sum can overflow (fp16 max = 65504)
             # with 780M parameters, propagating inf -> NaN into the total loss.
-            diff = p.detach().cpu().float() - p0   # both fp32, no VRAM cost
+            ref = p0.to(self.device, dtype=torch.float32)
+            diff = p.float() - ref
             penalty = penalty + (diff ** 2).sum()
-        return penalty.to(self.device)
+        return penalty
 
     # ------------------------------------------------------------------ #
     # Forgetting check                                                     #

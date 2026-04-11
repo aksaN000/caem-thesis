@@ -47,6 +47,19 @@ from typing import Dict, List, Optional, Tuple
 logger = logging.getLogger(__name__)
 
 
+CALIB_BENCHMARK_DEFAULTS = ["fever", "triviaqa", "natural_questions"]
+CALIB_BENCHMARK_SPLITS = {
+    # Calibration is carved from the SIL training pool.
+    "fever": "train",
+    "triviaqa": "train",
+    "natural_questions": "train",
+    # Optional transfer-only benchmarks.
+    "truthfulqa": "validation",
+    "strategyqa": "test",
+    "arc_challenge": "test",
+}
+
+
 # -----------------------------------------------------------------------------
 # ECE computation
 # -----------------------------------------------------------------------------
@@ -257,8 +270,33 @@ def collect_calibration_data(
     signal_matrix   : list of [u_token, u_dropout, u_sc, u_entropy]
     signal_labels   : list of int   -- 1 = EM correct (same as u_pre_labels)
     """
-    from eval.benchmarks import make_synthetic_samples
-    from eval.metrics import any_match_em, exact_match
+    from eval.metrics import (
+        exact_match,
+        extract_arc_label,
+        extract_cot_answer,
+        extract_fever_label,
+        extract_strategyqa_label,
+        fever_accuracy,
+        rouge_l,
+    )
+
+    def _score_em(prediction: str, gold: List[str], gold_label: Optional[str], bm: str) -> float:
+        pred = extract_cot_answer(prediction)
+        if bm == "fever":
+            pred_label = extract_fever_label(pred)
+            ref = gold_label or (gold[0] if gold else "not enough info")
+            return fever_accuracy(pred_label, ref)
+        if bm == "truthfulqa":
+            return float(rouge_l(pred, gold) > 0.15)
+        if bm == "strategyqa":
+            pred_label = extract_strategyqa_label(pred)
+            ref_label = extract_strategyqa_label(gold[0] if gold else "no")
+            return float(pred_label == ref_label) if pred_label and ref_label else 0.0
+        if bm == "arc_challenge":
+            pred_label = extract_arc_label(pred)
+            ref = gold[0] if gold else ""
+            return exact_match(pred_label, ref)
+        return exact_match(pred, gold[0] if gold else "")
 
     u_pre_logits: List[float] = []
     u_pre_labels: List[int] = []
@@ -274,18 +312,10 @@ def collect_calibration_data(
                 # u_pre as a logit proxy (already in [0,1]; convert for NLL)
                 u_pre = result.pre_confidence.u_pre if result.pre_confidence else 0.5
 
-                # EM label
+                # EM label (benchmark-aware, aligned with eval/harness.py)
                 gold = sample.get("answers", [])
                 gold_label = sample.get("gold_label")
-                if bm == "fever":
-                    from eval.metrics import extract_fever_label, fever_accuracy
-                    pred_label = extract_fever_label(result.answer)
-                    gold_ref = gold_label or (gold[0] if gold else "not enough info")
-                    em = fever_accuracy(pred_label, gold_ref)
-                elif bm == "truthfulqa":
-                    em = any_match_em(result.answer, gold)
-                else:
-                    em = exact_match(result.answer, gold[0] if gold else "")
+                em = _score_em(result.answer, gold, gold_label, bm)
 
                 u_pre_logits.append(u_pre)
                 u_pre_labels.append(int(em))
@@ -474,15 +504,27 @@ def _parse_args() -> argparse.Namespace:
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     p.add_argument("--cycle0_results", default="outputs/eval",
-                   help="Directory containing cycle0 JSON result files.")
+                   help="Deprecated compatibility flag (unused when dataset_splits.json is available).")
+    p.add_argument(
+        "--checkpoints_dir",
+        default="outputs",
+        help="Root directory containing dataset_splits.json and cycle/memory checkpoints.",
+    )
     p.add_argument("--output_dir", default="outputs/calibration",
                    help="Where to save calibration results.")
+    p.add_argument(
+        "--benchmarks",
+        nargs="+",
+        default=list(CALIB_BENCHMARK_DEFAULTS),
+        help=(
+            "Benchmarks to calibrate. Defaults to SIL benchmarks "
+            "(fever, triviaqa, natural_questions)."
+        ),
+    )
     p.add_argument("--n_calib", type=int, default=1000,
                    help=(
-                       "Samples to load per benchmark. The script uses "
-                       "indices [500:1000] as the calibration window "
-                       "(indices 0-499 are the purity validation set per §5.3). "
-                       "Default 1000 ensures the window is non-empty."
+                       "Fallback sample bound used only when calib_ids are unavailable. "
+                       "Windowing uses indices [500:n_calib] per benchmark."
                    ))
     return p.parse_args()
 
@@ -505,32 +547,99 @@ if __name__ == "__main__":
 
     import types
     ns = types.SimpleNamespace(
-        no_nli=False, no_rag=True,
-        passage_index="outputs/passage_index",
+        no_nli=False, no_rag=False,
+        passage_index="data/passage_index",
     )
     pipeline = build_pipeline(config, ns, m)
     # The build_pipeline call above creates an encoder without device explicitly passed to it, 
     # but the pipeline object is built correctly. For standalone scripts, we override:
     pipeline.encoder = m["QueryEncoder"](model_name=config.sbert_model, device=profile.device)
 
-    # Load calibration window: indices [500:n_calib] per benchmark.
-    # Indices 0-499 are the purity validation set (§5.3) -- never used for calibration.
-    # TruthfulQA has only 817 questions total; load all 817 and take [500:] to get 317.
-    from eval.benchmarks import load_hotpotqa, load_truthfulqa, load_fever, load_strategyqa
-    calib = {}
-    for bm_name, loader in [
-        ("hotpotqa",   load_hotpotqa),
-        ("truthfulqa", load_truthfulqa),
-        ("fever",      load_fever),
-        ("strategyqa", load_strategyqa),
-    ]:
-        all_samples = loader(n=args.n_calib)
-        calib[bm_name] = all_samples[500:]   # skip purity window; take the rest
-        if len(calib[bm_name]) == 0:
+    from eval.benchmarks import (
+        load_arc_challenge,
+        load_fever,
+        load_natural_questions,
+        load_strategyqa,
+        load_triviaqa,
+        load_truthfulqa,
+    )
+
+    requested_benchmarks = [bm.strip().lower() for bm in args.benchmarks if bm.strip()]
+    if not requested_benchmarks:
+        requested_benchmarks = list(CALIB_BENCHMARK_DEFAULTS)
+
+    loader_by_benchmark = {
+        "fever": lambda: load_fever(split=CALIB_BENCHMARK_SPLITS["fever"]),
+        "triviaqa": lambda: load_triviaqa(split=CALIB_BENCHMARK_SPLITS["triviaqa"]),
+        "natural_questions": lambda: load_natural_questions(split=CALIB_BENCHMARK_SPLITS["natural_questions"]),
+        "truthfulqa": lambda: load_truthfulqa(),
+        "strategyqa": lambda: load_strategyqa(split=CALIB_BENCHMARK_SPLITS["strategyqa"]),
+        "arc_challenge": lambda: load_arc_challenge(split=CALIB_BENCHMARK_SPLITS["arc_challenge"]),
+    }
+
+    unknown_benchmarks = [bm for bm in requested_benchmarks if bm not in loader_by_benchmark]
+    if unknown_benchmarks:
+        raise ValueError(
+            f"Unknown benchmarks for calibration: {unknown_benchmarks}. "
+            f"Supported: {sorted(loader_by_benchmark.keys())}"
+        )
+
+    splits_path = Path(args.checkpoints_dir) / "dataset_splits.json"
+    calib_ids_by_bm = {}
+    if splits_path.exists():
+        try:
+            with open(splits_path, "r", encoding="utf-8") as f:
+                splits = json.load(f)
+            for bm, splits_dict in splits.items():
+                calib_ids_by_bm[bm] = set(splits_dict.get("calib_ids", []))
+            logger.info("Loaded exact calib_ids from %s", splits_path)
+        except Exception as exc:
+            logger.warning("Failed to load dataset_splits.json: %s", exc)
+    else:
+        logger.warning("dataset_splits.json not found at %s. Using fallback windowing.", splits_path)
+
+    def load_and_filter(bm_name: str):
+        all_samples = loader_by_benchmark[bm_name]()
+        if bm_name in calib_ids_by_bm and calib_ids_by_bm[bm_name]:
+            target_ids = calib_ids_by_bm[bm_name]
+            filtered = [
+                s for i, s in enumerate(all_samples)
+                if str(s.get("id", i)) in target_ids or s.get("id", i) in target_ids
+            ]
+            if filtered:
+                logger.info("Filtered %s to %d precise calib_ids", bm_name, len(filtered))
+                return filtered
+
+        window = all_samples[500:args.n_calib]
+        if not window:
             logger.warning(
-                "%s: calibration window is empty (loaded %d samples, "
-                "need > 500 for [500:] slice). Increase --n_calib.",
-                bm_name, len(all_samples),
+                "%s: fallback calibration window is empty (loaded %d samples, need n_calib > 500).",
+                bm_name,
+                len(all_samples),
             )
+        else:
+            logger.info("Using fallback calibration window for %s: %d samples", bm_name, len(window))
+        return window
+
+    benchmarks_with_calib_ids = [
+        bm for bm in requested_benchmarks
+        if bm in calib_ids_by_bm and calib_ids_by_bm[bm]
+    ]
+    if benchmarks_with_calib_ids:
+        selected_benchmarks = benchmarks_with_calib_ids
+        skipped_no_ids = [bm for bm in requested_benchmarks if bm not in set(selected_benchmarks)]
+        if skipped_no_ids:
+            logger.info(
+                "Skipping benchmarks without calib_ids in dataset_splits.json: %s",
+                skipped_no_ids,
+            )
+    else:
+        selected_benchmarks = requested_benchmarks
+        logger.warning(
+            "No calib_ids found for requested benchmarks; using fallback windows for: %s",
+            selected_benchmarks,
+        )
+
+    calib = {bm: load_and_filter(bm) for bm in selected_benchmarks}
 
     calibrate_pipeline(pipeline, calib, config, Path(args.output_dir))

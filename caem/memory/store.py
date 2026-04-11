@@ -5,17 +5,11 @@ EpisodicMemoryStore: FAISS-backed episodic memory for the CAEM pipeline.
 
 Architecture
 ------------
-FAISS backend: IndexIDMap(IndexFlatIP)
-  - IndexFlatIP: exact inner-product search on L2-normalised vectors
-    -> equivalent to cosine similarity, no approximation error.
-  - IndexIDMap: maps external integer IDs -> internal FAISS positions,
-    enabling targeted remove_ids() calls during pruning.
-  - Why not IndexIVFPQ (as the thesis spec mentions)?
-    At 20k × 768 float32, the index is trivially within VRAM budget.
-    IVF-PQ reduces this to ~4 MB but requires training on ≥ nlist vectors
-    and does not support remove_ids() without an IDMap2 wrapper.
-    For correctness at this scale, FlatIP + IDMap is the right trade-off.
-    If the dataset grows beyond ~200k entries, switch to IndexIDMap2 + IVFFlat.
+FAISS backend: configurable via CAEMConfig.memory_index_type
+    - "flat_ip": IndexIDMap(IndexFlatIP), exact cosine search.
+    - "ivf_pq": bootstrap on FlatIP, then auto-promote to
+        IndexIDMap2(IndexIVFPQ) once enough vectors exist for IVF training.
+        This keeps early-cycle behavior stable and enables 1M-scale retrieval.
 
 Metadata storage: Python dict {entry_id: EpisodicEntry}
   - The embedding is stored in FAISS; all other fields live in this dict.
@@ -65,6 +59,10 @@ class EpisodicMemoryStore:
         self._metadata: Dict[int, EpisodicEntry] = {}
         self._next_id: int = 0      # Monotonically increasing external ID counter
         self._dim: int = self.config.embedding_dim   # 768
+        self._index_type: str = str(
+            getattr(self.config, "memory_index_type", "flat_ip")
+        ).lower()
+        self._ivf_enabled: bool = False
 
     # ------------------------------------------------------------------ #
     # Private helpers                                                      #
@@ -80,9 +78,104 @@ class EpisodicMemoryStore:
                 "Install with: pip install faiss-gpu  (or faiss-cpu)"
             ) from e
 
+        # Always bootstrap with FlatIP for early cycles. IVF-PQ requires a
+        # non-trivial training set and is promoted later when enough vectors exist.
         flat = faiss.IndexFlatIP(self._dim)   # Exact inner-product (= cosine after norm)
         self._index = faiss.IndexIDMap(flat)  # Wrap to support remove_ids()
-        logger.info("FAISS IndexIDMap(IndexFlatIP) initialised. dim=%d", self._dim)
+        self._ivf_enabled = False
+
+        if self._index_type == "ivf_pq":
+            logger.info(
+                "FAISS memory backend bootstrap: IndexIDMap(IndexFlatIP), dim=%d "
+                "(auto-promote to IVF-PQ after training threshold).",
+                self._dim,
+            )
+        else:
+            logger.info("FAISS IndexIDMap(IndexFlatIP) initialised. dim=%d", self._dim)
+
+    def _maybe_promote_to_ivf_pq(self) -> None:
+        """Promote the active index from FlatIP to IVF-PQ when enough vectors exist."""
+        if self._index_type != "ivf_pq" or self._ivf_enabled:
+            return
+        if self._index is None:
+            return
+
+        try:
+            import faiss
+        except ImportError:
+            return
+
+        nlist = int(getattr(self.config, "faiss_nlist", 4096))
+        nprobe = int(getattr(self.config, "faiss_nprobe", 32))
+        pq_m = int(getattr(self.config, "faiss_pq_m", 64))
+        pq_nbits = int(getattr(self.config, "faiss_pq_nbits", 8))
+        train_min = int(getattr(self.config, "faiss_train_min_points", 20_000))
+
+        if self.size < max(train_min, nlist):
+            return
+
+        ids = np.array(sorted(self._metadata.keys()), dtype=np.int64)
+        if ids.size == 0:
+            return
+
+        vectors = np.vstack([self._metadata[int(eid)].embedding for eid in ids]).astype(np.float32)
+
+        # FAISS requires training examples >= nlist for k-means quantiser training.
+        if vectors.shape[0] < nlist:
+            return
+
+        sample_cap = int(getattr(self.config, "faiss_train_sample_size", 200_000))
+        if sample_cap > 0 and vectors.shape[0] > sample_cap:
+            rng = np.random.default_rng(seed=0)
+            sample_idx = rng.choice(vectors.shape[0], size=sample_cap, replace=False)
+            train_vectors = vectors[sample_idx]
+        else:
+            train_vectors = vectors
+
+        try:
+            quantizer = faiss.IndexFlatIP(self._dim)
+            try:
+                core = faiss.IndexIVFPQ(
+                    quantizer,
+                    self._dim,
+                    nlist,
+                    pq_m,
+                    pq_nbits,
+                    faiss.METRIC_INNER_PRODUCT,
+                )
+            except TypeError:
+                core = faiss.IndexIVFPQ(
+                    quantizer,
+                    self._dim,
+                    nlist,
+                    pq_m,
+                    pq_nbits,
+                )
+                if hasattr(core, "metric_type"):
+                    core.metric_type = faiss.METRIC_INNER_PRODUCT
+
+            core.nprobe = nprobe
+            new_index = faiss.IndexIDMap2(core)
+
+            core.train(np.ascontiguousarray(train_vectors))
+            new_index.add_with_ids(np.ascontiguousarray(vectors), ids)
+
+            self._index = new_index
+            self._ivf_enabled = True
+            logger.info(
+                "Promoted memory index to IndexIDMap2(IndexIVFPQ): "
+                "nlist=%d, nprobe=%d, m=%d, nbits=%d, vectors=%d",
+                nlist,
+                nprobe,
+                pq_m,
+                pq_nbits,
+                vectors.shape[0],
+            )
+        except Exception as exc:
+            logger.warning(
+                "IVF-PQ promotion skipped (continuing with FlatIP): %s",
+                exc,
+            )
 
     def _to_faiss_matrix(self, embedding: np.ndarray) -> np.ndarray:
         """Return embedding as a float32 2-D row matrix for FAISS calls."""
@@ -204,6 +297,9 @@ class EpisodicMemoryStore:
         ids = np.array([entry_id], dtype=np.int64)
         self._index.add_with_ids(vec, ids)
         self._metadata[entry_id] = entry
+
+        # Promote to IVF-PQ once the configured training threshold is reached.
+        self._maybe_promote_to_ivf_pq()
 
         logger.debug(
             "Stored episode %d | cycle=%d | u_stored=%.3f | q='%s...'",
@@ -608,6 +704,12 @@ class EpisodicMemoryStore:
 
         if Path(faiss_path).exists():
             store._index = faiss.read_index(faiss_path)
+            try:
+                ivf_index = faiss.extract_index_ivf(store._index)
+                ivf_index.nprobe = int(getattr(store.config, "faiss_nprobe", ivf_index.nprobe))
+                store._ivf_enabled = True
+            except Exception:
+                store._ivf_enabled = False
             logger.info(
                 "Loaded FAISS index (%d vectors) from %s", store._index.ntotal, faiss_path
             )

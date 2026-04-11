@@ -187,7 +187,7 @@ class TestUToken:
         assert u_high > u_low
 
     def test_empty_scores_returns_fallback(self):
-        """If generate() returns no scores, fallback to 0.5."""
+        """If generate() returns no scores, fallback to 0.0 (pessimistic)."""
         est = make_estimator()
         # Override generate to return empty scores
         empty_out = SimpleNamespace(
@@ -196,7 +196,7 @@ class TestUToken:
         )
         est.model.generate.return_value = empty_out
         u = est._compute_u_token(est._tokenize("q"))
-        assert u == 0.5
+        assert u == 0.0
 
 
 # -----------------------------------------------------------------------------

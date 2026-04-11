@@ -14,7 +14,7 @@ the dev/test split used for evaluation). Without seeding:
   - The improvement trajectory from Cycle 1->2->3 is artificially flat
 
 With seeding:
-  - Memory has a reliable nucleus of 800–2,000 correct episodes at Cycle 1 start
+    - Memory has a reliable nucleus of 600–1,500 correct episodes at Cycle 1 start
   - A fraction (~10–20%) of Cycle 1 queries hit Tier 1 (non-trivial routing)
   - Fine-tuning after Cycle 1 has richer verified data -> stronger Cycle 2 baseline
 
@@ -110,14 +110,12 @@ def load_train_samples(benchmark: str, n: int, seed: int = 0) -> List[dict]:
     """Load training-split questions for cold-start seeding.
 
     Uses separate splits from the evaluation splits to prevent contamination:
-      - HotpotQA train (90K samples) -> sample n
-      - TruthfulQA: no train split -- use a held-out portion of the validation
-        split not used in the 817-sample evaluation set. We skip TruthfulQA
-        seeding unless the user explicitly enables it.
       - FEVER train (145K samples) -> sample n
-      - StrategyQA: uses a unified eval split with no separate train split. Like
-        TruthfulQA, we skip cold-start seeding entirely to prevent data leakage into
-        the purity validation dataset.
+            - TriviaQA train (rc.nocontext train split) -> sample n
+            - Natural Questions train (nq_open train split) -> sample n
+            - Optional legacy compatibility:
+                        HotpotQA / TruthfulQA / StrategyQA are supported but not part of
+                        the final thesis cold-start plan.
 
     Parameters
     ----------
@@ -133,23 +131,16 @@ def load_train_samples(benchmark: str, n: int, seed: int = 0) -> List[dict]:
     from datasets import load_dataset
 
     if benchmark == "hotpotqa":
-        logger.info("Loading HotpotQA train split (n=%d) ...", n)
-        ds = load_dataset("hotpot_qa", "distractor", split="train")
-        samples = []
-        for row in cast(Any, ds):
-            row = cast(Dict[str, Any], row)
-            samples.append({
-                "question":   row["question"],
-                "answers":    [row["answer"]],
-                "gold_label": None,
-                "id":         row["id"] + "_seed",
-                "benchmark":  "hotpotqa",
-            })
-            if len(samples) >= n * 3:  # over-sample for filtering
-                break
-        rng = random.Random(seed)
-        rng.shuffle(samples)
-        return samples[:n]
+        # LEGACY -- HotpotQA was removed from the thesis training benchmark suite
+        # after Session 21. The three active training benchmarks are:
+        #   FEVER, TriviaQA, Natural Questions.
+        # This branch is kept for historical ablation compatibility only.
+        # The CLI defaults in main() do NOT include "hotpotqa".
+        logger.warning(
+            "hotpotqa is a legacy benchmark not used in the thesis cold-start plan. "
+            "Returning empty sample list. Use fever, triviaqa, or natural_questions instead."
+        )
+        return []
 
     elif benchmark == "truthfulqa":
         # TruthfulQA has no training split. Skip seeding.
@@ -165,7 +156,9 @@ def load_train_samples(benchmark: str, n: int, seed: int = 0) -> List[dict]:
         # Training split of lucadiliello/fever contains 145k samples.
         logger.info("Loading FEVER train split [lucadiliello/fever] (n=%d) ...", n)
         _FEVER_LABEL_MAP = {
-            0: "supports", 1: "refutes", 2: "not enough info",
+            # Keep this aligned with eval/benchmarks.py (lucadiliello/fever):
+            # 0 -> supports, 1 -> not enough info, 2 -> refutes.
+            0: "supports", 1: "not enough info", 2: "refutes",
             "SUPPORTS": "supports", "REFUTES": "refutes", "NOT ENOUGH INFO": "not enough info",
         }
         ds = load_dataset("lucadiliello/fever", split="train")
@@ -191,6 +184,16 @@ def load_train_samples(benchmark: str, n: int, seed: int = 0) -> List[dict]:
         rng = random.Random(seed)
         rng.shuffle(samples)
         return samples[:n]
+
+    elif benchmark == "triviaqa":
+        logger.info("Loading TriviaQA train split (rc.nocontext) (n=%d) ...", n)
+        from eval.benchmarks import load_triviaqa
+        return load_triviaqa(split="train", n=n, seed=seed)
+
+    elif benchmark == "natural_questions":
+        logger.info("Loading Natural Questions train split (nq_open) (n=%d) ...", n)
+        from eval.benchmarks import load_natural_questions
+        return load_natural_questions(split="train", n=n, seed=seed)
 
     elif benchmark == "strategyqa":
         # EXP-08 fix: wics/strategy-qa uses a legacy script, load from GitHub instead.
@@ -265,7 +268,7 @@ def build_pipeline(config, device: str):
             logger.warning("Could not load passage index (%s). Tier 3 runs query-only.", exc)
     else:
         logger.warning(
-            "Passage index not found at outputs/passage_index/. "
+            "Passage index not found at data/passage_index/. "
             "Run scripts/build_passage_index.py first for best results. "
             "Continuing with query-only RAG (no retrieved context)."
         )
@@ -356,7 +359,7 @@ def run_smoke_test(args: argparse.Namespace) -> None:
     from eval.benchmarks import make_synthetic_samples
 
     logger.info("SMOKE TEST MODE -- synthetic data, no model loaded.")
-    benchmarks = ["hotpotqa", "truthfulqa", "fever", "strategyqa"]
+    benchmarks = args.benchmarks or ["fever", "triviaqa", "natural_questions"]
     for bm in benchmarks:
         samples = make_synthetic_samples(bm, n=10)
         logger.info("  %s: %d synthetic samples OK", bm, len(samples))
@@ -477,7 +480,7 @@ if __name__ == "__main__":
     p.add_argument(
         "--benchmarks",
         nargs="+",
-        default=["hotpotqa", "truthfulqa", "fever", "strategyqa"],
+        default=["fever", "triviaqa", "natural_questions"],
         help="Benchmarks to seed.",
     )
     p.add_argument(

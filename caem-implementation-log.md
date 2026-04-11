@@ -16,6 +16,209 @@
 ---
 ---
 
+## Session 35 — 2026-04-11 (Codebase Audit + Benchmark Suite Consolidation: HotpotQA Removal, FEVER Fixes, TriviaQA/NQ Scoring)
+
+**Scope:** Full codebase audit following the benchmark-suite update from Session 21 (HotpotQA → FEVER/TriviaQA/NQ). Found and fixed 12 issues across 8 files. The fixes fall into three groups: (A) FEVER data correctness (label mapping and split name), (B) TriviaQA/NQ scoring correctness (multi-alias EM), and (C) stale HotpotQA references in docstrings, config, and test coverage. Also completed chapter_4.tex Pass 4 and Pass 5 and added the DPR Wikipedia corpus citation.
+
+---
+
+### Fix EXP-21 — FEVER Integer Label Mapping Corrected in benchmarks.py (FIXED)
+
+**File:** `eval/benchmarks.py` (`_FEVER_LABEL_MAP`, line ~201)
+
+**Problem:** `_FEVER_LABEL_MAP` was `{0: "supports", 1: "refutes", 2: "not enough info"}`. The `lucadiliello/fever` dataset card specifies `0 → supports`, `1 → not enough info`, `2 → refutes`. The original code silently swapped the integer codes for REFUTES and NOT ENOUGH INFO, corrupting gold labels for two of three FEVER classes.
+
+**Fix applied:**
+1. Changed map to `{0: "supports", 1: "not enough info", 2: "refutes"}`.
+2. Added inline comment citing the dataset card schema.
+
+**Why this matters:** Any FEVER evaluation run before this fix produced systematically wrong gold labels for ~66% of FEVER samples. All FEVER accuracy numbers from pre-fix runs are invalid.
+
+---
+
+### Fix EXP-22 — FEVER Evaluation Split Corrected to paper_dev (FIXED)
+
+**File:** `eval/benchmarks.py` (`load_fever` default), `scripts/run_experiment.py` (split_map)
+
+**Problem:** `load_fever(split="dev")` was the default. The `lucadiliello/fever` HuggingFace dataset has splits named `train`, `paper_dev`, and `paper_test`. There is no `"dev"` split — the call would raise a runtime `ValueError` or silently load the wrong data.
+
+**Fix applied:**
+1. Changed `load_fever` default argument from `split="dev"` to `split="paper_dev"`.
+2. Updated `split_map` in `run_experiment.py`: `"fever": "paper_dev"`.
+3. Updated `load_fever` docstring to list the three valid split names.
+
+**Why this matters:** Using `paper_dev` is the standard FEVER community practice for evaluation. `paper_dev` contains 19,998 claims with balanced label distribution; it is the split used in all prior published FEVER results.
+
+---
+
+### Fix EXP-23 — TriviaQA and Natural Questions Scoring Corrected to Multi-Alias EM (FIXED)
+
+**File:** `eval/harness.py` (`_score()`)
+
+**Problem:** `_score()` had an `else` branch that computed `exact_match(prediction, gold_answers[0])`. TriviaQA questions have 10–40 valid answer aliases per question. NQ questions have multiple acceptable answer strings. Checking only `gold_answers[0]` silently produced systematically low EM scores for both benchmarks.
+
+**Fix applied:**
+Added explicit `elif benchmark in ("triviaqa", "natural_questions"):` branch:
+```python
+elif benchmark in ("triviaqa", "natural_questions"):
+    em = any_match_em(prediction, gold_answers)
+    f1 = best_token_f1(prediction, gold_answers)
+    return em, f1
+```
+The old `else` branch is retained as a generic fallback for single-gold-answer benchmarks.
+
+**Why this matters:** TriviaQA EM was being underreported by a factor that increases with the number of aliases (more aliases → more true positives classified as false negatives). This fix is essential for correct Chapter 5 results.
+
+---
+
+### Fix EXP-24 — Synthetic Sample Generators Added for TriviaQA and Natural Questions (FIXED)
+
+**File:** `eval/benchmarks.py` (`make_synthetic_samples`)
+
+**Problem:** `make_synthetic_samples` had no branch for `"triviaqa"` or `"natural_questions"`, causing a `ValueError` when smoke-testing or running harness unit tests with these benchmarks.
+
+**Fix applied:**
+1. Added `"triviaqa"` branch: generates `answers=[f"answer_{i}", f"alias_{i}"]` (two valid aliases per sample to exercise multi-alias EM path).
+2. Added `"natural_questions"` branch: generates `answers=[f"year_{i}"]` (single gold answer).
+3. Both branches populate all required fields: `question`, `answers`, `gold_label=None`, `id`, `benchmark`.
+
+---
+
+### Fix EXP-25 — Dead config.py benchmark Field Removed (FIXED)
+
+**File:** `caem/config.py`
+
+**Problem:** `CAEMConfig` had `benchmark: str = "hotpotqa"` as a field, implying a single-benchmark mode. The pipeline has used a multi-benchmark CLI approach since Session 21. The field was dead — nothing in the pipeline read it.
+
+**Fix applied:**
+Removed the field. Added a comment explaining the multi-benchmark CLI approach in `run_experiment.py`.
+
+---
+
+### Fix EXP-26 — eval/__init__.py, eval/metrics.py, eval/harness.py Docstrings Updated (FIXED)
+
+**Files:** `eval/__init__.py`, `eval/metrics.py`, `eval/harness.py`
+
+**Changes:**
+- `eval/__init__.py`: module docstring updated to document all 6 active benchmarks and their roles (training vs transfer eval vs legacy). `load_hotpotqa` import marked `# legacy`. Quick-start example updated to `split="paper_dev"`. UTF-8 BOM stripped.
+- `eval/metrics.py`: `aggregate()` docstring `benchmark` parameter updated from `"hotpotqa", "truthfulqa", or "fever"` to list all 6 active benchmarks.
+- `eval/harness.py`: `_score()` docstring updated to document all 6 benchmarks and their scoring methods. `smoke_test` default changed from `benchmark="hotpotqa"` to `benchmark="fever"`. Quick-start example updated.
+
+---
+
+### Fix EXP-27 — test_eval.py: TriviaQA and NQ Scoring Paths Now Tested (FIXED)
+
+**File:** `tests/test_eval.py`
+
+**Problem:** The test suite had zero coverage for the new `triviaqa` and `natural_questions` scoring paths added in EXP-23. If the `any_match_em` branch regressed to the old `else` branch, no test would catch it.
+
+**Fix applied:**
+Added four new test methods:
+1. `test_triviaqa_scoring_path_matches_any_alias` — prediction matches the second alias (`alias_0`, not `answer_0`) → EM=1.0. This specifically breaks the old `else` path.
+2. `test_triviaqa_scoring_path_wrong_answer` — no alias match → EM=0.0.
+3. `test_natural_questions_scoring_path_correct` — exact match → EM=1.0.
+4. `test_natural_questions_scoring_path_wrong` — no match → EM=0.0.
+
+Updated module docstring coverage lists to include triviaqa and natural_questions scoring paths.
+
+---
+
+### Fix EXP-28 — seed_cold_start.py HotpotQA Branch Marked Legacy (FIXED)
+
+**File:** `scripts/seed_cold_start.py` (`load_train_samples`)
+
+**Problem:** The `hotpotqa` branch in `load_train_samples()` still attempted to download `hotpot_qa` from HuggingFace, even though HotpotQA is not in the thesis training suite and the CLI defaults correctly exclude it.
+
+**Fix applied:**
+Replaced the download logic with an early-return warning:
+```python
+logger.warning("hotpotqa is a legacy benchmark not used in the thesis cold-start plan. Returning empty list.")
+return []
+```
+Added a comment block explaining the three active training benchmarks. CLI defaults (`["fever", "triviaqa", "natural_questions"]`) unchanged.
+
+---
+
+### chapter_4.tex — Pass 4 and Pass 5 Completed (DONE)
+
+**File:** `pre thesis 1 report/chapters/chapter_4.tex`
+
+**Pass 4 — Task-aware prompt section rewritten:**
+- Changed "all four benchmarks" framing to "all three training benchmarks (FEVER, TriviaQA, Natural Questions)".
+- Removed `extract_strategyqa_label()` from the task-aware label extraction list (StrategyQA is transfer eval only, not a training benchmark).
+- Rewrote task-aware prompts paragraph: FEVER (classification prompt), TriviaQA (open-ended), NQ (open-ended).
+- Added a sentence clarifying that transfer evaluation benchmarks (TruthfulQA, StrategyQA, ARC-Challenge) receive appropriate prompts at evaluation time only.
+
+**Pass 5 — Tier 3 DPR Wikipedia corpus paragraph added:**
+- Added `\textbf{Tier~3 retrieval corpus}` paragraph with full specs: 21,015,324 passages, FAISS IVF-PQ (nlist=65,536), ~40 GB on disk, ~128 GB RAM, top-5 passages retrieved per query.
+- Added `\cite{karpukhin-etal-2020-dense}` citation for DPR.
+- Added `karpukhin-etal-2020-dense` BibTeX entry to `bibliography/references.bib`.
+
+**Em-dash sweep:**
+- Fixed all 8 remaining `---` instances in chapter_4.tex.
+- Four in prose: replaced with `;`, `:`, or `,` per context.
+- Four algorithm layer labels: `\textit{--- Layer N: ... ---}` → `\textbf{Layer N: ...}`.
+
+---
+
+### Validation (Session 35)
+
+- All 15 content checks passed for chapter_4.tex (grep-verified).
+- All 12 code fixes applied across 8 files with no API breaks.
+- Static diagnostics clean on all modified Python files.
+- Test suite: new triviaqa/NQ tests correctly fail against the old `else`-only scoring path and pass against the new `any_match_em` branch.
+
+---
+
+## Session 32 — 2026-04-11 (Plan-Compliance Caveat Fixes: Split Strictness + Cold-Start Defaults)
+
+**Scope:** Closed two plan-compliance caveats that could weaken transfer-evaluation claims: (1) silent StrategyQA fallback from test to train split, and (2) cold-start seeding defaults targeting non-plan benchmark mix.
+
+---
+
+### Fix EXP-19 — StrategyQA Transfer Split Is Now Strict by Default (FIXED)
+
+**File:** `eval/benchmarks.py` (`load_strategyqa`)
+
+**Problem:** StrategyQA loader previously attempted `split="test"` and silently fell back to official `train.json` if test was unavailable/unlabeled. This made transfer claims ambiguous unless logs were audited.
+
+**Fix applied:**
+1. Added `allow_train_fallback: bool = False` to `load_strategyqa(...)`.
+2. Kept default behavior strict: no silent fallback from test to train.
+3. If requested split is unavailable/unlabeled and fallback is disabled, raise a clear `RuntimeError` describing the compliance rule.
+4. Retained optional fallback path for exploratory/non-thesis runs when explicitly enabled.
+
+**Why this matters:** For thesis reporting, StrategyQA is transfer-eval-only. Silent fallback to train risks invalidating the "never trained on transfer benchmark" narrative.
+
+---
+
+### Fix EXP-20 — Cold-Start Seeding Defaults Aligned to FEVER + TriviaQA + NQ (FIXED)
+
+**File:** `scripts/seed_cold_start.py`
+
+**Problem:** Default benchmark list still used legacy set (`hotpotqa`, `truthfulqa`, `fever`, `strategyqa`) while current plan's SIL training group is FEVER + TriviaQA + Natural Questions.
+
+**Fix applied:**
+1. Updated CLI default `--benchmarks` to:
+  `['fever', 'triviaqa', 'natural_questions']`.
+2. Added explicit train-split loaders for:
+  - TriviaQA (`trivia_qa`, `rc.nocontext`, `train`)
+  - Natural Questions (`nq_open`, `train`)
+3. Updated smoke-test benchmark selection to use `args.benchmarks` (instead of hardcoded legacy set).
+4. Updated passage-index warning path typo (`outputs/passage_index` -> `data/passage_index`).
+5. Updated top-level seeding rationale text to match three-benchmark default seeding scale.
+
+**Why this matters:** Ensures cycle-1 memory bootstrapping is aligned with the same three datasets used by the SIL loop in `run_experiment.py`, preserving methodology consistency.
+
+---
+
+### Validation (Session 32)
+
+- Static diagnostics clean for both modified code files.
+- No API break in `run_experiment.py` (uses `load_strategyqa(split='test', ...)` with strict default).
+
+---
+
 ## Session 31 — 2026-04-07 (Fix A Rollout Hardening: RAG Typing Patch + Clean Rerun Protocol)
 
 **Scope:** Finalized Fix A rollout details after post-fix validation. This session records one code-level patch (RAG static diagnostics) and one methodology-level operational correction (fresh reseed + fresh mini-run for strict chain-supervision validity).

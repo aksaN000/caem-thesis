@@ -30,8 +30,22 @@ class CAEMConfig:
     # ------------------------------------------------------------------ #
     # Episodic Memory                                                      #
     # ------------------------------------------------------------------ #
-    # [DES] 20k entries ≈ 20 MB metadata + ~30 MB FAISS index.
-    max_memory_size: int = 20_000
+    # [DES] Full thesis-scale run capacity.
+    max_memory_size: int = 1_000_000
+    # [DES] Memory FAISS backend.
+    #   ivf_pq: plan default for 1M-scale runs
+    #   flat_ip: exact cosine search, useful for tiny debug runs
+    memory_index_type: str = "ivf_pq"
+    # [DES] IVF-PQ parameters (memory index).
+    faiss_nlist: int = 4_096
+    faiss_nprobe: int = 32
+    faiss_pq_m: int = 64
+    faiss_pq_nbits: int = 8
+    # [DES] Promotion/training thresholds for IVF-PQ.
+    # Training is attempted once at least this many vectors are available.
+    faiss_train_min_points: int = 20_000
+    # Upper bound for sampled training vectors when fitting IVF centroids.
+    faiss_train_sample_size: int = 200_000
     # [DES] Trigger pruning when the index is 95% full.
     pruning_trigger: float = 0.95
     # [DES] Remove the bottom 20% by Value score during a prune pass.
@@ -70,6 +84,9 @@ class CAEMConfig:
     tier2_similarity_threshold: float = 0.75
     # [DES] OR-condition: force Tier 3 if u_pre < this, regardless of memory.
     safety_u_pre_min: float = 0.60
+    # [CAL] Temperature scaling for u_pre calibration (Guo et al. 2017).
+    # Applied as sigmoid(logit(u_pre) / T). T=1.0 means no calibration.
+    temperature_scalar: float = 1.0
 
     # ------------------------------------------------------------------ #
     # Post-generation confidence (Stage 4a, Tier 2 only -- 4 signals)      #
@@ -120,6 +137,14 @@ class CAEMConfig:
     # ------------------------------------------------------------------ #
     # Tier 3 RAG (Stage 6)                                                 #
     # ------------------------------------------------------------------ #
+    # [DES] Passage FAISS backend.
+    rag_index_type: str = "ivf_pq"
+    rag_faiss_nlist: int = 65_536
+    rag_faiss_nprobe: int = 64
+    rag_faiss_pq_m: int = 64
+    rag_faiss_pq_nbits: int = 8
+    rag_faiss_train_sample_size: int = 500_000
+
     # [DES] Number of passages retrieved from the Wikipedia corpus.
     # k=5 is standard in DPR (Karpukhin et al. 2020); gives good recall
     # without overloading the Flan-T5 context window.
@@ -172,7 +197,9 @@ class CAEMConfig:
     # ------------------------------------------------------------------ #
     # Experiment settings                                                  #
     # ------------------------------------------------------------------ #
-    benchmark: str = "hotpotqa"
+    # Training benchmarks: fever, triviaqa, natural_questions
+    # Transfer eval benchmarks: truthfulqa, strategyqa, arc_challenge
+    # (benchmark list is passed via CLI --benchmarks; no single-benchmark field)
     num_cycles: int = 10
     calibration_set_size: int = 500
     purity_validation_set_size: int = 500
