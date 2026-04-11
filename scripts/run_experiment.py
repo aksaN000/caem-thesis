@@ -94,9 +94,12 @@ def _load_imports() -> Dict[str, Any]:
     from caem.training.self_improvement import SelfImprovementLoop
     from eval.benchmarks import (
         load_fever,
-        load_hotpotqa,
         load_strategyqa,
         load_truthfulqa,
+        load_triviaqa,
+        load_natural_questions,
+        load_arc_challenge,
+        load_benchmark,
     )
     from eval.harness import EvalHarness
 
@@ -110,10 +113,7 @@ def _load_imports() -> Dict[str, Any]:
         CAEMPipeline=CAEMPipeline,
         PassageStore=PassageStore,
         SelfImprovementLoop=SelfImprovementLoop,
-        load_hotpotqa=load_hotpotqa,
-        load_truthfulqa=load_truthfulqa,
-        load_fever=load_fever,
-        load_strategyqa=load_strategyqa,
+        load_benchmark=load_benchmark,
         EvalHarness=EvalHarness,
     )
 
@@ -218,38 +218,32 @@ def build_pipeline(config: Any, ns: Any, m: Dict[str, Any]) -> "CAEMPipeline":
 # Dataset loading
 # -----------------------------------------------------------------------------
 
-def load_datasets(ns: argparse.Namespace, m: Dict[str, Any]) -> Dict[str, list]:
-    """Load HotpotQA, TruthfulQA, FEVER, StrategyQA from HuggingFace.
-
-    Returns a dict keyed by benchmark name.
-    Samples are drawn from validation splits (not test -- labels available).
-
-    Calibration and purity validation sets are drawn from non-overlapping
-    portions of each benchmark's validation split (§5.3 of the thesis plan).
-    """
+def load_sil_training_pool(ns: argparse.Namespace, m: Dict[str, Any]) -> Dict[str, list]:
+    """Load Train split data for episodic memory generation."""
     n = ns.n_questions
-
-    # Allocation (§5.3): first 500 = purity validation, 500–1000 = calibration,
-    # 1000+ = experiment evaluation. If n < 1000, calibration overlaps eval --
-    # only use for smoke testing.
-    benchmarks = ns.benchmarks
-    samples: Dict[str, list] = {}
-
+    samples = {}
+    benchmarks = ["fever", "triviaqa", "natural_questions"]
     for bm in benchmarks:
-        logger.info("Loading %s (n=%d) ...", bm, n)
-        if bm == "hotpotqa":
-            samples[bm] = m["load_hotpotqa"](n=n)
-        elif bm == "truthfulqa":
-            samples[bm] = m["load_truthfulqa"](n=n)
-        elif bm == "fever":
-            samples[bm] = m["load_fever"](n=n)
-        elif bm == "strategyqa":
-            samples[bm] = m["load_strategyqa"](n=n)
-        else:
-            logger.warning("Unknown benchmark %s -- skipping.", bm)
-            continue
-        logger.info("  %s: %d samples loaded.", bm, len(samples[bm]))
+        logger.info("Loading SIL pool %s (n=%d) ...", bm, n)
+        split = "train"
+        samples[bm] = m["load_benchmark"](bm, split=split, n=n)
+    return samples
 
+def load_eval_transfer_pool(ns: argparse.Namespace, m: Dict[str, Any]) -> Dict[str, list]:
+    """Load Evaluation data (zero data leakage)."""
+    n = ns.n_questions
+    samples = {}
+    benchmarks = ["fever", "triviaqa", "natural_questions", "truthfulqa", "strategyqa", "arc_challenge"]
+    for bm in benchmarks:
+        logger.info("Loading Eval pool %s (n=%d) ...", bm, n)
+        # Only fever uses 'dev', others use validation by default in our loaders for standard HF datasets
+        split = "dev" if bm == "fever" else "validation"
+        
+        # OOD datasets ignore split argument as they only have validation loaded by default
+        if bm in ["truthfulqa", "strategyqa", "arc_challenge"]:
+            samples[bm] = m["load_benchmark"](bm, n=n)
+        else:
+            samples[bm] = m["load_benchmark"](bm, split=split, n=n)
     return samples
 
 
@@ -560,16 +554,20 @@ def run_experiment(ns: argparse.Namespace) -> None:
 
     # -- Load datasets ------------------------------------------------------- #
     if ns.smoke_test:
-        logger.info("SMOKE TEST MODE -- using synthetic samples (n=10 per benchmark)")
+        logger.info("SMOKE TEST MODE -- using synthetic samples (n=10)")
         from eval.benchmarks import make_synthetic_samples
-        all_samples = {bm: make_synthetic_samples(bm, n=10) for bm in ns.benchmarks}
-        purity_samples = {bm: s[:5] for bm, s in all_samples.items()}
-        calib_samples = {bm: s[5:] for bm, s in all_samples.items()}
-        eval_samples = {bm: s for bm, s in all_samples.items()}
+        sil_samples = {bm: make_synthetic_samples(bm, n=10) for bm in ["fever", "triviaqa", "natural_questions"]}
+        eval_samples = {bm: make_synthetic_samples(bm, n=10) for bm in ns.benchmarks}
+        
+        purity_samples = {bm: s[:5] for bm, s in sil_samples.items()}
+        calib_samples = {bm: s[5:] for bm, s in sil_samples.items()}
     else:
-        all_samples = load_datasets(ns, m)
-        purity_samples, calib_samples, eval_samples = split_calibration_sets(
-            all_samples,
+        sil_samples = load_sil_training_pool(ns, m)
+        eval_samples = load_eval_transfer_pool(ns, m)
+        
+        # Purity and Calibration are carved securely out of the SIL Train Pool
+        purity_samples, calib_samples, _ = split_calibration_sets(
+            sil_samples,
             calib_size=config.calibration_set_size,
             purity_size=config.purity_validation_set_size,
         )
@@ -577,17 +575,13 @@ def run_experiment(ns: argparse.Namespace) -> None:
     # -- Save purity/calibration sample IDs (for reproducibility) ---------- #
     meta_path = output_dir / "dataset_splits.json"
     with open(meta_path, "w") as f:
-        json.dump(
-            {
-                bm: {
-                    "purity_ids":  [s.get("id", i) for i, s in enumerate(purity_samples[bm])],
-                    "calib_ids":   [s.get("id", i) for i, s in enumerate(calib_samples[bm])],
-                    "eval_ids":    [s.get("id", i) for i, s in enumerate(eval_samples[bm])],
-                }
-                for bm in eval_samples
-            },
-            f, indent=2,
-        )
+        meta_out = {}
+        for bm in eval_samples:
+            meta_out[bm] = {"eval_ids": [s.get("id", i) for i, s in enumerate(eval_samples[bm])]}
+            if bm in purity_samples:
+                meta_out[bm]["purity_ids"] = [s.get("id", i) for i, s in enumerate(purity_samples[bm])]
+                meta_out[bm]["calib_ids"] = [s.get("id", i) for i, s in enumerate(calib_samples[bm])]
+        json.dump(meta_out, f, indent=2)
     logger.info("Dataset split metadata saved -> %s", meta_path)
 
     # -- General-domain data (for anti-forgetting mix) ---------------------- #
@@ -610,7 +604,9 @@ def run_experiment(ns: argparse.Namespace) -> None:
         logger.info("CYCLE 0 -- Baseline evaluation (zero episodic memory)")
         logger.info("-" * 60)
         t0 = time.time()
-        cycle0_results = harness.run_all(eval_samples, cycle=0)
+        
+        # Zero Data Leakage Eval: Never store during eval
+        cycle0_results = harness.run_all(eval_samples, cycle=0, store_to_memory=False)
         logger.info("Cycle 0 done in %.1f min.", (time.time() - t0) / 60)
         
         # Save baseline memory store checkpoint
@@ -717,9 +713,15 @@ def run_experiment(ns: argparse.Namespace) -> None:
                 },
             }, f, indent=2)
 
-        # Step 5: Evaluate all benchmarks
+        # Step 4.5: Populate Memory by answering SIL Pool (Train split) with store_to_memory=True
+        # This occurs so that we populate the EpisodicMemoryStore with the *upgraded* fine-tuned
+        # model weights. Because this is for *generation*, we do not care about the benchmark scores.
+        logger.info("  Step 2.5: Generating Episodic Memory from SIL Pool (cycle=%d) ...", cycle_num)
+        harness.run_all(sil_samples, cycle=cycle_num, store_to_memory=True)
+
+        # Step 5: Evaluate all benchmarks (Dev/Transfer split), NO Memory Leakage
         logger.info("  Step 3: Evaluating all benchmarks (cycle=%d) ...", cycle_num)
-        cycle_results = harness.run_all(eval_samples, cycle=cycle_num)
+        cycle_results = harness.run_all(eval_samples, cycle=cycle_num, store_to_memory=False)
         all_cycle_results.append(cycle_results)
         
         # Step 6: Save memory checkpoint for resuming
@@ -766,8 +768,8 @@ def _parse_args() -> argparse.Namespace:
     )
     p.add_argument(
         "--benchmarks", nargs="+",
-        default=["hotpotqa", "truthfulqa", "fever", "strategyqa"],
-        help="Which benchmarks to evaluate.",
+        default=["truthfulqa", "strategyqa", "fever", "triviaqa", "natural_questions", "arc_challenge"],
+        help="Which benchmarks to evaluate (for the evaluation metrics).",
     )
     p.add_argument(
         "--passage_index", default="outputs/passage_index",

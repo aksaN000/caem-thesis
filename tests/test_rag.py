@@ -1,4 +1,4 @@
-﻿"""
+"""
 tests/test_rag.py
 =================
 Unit tests for PassageStore and TierThreeRAG (Stage 6).
@@ -105,7 +105,7 @@ class TestPassageStoreConstruction:
 
     def test_wrong_dim_raises(self):
         passages   = ["a"]
-        embeddings = np.ones((1, 128), dtype=np.float32)          # wrong dim
+        embeddings = np.ones((1, 384), dtype=np.float32)          # wrong dim
         with pytest.raises(ValueError, match="768"):
             PassageStore(passages, embeddings)
 
@@ -337,7 +337,7 @@ class TestRAGConfig:
         assert CAEMConfig().rag_top_k == 5
 
     def test_rag_max_new_tokens_default(self):
-        assert CAEMConfig().rag_max_new_tokens == 128
+        assert CAEMConfig().rag_max_new_tokens == 256
 
     def test_rag_do_sample_false_by_default(self):
         assert CAEMConfig().rag_do_sample is False

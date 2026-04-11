@@ -1,4 +1,4 @@
-﻿"""
+"""
 eval/harness.py
 ===============
 EvalHarness -- runs a benchmark against CAEMPipeline and collects results.
@@ -54,6 +54,7 @@ from eval.metrics import (
     exact_match,
     extract_fever_label,
     extract_strategyqa_label,
+    extract_arc_label,
     extract_cot_answer,
     fever_accuracy,
     token_f1,
@@ -113,6 +114,7 @@ class EvalHarness:
         benchmark: str,
         samples: List[BenchmarkSample],
         cycle: int = 0,
+        store_to_memory: bool = False,
     ) -> EvalResult:
         """Evaluate all samples from one benchmark at one cycle.
 
@@ -138,7 +140,7 @@ class EvalHarness:
             if self.log_every > 0 and i % self.log_every == 0:
                 logger.info("  [%s/%s] %s cycle=%d ...", i, len(samples), benchmark, cycle)
 
-            sr = self._run_one(sample, benchmark)
+            sr = self._run_one(sample, benchmark, store_to_memory)
             sample_results.append(sr)
 
         # -- Aggregate --------------------------------------------------- #
@@ -190,7 +192,7 @@ class EvalHarness:
     # Per-sample evaluation                                                #
     # ------------------------------------------------------------------ #
 
-    def _run_one(self, sample: BenchmarkSample, benchmark: str) -> SampleResult:
+    def _run_one(self, sample: BenchmarkSample, benchmark: str, store_to_memory: bool = False) -> SampleResult:
         """Run one sample through the pipeline and score it.
 
         Returns a SampleResult dict. On error, records em=0, f1=0, tier=3.
@@ -201,7 +203,7 @@ class EvalHarness:
 
         # -- Pipeline call ---------------------------------------------- #
         try:
-            result = self.pipeline.answer(question)
+            result = self.pipeline.answer(question, store_to_memory=store_to_memory)
             prediction = result.answer
             tier = result.tier
             stored = result.stored
@@ -277,6 +279,12 @@ class EvalHarness:
             f1 = em   # F1 == EM for binary labels
             return em, f1
 
+        elif benchmark == "arc_challenge":
+            gold = gold_answers[0] if gold_answers else ""
+            pred_label = extract_arc_label(prediction)
+            em = exact_match(pred_label, gold)
+            return em, em
+
         else:  # hotpotqa and any future QA benchmarks
             gold = gold_answers[0] if gold_answers else ""
             em = exact_match(prediction, gold)
@@ -291,6 +299,7 @@ class EvalHarness:
         self,
         samples_by_benchmark: Dict[str, List[BenchmarkSample]],
         cycle: int = 0,
+        store_to_memory: bool = False,
     ) -> Dict[str, EvalResult]:
         """Run all benchmarks and return a dict of results.
 
@@ -305,7 +314,7 @@ class EvalHarness:
         """
         results = {}
         for benchmark, samples in samples_by_benchmark.items():
-            results[benchmark] = self.run(benchmark, samples, cycle=cycle)
+            results[benchmark] = self.run(benchmark, samples, cycle=cycle, store_to_memory=store_to_memory)
         return results
 
     # ------------------------------------------------------------------ #

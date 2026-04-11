@@ -1,4 +1,4 @@
-﻿"""
+"""
 eval/benchmarks.py
 ==================
 Dataset loaders for the four CAEM evaluation benchmarks.
@@ -385,6 +385,129 @@ def load_strategyqa(
     logger.info("StrategyQA: %d samples loaded.", len(samples))
     return samples
 
+# -----------------------------------------------------------------------------
+# TriviaQA
+# -----------------------------------------------------------------------------
+
+def load_triviaqa(
+    split: str = "validation",
+    n: Optional[int] = None,
+    seed: int = 42,
+) -> List[BenchmarkSample]:
+    """Load TriviaQA rc.nocontext samples."""
+    try:
+        from datasets import load_dataset
+    except ImportError as e:
+        raise ImportError("HuggingFace `datasets` is required for TriviaQA loading.") from e
+
+    logger.info("Loading TriviaQA (rc.nocontext) [%s] from HuggingFace...", split)
+    ds = load_dataset("trivia_qa", "rc.nocontext", split=split)
+
+    samples: List[BenchmarkSample] = []
+    for i, row in enumerate(cast(Any, ds)):
+        row = cast(Dict[str, Any], row)
+        ans_dict = row.get("answer", {})
+        aliases = ans_dict.get("aliases", [])
+        norm_val = ans_dict.get("normalized_value", "")
+        answers = aliases if aliases else [norm_val]
+        
+        samples.append({
+            "question": row["question"],
+            "answers": answers,
+            "gold_label": None,
+            "id": row.get("question_id", str(i)),
+            "benchmark": "triviaqa",
+        })
+
+    if n is not None and n < len(samples):
+        rng = random.Random(seed)
+        samples = rng.sample(samples, n)
+
+    return samples
+
+# -----------------------------------------------------------------------------
+# Natural Questions
+# -----------------------------------------------------------------------------
+
+def load_natural_questions(
+    split: str = "validation",
+    n: Optional[int] = None,
+    seed: int = 42,
+) -> List[BenchmarkSample]:
+    """Load NQ-Open samples."""
+    try:
+        from datasets import load_dataset
+    except ImportError as e:
+        raise ImportError("HuggingFace `datasets` is required for NQ loading.") from e
+
+    logger.info("Loading Natural Questions (NQ-Open) [%s] from HuggingFace...", split)
+    ds = load_dataset("nq_open", split=split)
+
+    samples: List[BenchmarkSample] = []
+    for i, row in enumerate(cast(Any, ds)):
+        row = cast(Dict[str, Any], row)
+        answers = row.get("answer", [])
+        if not answers:
+            continue
+            
+        samples.append({
+            "question": row["question"],
+            "answers": answers,
+            "gold_label": None,
+            "id": str(i),
+            "benchmark": "natural_questions",
+        })
+
+    if n is not None and n < len(samples):
+        rng = random.Random(seed)
+        samples = rng.sample(samples, n)
+
+    return samples
+
+# -----------------------------------------------------------------------------
+# ARC-Challenge
+# -----------------------------------------------------------------------------
+
+def load_arc_challenge(
+    split: str = "validation",
+    n: Optional[int] = None,
+    seed: int = 42,
+) -> List[BenchmarkSample]:
+    """Load ARC-Challenge samples."""
+    try:
+        from datasets import load_dataset
+    except ImportError as e:
+        raise ImportError("HuggingFace `datasets` is required for ARC loading.") from e
+
+    logger.info("Loading ARC-Challenge [%s] from HuggingFace...", split)
+    ds = load_dataset("ai2_arc", "ARC-Challenge", split=split)
+
+    samples: List[BenchmarkSample] = []
+    for i, row in enumerate(cast(Any, ds)):
+        row = cast(Dict[str, Any], row)
+        choices = row.get("choices", {})
+        correct_label = row.get("answerKey", "")
+        
+        # Build constrained prompt
+        labels = choices.get("label", [])
+        texts = choices.get("text", [])
+        choices_text = " ".join([f"({lbl}) {txt}" for lbl, txt in zip(labels, texts)])
+        question = f"Question: {row['question']} Choices: {choices_text}\nAnswer with just the multiple choice letter."
+
+        samples.append({
+            "question": question,
+            "answers": [correct_label],
+            "gold_label": correct_label,
+            "id": row.get("id", str(i)),
+            "benchmark": "arc_challenge",
+        })
+
+    if n is not None and n < len(samples):
+        rng = random.Random(seed)
+        samples = rng.sample(samples, n)
+
+    return samples
+
 
 # -----------------------------------------------------------------------------
 # Unified loader
@@ -418,10 +541,15 @@ def load_benchmark(
         return load_fever(n=n, seed=seed, **kwargs)
     elif name == "strategyqa":
         return load_strategyqa(n=n, seed=seed, **kwargs)
+    elif name == "triviaqa":
+        return load_triviaqa(n=n, seed=seed, **kwargs)
+    elif name == "natural_questions":
+        return load_natural_questions(n=n, seed=seed, **kwargs)
+    elif name == "arc_challenge":
+        return load_arc_challenge(n=n, seed=seed, **kwargs)
     else:
         raise ValueError(
-            f"Unknown benchmark '{name}'. "
-            "Supported: 'hotpotqa', 'truthfulqa', 'fever', 'strategyqa'."
+            f"Unknown benchmark '{name}'."
         )
 
 
@@ -497,10 +625,41 @@ def make_synthetic_samples(
                 "benchmark": "strategyqa",
             })
 
+    elif benchmark == "triviaqa":
+        for i in range(n):
+            samples.append({
+                "question": f"Who is person_{i}?",
+                "answers": [f"answer_{i}", f"alias_{i}"],
+                "gold_label": None,
+                "id": f"trivia_synth_{i}",
+                "benchmark": "triviaqa",
+            })
+
+    elif benchmark == "natural_questions":
+        for i in range(n):
+            samples.append({
+                "question": f"When did event_{i} occur?",
+                "answers": [f"year_{i}"],
+                "gold_label": None,
+                "id": f"nq_synth_{i}",
+                "benchmark": "natural_questions",
+            })
+
+    elif benchmark == "arc_challenge":
+        labels = ["A", "B", "C", "D"]
+        for i in range(n):
+            label = labels[i % 4]
+            samples.append({
+                "question": f"Question: Science concept {i}? Choices: (A) x (B) y (C) z (D) w\nAnswer with just the multiple choice letter.",
+                "answers": [label],
+                "gold_label": label,
+                "id": f"arc_synth_{i}",
+                "benchmark": "arc_challenge",
+            })
+
     else:
         raise ValueError(
-            f"Unknown benchmark '{benchmark}'. "
-            "Supported: 'hotpotqa', 'truthfulqa', 'fever', 'strategyqa'."
+            f"Unknown benchmark '{benchmark}' for synthetic generation."
         )
 
     return samples

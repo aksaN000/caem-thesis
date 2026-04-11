@@ -1,4 +1,4 @@
-﻿"""
+"""
 caem/retrieval/rag.py
 ======================
 Tier 3 RAG -- Stage 6 of the CAEM pipeline.
@@ -93,7 +93,10 @@ class PassageStore:
     ...     print(score, passage[:80])
     """
 
-    def __init__(self, passages: List[str], embeddings: np.ndarray) -> None:
+    def __init__(self, passages: List[str], embeddings: np.ndarray, config: Optional[CAEMConfig] = None) -> None:
+        self.config = config or CAEMConfig()
+        self._dim = self.config.embedding_dim
+
         if len(passages) != embeddings.shape[0]:
             raise ValueError(
                 f"passages length {len(passages)} != embeddings rows {embeddings.shape[0]}"
@@ -102,9 +105,12 @@ class PassageStore:
             raise ValueError(
                 f"embeddings must be 2D, got {embeddings.shape}"
             )
+        if embeddings.shape[1] != self._dim:
+            raise ValueError(
+                f"Embedding dim mismatch: expected {self._dim}, got {embeddings.shape[1]}"
+            )
 
         self.passages = passages
-        self._dim = embeddings.shape[1]
 
         # Inner-product index -- cosine similarity because embeddings are
         # L2-normalised (same design as EpisodicMemoryStore).
@@ -112,7 +118,7 @@ class PassageStore:
         # FAISS SWIG stubs expose low-level signatures; runtime supports add(x).
         cast(Any, self._index).add(embeddings.astype(np.float32))
 
-        logger.info("PassageStore: %d passages indexed.", len(passages))
+        logger.info("PassageStore: %d passages indexed (dim=%d).", len(passages), self._dim)
 
     # ------------------------------------------------------------------ #
     # Search                                                               #

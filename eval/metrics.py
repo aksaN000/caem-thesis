@@ -1,4 +1,4 @@
-﻿"""
+"""
 eval/metrics.py
 ===============
 Evaluation metrics for the CAEM benchmark harness.
@@ -263,6 +263,20 @@ def extract_strategyqa_label(text: str) -> str:
     if re.search(r"\bno\b", text_lower):
         return "no"
     return "no"
+
+def extract_arc_label(text: str) -> str:
+    """Extract an ARC-Challenge answer choice (A-D or 1-4) from free-form output.
+    
+    Looks for the first isolated multiple-choice letter or number in the output.
+    """
+    # Try looking at the CoT 'Answer:' portion primarily
+    cot_final = extract_cot_answer(text).strip()
+    match = re.search(r"\b([A-Da-d1-4])\b", cot_final)
+    if match:
+        return match.group(1).upper()
+        
+    return ""
+
 
 
 # -----------------------------------------------------------------------------

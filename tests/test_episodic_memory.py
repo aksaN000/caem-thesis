@@ -1,4 +1,4 @@
-﻿"""
+"""
 tests/test_episodic_memory.py
 ==============================
 Unit tests for the CAEM episodic memory module.
@@ -95,7 +95,7 @@ class TestEpisodicEntry:
         assert entry.embedding.dtype == np.float32
 
     def test_wrong_dim_raises(self):
-        bad_emb = np.random.randn(768).astype(np.float32)
+        bad_emb = np.random.randn(384).astype(np.float32)
         with pytest.raises(ValueError, match=r"shape \(768,\)"):
             EpisodicEntry(
                 question="q", reasoning_chain="r", answer="a",
@@ -289,7 +289,7 @@ class TestStoreBasicOps:
 
     def test_dim_mismatch_raises(self):
         store = make_store()
-        bad_emb = np.random.randn(768).astype(np.float32)
+        bad_emb = np.random.randn(384).astype(np.float32)
         bad_emb /= np.linalg.norm(bad_emb)
         with pytest.raises((ValueError, Exception)):
             # EpisodicEntry constructor will raise before we even call add.

@@ -1,4 +1,4 @@
-﻿"""
+"""
 caem/pipeline.py
 =================
 CAEMPipeline -- end-to-end orchestrator for the CAEM inference pipeline.
@@ -241,7 +241,7 @@ class CAEMPipeline:
     # Public API                                                           #
     # ------------------------------------------------------------------ #
 
-    def answer(self, query: str) -> PipelineResult:
+    def answer(self, query: str, store_to_memory: bool = True) -> PipelineResult:
         """Run the full CAEM pipeline for a single query.
 
         Parameters
@@ -303,19 +303,21 @@ class CAEMPipeline:
             answer_str, post_conf, escalated = self._tier2(query, pre_conf)
             # -- Stage 5: Verify (Tier 2 and escalated-to-3 answers) --- #
             stored_conf = self._verify(query, answer_str)
-            entry_id, stored_flag = self._maybe_store(
-                query=query, answer=answer_str,
-                query_embedding=query_embedding, stored_conf=stored_conf,
-            )
+            if store_to_memory:
+                entry_id, stored_flag = self._maybe_store(
+                    query=query, answer=answer_str,
+                    query_embedding=query_embedding, stored_conf=stored_conf,
+                )
 
         else:  # tier == 3
             answer_str = self._tier3(query)
             # -- Stage 5: Verify ----------------------------------------#
             stored_conf = self._verify(query, answer_str)
-            entry_id, stored_flag = self._maybe_store(
-                query=query, answer=answer_str,
-                query_embedding=query_embedding, stored_conf=stored_conf,
-            )
+            if store_to_memory:
+                entry_id, stored_flag = self._maybe_store(
+                    query=query, answer=answer_str,
+                    query_embedding=query_embedding, stored_conf=stored_conf,
+                )
 
         latency_ms = (time.perf_counter() - t_start) * 1000.0
         logger.info(

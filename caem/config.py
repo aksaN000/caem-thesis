@@ -1,4 +1,4 @@
-﻿"""
+"""
 caem/config.py
 ==============
 Central configuration for the CAEM pipeline.
@@ -173,7 +173,7 @@ class CAEMConfig:
     # Experiment settings                                                  #
     # ------------------------------------------------------------------ #
     benchmark: str = "hotpotqa"
-    num_cycles: int = 3
+    num_cycles: int = 10
     calibration_set_size: int = 500
     purity_validation_set_size: int = 500
     questions_per_cycle: int = 5_000

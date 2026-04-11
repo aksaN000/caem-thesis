@@ -270,7 +270,7 @@ def collect_calibration_data(
     for bm, samples in calib_samples.items():
         for sample in samples:
             try:
-                result = pipeline.answer(sample["question"])
+                result = pipeline.answer(sample["question"], store_to_memory=False)
                 # u_pre as a logit proxy (already in [0,1]; convert for NLL)
                 u_pre = result.pre_confidence.u_pre if result.pre_confidence else 0.5
 

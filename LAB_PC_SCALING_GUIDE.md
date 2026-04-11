@@ -1,4 +1,4 @@
-# CAEM Hardware Scaling Guide (Lab PC / 4090 / 5090 Edition)
+# CAEM Hardware Scaling Guide (Vast.ai / 5090 Edition)
 
 **Purpose:** This document records which hyperparameters to change when moving from
 the thesis-standard RTX 3060 config to a higher-capacity machine, with honest
@@ -210,8 +210,8 @@ Thesis numbers come from 500K. Appendix B numbers come from 5M. Keep them separa
 
 | Phase | 4090 | 5090 |
 |---|---|---|
-| Full experiment (n=5000, Cycle 0→3) | ~11–14h | ~7–10h |
+| Full experiment (n=5000, 10 Cycles) | ~18-24h | ~14-16h |
 | Purity validation | ~30 min | ~20 min |
 | Ablations (9 configs, n=500) | ~3–5h | ~2–3h |
 | Calibration | ~45 min | ~30 min |
-| **Total** | **~16–20h** | **~10–14h** |
+| **Total** | **~24-30h** | **~20-22h** |
