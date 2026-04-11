@@ -1,5 +1,5 @@
 % ============================================================
-% Chapter 4 — Methodology
+% Chapter 4 -- Methodology
 % ============================================================
 % Writing-suggestions entries applied: C4-01–C4-24, GEN-01, GEN-03, GEN-11, GEN-13,
 %   BM-02–BM-06, IMPL-01–IMPL-06, PUB-02, TH-01–TH-02, C4-17, C4-18, C4-23
@@ -161,7 +161,7 @@ grouped into three functional phases: \textit{routing \& generation} (Stages~1--
 \node[stg=teal]   (s3)  at (0, -8.0)   {\textbf{S3}\\Pre-conf.\\{\normalsize $\upre$}};
 \node[stg=teal]   (s4)  at (0,-12.0)   {\textbf{S4}\\Route};
 % ---- memory store ----
-\node[mem]        (mem) at (5.2, -4.0)  {Memory\\$K\!=\!20K$};
+\node[mem]        (mem) at (5.2, -4.0)  {Memory\\$K\!=\!1\text{M}$};
 % ---- three routing branches ----
 \node[stg=green]  (t1)  at (7.2, -8.0)  {\textbf{Tier~1}\\Retrieve\\{\normalsize $r\!\geq\!0.90$}};
 \node[stg=orange] (t2)  at (7.2,-12.0)  {\textbf{Tier~2}\\Generate\\{\normalsize $s\!>\!0.75$}};
@@ -301,7 +301,7 @@ $\ustored$ & 7 (at storage) & $0.5\,p_{\text{entail}} + 0.3\,s_{\text{avg}} + 0.
 
 Before any generation, the system computes $\upre$ using only signals available from the
 encoding step.
-Two signals are used at this stage (not four) because generation has not yet occurred ---
+Two signals are used at this stage (not four) because generation has not yet occurred;
 token-level and dropout-based signals from the \emph{answer} are not yet available.
 
 \begin{equation}
@@ -364,11 +364,23 @@ As Tier~1 memory coverage grows across cycles, the average query latency falls: 
 becomes computationally cheaper as it becomes more knowledgeable.
 This ``computational dividend'' is reported in Chapter~5~(5.6).
 
+\noindent\textbf{Tier~3 retrieval corpus.}
+Tier~3 RAG retrieval uses the full DPR Wikipedia passage corpus \cite{karpukhin-etal-2020-dense},
+consisting of 21,015,324 passages derived from the December 2018 Wikipedia dump segmented
+into non-overlapping 100-word chunks.
+Passages are indexed with a FAISS IVF-PQ index (65,536 coarse centroids, $M=64$ bytes per
+vector, 8 bits per sub-quantiser), occupying approximately 40\,GB on disk and requiring at
+least 128\,GB system RAM for full in-memory operation on a cloud A100 node.
+At query time, the top-$k$ passages (default $k=5$) are concatenated with the query and
+passed to the Flan-T5 encoder as additional context.
+This corpus provides broad factual grounding for queries where neither episodic memory nor
+standalone model generation is sufficiently reliable.
+
 
 The routing decision applies two mechanisms sequentially.
 They are deliberately separated and do not interact mathematically.
 
-\noindent\textbf{Mechanism 1 --- OR-condition safety veto (checked first):}
+\noindent\textbf{Mechanism 1: OR-condition safety veto (checked first).}
 \begin{equation}
   \text{if } \upre < 0.6 \Rightarrow \text{route to Tier~3, regardless of similarity}
   \label{eq:or-condition}
@@ -383,7 +395,7 @@ Separating the veto from the routing score matters: combining them into a single
 would allow a high $\ustored$ to arithmetically compensate for a dangerously low $\upre$,
 violating the safety-first principle.
 
-\noindent\textbf{Mechanism 2 --- Routing score (applied only if OR-condition does not fire):}
+\noindent\textbf{Mechanism 2: Routing score (applied only if OR-condition does not fire).}
 \begin{equation}
   r(q, e) = 0.7\,s(q, e) + 0.3\,\ustored(e)
   \label{eq:routing-score}
@@ -425,7 +437,7 @@ The decision process is formally defined as pseudocode in Algorithm~\ref{alg:rou
 The routing score weights (0.7/0.3) are design choices [DES]: similarity dominates because
 it is the primary relevance signal; stored confidence corrects at the margin.
 The Tier~1 threshold (0.90) is a design choice [DES] set conservatively to minimise
-near-miss retrieval --- a particularly important safeguard for FEVER, where adversarially
+near-miss retrieval, which is particularly important for FEVER, where adversarially
 constructed claims share high structural similarity but have opposite labels.
 The Tier~2 similarity boundary ($s > 0.75$), Tier~1 combined threshold (0.90),
 and the OR-condition threshold (0.60) are design choices [DES] determining the
@@ -436,7 +448,7 @@ Tier~1 serves retrieved answers directly from the stored episode without re-runn
 verification pipeline for each query.
 Quality is maintained by retroactive re-verification (Section~\ref{sec:retroverify}), which
 re-scores all stored episodes with the improved model once per cycle.
-This amortises verification cost over one batch per cycle rather than per query --- a strictly
+This amortises verification cost over one batch per cycle rather than per query, a strictly
 stronger freshness guarantee than per-query re-verification.
 Tier~1 latency is therefore dominated by FAISS retrieval only ($\approx$150--400\,ms),
 not by the NLI+SC+SE pipeline.
@@ -589,18 +601,18 @@ The current implementation combines three verification signals into a
 continuous stored-confidence score (Equation~\ref{eq:ustored}) without
 benchmark-specific hard escalation rules.
 
-\noindent\textbf{Layer~1 --- NLI.}
+\noindent\textbf{Layer~1: NLI.}
 RoBERTa-Large-MNLI \cite{liu2019roberta} is used to compute entailment
 probabilities over generated reasoning chains. For each query, $M=3$ sampled
 chains are compared against the final answer, and the entailment probability is
 averaged to obtain $p_{\text{entail}}$.
 
-\noindent\textbf{Layer~2 --- Self-Consistency (SC).}
+\noindent\textbf{Layer~2: Self-Consistency (SC).}
 Three independent answer chains are generated at temperature $T=0.7$.
 The average pairwise cosine similarity $s_{\text{avg}}$ measures agreement across chains.
 High consistency is a necessary (though not sufficient) signal of reliable generation.
 
-\noindent\textbf{Layer~3 --- Semantic Entropy (SE).}
+\noindent\textbf{Layer~3: Semantic Entropy (SE).}
 Semantic entropy $H_{\text{SE}}$ is computed by unconditionally generating $K=10$ diverse 
 candidate answers at elevated temperature ($T=1.0$) \cite{farquhar2024semantic}. 
 These candidates are grouped into semantic equivalence classes using the NLI model. 
@@ -608,7 +620,7 @@ Specifically, agglomerative clustering is applied where two answers are placed i
 cluster $G_c$ if and only if they demonstrate bidirectional entailment. 
 The probability of each cluster is defined proportionally, $p_c = |G_c| / K$, allowing 
 entropy to be computed across distinct meanings as $H_{\text{SE}} = -\strut\smash{\sum_c p_c \log p_c}$.
-A high-entropy output distribution indicates that the model is generating diverse meanings ---
+A high-entropy output distribution indicates that the model is generating diverse meanings:
 the hallmark of confabulation rather than genuine uncertainty about phrasing.
 
 \noindent\textbf{Implementation note.}
@@ -617,12 +629,12 @@ but the active verifier path currently uses the continuous three-signal composit
 score in Equation~\ref{eq:ustored}.
 
 \noindent\textbf{Task-aware label extraction.}
-After Session~30 Fix~A, Tier~2 and Tier~3 generation uses task-aware prompts that
-produce structured reasoning traces for all four benchmarks.
-For classification benchmarks (FEVER, StrategyQA), the generated output has the form
+Tier~2 and Tier~3 generation uses task-aware prompts that produce structured reasoning
+traces for all three training benchmarks (FEVER, TriviaQA, Natural Questions).
+For classification benchmarks (FEVER), the generated output has the form
 \mbox{``\texttt{Reasoning: <explanation>}''} followed by \mbox{``\texttt{Answer: <label>}''}.
-At evaluation time, dedicated extraction functions (\texttt{extract\_fever\_label()} and
-\texttt{extract\_strategyqa\_label()}) use regular-expression matching to parse the label
+At evaluation time, a dedicated extraction function (\texttt{extract\_fever\_label()})
+uses regular-expression matching to parse the label
 from the rationale-style output before scoring.
 This ensures that the \texttt{reasoning\_chain} field stored in episodic memory always
 contains a genuine reasoning trace, consistent with the verified reasoning-chain supervision
@@ -655,7 +667,7 @@ Following the operational definition established in implementation
 \[
       H = \frac{|\{q : \mathrm{EM}(q) = 0 \;\wedge\; \ustored(q) \geq 0.5\}|}{N}
 \]
-This captures \emph{confident confabulation} --- the most harmful failure mode.
+This captures \emph{confident confabulation}, the most harmful failure mode.
 Low-confidence or verification-rejected wrong answers do not satisfy this condition;
 the metric focuses on wrong answers that remain high-confidence after the storage-quality gate.
 
@@ -667,19 +679,19 @@ The verification pipeline is formally defined as pseudocode in Algorithm~\ref{al
 \begin{algorithmic}[1]
 \Require{Query $q$, reasoning chain $c$, answer $a$}
 \Ensure{$(\mathit{accept} \in \{\mathrm{T},\mathrm{F}\},\;\ustored \in [0,1])$}
-\Statex \textit{--- Layer 1: NLI Entailment ---}
+\Statex \textbf{Layer 1: NLI Entailment}
 \StatePar{Sample $M\!=\!3$ chains $\{c_j\}$ at temperature $T\!=\!0.7$}
 \For{each chain $c_j$}
   \StatePar{$p_j \leftarrow \textsc{RoBERTa\text{-}MNLI}(c_j \Rightarrow a)$}
 \EndFor
 \StatePar{$p_{\text{entail}} \leftarrow \tfrac{1}{M}\sum_j p_j$}
-\Statex \textit{--- Layer 2: Self-Consistency ---}
+\Statex \textbf{Layer 2: Self-Consistency}
 \StatePar{$s_{\text{avg}} \leftarrow$ mean pairwise cosine similarity of $\{c_j\}$ \Comment{reuse chains from Layer~1}}
-\Statex \textit{--- Layer 3: Semantic Entropy ---}
+\Statex \textbf{Layer 3: Semantic Entropy}
 \StatePar{Sample $K\!=\!10$ answers $\{a_k\}$ at $T\!=\!1.0$}
 \StatePar{Cluster $\{a_k\}$ by NLI-based semantic equivalence (agglomerative)}
 \StatePar{$h_{\text{norm}} \leftarrow H_{\text{SE}}/\log_2 K$,\quad $H_{\text{SE}} = -\sum_c P(c)\log P(c)$}
-\Statex \textit{--- Combine and Gate ---}
+\Statex \textbf{Combine and Gate}
 \StatePar{$\ustored \leftarrow 0.5\,p_{\text{entail}} + 0.3\,s_{\text{avg}} + 0.2\,(1-h_{\text{norm}})$ \Comment{Eq.~\ref{eq:ustored}}}
 \If{$\ustored \geq 0.50$}
   \StatePar{\Return $(\mathrm{True},\;\ustored)$}
@@ -726,18 +738,22 @@ Each stored episode is a structured record with two classes of fields:
 
 \noindent\textbf{Why content fields are immutable.}
 The fine-tuning dataset for Stage~8 is derived directly from stored reasoning chains.
-If content fields were updated mid-cycle, the model would be trained on a moving target ---
-a violation of the clean generate/improve separation that the verified rejection sampling
+If content fields were updated mid-cycle, the model would be trained on a moving target,
+violating the clean generate/improve separation that the verified rejection sampling
 framework requires.
 Immutable content ensures that the fine-tuning dataset is auditable: every training example
 can be traced back to the specific query, context, and reasoning chain that the verifier
 accepted.
 
 \noindent\textbf{Pruning policy.}
-When memory approaches capacity ($K = 20{,}000$ episodes in the current implementation),
-episodes are pruned by ascending $\ustored \times \text{success\_rate}$ --- the lowest
+When memory approaches capacity ($K = 1{,}000{,}000$ episodes), pruning triggers
+at $95\%$ occupancy (950,000 episodes).
+Episodes are pruned by ascending $\ustored \times \text{success\_rate}$: the lowest
 combined quality episodes are removed first.
 This preserves the highest-confidence and most-frequently-retrieved knowledge in memory.
+At the chosen scale, the FAISS IVF-PQ index (4,096 coarse centroids, $M\!=\!64$,
+8 bits per sub-quantiser) occupies approximately 70\,MB in memory, well within GPU
+VRAM alongside both language models.
 
 % ---------------------------------------------------------------
 \section{Self-Improvement Loop and Calibration}
@@ -760,66 +776,66 @@ distinct hallucination failure modes that a single score cannot separate;
 providing an inference-time dividend that ReST does not offer; and
 (3) retroactive re-verification propagates model improvements backwards into memory quality.
 
-The four-cycle structure is illustrated in Figure~\ref{fig:self-improvement-cycles}.
+The ten-cycle structure is illustrated in Figure~\ref{fig:self-improvement-cycles}.
 
-\begin{center}
-\resizebox{0.88\textwidth}{!}{%
+\begin{figure}[htbp]
+\centering
+\resizebox{\textwidth}{!}{%
 \begin{tikzpicture}[
-    cyc/.style={rectangle, draw=#1!70!black, fill=#1!8, line width=1.5pt,
-                text width=3.2cm, align=center, minimum height=1.5cm,
-                rounded corners=6pt, font=\small\bfseries},
-    act/.style={rectangle, draw=gray!50, fill=gray!5, line width=1.0pt,
-                text width=2.8cm, align=center, minimum height=1.0cm,
+    cyc/.style={rectangle, draw=#1!70!black, fill=#1!8, line width=1.4pt,
+                text width=2.6cm, align=center, minimum height=1.4cm,
+                rounded corners=5pt, font=\small\bfseries},
+    dots/.style={rectangle, draw=none, fill=none,
+                 text width=1.0cm, align=center, font=\Large\bfseries},
+    act/.style={rectangle, draw=gray!50, fill=gray!5, line width=0.9pt,
+                text width=2.4cm, align=center, minimum height=0.9cm,
                 rounded corners=3pt, font=\scriptsize},
-    arr/.style={->, >=stealth, line width=1.6pt, #1},
-    lbl/.style={font=\scriptsize, fill=white, inner sep=2pt}
+    arr/.style={->, >=stealth, line width=1.4pt, #1},
+    lbl/.style={font=\scriptsize, fill=white, inner sep=1.5pt}
 ]
-%% Four cycle nodes
-\node[cyc=teal]   (c0) at (0,   0)   {\textbf{Cycle~0}\\Base model $\theta_0$\\+\,calibration};
-\node[cyc=orange] (c1) at (6.5, 0)   {\textbf{Cycle~1}\\Fine-tuned $\theta_1$\\+\,retroverify};
-\node[cyc=orange] (c2) at (6.5,-5.5) {\textbf{Cycle~2}\\Fine-tuned $\theta_2$\\+\,retroverify};
-\node[cyc=green]  (c3) at (0,  -5.5) {\textbf{Cycle~3}\\Fine-tuned $\theta_3$\\(final weights)};
+%% Cycle nodes (horizontal layout: C0, C1, C2, ..., C9)
+\node[cyc=teal]   (c0) at (0.0,  0) {\textbf{Cycle~0}\\$\theta_0$ base\\calibration};
+\node[cyc=orange] (c1) at (3.2,  0) {\textbf{Cycle~1}\\$\theta_1$\\retroverify};
+\node[cyc=orange] (c2) at (6.4,  0) {\textbf{Cycle~2}\\$\theta_2$\\retroverify};
+\node[dots]       (el) at (9.2,  0) {$\cdots$};
+\node[cyc=orange] (c8) at (12.0, 0) {\textbf{Cycle~8}\\$\theta_8$\\retroverify};
+\node[cyc=green]  (c9) at (15.2, 0) {\textbf{Cycle~9}\\$\theta_9$ final\\(inference)};
 
-%% Activity annotations
-\node[act] (inf)  at (3.25, 1.8)   {Query processing\\(Alg.~\ref{alg:master-pipeline})};
-\node[act] (ft)   at (9.2, -2.75)  {Stage~8 fine-tune\\(Alg.~\ref{alg:stage8})\\$\mathcal{L}_{\text{CE}}+L_2$};
-\node[act] (rver) at (3.25,-7.3)   {Retroactive\\re-verification\\(Alg.~\ref{alg:retroverify})};
-\node[act] (cal)  at (-3.6, 0)     {Calibration\\(Cycle~0 only)\\temperature $T$};
+%% Main flow arrows
+\draw[arr=teal!70]   (c0) -- node[above, lbl] {verified\\eps.} (c1);
+\draw[arr=orange!70] (c1) -- node[above, lbl] {verified\\eps.} (c2);
+\draw[arr=orange!70] (c2) -- (el);
+\draw[arr=orange!70] (el) -- (c8);
+\draw[arr=orange!70] (c8) -- node[above, lbl] {verified\\eps.} (c9);
 
-%% Cycle arrows
-\draw[arr=teal!70]         (c0) -- node[above, lbl] {verified episodes} (c1);
-\draw[arr=orange!70]       (c1) -- node[left, lbl] {verified episodes} (c2);
-\draw[arr=orange!70]       (c2) -- node[below, lbl] {verified episodes} (c3);
+%% Per-cycle activity annotations below
+\node[act] (cal)  at (0.0,  -2.6) {Calibration\\(once, after C0)};
+\node[act] (proc) at (5.6,  -2.6) {Query processing\\+ Stage~8 FT\\$\mathcal{L}_{\text{CE}}+L_2$};
+\node[act] (rver) at (11.0, -2.6) {Retroactive\\re-verification\\(all cycles)};
 
-%% The green dashed return arrow (final weights)
-%% Goes from c3 up to c0, bulging left
-\draw[arr=green!60!black, dashed]
-    (c3.north west) to[bend left=25] 
-    node[left, lbl, align=right] {final $\theta_3$\\(inference)} 
-    (c0.south west);
+\draw[->, >=stealth, dashed, gray!50, line width=0.8pt] (cal)  -- (c0.south);
+\draw[->, >=stealth, dashed, gray!50, line width=0.8pt] (proc) -- (c1.south);
+\draw[->, >=stealth, dashed, gray!50, line width=0.8pt] (proc) -- (c2.south);
+\draw[->, >=stealth, dashed, gray!50, line width=0.8pt] (rver) -- (c8.south);
+\draw[->, >=stealth, dashed, gray!50, line width=0.8pt] (rver) -- (c9.south);
 
-%% The purple purity theorem arrow
-%% Goes from c0 down to c3, bulging slightly right (inside the box)
-\draw[->, >=stealth, line width=2pt, purple!70]
-    (c0.south) to[bend left=15]
-    node[right, font=\scriptsize\bfseries, text=purple!70, align=left, xshift=1mm] 
-        {$P_n$ increases\\(Thm.~\ref{thm:monotone})}
-    (c3.north);
-
-%% Activity connectors (light dashed)
-\draw[->, >=stealth, dashed, gray!50, line width=0.9pt] (inf)  -- (c0.north east);
-\draw[->, >=stealth, dashed, gray!50, line width=0.9pt] (inf)  -- (c1.north west);
-\draw[->, >=stealth, dashed, gray!50, line width=0.9pt] (ft)   -- (c1.south east);
-\draw[->, >=stealth, dashed, gray!50, line width=0.9pt] (ft)   -- (c2.north east);
-\draw[->, >=stealth, dashed, gray!50, line width=0.9pt] (rver) -- (c2.south west);
-\draw[->, >=stealth, dashed, gray!50, line width=0.9pt] (rver) -- (c3.south east);
-\draw[->, >=stealth, dashed, gray!50, line width=0.9pt] (cal)  -- (c0.west);
+%% Purity arrow spanning full width (above)
+\draw[->, >=stealth, line width=1.8pt, purple!70]
+    ([yshift=8pt]c0.north) -- ([yshift=8pt]c9.north)
+    node[midway, above, font=\scriptsize\bfseries, text=purple!70]
+        {$P_n$ increases monotonically (Thm.~\ref{thm:monotone})};
 
 \end{tikzpicture}
 }%
-\captionof{figure}{CAEM self-improvement cycle structure (C0--C3). Calibration runs once after Cycle~0 (Section~\ref{sec:calibration}). Retroactive re-verification refreshes memory quality scores at cycle end. Memory purity $P_n$ increases monotonically across cycles (Theorem~\ref{thm:monotone}, \S\ref{sec:monotonicity}). The dashed return arrow indicates the final $\theta_3$ weights used for inference.}
+\caption{CAEM ten-cycle self-improvement structure (C0--C9). Calibration of
+$\uhat$ signal weights runs once after Cycle~0 (Section~\ref{sec:calibration}).
+Each subsequent cycle fine-tunes on freshly verified episodes and runs retroactive
+re-verification to refresh memory quality scores.
+Memory purity $P_n$ increases monotonically across all cycles
+(Theorem~\ref{thm:monotone}, Section~\ref{sec:monotonicity}).
+The final weights $\theta_9$ are used for inference after Cycle~9.}
 \label{fig:self-improvement-cycles}
-\end{center}
+\end{figure}
 
 \noindent\textbf{Training objective.}
 The fine-tuning objective trains on the full reasoning chain:
@@ -834,22 +850,25 @@ sequence-level supervision and is consistent with chain-of-thought distillation 
 \cite{NEURIPS2022_9d560961,ho2023large}.
 
 \noindent\textbf{Task-aware prompts.}
-All four benchmarks use structured generation prompts that ensure \texttt{reasoning\_chain}
-always contains genuine reasoning content:
+All three training benchmarks use structured generation prompts that ensure
+\texttt{reasoning\_chain} always contains genuine reasoning content:
 \begin{itemize}
-  \item \textbf{Open-ended} (HotpotQA, TruthfulQA):
-        \begin{quote}\ttfamily Question: \{q\}\\ Think step by step:\\ Answer:\end{quote}
   \item \textbf{Classification} (FEVER):
         \begin{quote}\ttfamily Determine whether the claim [supports/refutes/not enough info].\\ Format: Reasoning: <explanation>\\ Answer: <label>\end{quote}
-  \item \textbf{Classification} (StrategyQA):
-        \begin{quote}\ttfamily Answer with reasoning.\\ Format: Reasoning: <explanation>\\ Answer: yes|no\end{quote}
+  \item \textbf{Open-ended} (TriviaQA):
+        \begin{quote}\ttfamily Question: \{q\}\\ Think step by step:\\ Answer:\end{quote}
+  \item \textbf{Open-ended} (Natural Questions):
+        \begin{quote}\ttfamily Question: \{q\}\\ Think step by step:\\ Answer:\end{quote}
 \end{itemize}
+Transfer evaluation benchmarks (TruthfulQA, StrategyQA, ARC-Challenge) use the same
+open-ended or classification templates respectively, but their samples are never used
+for self-improvement training; they appear only in held-out evaluation.
 
 \noindent\textbf{Stability-plasticity tradeoff.}
 The model must be plastic enough to absorb new verified knowledge each cycle, yet
 stable enough to retain general-purpose language capabilities.
 Without regularisation, each fine-tuning cycle would overwrite previously learned
-weights --- a phenomenon known as catastrophic forgetting \cite{MCCLOSKEY1989109}.
+weights, a phenomenon known as catastrophic forgetting \cite{MCCLOSKEY1989109}.
 \caem{} addresses this via \textbf{L2 regularisation with uniform parameter weighting},
 adding a penalty to the standard cross-entropy loss:
 \begin{equation}
@@ -927,7 +946,7 @@ First, \emph{freshness}: episodes stored in early cycles with a weaker verifier 
 retrospectively assessed by the stronger verifier, preventing stale low-quality episodes
 from persisting in Tier~1.
 Second, \emph{upward pressure on memory quality}: as $\ustored$ scores are updated to
-reflect the improved verifier, the average $\ustored$ in memory rises monotonically ---
+reflect the improved verifier, the average $\ustored$ in memory rises monotonically,
 a consequence of Theorem~\ref{thm:monotone} (Chapter~4,~\S\ref{sec:monotonicity}).
 
 Tier~1 quality assurance is therefore maintained without per-query re-verification cost.
@@ -1013,7 +1032,7 @@ Chapter~5 reports the actual measurements.
 % ==============================================================
 % §4.9  THEORETICAL ANALYSIS
 % ==============================================================
-% STATUS: COMPLETE — no data required; proofs are purely mathematical.
+% STATUS: COMPLETE -- no data required; proofs are purely mathematical.
 % Writing-suggestions entries satisfied: C4-17, C4-18, C4-23, TH-01, TH-02, PUB-02
 % ==============================================================
 \section{Theoretical Analysis}
@@ -1122,7 +1141,7 @@ Since $p < 1$, we have $(1-p) > 0$ and may divide both sides by $(1-p)$:
 When $\alpha > \frac{1}{2}$ and $p \geq \frac{1}{2}$, memory purity satisfies $P \geq \alpha$.
 \end{corollary}
 
-\begin{remark}[Illustrative example — for pedagogy only]
+\begin{remark}[Illustrative example, for pedagogy only]
 \label{rem:purity-example}
 To build intuition, suppose $p = 0.70$ (the model generates correct answers 70\% of the time)
 and $\alpha = 0.85$ (the verifier is correct 85\% of the time). Substituting into
@@ -1232,8 +1251,8 @@ The practical ceiling is jointly determined by the base model's capacity ($p$) a
 verification pipeline's accuracy ($\alpha$): even a perfect verifier ($\alpha = 1$) cannot
 improve accuracy beyond what the model can generate given its parameters. Empirically, the
 signal that the system is approaching its ceiling is diminishing improvement magnitude between
-consecutive cycles --- confirmed in Chapter~5 by
-comparing $\Delta_{\text{avg}}$ from Cycle~1$\to$2 against Cycle~2$\to$3.
+consecutive cycles, confirmed in Chapter~5 by
+comparing $\Delta_{\text{avg}}$ across successive cycle pairs.
 \end{remark}
 
 \begin{remark}[Practical significance for a 3-cycle experiment]

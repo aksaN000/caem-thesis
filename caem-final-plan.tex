@@ -1,0 +1,722 @@
+% ============================================================
+% CAEM — Final Research Plan (Revised April 2026)
+% Author: Aksan Gony Alif, BRAC University
+% Status: Post mini-run (EXP-19), cloud GPU confirmed, device unrestricted
+% This document supersedes the experimental design sections of
+% caem-unified-plan-v3.tex wherever they conflict.
+% ============================================================
+
+\documentclass[12pt,a4paper]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{enumitem}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{titlesec}
+\usepackage{mdframed}
+\usepackage{multirow}
+\usepackage{caption}
+
+\definecolor{fixred}{RGB}{180,30,30}
+\definecolor{okgreen}{RGB}{20,120,50}
+\definecolor{warnblue}{RGB}{20,60,160}
+\definecolor{boxbg}{RGB}{245,248,255}
+
+\mdfdefinestyle{infobox}{
+  backgroundcolor=boxbg,
+  linecolor=warnblue,
+  linewidth=1.2pt,
+  leftmargin=0pt, rightmargin=0pt,
+  innerleftmargin=10pt, innerrightmargin=10pt,
+  innertopmargin=8pt, innerbottommargin=8pt,
+  roundcorner=4pt
+}
+\mdfdefinestyle{fixbox}{
+  backgroundcolor={red!5},
+  linecolor=fixred,
+  linewidth=1.4pt,
+  leftmargin=0pt, rightmargin=0pt,
+  innerleftmargin=10pt, innerrightmargin=10pt,
+  innertopmargin=8pt, innerbottommargin=8pt,
+  roundcorner=4pt
+}
+
+\newcommand{\caem}{CAEM}
+\newcommand{\upre}{u_{\text{pre}}}
+\newcommand{\uhat}{\hat{u}}
+\newcommand{\ustored}{\hat{u}_{\text{stored}}}
+
+\title{\textbf{CAEM: Final Research Plan}\\[0.4em]
+\large Confidence-Aware Episodic Memory with Self-Improvement\\[0.2em]
+\normalsize Revised April 2026 --- Post EXP-19, Cloud GPU Confirmed}
+\author{Aksan Gony Alif\\
+BRAC University\\
+Supervisor: Prof.\ Md.\ Golam Rabiul Alam}
+\date{April 2026}
+
+\begin{document}
+\maketitle
+\tableofcontents
+\newpage
+
+% ============================================================
+\section{Status Summary}
+% ============================================================
+
+\begin{mdframed}[style=infobox]
+\textbf{What is complete:}
+\begin{itemize}[noitemsep]
+  \item Chapters 1--2: submitted (Phase 1 pre-thesis report).
+  \item Chapter 3 (Requirements, Impacts, Project Management): written and compiled.
+  \item Chapter 4 (Methodology): written, all 5 algorithms in \texttt{algorithmic} style,
+        all figures placed, notation table, theoretical analysis including Data Purity Theorem.
+  \item Implementation: all 8 pipeline stages, 96 unit tests passing, mini-run (EXP-19)
+        completed on RTX~3060 (n=500, 4 cycles).
+  \item Mini-run results confirmed: FEVER +10.9\%, StrategyQA +9.4\%,
+        TruthfulQA net +4.0\%, HotpotQA EM$\approx$0 (boundary condition).
+\end{itemize}
+
+\textbf{What is pending:}
+\begin{itemize}[noitemsep]
+  \item FEVER data leakage fix (Section~\ref{sec:fever-fix}) --- \textcolor{fixred}{\textbf{blocking}}.
+  \item Dataset suite revision (Section~\ref{sec:datasets}).
+  \item Full-scale cloud experiment (Section~\ref{sec:experiment}).
+  \item Ablation suite (Section~\ref{sec:ablations}).
+  \item Chapters 5 and 6 (Section~\ref{sec:writing}).
+\end{itemize}
+\end{mdframed}
+
+% ============================================================
+\section{Critical Fix: FEVER Data Leakage}
+\label{sec:fever-fix}
+% ============================================================
+
+\begin{mdframed}[style=fixbox]
+\textbf{\textcolor{fixred}{Data integrity issue --- fix before any full-scale run.}}
+
+\textbf{Problem:} \texttt{run\_experiment.py} loads FEVER from the \texttt{train} split
+of \texttt{lucadiliello/fever} for both the self-improvement loop (SIL) query pool
+\emph{and} evaluation.
+Even though \texttt{split\_calibration\_sets()} carves out calibration and purity
+subsets, the evaluation queries are drawn from the same \texttt{train} split.
+The model is therefore evaluated on queries from the same distribution it was
+trained on --- a direct data leakage.
+Mini-run FEVER results (+10.9\%) are \emph{potentially inflated} and cannot be
+reported as scientifically valid until the fix is applied and results re-checked.
+
+\textbf{Root cause:} \texttt{lucadiliello/fever} has three splits:
+\begin{itemize}[noitemsep]
+  \item \texttt{train} --- 145,449 examples (labels available).
+  \item \texttt{paper\_dev} --- 19,998 examples (labels available) --- the standard
+        published benchmark split used by every FEVER baseline (DPR, FiD, Atlas).
+  \item \texttt{paper\_test} --- unlabelled.
+\end{itemize}
+\texttt{paper\_dev} was never referenced in \texttt{run\_experiment.py}.
+
+\textbf{Fix:}
+\begin{enumerate}[noitemsep]
+  \item Evaluation for FEVER must use \texttt{paper\_dev} exclusively.
+        Never pass \texttt{paper\_dev} examples to the SIL query pool.
+  \item \texttt{train} is allocated as follows (in order, no overlap):
+    \begin{itemize}[noitemsep]
+      \item Indices 0--499: calibration set (for $\uhat$ logistic regression).
+      \item Indices 500--999: purity validation set (for verifier accuracy $\alpha$).
+      \item Indices 1000+: SIL query pool (fed into the self-improvement loop).
+    \end{itemize}
+  \item Update \texttt{scripts/run\_experiment.py} and
+        \texttt{caem/benchmarks/fever.py} to load \texttt{paper\_dev} for evaluation.
+  \item Rerun mini-run smoke test with fix applied to confirm FEVER results are
+        still positive (expected: similar magnitude, but now scientifically clean).
+\end{enumerate}
+
+\textbf{Secondary benefit:} Using \texttt{paper\_dev} as the eval set makes
+CAEM's FEVER numbers directly comparable to every published baseline
+that also uses \texttt{paper\_dev}, including the Liu et al.\ (ACL~2024)
+RA-ISF numbers cited in PUB-01.
+\end{mdframed}
+
+% ============================================================
+\section{Final Dataset Suite}
+\label{sec:datasets}
+% ============================================================
+
+\subsection{Removed Datasets}
+
+\textbf{HotpotQA --- removed entirely.}
+EXP-19 confirmed Flan-T5-Large achieves EM~$\approx$~0.006 on HotpotQA across all
+four cycles.
+The Data Purity Theorem's precondition $p > (1-\alpha)$ is not satisfied when
+base accuracy is near zero.
+This result is reported as a boundary condition validation in Chapter~5, using
+mini-run data (no further HotpotQA compute needed).
+Do not include HotpotQA in the full-scale experiment.
+
+\subsection{Training Datasets (Self-Improvement Loop)}
+
+These datasets feed the SIL query pool across all cycles.
+Selection criteria: (a)~sufficiently large training split for 10 cycles at 5,000
+queries/cycle without repetition; (b)~Flan-T5-Large has non-trivial base accuracy
+($p \gg 0$), satisfying the purity theorem precondition;
+(c)~verifiable answers compatible with NLI + SC + SE signals.
+
+\begin{table}[htbp]
+\centering
+\caption{Self-improvement loop training datasets (final).}
+\label{tab:train-datasets}
+\renewcommand{\arraystretch}{1.3}
+\begin{tabular}{@{}p{2.8cm}p{1.8cm}p{2.0cm}p{6.0cm}@{}}
+\toprule
+\textbf{Dataset} & \textbf{Train size} & \textbf{Cycles covered} & \textbf{Rationale} \\
+\midrule
+FEVER & 145,449 & 29$\times$ & Fact verification; NLI maps directly onto task;
+  primary verifier signal. Fix leakage before use (Section~\ref{sec:fever-fix}). \\
+TriviaQA & 78,785 & 15$\times$ & Factoid; diverse domains; Flan-T5-Large has
+  reasonable base capability. Unique in testing parametric knowledge breadth
+  rather than reasoning chains. \\
+Natural Questions & 79,168 & 15$\times$ & Real user queries; open-domain;
+  large; diverse. Complements FEVER (verification) and TriviaQA (trivia)
+  with grounded natural-language questions. \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Each training dataset provides 5,000 queries per cycle.
+At 10 cycles, each dataset contributes 50,000 total queries --- well within its
+training split without repetition.
+
+\textbf{Why not StrategyQA as training?}
+StrategyQA has only 2,290 training samples.
+At 5,000 queries/cycle, the pool is exhausted before Cycle~1 completes.
+Repeated passes risk data memorisation rather than self-improvement.
+StrategyQA is re-assigned to the transfer evaluation suite
+(Section~\ref{sec:eval-datasets}).
+
+\subsection{Evaluation Datasets (Transfer / Held-Out)}
+\label{sec:eval-datasets}
+
+These datasets are \emph{never} seen during training or the SIL loop.
+They are evaluated post-cycle to measure out-of-distribution generalisation.
+
+\begin{table}[htbp]
+\centering
+\caption{Transfer and held-out evaluation datasets (final).}
+\label{tab:eval-datasets}
+\renewcommand{\arraystretch}{1.3}
+\begin{tabular}{@{}p{2.8cm}p{1.6cm}p{6.8cm}@{}}
+\toprule
+\textbf{Dataset} & \textbf{Eval size} & \textbf{Role and rationale} \\
+\midrule
+TruthfulQA & 817 & Adversarial misconceptions; tests whether hallucination
+  reduction on factoid/verification tasks transfers to misconception resistance.
+  Evaluation only --- no training. Primary transfer claim. \\
+StrategyQA & 490 (test) & Implicit multi-step reasoning; tests transfer to
+  reasoning tasks not in the training distribution. \\
+ARC-Challenge & 1,172 & Science reasoning; hardest tier of ARC benchmark;
+  tests transfer to domain-specific factual inference beyond Wikipedia. \\
+HotpotQA (boundary) & 500 & Mini-run data only. Reports theorem boundary
+  condition ($p \approx 0 \Rightarrow$ no improvement). No new compute. \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Transfer narrative:}
+If \caem{} trained on FEVER + TriviaQA + Natural Questions improves on
+TruthfulQA, StrategyQA, and ARC-Challenge --- benchmarks it never trained on ---
+the system demonstrates generalised hallucination reduction, not just
+in-distribution optimisation.
+This is a stronger claim than improving on the training benchmarks alone.
+
+% ============================================================
+\section{System Configuration (Final)}
+\label{sec:config}
+% ============================================================
+
+\begin{table}[htbp]
+\centering
+\caption{Final experimental configuration. All values are design decisions
+(\texttt{[DES]}) unless marked \texttt{[LIT]} (literature-fixed) or
+\texttt{[CAL]} (empirically calibrated).}
+\label{tab:config}
+\renewcommand{\arraystretch}{1.35}
+\begin{tabular}{@{}p{5.0cm}p{3.5cm}p{5.0cm}@{}}
+\toprule
+\textbf{Parameter} & \textbf{Value} & \textbf{Rationale} \\
+\midrule
+Base model & Flan-T5-Large (780M) \texttt{[LIT]} &
+  Unchanged. Instruction-tuned; multi-task capable; data purity theorem
+  boundary condition validated on this scale. \\
+\# self-improvement cycles & 10 \texttt{[DES]} &
+  Theory predicts practical equilibrium at 7--10 cycles.
+  10 cycles captures full convergence curves for all three training benchmarks. \\
+Queries per benchmark per cycle & 5,000 \texttt{[DES]} &
+  Sufficient for statistically meaningful per-cycle EM; no dataset
+  exhaustion across 10 cycles given training split sizes. \\
+Max episodic memory & 1,000,000 episodes \texttt{[DES]} &
+  Removes capacity as a confounding variable. Pruning trigger at 95\%
+  (950,000) retained as safety ceiling. FAISS IVF-PQ at 1M scale:
+  $\sim$1.5\,GB for compressed vectors. \\
+FAISS index type (memory) & IVF-PQ, \texttt{nlist}=4096,
+  $M$=64, \texttt{nbits}=8 \texttt{[DES]} &
+  Handles 1M-scale retrieval efficiently within A100 VRAM. \\
+RAG passage corpus & Full DPR Wikipedia \texttt{[LIT]} &
+  21,015,324 passages (100-word chunks, Karpukhin et al.\ 2020).
+  Standard split used by all published RAG baselines (DPR, FiD, Atlas) ---
+  ensures comparability. Needs $\geq$128\,GB system RAM for CPU FAISS index. \\
+RAG FAISS index type & IVF-PQ, \texttt{nlist}=65536 \texttt{[DES]} &
+  Scales to 21M passages; $\sim$40\,GB compressed. \\
+Embedding model & \texttt{all-mpnet-base-v2} \texttt{[LIT]} &
+  384-dim output. Unchanged. \\
+Verification NLI model & RoBERTa-Large-MNLI \texttt{[LIT]} & Unchanged. \\
+L2 regularisation $\lambda$ & 0.01 \texttt{[DES]} &
+  Adapted from Kirkpatrick et al.\ (2017); validated in EWC ablation
+  (Section~\ref{sec:ablations}). \\
+Fine-tuning mix & 90\% verified / 10\% general \texttt{[DES]} & Unchanged. \\
+Forgetting abort threshold & Retention $< 0.93$ per cycle \texttt{[DES]} &
+  Unchanged. Checked against MMLU + HellaSwag + BoolQ + GSM8K. \\
+$\uhat$ accept threshold & 0.60 \texttt{[DES]} & Unchanged. \\
+Tier~1 routing threshold & 0.90 \texttt{[DES]} & Unchanged. \\
+OR-condition override & $\upre < 0.60$ \texttt{[DES]} & Unchanged. \\
+MC Dropout passes ($\uhat$) & $K=5$ \texttt{[LIT]} & Unchanged. \\
+Self-consistency chains & $M=3$ \texttt{[LIT]} & Unchanged. \\
+Semantic entropy samples & $K=10$ \texttt{[LIT]} & Unchanged. \\
+Training device & A100 80\,GB SXM4 (cloud) & Full fp32 for both models;
+  batch size 16; $\sim$6--8\,h inference/cycle + 20--30\,min FT/cycle. \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Memory at 1M Scale --- Practical Notes}
+
+\textbf{FAISS IVF-PQ at 1M episodes:}
+Compressed vectors at $M$=64 bytes/vector: $1{,}000{,}000 \times 64 = 64$\,MB.
+Centroid table: $4096 \times 384 \times 4 = 6$\,MB.
+Total in-memory footprint: $\approx$70\,MB --- trivially within A100 VRAM
+alongside both models ($\sim$4\,GB fp32 total).
+
+\textbf{Retroactive re-verification cost at 1M:}
+Re-verifying all stored episodes at the end of each cycle scales linearly.
+Apply the delta-threshold optimisation: only re-verify episodes where
+$\ustored \in [0.45, 0.70]$ (the uncertainty band).
+Episodes with $\ustored > 0.70$ are stable; episodes with $\ustored < 0.45$
+are pruning candidates regardless.
+This reduces the re-verification pass to $\approx$30--40\% of stored episodes
+per cycle.
+
+\textbf{Full Wikipedia DPR index:}
+The standard DPR Wikipedia index (21M passages) is available as
+\texttt{wiki\_dpr} on HuggingFace or via the original DPR repository.
+Build once; the index is static across all cycles.
+Requires $\geq$128\,GB system RAM for CPU-resident FAISS search during inference
+(passage retrieval does not require GPU).
+Cloud instances with 192\,GB RAM (e.g.\ \texttt{a2-highgpu-1g} on GCP or
+\texttt{p3.8xlarge} with CPU offload on AWS) are adequate.
+
+% ============================================================
+\section{Experimental Design}
+\label{sec:experiment}
+% ============================================================
+
+\subsection{Data Splits (Non-Overlapping --- Critical)}
+
+\begin{table}[htbp]
+\centering
+\caption{Data split allocation. Splits must be non-overlapping across all uses.}
+\label{tab:splits}
+\renewcommand{\arraystretch}{1.3}
+\begin{tabular}{@{}p{3.2cm}p{2.4cm}p{2.4cm}p{5.2cm}@{}}
+\toprule
+\textbf{Purpose} & \textbf{Size} & \textbf{Source split} & \textbf{Notes} \\
+\midrule
+\multicolumn{4}{l}{\textit{FEVER}} \\
+Calibration & 500 & \texttt{train}[0:500] &
+  Fits $\uhat$ logistic regression weights. \\
+Purity validation & 500 & \texttt{train}[500:1000] &
+  Measures verifier accuracy $\alpha$. \\
+SIL query pool & train[1000+] & \texttt{train}[1000:] &
+  Fed into self-improvement loop. \\
+Evaluation & 19,998 & \texttt{paper\_dev} &
+  Never seen during training. Standard benchmark split. \\
+\midrule
+\multicolumn{4}{l}{\textit{TriviaQA}} \\
+Calibration & 500 & \texttt{train}[0:500] & \\
+Purity validation & 500 & \texttt{train}[500:1000] & \\
+SIL query pool & train[1000+] & \texttt{train}[1000:] & \\
+Evaluation & \texttt{validation} split & \texttt{validation} &
+  Official held-out validation set. \\
+\midrule
+\multicolumn{4}{l}{\textit{Natural Questions}} \\
+Calibration & 500 & \texttt{train}[0:500] & \\
+Purity validation & 500 & \texttt{train}[500:1000] & \\
+SIL query pool & train[1000+] & \texttt{train}[1000:] & \\
+Evaluation & \texttt{validation} split & \texttt{validation} &
+  Official held-out validation set. \\
+\midrule
+\multicolumn{4}{l}{\textit{Transfer evaluation (no training split used)} } \\
+TruthfulQA & 817 & \texttt{validation} & Entire dataset for eval. \\
+StrategyQA & 490 & \texttt{test} & Official test split. \\
+ARC-Challenge & 1,172 & \texttt{test} & Official test split. \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Self-Improvement Loop Execution}
+
+\begin{enumerate}
+  \item \textbf{Cold-start seeding:} Seed episodic memory with $\sim$200 verified
+        episodes per training benchmark (600 total) from the SIL query pool
+        before Cycle~0.
+        This prevents empty-memory degradation in Cycle~1.
+  \item \textbf{Per-cycle loop} (repeat for cycles 0--9):
+    \begin{enumerate}[label=\alph*.]
+      \item Sample 5,000 queries per training benchmark from the SIL pool
+            (without replacement across cycles).
+      \item Run each query through the full 8-stage pipeline
+            (encode $\to$ retrieve $\to$ confidence $\to$ route $\to$ generate
+            $\to$ verify $\to$ store).
+      \item Collect verified episodes into episodic memory.
+      \item At end of cycle: retroactive re-verification of uncertainty-band
+            episodes ($\ustored \in [0.45, 0.70]$).
+      \item Fine-tune on verified episodes (90/10 mix, L2 regularisation,
+            $\lambda = 0.01$).
+      \item Check forgetting abort: if MMLU/HellaSwag/BoolQ/GSM8K retention
+            $< 0.93$, revert to previous cycle weights.
+      \item Evaluate on all benchmark eval splits (training + transfer).
+            Save per-question outputs for ablation analysis.
+    \end{enumerate}
+  \item \textbf{Calibration:} After Cycle~0 completes, fit $\uhat$ logistic
+        regression weights on the 500-sample calibration sets.
+        Update \texttt{calibration/calibrated\_config.json}.
+        Re-run Cycles~1--9 with calibrated weights.
+\end{enumerate}
+
+\subsection{Baselines}
+
+All baselines are evaluated once (no self-improvement loop) and reported in
+Table~5.1 (main results).
+
+\begin{table}[htbp]
+\centering
+\caption{Baseline methods for Chapter~5 comparison.}
+\label{tab:baselines}
+\renewcommand{\arraystretch}{1.25}
+\begin{tabular}{@{}p{3.8cm}p{9.0cm}@{}}
+\toprule
+\textbf{Baseline} & \textbf{What it lacks vs.\ \caem{}} \\
+\midrule
+Zero-shot Flan-T5-Large & No memory, no verification, no self-improvement. \\
+Chain-of-Thought (3-shot) & No memory, no verification, no self-improvement. \\
+RAG (full Wikipedia) & No memory accumulation, no confidence routing,
+  no self-improvement. \\
+Self-Consistency (M=3) & No memory, no routing, no self-improvement.
+  Verification only. \\
+Vanilla Fine-Tuning & No memory, no confidence gating, no retroactive cleaning.
+  Trains on all generated data regardless of quality. \\
+Memory-Only (no FT) & No fine-tuning. Tests whether memory accumulation alone
+  (without model improvement) explains gains. \\
+GPT-3.5 vanilla & Published numbers from Liu et al.\ ACL Findings 2024
+  (RA-ISF, arXiv:2403.06840). No compute required. \\
+GPT-3.5 + RAG & Published numbers from same source. \\
+Self-RAG 13B & Published numbers from same source.
+  Key comparison: CAEM at 780M vs.\ Self-RAG at 13B. \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% ============================================================
+\section{Ablation Studies}
+\label{sec:ablations}
+% ============================================================
+
+\subsection{Internal Ablations (run\_ablation.py --- already implemented)}
+
+Nine configurations grouped by the mechanism they probe.
+Run after the full-scale experiment using saved per-question outputs.
+
+\begin{table}[htbp]
+\centering
+\caption{Internal ablation configurations (Chapter~5, Table~5.5).}
+\label{tab:ablations}
+\renewcommand{\arraystretch}{1.3}
+\begin{tabular}{@{}p{1.2cm}p{3.5cm}p{8.0cm}@{}}
+\toprule
+\textbf{ID} & \textbf{Config} & \textbf{Committee question answered} \\
+\midrule
+\multicolumn{3}{l}{\textit{Memory quality group}} \\
+A1 & No retroactive re-verification &
+  Is memory quality improvement bidirectional, or does it only flow forward? \\
+A-NLI & Single-layer NLI only &
+  Do SC and SE add value beyond NLI alone? \\
+A-verify & No verification (store all) &
+  Does the verification gate prevent memory contamination? \\
+\midrule
+\multicolumn{3}{l}{\textit{Routing group}} \\
+A2 & All-Tier-3 (no routing) &
+  Does the routing architecture provide a computational dividend? \\
+A3 & No OR-condition override &
+  Does the safety override prevent routing failures? \\
+\midrule
+\multicolumn{3}{l}{\textit{Training group}} \\
+A4 & Vanilla fine-tuning (no L2) &
+  Does L2 regularisation prevent catastrophic forgetting? \\
+A5 & No fine-tuning (memory only) &
+  Is fine-tuning necessary, or does memory accumulation alone explain gains? \\
+\midrule
+\multicolumn{3}{l}{\textit{Confidence group}} \\
+A6 & Remove semantic entropy from $\uhat$ &
+  Does SE uniquely contribute to hallucination detection? \\
+A7 & $(q, a)$-only training (no reasoning chain $c$) &
+  Does reasoning-chain supervision improve over answer-only supervision? \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Extended Ablations (cloud GPU --- new experiments)}
+
+These were previously compute-blocked on RTX~3060.
+All are now feasible on A100~80\,GB.
+Merge PUB-04 and PUB-05 into a single 4-variant fine-tuning run to avoid
+running two separate training sweeps.
+
+\begin{table}[htbp]
+\centering
+\caption{Extended ablations (new experiments on cloud GPU).}
+\label{tab:pub-ablations}
+\renewcommand{\arraystretch}{1.3}
+\begin{tabular}{@{}p{1.4cm}p{3.0cm}p{2.0cm}p{6.8cm}@{}}
+\toprule
+\textbf{ID} & \textbf{Config} & \textbf{Est.\ cost} & \textbf{Purpose} \\
+\midrule
+PUB-04+05 & Four-variant FT comparison:
+  (i) full FT + L2,
+  (ii) full FT + EWC,
+  (iii) LoRA ($r$=8, $\alpha$=16) + L2,
+  (iv) LoRA alone &
+  $\sim$8\,h & Validates L2 as correct EWC approximation (PUB-05) and
+  pre-empts ``why not PEFT?'' question (PUB-04). If LoRA + L2 matches
+  full FT + L2 on EM with better MMLU retention, recommend as future
+  deployment path. \\
+PUB-06 & Flan-T5-XL (3B) on FEVER only &
+  $\sim$6\,h & Tests whether \caem{} mechanism holds at larger scale.
+  Also partially redeems the HotpotQA capability-ceiling finding:
+  if 3B clears the $p > (1-\alpha)$ precondition on HotpotQA, confirm
+  as a note. \\
+PUB-03 & Human evaluation on TruthfulQA (N=100) &
+  No GPU & Two annotators evaluate Cycle~0 vs.\ Cycle~10 output pairs
+  blind. Report Cohen's $\kappa$. Validates ROUGE-L proxy used in
+  automated evaluation. \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{What to Drop}
+
+\textbf{Full-scale HotpotQA (780M) run --- dropped.}
+EXP-19 already confirmed EM~$\approx$~0.006 across 4 cycles at $n$=500.
+Scaling to $n$=5,000 on a benchmark the model cannot answer adds no new
+information.
+Report EXP-19 mini-run data as the boundary condition finding in Chapter~5.
+This saves $\sim$8--10 GPU hours.
+
+% ============================================================
+\section{Labels and Scientific Validity}
+\label{sec:labels}
+% ============================================================
+
+This section records the final position on ground-truth dependency ---
+the answer to the supervisor's question.
+
+\begin{table}[htbp]
+\centering
+\caption{Ground-truth label dependency by component.}
+\label{tab:labels}
+\renewcommand{\arraystretch}{1.3}
+\begin{tabular}{@{}p{4.5cm}p{2.2cm}p{6.0cm}@{}}
+\toprule
+\textbf{Component} & \textbf{Labels needed?} & \textbf{What it uses instead} \\
+\midrule
+NLI verification (Layer~1) & No &
+  Retrieved Wikipedia passage as premise; generated answer as hypothesis.
+  Self-supervised. \\
+Self-consistency (Layer~2) & No &
+  $M$=3 model outputs compared against each other. \\
+Semantic entropy (Layer~3) & No &
+  $K$=10 samples; NLI-based equivalence clustering. \\
+Self-improvement fine-tuning & No &
+  Trains on model's own verified (passage, reasoning, answer) triples. \\
+$\uhat$ weight calibration & $\sim$500 samples &
+  Logistic regression on (signal values, correct/incorrect) pairs.
+  One-time bootstrap; no ongoing label dependency. \\
+Cold-start seeding & Optional &
+  Can use existing QA datasets or self-generate + verify seed episodes. \\
+Evaluation & Yes (benchmark) &
+  Ground-truth labels used for EM/F1 measurement only ---
+  not part of the training loop. \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Supervisor response (canonical):}
+``\caem{} uses approximately 500 labels per training benchmark for a one-time
+confidence calibration step.
+These labels calibrate \emph{how much to trust the model's confidence signal},
+not what the correct answers are.
+After calibration, the self-improvement loop runs indefinitely on self-generated,
+self-verified data with no additional labels.
+A direct fine-tune on 500 samples would give a marginally better static model
+with no confidence signal, no routing, and no continued improvement.
+\caem{}'s 500 labels buy a self-improving loop that runs across 10 cycles and
+transfers to held-out benchmarks the model was never trained on.''
+
+% ============================================================
+\section{Writing Plan}
+\label{sec:writing}
+% ============================================================
+
+\begin{table}[htbp]
+\centering
+\caption{Chapter writing status and dependencies.}
+\label{tab:writing}
+\renewcommand{\arraystretch}{1.3}
+\begin{tabular}{@{}p{1.8cm}p{3.5cm}p{2.5cm}p{4.5cm}@{}}
+\toprule
+\textbf{Chapter} & \textbf{Content} & \textbf{Status} & \textbf{Blocking dependency} \\
+\midrule
+Ch~1 & Introduction & \textcolor{okgreen}{\textbf{DONE}} & None \\
+Ch~2 & Literature Review & \textcolor{okgreen}{\textbf{DONE}} & None \\
+Ch~3 & Requirements, Impact, Project Management &
+  \textcolor{okgreen}{\textbf{DONE}} & None \\
+Ch~4 & Methodology (full) & \textcolor{okgreen}{\textbf{DONE}} &
+  Add formal purity theorem proof (PUB-02, $\sim$2h, no data needed) \\
+Ch~5 & Experimental Results & \textcolor{fixred}{\textbf{NOT WRITTEN}} &
+  Needs full-scale cloud experiment results \\
+Ch~6 & Conclusion & \textcolor{fixred}{\textbf{NOT WRITTEN}} &
+  Needs Ch~5 complete \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Chapter 5 Structure}
+
+\begin{enumerate}
+  \item \textbf{\S5.1 Experimental Setup} --- hardware (A100 cloud), datasets
+        (Table~\ref{tab:train-datasets} + Table~\ref{tab:eval-datasets}),
+        baselines (Table~\ref{tab:baselines}), evaluation metrics (EM/F1,
+        HallRed\%, MMLU retention).
+  \item \textbf{\S5.2 Main Results} --- per-cycle accuracy table across all
+        training and transfer benchmarks; primary narrative thread:
+        ``Does \caem{} outperform baselines lacking a closed loop?''
+  \item \textbf{\S5.3 Mechanism Evidence} --- three evidence tables:
+        (a)~Tier~1\% growth per cycle (memory accumulation);
+        (b)~$\bar{u}_{\text{stored}}$ rising + stored\% falling per cycle
+        (memory quality); (c)~retroactive re-verification delta per cycle
+        (backward purity improvement).
+  \item \textbf{\S5.4 Transfer Evaluation} --- TruthfulQA, StrategyQA,
+        ARC-Challenge results post-Cycle~10.
+        Headline: generalised hallucination reduction without task-specific
+        adaptation.
+  \item \textbf{\S5.5 Theoretical Validation} --- purity theorem empirical
+        check; convergence curve vs.\ theoretical prediction;
+        HotpotQA boundary condition (mini-run data).
+  \item \textbf{\S5.6 Ablation Study} --- internal ablations
+        (Table~\ref{tab:ablations}) + extended ablations
+        (Table~\ref{tab:pub-ablations}).
+        Each ablation answers one specific committee question.
+  \item \textbf{\S5.7 Efficiency and Stability} --- per-tier latency,
+        Tier~1 fraction growth (latency dividend), MMLU retention across
+        cycles, forgetting abort activations (if any), total GPU hours.
+  \item \textbf{\S5.8 Error Analysis} --- HotpotQA capability ceiling
+        (theory validation); TruthfulQA ROUGE-L instability; human eval
+        agreement (PUB-03).
+\end{enumerate}
+
+\subsection{Chapter 6 Structure}
+
+\begin{enumerate}
+  \item \textbf{\S6.1 Summary of Findings} --- one paragraph per confirmed
+        mechanism + one for the HotpotQA boundary condition.
+  \item \textbf{\S6.2 Limitations} --- model scale dependency (780M ceiling);
+        calibration label requirement ($\sim$500 samples); inference scope
+        (NLI requires retrieved context in open-domain mode);
+        ROUGE-L unreliability for TruthfulQA; single-GPU reproducibility
+        claim updated to A100 cloud.
+  \item \textbf{\S6.3 Future Work} --- (i)~model capacity scaling
+        (Flan-T5-XL/XXL); (ii)~knowledge distillation from verified memory
+        into smaller student models; (iii)~reference-free NLI using retrieved
+        passages instead of benchmark labels; (iv)~LoRA fine-tuning path
+        for deployment efficiency (from PUB-04+05 if it matches full FT).
+\end{enumerate}
+
+% ============================================================
+\section{Execution Sequence}
+\label{sec:execution}
+% ============================================================
+
+\begin{mdframed}[style=infobox]
+\textbf{Parallel track A --- RTX 3060, start immediately (no cloud needed):}
+\begin{enumerate}[noitemsep]
+  \item Apply FEVER leakage fix to \texttt{run\_experiment.py} and
+        \texttt{caem/benchmarks/fever.py}.
+  \item Re-run mini smoke test ($n$=50, 2 cycles) to confirm FEVER results
+        survive the fix.
+  \item Run \texttt{scripts/run\_ablation.py} $\to$ MMLU retention numbers
+        (needed for Ch~5 \S5.7).
+  \item Run \texttt{scripts/run\_purity\_validation.py} $\to$ Theory~1/2/3
+        validation tables (needed for Ch~5 \S5.5).
+  \item Write formal purity theorem proof block in Chapter~4 (PUB-02,
+        $\sim$2\,h, zero compute).
+  \item Update \texttt{config.py}:
+        \texttt{max\_memory\_size = 1\_000\_000},
+        \texttt{n\_cycles = 10},
+        \texttt{faiss\_nlist = 4096}.
+\end{enumerate}
+
+\textbf{Parallel track B --- Cloud A100 80\,GB setup:}
+\begin{enumerate}[noitemsep]
+  \item Add TriviaQA and Natural Questions benchmark adapters
+        (\texttt{caem/benchmarks/triviaqa.py},
+         \texttt{caem/benchmarks/natural\_questions.py}).
+  \item Add StrategyQA and ARC-Challenge as transfer-eval-only adapters.
+  \item Download and build full DPR Wikipedia FAISS index
+        (21M passages; build once, reuse across all cycles).
+  \item Run \texttt{scripts/seed\_cold\_start.py} for FEVER + TriviaQA + NQ
+        ($\sim$600 total seed episodes).
+\end{enumerate}
+
+\textbf{Main cloud experiment (after tracks A + B complete):}
+\begin{enumerate}[noitemsep]
+  \item Full-scale run: FEVER + TriviaQA + NQ, 10 cycles, 5,000/benchmark/cycle,
+        1M memory, full DPR Wikipedia.
+  \item Post-cycle transfer eval: TruthfulQA, StrategyQA, ARC-Challenge
+        (zero-shot, no training).
+  \item PUB-04+05: 4-variant fine-tuning ablation (full FT + L2 / + EWC;
+        LoRA + L2 / alone).
+  \item PUB-06: Flan-T5-XL (3B) on FEVER, 3 cycles only.
+  \item PUB-03: Human eval on TruthfulQA 100-sample subset (no GPU).
+\end{enumerate}
+
+\textbf{Writing (after main experiment):}
+\begin{enumerate}[noitemsep]
+  \item Chapter~5 (all sections, full data available).
+  \item Chapter~6 (findings + limitations + future work).
+  \item Appendices (extended ablation tables, XL model results,
+        full per-question analysis).
+\end{enumerate}
+\end{mdframed}
+
+\subsection{Critical Path}
+
+\[
+\underbrace{\text{FEVER fix}}_{\text{now}} \;\to\;
+\underbrace{\text{cloud setup}}_{\text{parallel}} \;\to\;
+\underbrace{\text{full experiment}}_{\text{blocking for Ch~5}} \;\to\;
+\underbrace{\text{Ch~5}}_{\text{blocking for Ch~6}} \;\to\;
+\underbrace{\text{Ch~6}}_{\text{submission}}
+\]
+
+The FEVER fix is the single earliest blocking item.
+Do not start the full-scale cloud run until the fix is applied and
+smoke-tested.
+
+\end{document}
