@@ -45,7 +45,7 @@ $\theta_{\text{prev}}$ & Weights before the current self-improvement cycle \\
 $\lambda$ & L2 regularisation coefficient ($\lambda = 0.01$) \\
 $\rho_{\min}$ & Forgetting abort threshold ($\rho_{\min} = 0.93$) \\
 $p_{\text{entail}}$ & Mean NLI entailment probability (verification Layer~1) \\
-$s_{\text{avg}}$ & Mean pairwise chain cosine similarity (Layer~2) \\
+$s_{\text{avg}}$ & Mean unique-pair ($i<j$) chain cosine similarity (Layer~2) \\
 $h_{\text{norm}}$ & Normalised semantic entropy (Layer~3) \\
 $p_n$ & Data purity of memory at cycle $n$ \\
 $\alpha$ & True-positive rate of the verifier \\
@@ -609,7 +609,7 @@ averaged to obtain $p_{\text{entail}}$.
 
 \noindent\textbf{Layer~2: Self-Consistency (SC).}
 Three independent answer chains are generated at temperature $T=0.7$.
-The average pairwise cosine similarity $s_{\text{avg}}$ measures agreement across chains.
+The mean cosine similarity over unique chain pairs ($i<j$), $s_{\text{avg}}$, measures agreement across chains.
 High consistency is a necessary (though not sufficient) signal of reliable generation.
 
 \noindent\textbf{Layer~3: Semantic Entropy (SE).}
@@ -649,7 +649,7 @@ If the answer passes verification, the episode is stored with continuous quality
 \end{equation}
 
 where $p_{\text{entail}} = P(\text{ENTAIL})$ is the NLI entailment probability,
-$s_{\text{avg}}$ is the mean pairwise SC cosine similarity, and
+$s_{\text{avg}}$ is the mean SC cosine similarity over unique chain pairs ($i<j$), and
 $h_{\text{norm}} = H_{\text{SE}} / \log_2 K$ is the normalised semantic entropy.
 
 \noindent\textbf{Critical distinction: $\ustored \neq \uhat$.}
@@ -686,7 +686,7 @@ The verification pipeline is formally defined as pseudocode in Algorithm~\ref{al
 \EndFor
 \StatePar{$p_{\text{entail}} \leftarrow \tfrac{1}{M}\sum_j p_j$}
 \Statex \textbf{Layer 2: Self-Consistency}
-\StatePar{$s_{\text{avg}} \leftarrow$ mean pairwise cosine similarity of $\{c_j\}$ \Comment{reuse chains from Layer~1}}
+\StatePar{$s_{\text{avg}} \leftarrow$ mean cosine similarity over unique pairs of $\{c_j\}$ ($i<j$) \Comment{reuse chains from Layer~1}}
 \Statex \textbf{Layer 3: Semantic Entropy}
 \StatePar{Sample $K\!=\!10$ answers $\{a_k\}$ at $T\!=\!1.0$}
 \StatePar{Cluster $\{a_k\}$ by NLI-based semantic equivalence (agglomerative)}
@@ -726,7 +726,7 @@ Each stored episode is a structured record with two classes of fields:
 \multicolumn{3}{@{}l}{\textit{Mutable quality fields (updated across cycles)}} \\
 \texttt{u\_stored} & float & Stored confidence $\ustored \in [0,1]$; Eq.~\ref{eq:ustored} \\
 \texttt{p\_entail} & float & NLI entailment probability \\
-\texttt{s\_avg} & float & Mean pairwise SC cosine similarity \\
+\texttt{s\_avg} & float & Mean unique-pair ($i<j$) SC cosine similarity \\
 \texttt{h\_norm} & float & Normalised semantic entropy \\
 \texttt{retrieval\_count} & int & Number of times served at Tier~1 \\
 \texttt{success\_rate} & float & Fraction of retrievals judged correct \\

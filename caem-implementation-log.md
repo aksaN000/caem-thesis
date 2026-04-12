@@ -6,7 +6,152 @@
 
 ---
 
-## Session 38 — 2026-04-12 (Codebase Audit + Critical Fixes)
+## Session 41 — 2026-04-13 (Actual Report Chapters 1–4 Alignment)
+
+**Trigger:** User clarified that the authoritative write-up is the actual report chapters (not only the unified plan).
+
+### Scope reviewed
+
+- `pre thesis 1 report/chapters/chapter_1.tex`
+- `pre thesis 1 report/chapters/chapter_2.tex`
+- `pre thesis 1 report/chapters/chapter_3.tex`
+- `pre thesis 1 report/chapters/chapter_4.tex`
+
+### Changes applied
+
+- **Chapter 2:** Replaced the self-consistency equation from M² double-sum to unique off-diagonal pair averaging:
+  - from: `u_SC = (1/M²) Σ_i Σ_j sim(v_i, v_j)`
+  - to:   `u_SC = [2/(M(M-1))] Σ_{i<j} sim(v_i, v_j)`
+  - added explicit note that diagonal self-similarity terms are excluded.
+
+- **Chapter 3:** Updated FR-06 wording to explicitly state self-consistency is computed over unique chain pairs (`i<j`).
+
+- **Chapter 4:** Updated all relevant `s_avg` descriptions (notation table, verification narrative, algorithm text, and schema table) from generic "mean pairwise" wording to explicit unique-pair (`i<j`) wording.
+
+- **Chapter 1:** Reviewed for this specific issue; no direct self-consistency denominator formula found, so no change required.
+
+### Outcome
+
+- Implementation, unified plan, writing suggestions, and actual report chapters are now consistent on the self-consistency denominator definition.
+
+---
+
+## Session 40 — 2026-04-13 (SC Formula Rollback + Plan Alignment)
+
+**Trigger:** Post-audit decision to prioritise CAEM storage precision and avoid confidence inflation from diagonal self-similarity terms.
+
+### Decision and implementation
+
+**Scope:** Reverted self-consistency aggregation from full MxM (with diagonal) back to unique off-diagonal pairs, then aligned documentation.
+
+**Files updated:**
+- `caem/verification/verifier.py` (`_compute_s_avg`)
+- `caem/confidence/post_generation.py` (`_compute_u_consistency`)
+- `caem-unified-plan-v3.tex` (Signal 3 formula, worked example, flowchart formula label, Algorithm line for `s_avg`)
+- `writing-suggestions.md` (added `C4-25` note to lock denominator definition)
+
+### Rationale
+
+- Diagonal terms (`sim(i,i)=1.0`) add a fixed bonus of `1/M`, which inflates confidence without adding inter-chain agreement evidence.
+- CAEM's critical risk is false-positive storage (wrong episodes entering memory and compounding across cycles), so a more discriminative self-consistency signal is preferred.
+- Unique-pairs mean keeps the signal focused on agreement between independent chains only.
+
+### Formula now used (code + docs)
+
+```text
+u_SC = (2 / (M*(M-1))) * sum_{i<j} sim(v_i, v_j)
+```
+
+For `M=3` and cross-sims `(0.95, 0.97, 0.93)`:
+- unique-pairs: `(0.95 + 0.97 + 0.93)/3 = 0.950`
+- old MxM form would be: `(3 + 2*(0.95+0.97+0.93))/9 = 0.967`
+
+### Validation
+
+- Re-ran targeted tests after rollback:
+  - `tests/test_verifier.py`
+  - `tests/test_post_generation.py`
+- Result: **66 passed, 0 failed**.
+
+### Note on historical record
+
+- Session 39's M² adoption remains in the log as an intermediate step.
+- Session 40 supersedes it as the final project direction: unique-pairs denominator in both implementation and thesis plan.
+
+---
+
+## Session 39 — 2026-04-13 (Theory vs Implementation Audit — SC Formula Fix)
+
+**Trigger:** Deep theory-vs-implementation cross-check against `caem-unified-plan-v3.tex`.
+
+### Issue found and fixed — CRITICAL: SC aggregation formula mismatch
+
+**Files fixed:** `caem/verification/verifier.py` (`_compute_s_avg`) and `caem/confidence/post_generation.py` (`_compute_u_consistency`)
+
+**Problem:** Both functions used `itertools.combinations` to iterate unique pairs (i < j) only, then took the mean of those M*(M-1)/2 values. For M=3 this gives 3 terms.
+
+**Thesis formula** (caem-unified-plan-v3.tex): `u_consistency = (1/M²) Σ_i Σ_j sim(v_i, v_j)` — full M×M double sum including the diagonal where sim(i,i) = 1.0 for L2-normalised embeddings. For M=3: 9 terms total (3 diagonal + 6 off-diagonal).
+
+**Numeric impact (M=3, cross-sims ≈ 0.95):**
+- Code (unique pairs): (0.95 + 0.97 + 0.93) / 3 = **0.950**
+- Thesis formula (M²): (3×1.0 + 2×(0.95+0.97+0.93)) / 9 = 8.70/9 = **0.967**
+- Difference: ~0.017 — enough to affect storage gate decisions near thresholds.
+
+**Fix:** Replaced combinations loop with M² formula:
+```python
+M_emb = len(embeddings)
+total = float(M_emb)  # M diagonal terms, each = 1.0
+for i, j in itertools.combinations(range(M_emb), 2):
+    cross_sim = float(np.dot(embeddings[i], embeddings[j]))
+    total += 2.0 * cross_sim  # sim(i,j) + sim(j,i) for full M×M sum
+s_avg = total / (M_emb * M_emb)  # denominator = M²
+```
+
+**Alternative considered:** Update thesis formula to unique-pairs (more information-theoretically clean since diagonal adds no information). Rejected — thesis formula is the stated definition, complete with worked example in §3. Code must match.
+
+**Note on normalization:** Confirmed `QueryEncoder` has `normalize=True` default (encoder.py line 126) — embeddings ARE L2-normalised — so `np.dot()` is valid cosine similarity and diagonal = 1.0 exactly.
+
+---
+
+## Session 38b — 2026-04-13 (Deep Scan Audit — Resilience Fixes)
+
+**Trigger:** Follow-up full-project scan after scorer mismatch fix.
+
+### Issues found and fixed
+
+**HIGH — Eval JSON corruption crashes resume (`scripts/run_experiment.py`)**
+- The resume path loaded `eval/{bm}_cycle{c}.json` with bare `json.load()` and no exception handling for corruption.
+- If the run crashed mid-write on a prior cycle, the truncated JSON would raise `json.JSONDecodeError` (subclass of `ValueError`) and abort the entire resume with an unhelpful traceback.
+- **Fix:** Wrapped in `try/except (json.JSONDecodeError, KeyError, ValueError)` that raises a descriptive `RuntimeError` telling the user exactly which file is corrupted and to re-run from an earlier cycle.
+
+**HIGH — Retroverify JSON non-atomic write (`scripts/run_experiment.py`)**
+- `retroverify_cycle{N}.json` was written with direct `open(..., "w")`. A crash mid-write would produce a truncated file indistinguishable from a complete file.
+- The retroverify file is the source-of-truth for MMLU retention on resume — a corrupted one would silently produce `NaN` for that cycle's retention.
+- **Fix:** Replaced with temp-file-then-`os.replace()` pattern. `os.replace()` is atomic on the same filesystem (POSIX rename + Windows NTFS atomic replace).
+
+**HIGH — Eval harness JSON non-atomic write (`eval/harness.py`)**
+- `{bm}_cycle{N}.json` had the same direct-write problem. These files are read-back on resume to reconstruct `all_cycle_results`.
+- **Fix:** Same atomic write pattern applied.
+
+**HIGH — NLI load failure logged as WARNING (`scripts/run_experiment.py`)**
+- Silent NLI failure means `p_entail=0.5` for all answers — verifier cannot distinguish entailment from contradiction. Results are scientifically invalid.
+- A `logger.warning()` could easily be missed in a long cloud log.
+- **Fix:** Elevated to `logger.error()` with a detailed multi-line message listing exactly what breaks and what the user should do.
+
+**MEDIUM — Memory store size sanity check on resume (`scripts/run_experiment.py`)**
+- Resuming with the wrong memory checkpoint path would silently continue from a bad state.
+- **Fix:** Added post-load size check: warns if `store.size < prev_cycle * 20` (heuristic floor), prompting the user to verify the checkpoint path.
+
+### Issues verified as safe (no change)
+- Retroverify JSON loading on resume: already catches `(FileNotFoundError, KeyError, ValueError)` — `json.JSONDecodeError` is a `ValueError` subclass, so it was already handled.
+- All benchmark splits confirmed correct in `eval/benchmarks.py`.
+- Cycle 0 never fine-tuned (confirmed by `start_cycle = max(1, ns.resume_from_cycle)` logic).
+- Memory pruning runs before `add()` — no capacity overflow race.
+- `extract_cot_answer()` applied before scoring in all harness paths.
+
+---
+
+## Session 38 — 2026-04-13 (Codebase Audit + Scorer Mismatch Fix)
 
 **Trigger:** Pre-deployment audit before running on vast.ai cloud machine.
 
@@ -32,6 +177,18 @@
 - Returning `""` on exception is correct graceful degradation for a Tier 3 last-resort fallback.
 - The `logger.error` message didn't give enough context for debugging on a remote cloud machine.
 - **Fix:** Expanded error message to include "Tier 3 fallback returning empty string" and a diagnostic hint about passage index / FAISS.
+
+**CRITICAL — Ablation baseline scorer mismatch (`scripts/run_ablation.py`)**
+- `eval_baseline()` (used for A0–A5: ZeroShot, CoT, RAG-only, SelfConsistency, VanillaFT, MemoryOnly) had an `else` branch that caught `arc_challenge`, `triviaqa`, and `natural_questions` and scored them with bare `exact_match(pred, gold[0])` + `token_f1(pred, gold[0])`.
+- ARC-Challenge: model outputs verbose text like "The answer is A. Silicon has four valence electrons..." — raw exact_match against "A" = 0 almost always. Correct scorer: `extract_arc_label(pred)` first.
+- TriviaQA/NQ: each question has 10–40 valid answer aliases. Using `gold[0]` only misses most correct answers. Correct scorer: `any_match_em(pred, gold_answers)` + `best_token_f1(pred, gold_answers)`.
+- **Effect on results:** A0–A5 scores were artificially low on ARC and TriviaQA, inflating CAEM's apparent advantage on those benchmarks.
+- **Fix:** Added explicit `elif` branches for `arc_challenge` and `triviaqa`/`natural_questions` in `eval_baseline()`. Added imports: `extract_arc_label`, `any_match_em`, `best_token_f1` (all already existed in `eval/metrics.py`).
+- FEVER / TruthfulQA / StrategyQA were already correctly handled (FIX-1 from a prior session).
+
+**DOCUMENTATION — Published baselines template annotated (`published_baselines.template.json`)**
+- Added `"_instructions"` block explaining how to fill the template, the TruthfulQA metric mismatch warning, and which fields are valid vs must stay 0.0.
+- Added `"protocol"` field to each entry documenting shot count, scorer type, split, and per-benchmark comparability verdict.
 
 ### Issues investigated but NOT changed
 

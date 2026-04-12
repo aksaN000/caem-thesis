@@ -1399,7 +1399,7 @@ Error consequence & Suboptimal tier (local) & Wasted verification cost (local) \
 % Formulas with better styling
 \node[below=0.2cm of token, align=center, text width=2.5cm, font=\scriptsize, fill=blue!5, inner sep=2pt, rounded corners=2pt] {$u_t = \exp(\frac{1}{n}\sum \log p_i)$};
 \node[below=0.2cm of dropout, align=center, text width=2.5cm, font=\scriptsize, fill=blue!5, inner sep=2pt, rounded corners=2pt] {$u_d = \frac{1}{1+\text{Var}[y]}$};
-\node[below=0.2cm of consistency, align=center, text width=2.5cm, font=\scriptsize, fill=blue!5, inner sep=2pt, rounded corners=2pt] {$u_c = \frac{1}{M^2}\sum_{ij}\text{sim}_{ij}$};
+\node[below=0.2cm of consistency, align=center, text width=2.5cm, font=\scriptsize, fill=blue!5, inner sep=2pt, rounded corners=2pt] {$u_c = \frac{2}{M(M-1)}\sum_{i<j}\text{sim}_{ij}$};
 \node[below=0.2cm of entropy, align=center, text width=2.5cm, font=\scriptsize, fill=blue!5, inner sep=2pt, rounded corners=2pt] {$u_e = 1 - \frac{H}{\log K}$};
 
 % Weighted combination with gradient-like coloring
@@ -1707,7 +1707,7 @@ Then you can be more confident the answer is correct.
 \subsubsection{The Formula}
 
 \begin{equation}
-u_{\text{consistency}} = \frac{1}{M^2} \sum_{i=1}^M \sum_{j=1}^M \text{sim}(v_i, v_j)
+u_{\text{consistency}} = \frac{2}{M(M-1)} \sum_{1 \le i < j \le M} \text{sim}(v_i, v_j)
 \end{equation}
 
 where:
@@ -1742,25 +1742,19 @@ Chain 2 embedding: v_2 = [0.25, 0.75, -0.05, 0.48, ...]
 Chain 3 embedding: v_3 = [0.18, 0.82, -0.12, 0.52, ...]
 \end{verbatim}
 
-\textbf{Step 2 - Compute pairwise similarities:}
+\textbf{Step 2 - Compute unique pairwise similarities:}
 \begin{align}
-\text{sim}(v_1, v_1) &= 1.0 \\
 \text{sim}(v_1, v_2) &= 0.95 \quad \text{(very similar)} \\
 \text{sim}(v_1, v_3) &= 0.97 \\
-\text{sim}(v_2, v_1) &= 0.95 \\
-\text{sim}(v_2, v_2) &= 1.0 \\
-\text{sim}(v_2, v_3) &= 0.93 \\
-\text{sim}(v_3, v_1) &= 0.97 \\
-\text{sim}(v_3, v_2) &= 0.93 \\
-\text{sim}(v_3, v_3) &= 1.0
+\text{sim}(v_2, v_3) &= 0.93
 \end{align}
 
 \textbf{Step 3 - Average:}
 \begin{equation}
-u_{\text{consistency}} = \frac{1.0 + 0.95 + 0.97 + 0.95 + 1.0 + 0.93 + 0.97 + 0.93 + 1.0}{9} = \frac{8.70}{9} = 0.967
+u_{\text{consistency}} = \frac{0.95 + 0.97 + 0.93}{3} = \frac{2.85}{3} = 0.950
 \end{equation}
 
-\textbf{Interpretation:} Confidence = 0.967 (very high), chains strongly agree.
+\textbf{Interpretation:} Confidence = 0.950 (very high), chains strongly agree.
 \end{examplebox}
 
 \subsection{Signal 4: Semantic Entropy (Cutting-Edge)}
@@ -2339,7 +2333,7 @@ Measure agreement via semantic similarity of answer embeddings.
 \EndFor
 \State
 \State \textbf{// Compute average similarity}
-\State $s_{\text{avg}} \gets \frac{1}{M^2} \sum_{i,j} s_{ij}$
+\State $s_{\text{avg}} \gets \frac{2}{M(M-1)} \sum_{i<j} s_{ij}$
 \State
 \State \textbf{// Decision based on threshold}
 \If{$s_{\text{avg}} > 0.85$} \Comment{High agreement}

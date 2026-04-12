@@ -183,7 +183,17 @@ def build_pipeline(config: Any, ns: Any, m: Dict[str, Any]) -> "CAEMPipeline":
             nli_model.eval()
             logger.info("NLI model loaded.")
         except Exception as exc:
-            logger.warning("NLI model load failed (%s); continuing without NLI.", exc)
+            logger.error(
+                "NLI MODEL LOAD FAILED: %s\n"
+                "  >> The verifier will use p_entail=0.5 for ALL answers.\n"
+                "  >> This makes entailment indistinguishable from contradiction.\n"
+                "  >> Memory quality, hallucination reduction, and AB5 ablation\n"
+                "     results will be SEVERELY DEGRADED and scientifically invalid.\n"
+                "  >> Do NOT use these results for the thesis.\n"
+                "  >> Fix: ensure 'roberta-large-mnli' is downloadable and\n"
+                "     HuggingFace cache has sufficient disk space (~1.4 GB).",
+                exc,
+            )
 
     # -- Passage store (Wikipedia FAISS index) ------------------------------ #
     passage_store = None
@@ -708,9 +718,16 @@ def run_experiment(ns: argparse.Namespace) -> None:
                 json_path = eval_dir / f"{bm}_cycle{c}.json"
                 if not json_path.exists():
                     raise FileNotFoundError(f"Cannot resume: {json_path} is missing.")
-                with open(json_path, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                cycle_results[bm] = data["meta"]
+                try:
+                    with open(json_path, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                    cycle_results[bm] = data["meta"]
+                except (json.JSONDecodeError, KeyError, ValueError) as exc:
+                    raise RuntimeError(
+                        f"Cannot resume: {json_path} is corrupted ({exc}). "
+                        f"The file was likely truncated by a crash mid-write. "
+                        f"Delete it and re-run from cycle {c} or earlier."
+                    ) from exc
             all_cycle_results.append(cycle_results)
 
             # Reconstruct mmlu_per_cycle from saved retroverify JSONs.
@@ -737,7 +754,17 @@ def run_experiment(ns: argparse.Namespace) -> None:
             raise FileNotFoundError(f"Missing memory store checkpoint: {faiss_file}")
         from caem.memory.store import EpisodicMemoryStore
         pipeline.memory_store = EpisodicMemoryStore.load(str(mem_path))
-        logger.info("Restored memory store from Cycle %d: %d episodes", prev_cycle, pipeline.memory_store.size)
+        restored_size = pipeline.memory_store.size
+        logger.info("Restored memory store from Cycle %d: %d episodes", prev_cycle, restored_size)
+        # Sanity check: at 5000 questions/cycle across 3 training benchmarks,
+        # expect at least ~50 stored episodes per completed training cycle.
+        # A suspiciously small store likely means the wrong checkpoint was loaded.
+        if prev_cycle >= 1 and restored_size < prev_cycle * 20:
+            logger.warning(
+                "Memory store has only %d episodes after %d cycles — expected ~%d+. "
+                "Check that memory_store_cycle_%d is the correct checkpoint.",
+                restored_size, prev_cycle, prev_cycle * 50, prev_cycle,
+            )
         
         # Reload fine-tuned model weights if past cycle 0
         if prev_cycle > 0:
@@ -794,19 +821,27 @@ def run_experiment(ns: argparse.Namespace) -> None:
         mmlu_val = cycle_result.mmlu_retention
         mmlu_serialisable = None if _math.isnan(mmlu_val) else round(mmlu_val, 6)
         rv_path = output_dir / f"retroverify_cycle{cycle_num}.json"
-        with open(rv_path, "w") as f:
-            json.dump({
-                "cycle": cycle_num,
-                "retroverify": retroverify_stats,
-                "fine_tune": {
-                    "n_episodes_used": cycle_result.n_episodes_used,
-                    "n_general_used": cycle_result.n_general_used,
-                    "forgetting_score": cycle_result.forgetting_score,
-                    "aborted": cycle_result.aborted,
-                    "final_train_loss": cycle_result.final_train_loss,
-                    "mmlu_retention": mmlu_serialisable,   # EXP-MMLU-FIX: neutral reporting metric
-                },
-            }, f, indent=2)
+        rv_payload = {
+            "cycle": cycle_num,
+            "retroverify": retroverify_stats,
+            "fine_tune": {
+                "n_episodes_used": cycle_result.n_episodes_used,
+                "n_general_used": cycle_result.n_general_used,
+                "forgetting_score": cycle_result.forgetting_score,
+                "aborted": cycle_result.aborted,
+                "final_train_loss": cycle_result.final_train_loss,
+                "mmlu_retention": mmlu_serialisable,   # EXP-MMLU-FIX: neutral reporting metric
+            },
+        }
+        # Atomic write: write to temp file then rename so a crash mid-write
+        # never produces a truncated JSON that would break --resume_from_cycle.
+        import tempfile as _tempfile, os as _os
+        with _tempfile.NamedTemporaryFile(
+            mode="w", dir=output_dir, suffix=".tmp", delete=False, encoding="utf-8"
+        ) as _tmp:
+            json.dump(rv_payload, _tmp, indent=2)
+            _tmp_path = _tmp.name
+        _os.replace(_tmp_path, rv_path)  # atomic on same filesystem (POSIX + Windows)
 
         # Track per-cycle MMLU for summary CSV
         mmlu_per_cycle.append(mmlu_val)

@@ -49,9 +49,9 @@ Self consistency \cite{wang2023selfconsistency} improves reasoning quality by fi
 
 For CAEM, we adapt self consistency technique for verification rather than choosing an answer. Given question $q$ and generated answer $a$, we generate $M$ additional chains and measure agreement via average pairwise similarity:
 \begin{equation}
-u_{\text{SC}} = \frac{1}{M^2} \sum_{i=1}^{M} \sum_{j=1}^{M} \text{sim}(\mathbf{v}_i, \mathbf{v}_j)
+u_{\text{SC}} = \frac{2}{M(M-1)} \sum_{1 \le i < j \le M} \text{sim}(\mathbf{v}_i, \mathbf{v}_j)
 \end{equation}
-where $\mathbf{v}_i$ is the embedding of chain $i$. High consistency ($u_{\text{SC}} > 0.85$) indicates robust reasoning where multiple paths converge, while low consistency suggests uncertainty or errors.
+where $\mathbf{v}_i$ is the embedding of chain $i$, and only unique off-diagonal pairs are used (self-similarity diagonal terms are excluded). High consistency ($u_{\text{SC}} > 0.85$) indicates robust reasoning where multiple paths converge, while low consistency suggests uncertainty or errors.
 
 \subsection{Catastrophic Forgetting and Continual Learning}
 

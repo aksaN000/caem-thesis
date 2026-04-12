@@ -644,8 +644,9 @@ def eval_baseline(
                  output fails to catch "Yes, ..." vs "yes" variants.
     """
     from eval.metrics import (
-        exact_match, extract_fever_label,
+        exact_match, extract_fever_label, extract_arc_label,
         extract_strategyqa_label, fever_accuracy, rouge_l, token_f1,
+        any_match_em, best_token_f1,
     )
 
     results: Dict[str, Dict] = {}
@@ -680,6 +681,21 @@ def eval_baseline(
                 ref_label  = extract_strategyqa_label(gold[0] if gold else "no")
                 em = float(pred_label == ref_label) if pred_label and ref_label else 0.0
                 f1 = em
+            elif bm == "arc_challenge":
+                # FIX-2: letter extraction matching eval/harness.py L286-289.
+                # Raw exact_match on free-form output scores near-zero because
+                # the model outputs "The answer is A. Silicon..." not just "A".
+                pred_label = extract_arc_label(pred)
+                ref = gold[0] if gold else ""
+                em = exact_match(pred_label, ref)
+                f1 = em
+            elif bm in ("triviaqa", "natural_questions"):
+                # FIX-2: alias-aware scoring matching eval/harness.py L292-300.
+                # TriviaQA/NQ have 10-40 valid answer strings per question.
+                # Using gold[0] alone silently ignores all other aliases and
+                # severely undercounts EM. Must check against all aliases.
+                em = any_match_em(pred, gold)
+                f1 = best_token_f1(pred, gold)
             else:
                 ref = gold[0] if gold else ""
                 em = exact_match(pred, ref)

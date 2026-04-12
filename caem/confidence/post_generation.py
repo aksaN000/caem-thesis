@@ -362,7 +362,9 @@ class PostGenerationConfidenceEstimator:
             if embeddings.ndim == 1:
                 embeddings = embeddings.reshape(1, -1)
 
-            # Average pairwise cosine similarity
+            # Use only unique off-diagonal pairs (i < j).
+            # This avoids a fixed diagonal bonus and keeps the signal sensitive
+            # to cross-chain agreement rather than self-similarity.
             # (Embeddings are L2-normalised -> cosine sim = dot product)
             sims = []
             for i, j in itertools.combinations(range(len(embeddings)), 2):

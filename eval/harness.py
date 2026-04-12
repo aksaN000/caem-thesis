@@ -182,8 +182,16 @@ class EvalHarness:
         if self.output_dir:
             fname = f"{benchmark}_cycle{cycle}.json"
             fpath = self.output_dir / fname
-            with open(fpath, "w", encoding="utf-8") as f:
-                json.dump(full_output, f, indent=2, ensure_ascii=False)
+            # Atomic write: temp-then-rename prevents truncated JSON on crash.
+            # A corrupted eval JSON would break --resume_from_cycle.
+            import tempfile as _tf, os as _os
+            with _tf.NamedTemporaryFile(
+                mode="w", dir=self.output_dir, suffix=".tmp",
+                delete=False, encoding="utf-8"
+            ) as tmp:
+                json.dump(full_output, tmp, indent=2, ensure_ascii=False)
+                tmp_path = tmp.name
+            _os.replace(tmp_path, fpath)  # atomic on same filesystem
             logger.info("Results saved -> %s", fpath)
 
         return agg

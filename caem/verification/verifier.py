@@ -291,9 +291,13 @@ class MultiLayerVerifier:
             if embeddings.ndim == 1:
                 embeddings = embeddings.reshape(1, -1)
 
+            # Use only unique off-diagonal pairs (i < j).
+            # This avoids the fixed diagonal 1.0 contribution and keeps the
+            # score focused on agreement BETWEEN independent chains.
             sims = []
             for i, j in itertools.combinations(range(len(embeddings)), 2):
-                sims.append(float(np.dot(embeddings[i], embeddings[j])))
+                sim = float(np.dot(embeddings[i], embeddings[j]))
+                sims.append(sim)
 
             s_avg = float(np.mean(sims)) if sims else 0.5
             return float(np.clip(s_avg, 0.0, 1.0))

@@ -1,7 +1,35 @@
 {
+  "_instructions": [
+    "Fill in 'results' values manually from the cited paper before running run_ablation.py.",
+    "Only fill benchmarks where the cited paper reports numbers on the SAME benchmark/split.",
+    "Leave fields at 0.0 if the paper did not report that benchmark — do NOT interpolate.",
+    "The 'protocol' field documents what the paper actually measured so future readers",
+    "  can judge comparability. Fill this in when you fill in the numbers.",
+    "",
+    "IMPORTANT — TruthfulQA comparability warning:",
+    "  Your harness scores TruthfulQA via ROUGE-L > 0.15 (generation proxy).",
+    "  Most published papers use MC accuracy or GPT-4 judge for TruthfulQA.",
+    "  These are NOT the same metric. Leave truthfulqa at 0.0 unless the cited",
+    "  paper explicitly used the same generation + ROUGE-L protocol.",
+    "",
+    "Currently valid fills (Liu et al. 2024, RA-ISF, arXiv:2403.06840):",
+    "  strategyqa only — StrategyQA test split, 0-shot, EM.",
+    "  All other benchmarks not reported in that paper — leave 0.0."
+  ],
   "gpt35_vanilla": {
     "label": "GPT-3.5 vanilla (Liu et al. 2024)",
     "source": "RA-ISF / arXiv:2403.06840",
+    "protocol": {
+      "shots": "0-shot",
+      "scorer": "EM (exact match after normalisation)",
+      "split": "StrategyQA: test. Other benchmarks: not reported in this paper.",
+      "comparability": {
+        "strategyqa": "COMPARABLE — same split and EM metric as your harness",
+        "fever": "NOT REPORTED — leave 0.0",
+        "truthfulqa": "NOT REPORTED — leave 0.0 (also metric mismatch: paper would use MC or judge, your harness uses ROUGE-L proxy)",
+        "arc_challenge": "NOT REPORTED — leave 0.0"
+      }
+    },
     "results": {
       "fever": {"em": 0.0, "f1": 0.0, "n": 0},
       "truthfulqa": {"em": 0.0, "f1": 0.0, "n": 0},
@@ -13,6 +41,17 @@
   "gpt35_rag": {
     "label": "GPT-3.5 + RAG (Liu et al. 2024)",
     "source": "RA-ISF / arXiv:2403.06840",
+    "protocol": {
+      "shots": "0-shot with Wikipedia RAG",
+      "scorer": "EM (exact match after normalisation)",
+      "split": "StrategyQA: test. Other benchmarks: not reported in this paper.",
+      "comparability": {
+        "strategyqa": "COMPARABLE — same split and EM metric as your harness",
+        "fever": "NOT REPORTED — leave 0.0",
+        "truthfulqa": "NOT REPORTED — leave 0.0",
+        "arc_challenge": "NOT REPORTED — leave 0.0"
+      }
+    },
     "results": {
       "fever": {"em": 0.0, "f1": 0.0, "n": 0},
       "truthfulqa": {"em": 0.0, "f1": 0.0, "n": 0},
@@ -24,6 +63,17 @@
   "self_rag_13b": {
     "label": "Self-RAG 13B (Liu et al. 2024)",
     "source": "RA-ISF / arXiv:2403.06840",
+    "protocol": {
+      "shots": "0-shot, retrieval-augmented generation with selective retrieval",
+      "scorer": "EM (exact match after normalisation)",
+      "split": "StrategyQA: test. Other benchmarks: not reported in this paper.",
+      "comparability": {
+        "strategyqa": "COMPARABLE — same split and EM metric as your harness",
+        "fever": "NOT REPORTED — leave 0.0",
+        "truthfulqa": "NOT REPORTED — leave 0.0",
+        "arc_challenge": "NOT REPORTED — leave 0.0"
+      }
+    },
     "results": {
       "fever": {"em": 0.0, "f1": 0.0, "n": 0},
       "truthfulqa": {"em": 0.0, "f1": 0.0, "n": 0},

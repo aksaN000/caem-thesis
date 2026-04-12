@@ -90,7 +90,7 @@ FR-05 & Post-generation gate (Stage 4a) &
 FR-06 & Verification (Stage 5) &
   The system shall verify all non-Tier-1 answers through a three-signal pipeline:
   NLI entailment probability ($p_{\text{entail}}$) via RoBERTa-Large-MNLI, average
-  pairwise self-consistency ($s_{\text{avg}}$) via Sentence-BERT, and normalised
+  unique-pair self-consistency ($s_{\text{avg}}$, over $i<j$ chain pairs) via Sentence-BERT, and normalised
   semantic entropy ($h_{\text{norm}}$), producing a stored confidence score
   $\ustored = 0.50\,p_{\text{entail}} + 0.30\,s_{\text{avg}} + 0.20\,(1 - h_{\text{norm}})$. \\
 FR-07 & Memory storage (Stage 7) &
