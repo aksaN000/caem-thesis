@@ -796,8 +796,15 @@ class SelfImprovementLoop:
 
     def _restore_weights(self, theta_prev: List[torch.Tensor]) -> None:
         """Restore model parameters to θ_prev in-place."""
+        model_params = list(self.model.parameters())
+        if len(theta_prev) != len(model_params):
+            raise RuntimeError(
+                f"theta_prev has {len(theta_prev)} tensors but model has "
+                f"{len(model_params)} parameters. Model definition may have "
+                f"changed between _snapshot_weights() and _restore_weights()."
+            )
         with torch.no_grad():
-            for p, p0 in zip(self.model.parameters(), theta_prev):
+            for p, p0 in zip(model_params, theta_prev):
                 p.copy_(p0.to(self.device))
         logger.info("Model weights restored to pre-cycle state.")
 

@@ -197,8 +197,10 @@ class EpisodicMemoryStore:
         Importance = 0.4·φ + 0.3·(r/r_max) + 0.2·success_rate + 0.1·u_stored
 
         Where:
-          φ  = cycle recency proxy = (storage_cycle + 1) / (max_cycle + 1)
+          φ  = cycle recency proxy = (storage_cycle + 1) / (num_cycles + 1)
               Episodes from later cycles are generally more reliable.
+              Denominator is (num_cycles + 1) so that the final cycle (num_cycles)
+              gives φ = 1.0 exactly without exceeding it.
           r  = retrieval_count (normalised by the maximum across all episodes)
           r_max prevents a single very-popular episode from dominating.
 
@@ -208,9 +210,9 @@ class EpisodicMemoryStore:
         cfg = self.config
 
         # φ: proxy for how recently this episode was stored (by cycle).
-        # max_cycle = num_cycles - 1 (0-indexed); +1 to avoid divide-by-zero.
-        max_cycle = cfg.num_cycles - 1
-        phi = (entry.storage_cycle + 1) / (max_cycle + 1 + 1)
+        # Denominator = (num_cycles + 1) so cycle num_cycles → φ = 1.0 exactly.
+        # Example: num_cycles=10, cycle 10 → (10+1)/11 = 1.0.
+        phi = (entry.storage_cycle + 1) / (cfg.num_cycles + 1)
 
         # Normalised retrieval count.
         max_r = max(

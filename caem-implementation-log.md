@@ -6,6 +6,45 @@
 
 ---
 
+## Session 38 — 2026-04-12 (Codebase Audit + Critical Fixes)
+
+**Trigger:** Pre-deployment audit before running on vast.ai cloud machine.
+
+### Issues found and fixed
+
+**CRITICAL — Data leakage in forgetting guard (`scripts/run_experiment.py`)**
+- `load_general_data()` was loading TriviaQA `"validation"` split for the anti-forgetting mix and forgetting guard check.
+- This is the same split used for the main evaluation in `run_cycle()`.
+- The ~500 samples in `general_eval` (the held-out forgetting check half) were therefore drawn from the evaluation distribution, contaminating the abort guard.
+- **Fix:** Changed `split="validation"` → `split="train"`. TriviaQA train split has ~78K QA pairs; no overlap with the validation-based evaluation set.
+
+**MEDIUM — theta_prev parameter count not validated (`caem/training/self_improvement.py`)**
+- `_restore_weights()` used `zip(self.model.parameters(), theta_prev)` which silently truncates if the lists differ in length (Python zip semantics).
+- If a model definition change caused a length mismatch, weights would be partially restored with no error.
+- **Fix:** Added explicit `len()` check before the zip; raises `RuntimeError` with a clear message if counts differ.
+
+**MEDIUM — phi formula comment wrong in value score (`caem/memory/store.py`)**
+- Code was correct: denominator = `num_cycles + 1` = 11 for 10-cycle run, keeping phi ≤ 1.0 for all storage_cycles 0–10.
+- Docstring said `(max_cycle + 1)` = 10, which would give phi > 1.0 for the final cycle.
+- **Fix:** Corrected docstring to `(num_cycles + 1)` and simplified the code expression from `max_cycle + 1 + 1` to `cfg.num_cycles + 1` directly.
+
+**LOW — RAG silent failure insufficient visibility (`caem/retrieval/rag.py`)**
+- Returning `""` on exception is correct graceful degradation for a Tier 3 last-resort fallback.
+- The `logger.error` message didn't give enough context for debugging on a remote cloud machine.
+- **Fix:** Expanded error message to include "Tier 3 fallback returning empty string" and a diagnostic hint about passage index / FAISS.
+
+### Issues investigated but NOT changed
+
+**FAISS IndexFlatIP suggestion retracted:**
+Memory store already auto-bootstraps with FlatIP (correct for early cycles < 20K entries) then promotes to IVF-PQ. Keeping flat_ip permanently at 1M capacity would cost ~50K × 200ms = ~2.8 h extra query time over the full run. IVF-PQ is the correct choice regardless of available RAM. VAST guide corrected.
+
+**RAG total failure (`return ""`)**
+This is intentional graceful degradation — if Tier 3 (last resort) fails, the question gets EM=0, which is conservative (makes CAEM look worse, not better). Not a validity concern.
+
+**Phi formula code value:** Confirmed correct. `(max_cycle + 1 + 1)` = `(num_cycles + 1)` = 11. Only the comment was wrong.
+
+---
+
 ## How to read this log
 
 - **[LIT]** = value fixed from literature — cite the paper, don't change arbitrarily.

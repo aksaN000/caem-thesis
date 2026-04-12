@@ -1,6 +1,53 @@
 # CAEM on Vast.ai — Complete Guide (April 2026)
 
-> **Purpose:** Everything you need to rent a cloud GPU on Vast.ai, upload your code and data, run the full 10-cycle CAEM experiment, and download results. Covers account creation through final CSV download. The previous guide was stale; this one reflects the current codebase.
+> **Purpose:** Everything you need to rent a cloud GPU on Vast.ai
+
+## Read This First: Local PC vs Vast.ai Remote (Most Common Confusion)
+
+treat it as **renting another computer on the internet**.
+
+- **Your PC (local machine):** where your normal VS Code is installed.
+- **Vast instance (remote machine):** Linux server with the GPU; this is where training actually runs.
+- **Vast website:** control panel to rent/stop instances and optionally open web terminal/Jupyter.
+
+### Which VS Code do you use?
+
+Use **your PC's VS Code** with the **Remote - SSH** extension.
+
+After you connect to the Vast instance, your local VS Code window is now controlling the remote server:
+
+- File explorer shows remote files (for example, `/root/caem`).
+- Integrated terminal runs commands on the remote Linux machine.
+- Python scripts execute on the remote GPU, not on your PC.
+
+You do **not** install desktop VS Code on the Vast server.
+
+### Which terminal do you use, and when?
+
+Use this simple rule:
+
+- **Local terminal (on your PC):** for `ssh` and `scp` commands that connect to or copy files to/from Vast.
+- **Remote terminal (inside Remote-SSH VS Code, or Vast web terminal):** for `git clone`, `pip install`, `python scripts/...`, `tmux`, and all experiment runs.
+
+### Quick mapping table
+
+| Task | Run on Local PC terminal? | Run on Remote Vast terminal? |
+|---|---|---|
+| Open SSH session (`ssh -p ... root@...`) | Yes | No |
+| Upload files to server (`scp ... root@...:~/caem/...`) | Yes | No |
+| Clone repo on server (`git clone ...`) | No | Yes |
+| Install dependencies (`pip install ...`) | No | Yes |
+| Run experiment (`python scripts/run_experiment.py ...`) | No | Yes |
+| Download results (`scp root@...:~/caem/outputs ...`) | Yes | No |
+
+### Recommended beginner workflow
+
+1. Rent instance in Vast website.
+2. From your PC, connect with Remote-SSH in VS Code.
+3. Open integrated terminal in that Remote-SSH window.
+4. Run setup + experiment there (remote terminal).
+5. From your PC terminal, use `scp` to download outputs.
+6. Stop instance in Vast website to stop billing.
 
 ---
 
@@ -17,57 +64,44 @@
 | GPU | VRAM | batch_size (auto) | Precision (auto) | Full-run time (n=5000, 10 cycles) | Price/hr (approx) |
 |---|---|---|---|---|---|
 | **RTX 5090** | 32 GB | **32** | bf16 | ~10–12 h | ~$0.80–1.30 |
-| **2× RTX 5090** | 32 GB × 2 | **32** (1 GPU) | bf16 | ~7–9 h† | ~$1.60–2.60 |
 | A100 SXM 80 GB | 80 GB | 32 | bf16 | ~10–12 h | ~$1.80–2.80 |
 | A100 PCIe 40 GB | 40 GB | 32 | bf16 | ~12–14 h | ~$1.00–1.50 |
 | RTX 4090 | 24 GB | 16 | fp16 | ~16–18 h | ~$0.35–0.55 |
 | T4 | 16 GB | 8 | fp16 | ~26–30 h | ~$0.35–0.50 |
 
-† 2× RTX 5090: main experiment on GPU 0, ablation study on GPU 1 simultaneously — saves ~2–3 h vs running them sequentially. See the Multi-GPU section below.
-
-**Recommended for your case (2× RTX 5090):** Use GPU 0 for the main 10-cycle experiment and GPU 1 for the ablation study in parallel. Both finish in roughly the same time window.
-
 > **Note on fp16 vs bf16:** On RTX 5090 and A100, the code automatically uses **bf16** (bfloat16), not fp16. This is intentional and better — bf16 has the same dynamic range as fp32, preventing L2 penalty overflow when summing 780M squared weight differences. On RTX 4090 (Ada Lovelace, no bf16 tensor cores), fp16 is used. Don't override — let `hardware.py` decide automatically.
 
-### Using the Second GPU (Optional — 2× RTX 5090)
+### Single GPU Setup
 
-CAEM's training loop runs on a **single GPU** — there is no DataParallel or distributed training in the codebase. The main experiment only uses one GPU. If you rent a 2× GPU machine, the second GPU sits idle unless you deliberately use it.
-
-**If you want to save time**, the second GPU can run the ablation study in parallel while the main experiment is still running (ablation only needs checkpoints up to Cycle 3):
-
-```bash
-# Pin each script to a different GPU with CUDA_VISIBLE_DEVICES
-CUDA_VISIBLE_DEVICES=0 python scripts/run_experiment.py [main args]  # tmux session 1
-CUDA_VISIBLE_DEVICES=1 python scripts/run_ablation.py [ablation args] # tmux session 2
-```
-
-This is entirely optional. A single RTX 5090 runs both sequentially just fine — the main experiment takes ~10–12 h and the ablation ~2 h after. If you prefer simplicity, just use one GPU.
+CAEM's training loop runs on a **single GPU** — there is no DataParallel or distributed training in the codebase. Rent a single-GPU machine. Run the main experiment first (~10–12 h on RTX 5090), then run the ablation study sequentially after (~2 h).
 
 ### System RAM (CPU)
-- **Minimum:** 16 GB RAM
-- **Recommended:** 32 GB RAM
-- **Why:** theta_prev (the L2 anchor snapshot) is held in CPU RAM as fp32: 780M params × 4 bytes = **~3.1 GB**. Plus HuggingFace dataset buffers (~2–4 GB), Python runtime, and the FAISS index in CPU RAM (~500 MB–2 GB). On a 16 GB RAM machine this fits but is tight.
+- **Minimum:** 32 GB RAM
+- **Recommended:** 32–48 GB RAM (vast.ai machines typically come with 48–128 GB — any of these is fine)
+- **Why:** theta_prev (the L2 anchor snapshot) is held in CPU RAM as fp32: 780M params × 4 bytes = **~3.1 GB**. The 21M-passage FAISS index is IVF-PQ compressed — only **~1.5 GB in RAM** (PQ codes + centroids). Plus HuggingFace dataset buffers (~2–4 GB), Python runtime. Total ~10–12 GB active. Going above 48 GB gives no further benefit — the bottleneck is always GPU VRAM, not CPU RAM.
 
 ### Storage (Disk)
-- **Minimum:** 30 GB
-- **Recommended:** 50 GB
+- **Minimum:** 60 GB
+- **Recommended:** 100 GB
 
 | Component | Size |
 |---|---|
 | HuggingFace model cache (Flan-T5-Large + SBERT + RoBERTa-MNLI) | ~4–5 GB |
 | HuggingFace dataset cache (FEVER/TriviaQA/NQ/TruthfulQA/StrategyQA/ARC/MMLU) | ~3–4 GB |
-| Passage index (500K passages, thesis standard) | ~1.5 GB |
+| Passage index (21M passages — Wikipedia corpus, IVF-PQ FAISS + passage texts) | ~15–17 GB |
 | Cold-start memory (FAISS .faiss + .meta) | ~50 MB |
 | Outputs (10 cycle checkpoints + eval JSONs + CSVs) | ~8–12 GB |
 | Repo code | ~100 MB |
-| **Total minimum** | **~20 GB** |
-| **With headroom (recommended)** | **50 GB** |
+| **Total minimum** | **~35 GB** |
+| **With headroom (recommended)** | **100 GB** |
 
-> **Vast.ai default disk = 16 GB. You MUST change this to 50 GB before renting.**
+> **Vast.ai default disk = 16 GB. You MUST change this to 100 GB before renting.** The passage index alone is ~15–17 GB — 16 GB default will crash immediately on index build or upload.
 
-### FAISS: CPU or GPU?
+### FAISS: CPU or GPU? And which index type?
 
 **Keep faiss-cpu.** The code uses standard CPU-side FAISS (`import faiss`, IVF-PQ index). There is no GPU FAISS code anywhere in the codebase — no `StandardGpuResources`, no `index_cpu_to_gpu`. Installing `faiss-gpu` would bring no benefit and frequently has CUDA version conflicts. Always install `faiss-cpu`.
+
+**Keep IVF-PQ for both indices.** The memory store (1M capacity) auto-bootstraps with IndexFlatIP for early cycles, then auto-promotes to IVF-PQ once 20K+ episodes exist. This is the correct design. Do NOT force `memory_index_type = "flat_ip"` permanently — at 1M entries, a flat index requires a linear scan over 1M × 768 float values per query. With 10 cycles × 5000 queries = 50K total queries, that's several extra hours of CPU work and is slower than IVF-PQ. The extra RAM available on vast.ai machines (48–128 GB) does not make flat search faster. IVF-PQ stays in RAM at ~1.5 GB either way.
 
 ### theta_prev Placement (L2 Penalty Anchor)
 
@@ -95,7 +129,7 @@ This is now applied automatically — you don't need to change anything.
 
 1. On the **Search** page, find **"Edit Image & Config"** (top-left).
 2. Select the **PyTorch** template (e.g., `pytorch/pytorch:2.2.0-cuda12.1-cudnn8-devel`).
-3. **CRITICAL — Disk Space:** Scroll to the bottom of the config pop-up. Find the **Allocated Disk Space** slider. Default is 16 GB — drag it to **50 GB**. Failing this will crash the run mid-experiment.
+3. **CRITICAL — Disk Space:** Scroll to the bottom of the config pop-up. Find the **Allocated Disk Space** slider. Default is 16 GB — drag it to **100 GB**. The 21M-passage index alone is ~15–17 GB; 50 GB is not enough once you include model cache and outputs.
 4. Click **Save**.
 
 ### Step 2 — Select the machine
@@ -110,44 +144,72 @@ This is now applied automatically — you don't need to change anything.
 
 Once the instance shows "Running" in the Instances tab:
 
-### VS Code Remote SSH (recommended)
-1. Install the **Remote - SSH** extension in VS Code.
-2. Click **CONNECT** in the Instances tab to get your SSH command (e.g., `ssh -p 24501 root@123.45.67.89`).
-3. In VS Code: `Ctrl+Shift+P` → `Remote-SSH: Add New SSH Host` → paste command.
-4. `Ctrl+Shift+P` → `Remote-SSH: Connect to Host` → select it.
+### Option A -- VS Code Remote-SSH (recommended for beginners)
 
-### Terminal SSH
+This is usually the easiest because you keep using the same VS Code UI on your PC.
+
+1. Install the **Remote - SSH** extension in your local VS Code.
+2. Click **CONNECT** in Vast Instances tab and copy the SSH command (example: `ssh -p 24501 root@123.45.67.89`).
+3. In local VS Code: `Ctrl+Shift+P` -> `Remote-SSH: Add New SSH Host` -> paste command.
+4. `Ctrl+Shift+P` -> `Remote-SSH: Connect to Host` -> select it.
+
+How to confirm you are really remote:
+
+- Bottom-left corner shows `SSH: <host>`.
+- Integrated terminal shows Linux prompt (for example `root@...:~#`).
+- `pwd` points to remote paths like `/root/caem` (not `C:\...`).
+
+### Option B -- Plain SSH terminal
+
+Use this if you do not want Remote-SSH UI. Run this in your **local PC terminal**:
+
 ```bash
 ssh -p 24501 root@123.45.67.89
 ```
 
-### Jupyter (no install needed)
-Click the **Jupyter** button in the Instances tab. Opens a web-based IDE with terminal support.
+After this, the shell you see is remote.
+
+### Option C -- Vast web terminal / Jupyter
+
+Click the **Jupyter** button in Vast Instances page. This opens browser-based tools hosted on the remote machine.
+
+- Good as backup when SSH client has issues.
+- Same remote environment as SSH.
+- Less comfortable than local VS Code for larger projects.
+
+### Final clarity on your question
+
+- You use **your PC's VS Code app**.
+- But after Remote-SSH connection, that VS Code window edits and runs code on the **remote Vast machine**.
+- Commands for training should run in the **remote terminal** (Remote-SSH terminal or Vast web terminal), not in a normal local terminal.
 
 ---
 
 ## Part 4: Uploading Code and Data
 
-### Code — always use git
+### Code -- always use git (run on REMOTE terminal)
 ```bash
 # On the vast.ai machine:
 git clone https://YOUR_TOKEN@github.com/YOUR_USERNAME/YOUR_REPO.git caem
 cd caem
 ```
 
-### Data — upload with scp from your local machine
+### Data -- upload with scp from your LOCAL machine
 ```bash
 # From your local Windows terminal (use your SSH port and IP):
 scp -r -P 24501 "C:\path\to\data\passage_index" root@123.45.67.89:~/caem/data/
 scp -r -P 24501 "C:\path\to\outputs\cold_start_memory" root@123.45.67.89:~/caem/outputs/
 ```
 
-### Alternative — build passage index on the machine (~30 min on 4090)
-If your passage index isn't ready locally, just build it on vast.ai:
+### Alternative — build passage index on the machine
+If your passage index isn't ready locally, build it on vast.ai. The full 21M-passage Wikipedia corpus:
 ```bash
-python scripts/build_passage_index.py --max_passages 500000 --output_dir data/passage_index
+# Full thesis-scale run (21M passages — ~1.5–2 h encode time on RTX 5090)
+python scripts/build_passage_index.py --max_passages 21000000 --output_dir data/passage_index
 ```
-This streams Wikipedia from HuggingFace — no file upload needed.
+This streams Wikipedia passages from HuggingFace — no file upload needed, but takes time to encode all 21M passages with SBERT. Ensure you have 100 GB disk before starting.
+
+> **Do not use `--max_passages 500000`** — that was an old dev-scale default. The thesis uses the full 21M Wikipedia corpus.
 
 ### Alternative — Google Drive
 ```bash
@@ -158,6 +220,8 @@ gdown --folder "https://drive.google.com/drive/folders/FOLDER_ID" -O data/
 ---
 
 ## Part 5: Environment Setup
+
+From this point onward, run commands in a **REMOTE terminal** (Remote-SSH integrated terminal, plain SSH terminal, or Vast web terminal).
 
 ```bash
 cd ~/caem
@@ -337,21 +401,23 @@ Your usage is billed against your subscription quota, exactly like using Claude 
 
 | Phase | Time | Cost |
 |---|---|---|
-| Environment setup + passage index build | ~25 min | ~$0.40 |
+| Environment setup | ~10 min | ~$0.15 |
+| Passage index build (21M passages, upload or build) | ~1.5–2 h | ~$1.50–2.00 |
 | Cold-start seeding (if not pre-seeded) | ~20 min | ~$0.30 |
 | Full 10-cycle experiment (n=5000, batch=32, bf16) | ~10–12 h | ~$10–12 |
 | Ablation study (sequential after main run) | ~1.5–2 h | ~$1.50–2.00 |
 | Purity validation | ~20 min | ~$0.35 |
-| **Total (1× RTX 5090)** | **~13–15 h** | **~$12–15** |
+| **Total (1× RTX 5090)** | **~14–17 h** | **~$14–17** |
 
 ### RTX 4090 (~$0.40/hr) — cheapest option if 5090 unavailable
 
 | Phase | Time | Cost |
 |---|---|---|
-| Setup + passage index | ~45 min | ~$0.30 |
+| Environment setup | ~10 min | ~$0.07 |
+| Passage index build (21M passages) | ~2–3 h | ~$0.80–1.20 |
 | Full 10-cycle experiment (batch=16, fp16) | ~16–18 h | ~$6.50–7.50 |
 | Ablation + validation | ~3 h | ~$1.20 |
-| **Total** | **~20–22 h** | **~$8–10** |
+| **Total** | **~22–25 h** | **~$9–10** |
 
 ---
 
@@ -403,23 +469,23 @@ Use the highest complete cycle number in `--resume_from_cycle`.
 ## Quick Reference Card
 
 ```bash
-# 1. Connect
+# 1. Connect (LOCAL terminal)
 ssh -p PORT root@IP
 
-# 2. Get code
+# 2. Get code (REMOTE terminal)
 git clone https://TOKEN@github.com/USER/REPO.git caem && cd caem
 
-# 3. Install
+# 3. Install (REMOTE terminal)
 pip install torch transformers datasets sentence-transformers faiss-cpu numpy scipy scikit-learn
 
-# 4. Upload data (from local machine)
+# 4. Upload data (LOCAL terminal)
 scp -r -P PORT data/passage_index root@IP:~/caem/data/
 scp -r -P PORT outputs/cold_start_memory root@IP:~/caem/outputs/
 
-# 5. Verify hardware
+# 5. Verify hardware (REMOTE terminal)
 python -c "from scripts.hardware import print_hardware_summary; print_hardware_summary()"
 
-# 6. Start experiment inside tmux
+# 6. Start experiment inside tmux (REMOTE terminal)
 tmux new-session -s caem
 python scripts/run_experiment.py \
   --output_dir outputs/full_run --num_cycles 10 --n_questions 5000 \
@@ -434,8 +500,8 @@ Ctrl+B, D
 # 8. Reattach after reconnect
 tmux attach -t caem
 
-# 9. Download results (from local machine)
+# 9. Download results (LOCAL terminal)
 scp -r -P PORT root@IP:~/caem/outputs/ C:\Users\YourName\Desktop\caem_results\
 
-# 10. STOP THE INSTANCE
+# 10. STOP THE INSTANCE (Vast website)
 ```

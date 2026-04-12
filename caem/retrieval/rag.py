@@ -364,7 +364,11 @@ class TierThreeRAG:
             return answer
 
         except Exception as exc:
-            logger.error("RAG generation failed: %s", exc)
+            logger.error(
+                "RAG generation failed (Tier 3 fallback returning empty string): %s. "
+                "If this repeats, check passage index integrity and FAISS installation.",
+                exc,
+            )
             return ""
 
     def retrieve(self, query: str, k: Optional[int] = None) -> List[Tuple[str, float]]:

@@ -334,7 +334,10 @@ def load_general_data(n: int = 1000) -> list:
     try:
         from datasets import load_dataset
         logger.info("Loading TriviaQA for general-domain mix ...")
-        ds = load_dataset("trivia_qa", "rc.nocontext", split="validation")
+        # MUST use "train" split -- "validation" overlaps with the evaluation
+        # set used in run_cycle(). Using validation here would contaminate the
+        # forgetting guard with evaluation data.
+        ds = load_dataset("trivia_qa", "rc.nocontext", split="train")
         pairs = []
         for item in ds.select(range(min(n, len(ds)))):
             row = cast(Mapping[str, Any], item)
