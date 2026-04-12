@@ -16,6 +16,29 @@
 ---
 ---
 
+## Session 36 — 2026-04-11 (Ablation Methodology Hardening: Clean Isolation vs Confounded Variables)
+
+**Scope:** Corrected a fundamental methodological flaw in the ablation suite where architectural ablations were confounded with dataset distribution shifts.
+
+### Problem: Confounded Ablation Variables (FIXED)
+Previously, the ablations (e.g., removing the episodic memory) were *only* evaluated on transfer datasets (TruthfulQA, StrategyQA, ARC). 
+
+This created a massive scientific vulnerability: if performance dropped on the transfer dataset, a reviewer could rightfully point out that we could not mathematically isolate *why* it dropped. Did it drop because the module was removed (Variable A), or because the dataset distribution changed (Variable B)? Combining these variables destroyed causality.
+
+### Fix Applied: "Clean Ablation" Isolation
+`scripts/run_ablation.py` was updated so that **every single ablation condition** is now evaluated on **all 6 datasets** (3 In-Domain, 3 Out-Of-Domain) to map both variables separately.
+
+### Thesis Writing Requirement (DO NOT MISS)
+It is absolutely critical that the thesis text proactively explains *how* the ablations work to avoid reviewer confusion. Reviewers are highly sensitive to methodological inconsistency.
+
+**Required Disclosures for Chapter 5:**
+1. **Explain the 6-dataset span:** "While CAEM trains only on three in-domain datasets, all ablation variants are evaluated across the full six-benchmark suite. This cleanly isolates the architectural contribution (in-domain delta) from the module's effect on zero-shot generalization (out-of-domain delta), avoiding confounded variables."
+2. **Explain the two ablation mechanisms:**
+    - **Inference-time ablations (AB1, AB2, AB5, AB6, AB7):** "These isolate architectural contributions by intercepting or disabling routing/verification logic at runtime, using the exact same cycle 10 weights as the full model."
+    - **Training-time ablations (A4 Vanilla FT, AB3 No-CoT, AB4 No-Reverification):** "These capture the impact of learning dynamics, requiring completely separate fine-tuning trajectories where the respective mechanism was disabled for all 10 cycles."
+
+---
+
 ## Session 35 — 2026-04-11 (Codebase Audit + Benchmark Suite Consolidation: HotpotQA Removal, FEVER Fixes, TriviaQA/NQ Scoring)
 
 **Scope:** Full codebase audit following the benchmark-suite update from Session 21 (HotpotQA → FEVER/TriviaQA/NQ). Found and fixed 12 issues across 8 files. The fixes fall into three groups: (A) FEVER data correctness (label mapping and split name), (B) TriviaQA/NQ scoring correctness (multi-alias EM), and (C) stale HotpotQA references in docstrings, config, and test coverage. Also completed chapter_4.tex Pass 4 and Pass 5 and added the DPR Wikipedia corpus citation.

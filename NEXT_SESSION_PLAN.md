@@ -12,6 +12,7 @@
 | Plan caveat fix 1 | DONE | StrategyQA loader is strict by default (`test` split, no silent train fallback) |
 | Plan caveat fix 2 | DONE | Cold-start default benchmarks now match SIL training group |
 | **Codebase audit (Session 35)** | **DONE** | 12 issues fixed across 8 files — see impl-log Session 35 |
+| **Ablation methodology (Session 36)** | **DONE** | `run_ablation.py` updated: all ablation conditions now evaluated on all 6 benchmarks (was 4). Separates in-domain delta from out-of-domain delta — see impl-log Session 36 |
 | FEVER label mapping | FIXED | `_FEVER_LABEL_MAP` corrected: `1→not enough info`, `2→refutes` (EXP-21) |
 | FEVER eval split | FIXED | All code now uses `paper_dev` — `"dev"` split name does not exist (EXP-22) |
 | TriviaQA/NQ scoring | FIXED | `any_match_em` used for all aliases — not just `gold_answers[0]` (EXP-23) |

@@ -110,7 +110,7 @@ logger = logging.getLogger(__name__)
 # Shared constants
 # -----------------------------------------------------------------------------
 
-BENCHMARK_ORDER = ["fever", "truthfulqa", "strategyqa", "arc_challenge"]
+BENCHMARK_ORDER = ["fever", "triviaqa", "natural_questions", "truthfulqa", "strategyqa", "arc_challenge"]
 
 
 def infer_cycle_from_checkpoint(path: Path) -> int:
@@ -956,8 +956,7 @@ def print_ablation_table(
     if label_overrides:
         display_labels.update(label_overrides)
 
-    print(f"{'Condition':<26} {'FEVER':>8} {'TruthfulQA':>12} "
-          f"{'StrategyQA':>12} {'ARC-Chal':>10} {'MMLU':>7}")
+    print(f"{'Condition':<26}  {'FEVER':>8}  {'TriviaQA':>8}  {'NatQ':>8}  {'Truthful':>8}  {'Strategy':>8}  {'ARC':>8}  {'MMLU':>7}")
     print("-" * 95)
 
     # CAEM rows first
@@ -1030,16 +1029,19 @@ def run_ablation(ns: argparse.Namespace) -> None:
     if ns.smoke_test:
         from eval.benchmarks import make_synthetic_samples
         samples = {bm: make_synthetic_samples(bm, n=8)
-                   for bm in ["fever", "truthfulqa", "strategyqa", "arc_challenge"]}
+                   for bm in ["fever", "truthfulqa", "strategyqa", "arc_challenge", "triviaqa", "natural_questions"]}
     else:
         from eval.benchmarks import (
-            load_truthfulqa, load_fever, load_strategyqa, load_arc_challenge
+            load_truthfulqa, load_fever, load_strategyqa, load_arc_challenge,
+            load_triviaqa, load_natural_questions
         )
         samples = {
             "fever":      load_fever(n=ns.n_questions),
             "truthfulqa": load_truthfulqa(n=ns.n_questions),
             "strategyqa": load_strategyqa(split="test", n=ns.n_questions),
             "arc_challenge": load_arc_challenge(split="test", n=ns.n_questions),
+            "triviaqa":   load_triviaqa(n=ns.n_questions),
+            "natural_questions": load_natural_questions(n=ns.n_questions),
         }
 
     logger.info("Loading Flan-T5-Large (target cycle=%d) ...", target_cycle)
