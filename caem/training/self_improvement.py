@@ -93,9 +93,10 @@ class CycleResult:
     n_general_used:     int
     epochs_completed:   int
     final_train_loss:   float
-    forgetting_score:   float   # post/pre retention ratio (>=1 means no forgetting)
+    forgetting_score:   float   # post/pre TriviaQA retention ratio (abort guard)
     aborted:            bool    # True if forgetting check failed and weights were restored
     checkpoint_path:    str
+    mmlu_retention:     float = 0.0  # MMLU 4-choice accuracy post-fine-tune (reporting metric)
 
 
 # -----------------------------------------------------------------------------
@@ -254,6 +255,7 @@ class SelfImprovementLoop:
                 epochs_completed=0, final_train_loss=0.0, forgetting_score=1.0,
                 aborted=False,
                 checkpoint_path=str(self.output_dir / f"cycle_{cycle_num}"),
+                mmlu_retention=float("nan"),
             )
 
         # Step 2: split general_data -> training mix + held-out forgetting check
@@ -314,6 +316,20 @@ class SelfImprovementLoop:
             self._restore_weights(theta_prev)
             aborted = True
 
+        # Step 6b: MMLU retention -- domain-neutral reporting metric (EXP-MMLU-FIX).
+        # Distinct from the TriviaQA abort guard above.  Matches the metric used
+        # by run_ablation.eval_mmlu_retention() so per-cycle CSV values and Table 5.2
+        # in Chapter 5 are directly comparable.
+        logger.info("Cycle %d: measuring MMLU retention (n=200) ...", cycle_num)
+        mmlu_retention = self._mmlu_score(n=200)
+        if not __import__("math").isnan(mmlu_retention):
+            logger.info(
+                "Cycle %d: MMLU retention = %.4f (target >= %.2f)",
+                cycle_num, mmlu_retention, cfg.forgetting_tolerance,
+            )
+        else:
+            logger.warning("Cycle %d: MMLU retention unavailable (dataset not cached).", cycle_num)
+
         # Step 7: save checkpoint
         ckpt_path = self._save_checkpoint(cycle_num, seed, epochs_done, final_loss,
                                            forgetting_score, aborted, theta_prev if aborted else None)
@@ -327,6 +343,7 @@ class SelfImprovementLoop:
             forgetting_score=forgetting_score,
             aborted=aborted,
             checkpoint_path=ckpt_path,
+            mmlu_retention=mmlu_retention,
         )
 
     def load_checkpoint(self, cycle_num: int) -> dict:
@@ -662,6 +679,83 @@ class SelfImprovementLoop:
                     correct += 1
 
         return correct / len(general_eval)
+
+    def _mmlu_score(self, n: int = 200) -> float:
+        """Measure MMLU 4-choice accuracy as a neutral cross-benchmark forgetting proxy.
+
+        Uses the same 200-sample MMLU split and identical evaluation logic as
+        ``run_ablation.eval_mmlu_retention()`` so the per-cycle number logged
+        here matches the retention column in the ablation table (Table 5.2).
+
+        Why a separate metric from the TriviaQA abort guard?
+        The TriviaQA abort guard (``_forgetting_score``) uses the same domain
+        as the training pool and is evaluated on only 50 pairs for speed. MMLU
+        is a held-out, domain-neutral 4-choice benchmark that is *never trained
+        on* in any cycle, making it the scientifically appropriate metric for
+        reporting general-capability retention in Chapter 5. Keeping the two
+        roles separate avoids the mismatch documented in EXP-MMLU-FIX.
+
+        Returns NaN (float) if the MMLU dataset is unavailable (no internet,
+        no HuggingFace cache). NaN is propagated cleanly to the CSV so the
+        experiment does not abort.
+        """
+        try:
+            from datasets import load_dataset
+            ds = load_dataset("cais/mmlu", "all", split="validation")
+            ds = ds.select(range(min(n, len(ds))))
+        except Exception as exc:
+            logger.warning(
+                "MMLU dataset load failed (%s); mmlu_retention set to NaN.", exc
+            )
+            return float("nan")
+
+        choices_labels = ["A", "B", "C", "D"]
+        correct = 0
+        total = 0
+
+        self.model.eval()
+        with torch.no_grad():
+            for item in ds:
+                question = str(item.get("question", ""))
+                choices  = item.get("choices", [])
+                answer_idx = item.get("answer", -1)
+                if not question or not choices or answer_idx < 0:
+                    continue
+
+                choice_str = "\n".join(
+                    f"{choices_labels[i]}. {c}"
+                    for i, c in enumerate(choices)
+                    if i < len(choices_labels)
+                )
+                prompt = (
+                    f"Question: {question}\n"
+                    f"Choices:\n{choice_str}\n"
+                    f"Answer:"
+                )
+                enc = self.tokenizer(
+                    prompt,
+                    return_tensors="pt",
+                    truncation=True,
+                    max_length=512,
+                ).to(self.device)
+                out = self.model.generate(
+                    enc["input_ids"],
+                    max_new_tokens=8,
+                    do_sample=False,
+                )
+                pred = self.tokenizer.decode(out[0], skip_special_tokens=True).strip().upper()
+                expected = (
+                    choices_labels[answer_idx]
+                    if answer_idx < len(choices_labels)
+                    else ""
+                )
+                if pred.startswith(expected):
+                    correct += 1
+                total += 1
+
+        accuracy = correct / total if total > 0 else 0.0
+        logger.info("MMLU retention: %.4f (%d/%d correct)", accuracy, correct, total)
+        return accuracy
 
     # ------------------------------------------------------------------ #
     # Weight management                                                    #

@@ -16,6 +16,40 @@
 ---
 ---
 
+## Session 37 — 2026-04-12 (EXP-MMLU-FIX: Separate Forgetting Guard from Retention Reporting Metric)
+
+### Problem identified
+`self_improvement.py` used TriviaQA exact-match on 50 held-out pairs as the forgetting abort guard (`_forgetting_score`). `run_ablation.py` used MMLU 4-choice accuracy on 200 samples (`eval_mmlu_retention`) as the forgetting *reporting* metric in Table 5.2. These measured forgetting on completely different benchmarks with different question types, producing numbers that could not be directly compared. A reviewer comparing the reported MMLU retention to the abort guard threshold would have found no correspondence.
+
+### Root cause
+The guard and the report were implemented independently at different sessions. TriviaQA was already loaded in memory during Stage 8 implementation, making it a convenient local proxy. MMLU was added later as the ablation reporting metric with no cross-check.
+
+### Fix implemented (Option B — keep guard unchanged, add MMLU as parallel metric)
+
+**`caem/training/self_improvement.py`:**
+- Added `mmlu_retention: float = 0.0` field to `CycleResult` dataclass.
+- Added `_mmlu_score(n=200)` method: loads `cais/mmlu` `all` `validation` split, evaluates 200 questions in 4-choice MC format — identical logic to `run_ablation.eval_mmlu_retention()`.
+- `run_cycle()` calls `_mmlu_score()` after the forgetting check is resolved (whether aborted or not), stores result as `CycleResult.mmlu_retention`.
+- Early-return path (no episodes) sets `mmlu_retention=float("nan")`.
+
+**`scripts/run_experiment.py`:**
+- Added `mmlu_per_cycle: List[float]` accumulator. Cycle 0 always appends `NaN` (no fine-tuning).
+- Main loop appends `cycle_result.mmlu_retention` after each `sil.run_cycle()`.
+- `retroverify_cycle{n}.json` now includes `fine_tune.mmlu_retention` so the resume path can reconstruct `mmlu_per_cycle` without re-running the model.
+- Resume path reads `mmlu_retention` from retroverify JSONs, falling back to `NaN` if the key is absent (backwards compatible with pre-fix checkpoints).
+- `save_summary_csv()` gains optional `mmlu_per_cycle` parameter and `mmlu_retention_pct` column. Written on the first benchmark row of each cycle; blank for subsequent rows.
+
+### Why Option B over the alternatives
+- **Option A** (replace TriviaQA with MMLU in `load_general_data`): MMLU is 4-choice multiple-choice; mixing it into the open-ended QA training set is stylistically wrong. Rejected.
+- **Option C** (full refactor — use MMLU for both guard and training mix): Changes which cycles abort, altering experiment reproducibility. Rejected.
+- **Option B** leaves abort behaviour 100% unchanged — the TriviaQA guard has been working correctly across 3+ mini-runs. It only adds the MMLU computation as a parallel reporting signal. Zero risk to existing results.
+
+### Files changed
+- `caem/training/self_improvement.py` — `CycleResult`, `_mmlu_score()`, `run_cycle()`
+- `scripts/run_experiment.py` — `save_summary_csv()`, `run_experiment()` main loop and resume path
+
+---
+
 ## Session 36 — 2026-04-11 (Ablation Methodology Hardening: Clean Isolation vs Confounded Variables)
 
 **Scope:** Corrected a fundamental methodological flaw in the ablation suite where architectural ablations were confounded with dataset distribution shifts.

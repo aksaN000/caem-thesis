@@ -75,7 +75,7 @@ def normalise(text: str) -> str:
     3. Remove articles (a, an, the).
     4. Collapse whitespace.
 
-    This exactly matches the SQuAD / HotpotQA official normalisation.
+    This exactly matches the SQuAD / TriviaQA official normalisation.
     """
     text = text.lower()
     text = text.translate(_PUNCT_TABLE)
@@ -209,7 +209,9 @@ def rouge_l(prediction: str, golds: Sequence[str]) -> float:
 def best_token_f1(prediction: str, golds: Sequence[str]) -> float:
     """Return the highest token F1 across all gold strings.
 
-    Used for TruthfulQA where multiple acceptable answers exist.
+    Used for TriviaQA and Natural Questions, where each question has
+    10–40 valid answer aliases. Returns the max token F1 over all aliases.
+    (TruthfulQA uses rouge_l(), not this function.)
     """
     if not golds:
         return 0.0

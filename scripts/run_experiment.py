@@ -442,12 +442,35 @@ def retroactive_reverification(pipeline, cycle: int, config) -> Dict:
 # Summary table (Chapter 5 mechanism evidence table)
 # -----------------------------------------------------------------------------
 
-def save_summary_csv(all_cycle_results: List[Dict], output_dir: Path) -> None:
+def save_summary_csv(
+    all_cycle_results: List[Dict],
+    output_dir: Path,
+    mmlu_per_cycle: Optional[List[float]] = None,
+) -> None:
     """Save the five-mechanism evidence table as a CSV (Table 1 in Chapter 5).
 
     Columns: Cycle, HallucReduction%, Tier1Frac%, Tier3Frac%,
-             MeanUStored, (MMULRetention% -- filled manually after MMLU eval)
+             MeanUStored, MMULRetention%
+
+    Parameters
+    ----------
+    all_cycle_results : list[dict]
+        One entry per cycle; each entry maps benchmark -> eval metrics dict.
+    output_dir : Path
+        Where to write experiment_summary.csv.
+    mmlu_per_cycle : list[float] or None
+        Per-cycle MMLU retention values (0-1 or NaN).  Index 0 corresponds to
+        Cycle 0 (baseline, always NaN -- no fine-tuning occurred).  When None,
+        the column is omitted with a backwards-compatible empty string.
+
+    Notes
+    -----
+    MMLU retention is a single value per cycle (not per benchmark).  To keep
+    the CSV tidy it is written only on the first benchmark row of each cycle;
+    all other rows for that cycle leave the field blank.  This matches how
+    MMLU is reported in Chapter 5 Table 5.2 (one row per cycle, aggregate).
     """
+    import math
     csv_path = output_dir / "experiment_summary.csv"
     fieldnames = [
         "cycle",
@@ -461,11 +484,22 @@ def save_summary_csv(all_cycle_results: List[Dict], output_dir: Path) -> None:
         "storage_rate_pct",
         "mean_u_stored",
         "mean_latency_ms",
+        "mmlu_retention_pct",   # populated on first-benchmark row only; blank for subsequent rows
     ]
 
     rows = []
     for cycle_num, cycle_results in enumerate(all_cycle_results):
+        # MMLU retention is scalar per cycle; write it on the first BM row only.
+        mmlu_val = (mmlu_per_cycle[cycle_num]
+                    if mmlu_per_cycle and cycle_num < len(mmlu_per_cycle)
+                    else float("nan"))
+        first_bm = True
         for bm, res in cycle_results.items():
+            if first_bm and not math.isnan(mmlu_val):
+                mmlu_str = str(round(mmlu_val * 100, 2))
+            else:
+                mmlu_str = ""   # leave blank for subsequent BM rows (or if NaN)
+            first_bm = False
             rows.append({
                 "cycle":              cycle_num,
                 "benchmark":          bm,
@@ -478,6 +512,7 @@ def save_summary_csv(all_cycle_results: List[Dict], output_dir: Path) -> None:
                 "storage_rate_pct":   round(res.get("storage_rate", 0.0) * 100, 1),
                 "mean_u_stored":      round(res.get("mean_u_stored", 0.0), 4),
                 "mean_latency_ms":    round(res.get("mean_latency_ms", 0.0), 1),
+                "mmlu_retention_pct": mmlu_str,
             })
 
     with open(csv_path, "w", newline="", encoding="utf-8") as f:
@@ -630,21 +665,26 @@ def run_experiment(ns: argparse.Namespace) -> None:
         output_dir=str(output_dir),
     )
 
+    # Per-cycle MMLU retention list (index 0 = Cycle 0 = NaN, no fine-tuning).
+    # Populated after each SIL fine-tuning step; passed to save_summary_csv().
+    mmlu_per_cycle: List[float] = []
+
     # -- CYCLE 0: Baseline evaluation & Resume Logic ------------------------ #
     if ns.resume_from_cycle == 0:
         logger.info("-" * 60)
         logger.info("CYCLE 0 -- Baseline evaluation (zero episodic memory)")
         logger.info("-" * 60)
         t0 = time.time()
-        
+
         # Zero Data Leakage Eval: Never store during eval
         cycle0_results = harness.run_all(eval_samples, cycle=0, store_to_memory=False)
         logger.info("Cycle 0 done in %.1f min.", (time.time() - t0) / 60)
-        
+
         # Save baseline memory store checkpoint
         pipeline.memory_store.save(str(output_dir / "memory_store_cycle_0"))
 
         all_cycle_results = [cycle0_results]
+        mmlu_per_cycle.append(float("nan"))  # Cycle 0: no fine-tuning, no MMLU measurement
 
         # -- Calibration (after Cycle 0, before Cycle 1 fine-tuning) ------------ #
         if not ns.skip_calibration:
@@ -669,6 +709,20 @@ def run_experiment(ns: argparse.Namespace) -> None:
                     data = json.load(f)
                 cycle_results[bm] = data["meta"]
             all_cycle_results.append(cycle_results)
+
+            # Reconstruct mmlu_per_cycle from saved retroverify JSONs.
+            # Cycle 0 never has a retroverify file (no fine-tuning), so use NaN.
+            if c == 0:
+                mmlu_per_cycle.append(float("nan"))
+            else:
+                rv_path_c = output_dir / f"retroverify_cycle{c}.json"
+                try:
+                    with open(rv_path_c, "r", encoding="utf-8") as f:
+                        rv_data = json.load(f)
+                    mmlu_val = rv_data.get("fine_tune", {}).get("mmlu_retention", float("nan"))
+                    mmlu_per_cycle.append(float(mmlu_val))
+                except (FileNotFoundError, KeyError, ValueError):
+                    mmlu_per_cycle.append(float("nan"))
             
         prev_cycle = ns.resume_from_cycle - 1
         
@@ -731,6 +785,11 @@ def run_experiment(ns: argparse.Namespace) -> None:
             retroverify_stats = retroactive_reverification(pipeline, cycle_num, config)
 
         # Step 4: Save retroverify stats alongside cycle results
+        # mmlu_retention is included here so the resume path can reconstruct
+        # mmlu_per_cycle without re-running the model.
+        import math as _math
+        mmlu_val = cycle_result.mmlu_retention
+        mmlu_serialisable = None if _math.isnan(mmlu_val) else round(mmlu_val, 6)
         rv_path = output_dir / f"retroverify_cycle{cycle_num}.json"
         with open(rv_path, "w") as f:
             json.dump({
@@ -742,8 +801,12 @@ def run_experiment(ns: argparse.Namespace) -> None:
                     "forgetting_score": cycle_result.forgetting_score,
                     "aborted": cycle_result.aborted,
                     "final_train_loss": cycle_result.final_train_loss,
+                    "mmlu_retention": mmlu_serialisable,   # EXP-MMLU-FIX: neutral reporting metric
                 },
             }, f, indent=2)
+
+        # Track per-cycle MMLU for summary CSV
+        mmlu_per_cycle.append(mmlu_val)
 
         # Step 4.5: Populate Memory by answering SIL Pool (Train split) with store_to_memory=True
         # This occurs so that we populate the EpisodicMemoryStore with the *upgraded* fine-tuned
@@ -762,7 +825,7 @@ def run_experiment(ns: argparse.Namespace) -> None:
         logger.info("Cycle %d done in %.1f min.", cycle_num, (time.time() - t0) / 60)
 
     # -- Summary ------------------------------------------------------------- #
-    save_summary_csv(all_cycle_results, output_dir)
+    save_summary_csv(all_cycle_results, output_dir, mmlu_per_cycle=mmlu_per_cycle)
     print_mechanism_table(all_cycle_results)
 
     # -- Save full results JSON ----------------------------------------------- #
