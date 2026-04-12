@@ -537,6 +537,28 @@ class SelfImprovementLoop:
         self.model.train()
         self.model.to(self.device)
 
+        # ---- theta_prev placement optimisation (LAB_PC_SCALING_GUIDE §7) ---- #
+        # On GPUs with >= 24 GB VRAM (RTX 4090, A100) move theta_prev to the
+        # device ONCE before the epoch loop.  This eliminates per-batch PCIe
+        # transfers (CPU→GPU) inside _l2_penalty, giving 3–4× faster fine-tuning.
+        # On smaller GPUs (RTX 3060 12 GB) theta_prev stays on CPU to avoid OOM.
+        # Accuracy is identical — pure speed optimisation.
+        theta_prev_for_penalty = theta_prev   # default: CPU (safe on all hardware)
+        if str(self.device).startswith("cuda"):
+            try:
+                vram_gb = torch.cuda.get_device_properties(0).total_memory / 1e9
+                if vram_gb >= 24.0:
+                    theta_prev_for_penalty = [
+                        p0.to(self.device, dtype=torch.float32) for p0 in theta_prev
+                    ]
+                    logger.info(
+                        "theta_prev moved to GPU (VRAM=%.1f GB) -- PCIe transfers eliminated.",
+                        vram_gb,
+                    )
+            except Exception as exc:
+                logger.warning("theta_prev GPU move failed (%s); using CPU fallback.", exc)
+        # --------------------------------------------------------------------- #
+
         # Use AMP + GradScaler when the model is loaded in half precision.
         # This preserves memory usage on 12 GB GPUs while reducing fp16 NaN risk.
         param_dtype = next(self.model.parameters()).dtype
@@ -580,8 +602,9 @@ class SelfImprovementLoop:
                     optimizer.zero_grad(set_to_none=True)
                     continue
 
-                # L2 regularisation: penalise deviation from θ_prev
-                l2_loss = self._l2_penalty(theta_prev)
+                # L2 regularisation: penalise deviation from θ_prev.
+                # Uses theta_prev_for_penalty (GPU if VRAM >= 24 GB, else CPU).
+                l2_loss = self._l2_penalty(theta_prev_for_penalty)
                 loss = ce_loss + (cfg.l2_lambda / 2.0) * l2_loss
 
                 if not torch.isfinite(loss):

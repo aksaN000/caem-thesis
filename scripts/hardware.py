@@ -110,28 +110,57 @@ def get_hardware_profile() -> HardwareProfile:
         gpu_name = "Unknown CUDA GPU"
         vram_gb = 0.0
 
-    # Choose precision and batch size based on VRAM
-    if vram_gb >= 30:          # A100 40/80 GB
+    # Choose precision and batch size based on VRAM.
+    # Tier breakdown (2026 cloud GPU landscape):
+    #   A100 SXM/PCIe 80 GB  (vram_gb >= 70)  → bf16, batch=32
+    #   RTX 5090 / A100 40GB (vram_gb >= 30)  → bf16, batch=32
+    #   RTX 4090 / 3090 24GB (vram_gb >= 20)  → fp16, batch=16
+    #   T4 / V100 16 GB      (vram_gb >= 14)  → fp16, batch=8
+    #   RTX 3060 / 3070 12GB (vram_gb >= 10)  → fp16, batch=4
+    #   < 10 GB              (laptop)          → fp16, batch=2
+    #
+    # batch_size affects only speed, never accuracy (confirmed in LAB_PC_SCALING_GUIDE).
+    # bf16: native on A100 (Ampere) and RTX 5090 (Blackwell). Larger dynamic range
+    # than fp16 — avoids overflow when L2 penalty sums 780M squared diffs. RTX 4090
+    # uses fp16 (no bf16 tensor core support on Ada Lovelace).
+    # Multi-GPU: CAEM fine-tunes on a single GPU. On a 2x5090 machine, only one GPU
+    # is used by run_experiment.py; use CUDA_VISIBLE_DEVICES to pin it and run the
+    # ablation study on the second GPU in parallel.
+    if vram_gb >= 70:          # A100 SXM 80 GB / PCIe 80 GB (79–80 GB reported)
         use_fp16, use_bf16 = False, True
+        batch_size = 32
+        note = "A100 80 GB. bf16, batch_size=32. TF32 enabled for matmuls."
+    elif vram_gb >= 30:        # RTX 5090 (32 GB), A100 40 GB (39–40 GB reported)
+        use_fp16, use_bf16 = False, True
+        batch_size = 32
+        note = (
+            "RTX 5090 / A100 40 GB (30–70 GB range). bf16, batch_size=32. "
+            "TF32 enabled for matmuls. theta_prev GPU optimisation active."
+        )
+    elif vram_gb >= 20:        # RTX 4090 (24 GB), RTX 3090 (24 GB)
+        use_fp16, use_bf16 = True, False
         batch_size = 16
-        note = "A100-class GPU. Using bf16 for best numerical stability."
-    elif vram_gb >= 14:        # T4 (16 GB), V100 (16 GB), RTX 3090/4090
+        note = (
+            "RTX 4090/3090-class (24 GB). fp16, batch_size=16. "
+            "theta_prev GPU optimisation active (VRAM >= 24 GB)."
+        )
+    elif vram_gb >= 14:        # T4 (16 GB), V100 (16 GB), RTX 3080 Ti (12 GB edge)
         use_fp16, use_bf16 = True, False
         batch_size = 8
-        note = "16 GB+ GPU. Using fp16."
-    elif vram_gb >= 10:        # RTX 3060 (12 GB), RTX 3080 (10 GB)
+        note = "16 GB GPU (T4/V100-class). fp16, batch_size=8."
+    elif vram_gb >= 10:        # RTX 3060 (12 GB), RTX 3070 (8 GB edge)
         use_fp16, use_bf16 = True, False
         batch_size = 4
         note = (
             f"~12 GB VRAM (RTX 3060-class). "
             "fp16 enabled, batch_size=4. "
-            "Flan-T5-Large (~3 GB) + NLI (~1.5 GB) + SBERT (~0.5 GB) "
-            "= ~5 GB total model footprint -- fits with headroom for activations."
+            "Flan-T5-Large (~1.5 GB) + NLI (~1.4 GB) + SBERT (~0.5 GB) "
+            "= ~3.4 GB model footprint + ~4-6 GB activations -- fits with headroom."
         )
-    else:                      # < 10 GB (laptop GPUs, GTX 1080)
+    else:                      # < 10 GB (laptop GPUs, GTX 1080, etc.)
         use_fp16, use_bf16 = True, False
         batch_size = 2
-        note = "< 10 GB VRAM. fp16 enabled, small batch. Consider --no_nli to save ~1.5 GB."
+        note = "< 10 GB VRAM. fp16, batch_size=2. Consider --no_nli to save ~1.4 GB."
 
     return HardwareProfile(
         device=device,

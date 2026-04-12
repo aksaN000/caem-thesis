@@ -102,13 +102,25 @@ Expected artifact:
 
 ### Phase E - Ablation and baseline analysis
 
+> **BEFORE running this phase:** Fill `published_baselines.template.json` manually.
+> All values are `0.0` placeholders — there is NO GPT API, no OpenAI key, no live model calls.
+> These are static citations from Liu et al. 2024 (RA-ISF). Only StrategyQA numbers apply:
+>
+> ```json
+> "gpt35_vanilla":  { "strategyqa": 65.2 }
+> "gpt35_rag":      { "strategyqa": 64.7 }
+> "selfrag_13b":    { "strategyqa": 67.2 }
+> ```
+> All other benchmark fields stay 0.0 (not reported in the cited paper).
+
 ```bash
 python -m scripts.run_ablation \
   --caem_results outputs/all_cycle_results.json \
   --cycle3_checkpoint outputs/cycle_10 \
   --cycle0_checkpoint outputs/cycle_0 \
   --output_dir outputs/ablation_results \
-  --n_questions 500
+  --n_questions 500 \
+  --published_baselines_json published_baselines.template.json
 ```
 
 Expected artifact:
