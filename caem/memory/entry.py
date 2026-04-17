@@ -76,6 +76,15 @@ class EpisodicEntry:
     timestamp: float = field(default_factory=time.time)
     """Unix timestamp at storage time (set automatically if not provided)."""
 
+    source_benchmark: Optional[str] = None
+    """Benchmark tag at storage time (e.g. 'natural_questions', 'fever',
+    'truthfulqa'). Used by the self-improvement loop to gate which episodes
+    feed fine-tuning: only in-distribution benchmarks (see
+    config.TRAINING_BENCHMARKS) are training-eligible; transfer-learning
+    benchmarks are held out for OOD evaluation. ``None`` means the episode
+    was not tagged and will be treated as training-eligible (legacy /
+    unit-test default)."""
+
     # -- Mutable quality metadata (Session 42 nine-signal layout) ----------- #
     u_stored: float = 0.0
     """Combined stored confidence in [0, 1] (the composite prior).
@@ -194,16 +203,14 @@ class PreRoutingConfidence:
 
 @dataclass
 class PostGenerationConfidence:
-    """Stage 4a: computed in Tier 2 ONLY, AFTER generation, from 4 signals.
+    """Legacy shell retained for type compatibility with pipeline.py.
 
-    This is an EFFICIENCY GATE -- not a quality gate.
-    Purpose: catch obvious low-confidence outputs before committing to the
-    full NLI + SC + SE verification pipeline (which is expensive).
-    Verification (Stage 5) is the actual quality gate.
-
-    Initial weights: 0.25/0.25/0.25/0.25 (equal).
-    Projected post-calibration: ~0.20/0.20/0.20/0.40 (SE upweighted).
-    Actual calibrated weights are fitted after Cycle 1 and reported in Ch. 5.
+    The pre-UnifiedVerifier design had a 4-signal post-generation u_hat gate
+    that escalated Tier 2 -> Tier 3 based on a learned composite. That gate
+    was removed when the nine-signal UnifiedVerifier became the single source
+    of post-generation truth (see pipeline._tier2 returning
+    post_conf=None). The four raw signals below still have meaning for
+    offline inspection; they are not consumed by the runtime pipeline.
     """
 
     u_token: float
@@ -220,16 +227,6 @@ class PostGenerationConfidence:
     u_entropy: float
     """1 - H_semantic / log2(K) across K=10 samples at T=1.0.
     K and T are fixed from Farquhar et al. (2024)."""
-
-    u_hat: float
-    """Combined post-generation confidence.
-    Formula uses weights from CAEMConfig.u_hat_weight_* (initially 0.25 each).
-    If u_hat >= CAEMConfig.u_hat_accept_threshold (0.60): accept -> verify.
-    Else: escalate to Tier 3."""
-
-    def should_accept(self, threshold: float = 0.60) -> bool:
-        """True if u_hat meets the acceptance threshold; False -> escalate to Tier 3."""
-        return self.u_hat >= threshold
 
 
 # -----------------------------------------------------------------------------

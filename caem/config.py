@@ -16,6 +16,37 @@ See: hyperparameter-reference.md for the full three-category breakdown.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Tuple
+
+
+# ---------------------------------------------------------------------------
+# Transfer-learning benchmark split (ID vs OOD)
+# ---------------------------------------------------------------------------
+# The six-benchmark factual-QA panel is split 3/3 for a transfer-learning
+# probe. Only ID benchmarks feed the self-improvement training pool; OOD
+# benchmarks are held out to measure generalisation of the consolidated
+# mechanisms (memory + routing + anchored fine-tuning).
+#
+# ID (training-eligible): Natural Questions, TriviaQA, FEVER
+# OOD (held-out for transfer): TruthfulQA, StrategyQA, ARC-Challenge
+#
+# These names MUST match the benchmark identifiers used by the eval
+# harness (see eval/harness.py::_score dispatch). Keep them lowercase and
+# underscore-delimited. The self-improvement loop (_collect_episodes) gates
+# fine-tuning on ``entry.source_benchmark in TRAINING_BENCHMARKS``; entries
+# without a benchmark tag (source_benchmark=None) are treated as
+# training-eligible for legacy / unit-test paths.
+TRAINING_BENCHMARKS: Tuple[str, ...] = (
+    "natural_questions",
+    "triviaqa",
+    "fever",
+)
+
+TRANSFER_BENCHMARKS: Tuple[str, ...] = (
+    "truthfulqa",
+    "strategyqa",
+    "arc_challenge",
+)
 
 
 @dataclass
@@ -101,17 +132,12 @@ class CAEMConfig:
     se_samples_k: int = 10
     se_temperature: float = 1.0
 
-    # [CAL] Initial weights are EQUAL (0.25 each).
-    # Projected post-calibration: ~0.20/0.20/0.20/0.40 (SE upweighted due to
-    # AUROC ≈ 0.79, Farquhar et al. 2024). Actual values come from calibration
-    # set after Cycle 1 and are reported in Chapter 5.
-    u_hat_weight_token: float = 0.25       # initial; calibrated -> ~0.20
-    u_hat_weight_dropout: float = 0.25     # initial; calibrated -> ~0.20
-    u_hat_weight_sc: float = 0.25          # initial; calibrated -> ~0.20
-    u_hat_weight_entropy: float = 0.25     # initial; calibrated -> ~0.40
-
-    # [DES] Asymmetric cost: accept Tier 2 answer if û ≥ this; else escalate.
-    u_hat_accept_threshold: float = 0.60
+    # NOTE (2026-04 refactor): the legacy u_hat post-generation escalation
+    # gate (4 learnable weights + accept threshold) was removed when the
+    # UnifiedVerifier nine-signal stage became the single source of post-
+    # generation truth. Tier 2 -> Tier 3 escalation now happens only on
+    # generation exception or empty output (see pipeline._tier2). No
+    # per-signal escalation weights are kept.
 
     # ------------------------------------------------------------------ #
     # UnifiedVerifier (Stage 5 -- nine-signal gate, Session 42)            #
@@ -248,10 +274,27 @@ class CAEMConfig:
     # ------------------------------------------------------------------ #
     # Experiment settings                                                  #
     # ------------------------------------------------------------------ #
-    # Training benchmarks: fever, triviaqa, natural_questions
-    # Transfer eval benchmarks: truthfulqa, strategyqa, arc_challenge
-    # (benchmark list is passed via CLI --benchmarks; no single-benchmark field)
+    # ID training pool: module-level TRAINING_BENCHMARKS
+    #   (natural_questions, triviaqa, fever)
+    # OOD held-out pool: module-level TRANSFER_BENCHMARKS
+    #   (truthfulqa, strategyqa, arc_challenge)
+    # Benchmark list is passed via CLI --benchmarks; the 3/3 split is
+    # enforced at training-time in _collect_episodes and at scoring time
+    # in pooled_ce(), not here.
     num_cycles: int = 10
     calibration_set_size: int = 500
     purity_validation_set_size: int = 500
     questions_per_cycle: int = 5_000
+
+    # ------------------------------------------------------------------ #
+    # Per-cycle calibration protocol                                       #
+    # ------------------------------------------------------------------ #
+    # T (the u_pre temperature scalar) is the only learnable calibration
+    # surface that the runtime pipeline consumes; u_stored composite
+    # weights are fixed by design (grounding dominates the composite mass
+    # by construction following Farquhar 2024 / Mishra 2024). T is re-fit
+    # at every cycle boundary on a disjoint held-out calibration slice
+    # (never from the SIL stream; see scripts/run_experiment.py) because
+    # fine-tuning shifts the logit distribution and a Cycle-0 T drifts
+    # out of calibration by Cycle N (Ovadia et al. NeurIPS 2019,
+    # Thulasidasan et al. 2019, Guo et al. 2017).

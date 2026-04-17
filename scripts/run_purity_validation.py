@@ -43,10 +43,12 @@ Fixes applied (audit 2025-04)
          accepted correct answers AND correctly rejected wrong answers.
 
   FIX-4  Acceptance threshold for theorem α uses
-      retroverify_prune_threshold (the storage acceptance gate), not
-      u_hat_accept_threshold (Tier-2 post-generation gate). Theorem 1 is
-      about purity of accepted memory episodes, so it must use the
-      storage gate.
+      retroverify_prune_threshold (the storage acceptance gate). An
+      earlier revision mistakenly used the Tier-2 post-generation
+      u_hat_accept_threshold; that gate has since been removed in
+      favour of the nine-signal UnifiedVerifier, but the fix here
+      (use the storage gate) remains correct because Theorem 1 is
+      about purity of accepted memory episodes.
 
   FIX-5  Memory store loading now matches run_experiment.py persistence
       format: outputs/memory_store_cycle_{n}.faiss + .meta. This prevents
@@ -282,9 +284,9 @@ def measure_verification_balanced_accuracy(
     that rejects everything has precision=undefined but balanced accuracy=0.5.
 
     FIX-4: The acceptance threshold for theorem α is retroverify_prune_threshold,
-    because Theorem 1 concerns memory purity of accepted/stored episodes.
-    u_hat_accept_threshold is the Tier-2 post-generation gate and is not the
-    storage acceptance criterion.
+    because Theorem 1 concerns memory purity of accepted/stored episodes. The
+    (now-removed) Tier-2 post-generation u_hat gate was never the storage
+    acceptance criterion; retroverify_prune_threshold is.
 
     FIX-6: Uses generation + verifier directly instead of pipeline.answer() so
     measurement does not mutate memory (Stage 7 storage side effects).

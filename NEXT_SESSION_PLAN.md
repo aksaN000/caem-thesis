@@ -1,148 +1,228 @@
-# CAEM - Next Session Plan (Vast.ai Runbook)
-**Updated: 2026-04-17 | Session 44 — Phase 1 (Self-Funded) Execution Plan**
+# CAEM — Next Session Plan (Vast.ai Runbook)
 
-This file is your **step-by-step runbook** for executing Phase 1 of the
-CAEM experiments on a Vast.ai-rented GPU. Every step is ordered. Do
-not skip steps. Where a command is shown, run it exactly as written
-(substituting your own `PORT`, `IP`, and path arguments where marked
-`<LIKE_THIS>`).
+**Updated: 2026-04-17 | Phase 1 (Self-Funded) Line-by-Line Execution Plan**
 
-For background on the two-phase budget protocol, see `VAST_AI_DEPLOYMENT_GUIDE.md`
-Part 10. For methodological rationale, see `writing-suggestions.md`
-Session 44 Addendum and Chapter 3 §3.5 (Ablation Framework Plan).
+This document is a **step-by-step runbook**. Read each numbered action,
+execute it, verify the expected output, then move to the next. Do not
+skip actions. Do not re-order. If an expected output is missing or
+wrong, stop and diagnose — skipping a failing action compounds cost
+downstream.
+
+Legend used throughout:
+
+- **[ACTION]** — a thing you type or click.
+- **[VERIFY]** — how to confirm the action worked before moving on.
+- **[IF IT FAILS]** — most common failure mode and how to recover.
+- **[WHY]** — one-sentence rationale so you know why the step exists.
+
+For budget and Phase 2 context see `VAST_AI_DEPLOYMENT_GUIDE.md`
+Part 10. For methodology see `writing-suggestions.md` Session 44
+Addendum and Chapter 3 §3.5.
 
 ---
 
-## Where you are right now
+## Overview — where you are right now
 
-- All code is committed. Scripts in scope for this runbook:
-  `scripts/run_experiment.py`, `scripts/run_baseline.py` (B1–B5),
-  `scripts/run_simple_ft.py` (B6, B7), `scripts/run_cyclic_ablation.py`,
+- Code is committed and pushed to GitHub.
+- Scripts in scope: `scripts/run_experiment.py`, `scripts/run_baseline.py`
+  (B1–B5), `scripts/run_simple_ft.py` (B6, B7), `scripts/run_cyclic_ablation.py`,
   `scripts/aggregate_ablation.py`, `scripts/run_purity_validation.py`,
   `scripts/build_passage_index.py`, `scripts/seed_cold_start.py`.
-- Ablation framework = **16 named variants** in
-  `caem/ablation/variants.py`. Legacy AB1–AB7 labels are retired.
-- External baseline panel = **B1–B7** (inference B1–B5 via
-  `run_baseline.py`, training B6–B7 via `run_simple_ft.py`). B8
-  Self-RAG is citation-only. STaR is an optional ceiling reference.
-- Budget: ~USD 200 self-funded envelope for Phase 1 (single seed = 42).
-  Phase 2 (+USD 700, seeds 123 and 456) is re-running the same
-  confirmatory commands — no code changes.
-- Target GPU for Phase 1: **RTX 4090** on Vast.ai (~$0.40/hr).
-  Upgrade to A100 SXM 80 GB only if wall-clock matters more than cost.
+- Ablation framework: **16 named variants** in `caem/ablation/variants.py`
+  (14 mechanism + 2 inference-time). Legacy AB1–AB7 labels are retired.
+- External baseline panel: **B1–B7** (inference B1–B5 via `run_baseline.py`,
+  training B6–B7 via `run_simple_ft.py`). B8 Self-RAG is citation-only.
+  STaR is an optional ceiling reference (Step 10B).
+- Budget: ~USD 200 self-funded envelope for Phase 1, single seed = 42.
+  Phase 2 (+USD 700, seeds 123 and 456) re-runs the same confirmatory
+  commands with no code changes.
+- Target GPU: **RTX 4090** on Vast.ai (~$0.40/hr). Upgrade to A100 SXM
+  80 GB only if wall-clock matters more than cost.
+- Per-cycle recalibration (conservative default: `T` refit only,
+  weights frozen) is **automatic** inside `run_experiment.py`. No
+  extra CLI step; see the note in Step 6.
 
 ---
 
-## First run → last run (execution order, at a glance)
+## At-a-glance execution order (20 numbered steps)
 
-Run every step below in this exact order. Do not skip, do not re-order.
-Rough wall-clock totals assume a single RTX 4090; see Part 10 of the
-deployment guide for cost breakdowns. Phase 1 budget absorbs all of
-this in one rental cycle.
+Phase 1 absorbs all of these in one rental cycle. Approximate totals:
+~117–134 h wall-clock, ~USD 50–55 rental (plus ~USD 3 if Step 10B is
+run).
 
-| # | Step | Script | Wall-clock | Notes |
-|---|---|---|---|---|
-| 1 | Pre-flight (local PC) | — | 5 min | Push commits, make HF token, top up Vast credit |
-| 2 | Rent + connect RTX 4090 | — | 10 min | Vast website |
-| 3 | Environment setup | `pip install ...` | 15 min | Then cache HF models |
-| 4 | Passage index | `scripts/build_passage_index.py` | 2–3 h | Build on the instance |
-| 5 | Smoke test | `scripts/run_cyclic_ablation.py --smoke_test` | 20 min | Gate before main run |
-| 6 | Cold-start seeding | `scripts/seed_cold_start.py` | 15 min | Produces `memory_store.*` |
-| 7 | **Main 10-cycle CAEM run** | `scripts/run_experiment.py` | 16–18 h | The headline result |
-| 8 | **B1 zero-shot** | `scripts/run_baseline.py --baseline zero_shot` | ~15 min | Floor |
-| 9 | **B2 CoT** | `scripts/run_baseline.py --baseline cot` | ~20 min | |
-| 10 | **B3 DPR-RAG** | `scripts/run_baseline.py --baseline rag` | ~45 min | Needs passage index |
-| 11 | **B4 CoT + RAG** | `scripts/run_baseline.py --baseline cot_rag` | ~50 min | |
-| 12 | **B5 FLARE** | `scripts/run_baseline.py --baseline flare` | ~90 min | Active retrieval |
-| 13 | **B6 Vanilla FT (10 cycles)** | `scripts/run_simple_ft.py --baseline_name vanilla_ft` | ~6 h | No anchor, no guard |
-| 14 | **B7 EWC-only FT (10 cycles)** | `scripts/run_simple_ft.py --baseline_name ewc_only_ft --use_l2_anchor --use_mmlu_guard` | ~6 h | Anchor + guard only |
-| 15 | Screening sweep (16 variants × 3 cycles) | `scripts/run_cyclic_ablation.py --screening_mode` | 14–20 h | Ranks variants |
-| 16 | Aggregate screening + pick top-N | `scripts/aggregate_ablation.py --screening_mode` | 5 min | Record top-N in impl log |
-| 17 | Confirmatory sweep (top-N + `full`, 10 cycles) | `scripts/run_cyclic_ablation.py` | 50–60 h | Ch5 ablation table |
-| 18 | Purity theorem validation | `scripts/run_purity_validation.py` | 30 min | |
-| 19 | Aggregate all Phase 1 outputs | `scripts/aggregate_ablation.py` | 5 min | |
-| 19B | **(Optional)** STaR ceiling run | `scripts/run_simple_ft.py --use_rationalisation` | ~7–8 h | Only if Phase 1 is under USD 200 envelope |
-| 20 | Download + stop instance | `scp -r` then Stop on Vast website | 20 min | |
-
-Total Phase 1 on RTX 4090: ~115–130 h wall-clock (~USD 50–55 rental
-cost at $0.40/hr). Baseline sub-total (steps 8–14): ~16 h. Optional
-STaR (step 19B): adds ~7–8 h (~$3) only if budget permits. The Vast
-instance can be stopped and resumed between groups as long as no
-step is interrupted mid-cycle.
+| # | Step | Wall-clock | Cost (RTX 4090) |
+|---|------|-----------:|----------------:|
+| 1 | Pre-flight on local PC                             | 5 min  | $0 |
+| 2 | Rent + connect RTX 4090                             | 10 min | ~$0.07 |
+| 3 | Remote environment setup + HF model cache            | 15 min | ~$0.10 |
+| 4 | Build passage index                                  | 2–3 h  | ~$1 |
+| 5 | Smoke test (1 cycle, n=50)                           | 20 min | ~$0.14 |
+| 6 | Cold-start memory seeding                            | 15 min | ~$0.10 |
+| 7 | **Main 10-cycle CAEM run** (headline)                | 16–18 h| ~$7 |
+| 8 | FLARE pre-flight smoke test (5 samples)              | 5 min  | ~$0.04 |
+| 9 | B1 Zero-shot                                         | ~15 min| ~$0.10 |
+| 10| B2 Chain-of-Thought                                  | ~20 min| ~$0.14 |
+| 11| B3 DPR-RAG                                           | ~45 min| ~$0.30 |
+| 12| B4 CoT + RAG                                         | ~50 min| ~$0.33 |
+| 13| B5 FLARE                                             | ~90 min| ~$0.60 |
+| 14| B6 Vanilla FT (10 cycles)                            | ~6 h   | ~$2.40 |
+| 15| B7 EWC-only FT (10 cycles)                           | ~6 h   | ~$2.40 |
+| 16| Screening sweep (16 variants × 3 cycles)             | 14–20 h| ~$7 |
+| 17| Aggregate screening + pick top-N                     | 5 min  | ~$0.04 |
+| 18| Confirmatory sweep (top-N + `full`, 10 cycles)       | 50–60 h| ~$22 |
+| 19| Purity theorem validation                            | 30 min | ~$0.20 |
+| 20| Aggregate all Phase 1 outputs + download + stop      | 25 min | ~$0.17 |
+| 20B| **(Optional)** STaR ceiling run (only if budget allows) | 7–8 h | ~$3 |
 
 ---
 
-## Pre-flight (do this on your local PC, before renting)
+## Step 1 — Pre-flight (local PC, before renting)
 
-1. **Push any local commits to GitHub.** The remote Vast instance will
-   `git clone` from GitHub — not from your laptop.
-   ```bash
-   git status
-   git push origin main
-   ```
+**[WHY]** Avoid paying Vast rental for work you can do on your own
+hardware.
 
-2. **Make sure your passage index either (a) is on Google Drive / a
-   CDN so the remote instance can `gdown` it, or (b) is built fresh on
-   the instance with `build_passage_index.py --max_passages 21000000`.**
-   Uploading 15–17 GB from your laptop over `scp` on a residential
-   connection is slow; prefer option (b).
-
-3. **Create a GitHub personal access token** for HTTPS `git clone` from
-   the remote instance. (Settings → Developer settings → Personal
-   access tokens → Generate new token → `repo` scope.)
-
-4. **Verify your Vast.ai account has ≥ USD 75 credit.** This covers
-   setup + main run + screening sweep. You can top up mid-Phase-1
-   without stopping the instance.
-
----
-
-## Step 1 — Rent the RTX 4090 instance
-
-On [https://vast.ai](https://vast.ai):
-
-1. Top-left → **Edit Image & Config** → choose a PyTorch template
-   (`pytorch/pytorch:2.2.0-cuda12.1-cudnn8-devel` or similar).
-2. In the config popup → **Allocated Disk Space slider = 100 GB**
-   (default 16 GB will crash on passage index).
-3. **Save**.
-4. Left filter panel → **Verified**, **1× GPU**, GPU type = **RTX 4090**.
-5. Sort by reliability ≥ 99% and lowest price.
-6. Click **RENT**.
-
-Wait until instance shows **Running**. Click **Connect** → copy the
-`ssh -p <PORT> root@<IP>` command. You will reuse `<PORT>` and `<IP>`
-throughout.
-
----
-
-## Step 2 — Connect and set up the environment
-
-Run these on the **remote instance terminal** (Remote-SSH or plain SSH):
+1.1 **[ACTION]** Open a terminal at your repo root:
 
 ```bash
-# Clone the repo (replace TOKEN and REPO)
-git clone https://<TOKEN>@github.com/<USER>/<REPO>.git caem
-cd ~/caem
+cd "C:\Users\aksan\Documents\for cowork caem"
+```
 
-# Install dependencies (faiss-CPU, not GPU)
+1.2 **[ACTION]** Confirm working tree is clean and pushed:
+
+```bash
+git status
+git log --oneline -5
+git push origin main
+```
+
+**[VERIFY]** `git status` reports "nothing to commit, working tree clean"
+and the last commit shows up on GitHub web UI.
+
+1.3 **[ACTION]** Create a GitHub **personal access token** scoped to
+`repo` (used by the remote instance for `git clone`):
+
+- Browser: GitHub → Settings → Developer settings → Personal access
+  tokens (classic) → Generate new token.
+- Scope: tick `repo`.
+- Save the token string locally — you will paste it into the Vast
+  instance later. **It is shown only once.**
+
+1.4 **[ACTION]** Verify Vast.ai account balance.
+
+- Browser: <https://vast.ai> → Billing.
+- Ensure credit ≥ **USD 75**. Top up if below.
+
+1.5 **[ACTION]** Decide passage-index strategy and set the variable:
+
+```bash
+# Option A (recommended): build on the remote instance, no upload.
+export PASSAGE_INDEX_STRATEGY=build
+# Option B: download from Google Drive, requires pre-uploaded folder.
+# export PASSAGE_INDEX_STRATEGY=gdrive
+```
+
+Uploading a 15–17 GB index from a residential connection is slow and
+wasteful of rental time. Stick with Option A unless you already have
+the index on Drive.
+
+**[CHECKPOINT 1]** You are now ready to rent the instance.
+
+---
+
+## Step 2 — Rent + connect the RTX 4090 instance
+
+**[WHY]** Every remote action below requires a running Vast instance.
+
+2.1 **[ACTION]** Browser: <https://vast.ai> → top-left **Edit Image &
+Config**.
+
+- Choose template `pytorch/pytorch:2.2.0-cuda12.1-cudnn8-devel` (or
+  the closest PyTorch 2.2 CUDA 12.1 image available).
+- Allocated Disk Space slider = **100 GB** (the 16 GB default will
+  crash the passage-index build).
+- Click **Save**.
+
+2.2 **[ACTION]** Filters on the left panel:
+
+- **Verified** ticked.
+- **1× GPU**, GPU type = **RTX 4090**.
+- Reliability ≥ 99%.
+- Sort ascending by price ($/hr).
+
+2.3 **[ACTION]** Click **RENT** on the cheapest reliable instance.
+
+2.4 **[VERIFY]** Wait until the instance row shows **Running** (not
+"Scheduling", not "Loading"). Click **Connect** → the popup gives
+you `ssh -p <PORT> root@<IP>`.
+
+2.5 **[ACTION]** Copy that SSH command into a local shell and connect:
+
+```bash
+ssh -p <PORT> root@<IP>
+```
+
+The first connection may ask about host authenticity — answer `yes`.
+
+**[IF IT FAILS]** "Connection refused" usually means the instance is
+still booting; wait 30–60 s and retry. If the instance stays stuck in
+"Scheduling" for > 5 min, destroy it and rent a different host.
+
+**[CHECKPOINT 2]** You are at a root prompt on the remote RTX 4090.
+
+---
+
+## Step 3 — Remote environment setup + HF model cache
+
+**[WHY]** Install dependencies once; pre-cache HuggingFace weights so
+the long runs don't stall on mid-cycle downloads.
+
+All commands below run **on the remote instance** unless otherwise
+noted.
+
+3.1 **[ACTION]** Clone your repo (replace placeholders):
+
+```bash
+export GH_TOKEN=<paste-token-from-step-1.3>
+export GH_USER=<your-github-username>
+export GH_REPO=<your-repo-name>
+git clone https://${GH_TOKEN}@github.com/${GH_USER}/${GH_REPO}.git caem
+cd ~/caem
+```
+
+**[VERIFY]** `ls` shows `caem/`, `scripts/`, `tests/`,
+`pre thesis 1 report/`, etc.
+
+3.2 **[ACTION]** Install Python deps:
+
+```bash
 pip install torch transformers datasets sentence-transformers \
     faiss-cpu numpy scipy scikit-learn
+```
 
-# Verify GPU + auto-detected hardware profile
+**[VERIFY]** No red errors; final line shows "Successfully installed".
+
+3.3 **[ACTION]** Confirm GPU is visible to PyTorch and the hardware
+profile auto-detects:
+
+```bash
 python -c "import torch; print(torch.cuda.get_device_name(0))"
 python -c "from scripts.hardware import print_hardware_summary; print_hardware_summary()"
 ```
 
-Expected on RTX 4090:
+**[VERIFY]** Expected output:
+
 ```
+NVIDIA GeForce RTX 4090
 GPU: NVIDIA GeForce RTX 4090
 VRAM: 23.6 GB
 Precision: fp16
 Batch size: 16
 ```
 
-Pre-cache HuggingFace models (prevents mid-run download stalls):
+If the VRAM number is very different (e.g. 10 GB), you rented the
+wrong SKU. Stop the instance and re-rent.
+
+3.4 **[ACTION]** Pre-cache HuggingFace models:
 
 ```bash
 export HF_HOME=/root/caem/hf_cache
@@ -158,11 +238,19 @@ print('All models cached.')
 PY
 ```
 
+**[VERIFY]** Script prints `All models cached.` with no stack traces.
+
+**[CHECKPOINT 3]** Environment ready.
+
 ---
 
-## Step 3 — Build (or upload) the passage index
+## Step 4 — Build the passage index
 
-**Option A — build on the instance (recommended):**
+**[WHY]** Tier-3 RAG and the B3/B4/B5 baselines need a preprocessed
+Wikipedia-passage FAISS index.
+
+4.1 **[ACTION]** (Option A — build on the instance, recommended) Start
+a tmux session and launch the build:
 
 ```bash
 tmux new-session -s build
@@ -170,23 +258,41 @@ python scripts/build_passage_index.py \
     --max_passages 21000000 \
     --output_dir data/passage_index
 ```
-Detach with `Ctrl+B, D`. Reattach with `tmux attach -t build`. Expect
-~2–3 h on RTX 4090. When done, you should see `passages.faiss` and
-`passages.pkl` in `data/passage_index/`.
 
-**Option B — download from Google Drive:**
+4.2 **[ACTION]** Detach from tmux with `Ctrl+B, D`. Reattach at any
+time with `tmux attach -t build`.
+
+4.3 **[VERIFY]** Wait ~2–3 h. When done:
+
+```bash
+ls -lh data/passage_index/
+```
+
+Expected files: `passages.faiss`, `passages.pkl` (the `.faiss` is
+several GB).
+
+4.4 **[ACTION]** (Option B — Google Drive download; use only if you
+have a pre-built index) Replace Step 4.1 with:
 
 ```bash
 pip install gdown
-gdown --folder "https://drive.google.com/drive/folders/<FOLDER_ID>" -O data/
+gdown --folder "https://drive.google.com/drive/folders/<FOLDER_ID>" \
+    -O data/
 ```
+
+**[IF IT FAILS]** "Disk full" → the disk slider wasn't set to 100 GB.
+Destroy the instance, re-rent with Step 2 and 100 GB allocation.
+
+**[CHECKPOINT 4]** Passage index exists on disk.
 
 ---
 
-## Step 4 — Smoke test (1 cycle, n=50 per benchmark)
+## Step 5 — Smoke test (1 cycle, n=50 per benchmark)
 
-Before burning ~USD 10 on the main run, verify the full pipeline runs
-end-to-end. This takes ~20 min.
+**[WHY]** Catch pipeline-integration bugs **before** paying for a
+16–18 h main run.
+
+5.1 **[ACTION]** Run the smoke test in its own tmux session (~20 min):
 
 ```bash
 tmux new-session -s smoke
@@ -198,14 +304,31 @@ python scripts/run_cyclic_ablation.py \
     --output_dir outputs/smoke
 ```
 
-Pass criterion: `outputs/smoke/full/seed_42/ces_axes_per_cycle.json`
-exists with one cycle record and `ces > 0`. If the smoke test fails,
-STOP and debug before proceeding — wall-clock savings compound across
-all later steps.
+5.2 **[VERIFY]** When the run completes:
+
+```bash
+ls outputs/smoke/full/seed_42/
+cat outputs/smoke/full/seed_42/ces_axes_per_cycle.json
+```
+
+Expected: `ces_axes_per_cycle.json` exists with one cycle record and
+a positive `ces` value (> 0).
+
+**[IF IT FAILS]** If `ces = 0` or the JSON is missing, STOP. Re-read
+the error tail from the tmux session (`tmux attach -t smoke`, scroll
+back) and fix before proceeding. Wall-clock savings compound across
+every later step.
+
+**[CHECKPOINT 5]** Pipeline is end-to-end healthy.
 
 ---
 
-## Step 5 — Cold-start seeding
+## Step 6 — Cold-start memory seeding
+
+**[WHY]** Populate an initial FAISS episodic memory with ~200 verified
+episodes so the first cycle of the main run has retrieval targets.
+
+6.1 **[ACTION]** Run the seeding script:
 
 ```bash
 python -m scripts.seed_cold_start \
@@ -214,14 +337,28 @@ python -m scripts.seed_cold_start \
     --output_dir outputs/cold_start_memory
 ```
 
-Expected artifacts: `memory_store.faiss`, `memory_store.meta`,
-`seed_summary.json` in `outputs/cold_start_memory/`.
+6.2 **[VERIFY]**
+
+```bash
+ls outputs/cold_start_memory/
+cat outputs/cold_start_memory/seed_summary.json
+```
+
+Expected files: `memory_store.faiss`, `memory_store.meta`,
+`seed_summary.json`. The JSON summary should report
+`episodes_stored >= 180` (some skip-storage is normal due to the
+novelty filter).
+
+**[CHECKPOINT 6]** Cold-start memory ready.
 
 ---
 
-## Step 6 — Main 10-cycle run (Phase 1, seed 42)
+## Step 7 — Main 10-cycle CAEM run (Phase 1 headline)
 
-This is the headline result — ~16–18 h on RTX 4090, ~$6.50–9.50.
+**[WHY]** This is the headline Chapter 5 result. ~16–18 h, ~$7 on
+RTX 4090.
+
+7.1 **[ACTION]** Launch in its own tmux session:
 
 ```bash
 tmux new-session -s main
@@ -233,45 +370,58 @@ python -m scripts.run_experiment \
     --passage_index data/passage_index \
     --cold_start_memory outputs/cold_start_memory/memory_store \
     2>&1 | tee outputs/full_run/run.log
-
-# NOTE: run_experiment.py currently uses seed=42 internally (hardcoded in
-# self_improvement.run_cycle default). For Phase 2 multi-seed main runs,
-# add a --seed CLI flag to run_experiment.py first — see "Must-do before
-# Phase 2" in the status check section.
 ```
 
-Detach (`Ctrl+B, D`). Watch progress from a second terminal with
-`tail -f outputs/full_run/run.log`. When complete, verify:
-- `outputs/full_run/experiment_summary.csv` exists with 11 rows (cycles 0–10).
-- `outputs/full_run/retroverify_cycle*.json` files exist.
-- `mmlu_retention_pct` column in the summary CSV is ≥ 93%.
+7.2 **[ACTION]** Detach with `Ctrl+B, D`. Tail progress from a second
+SSH session:
 
-**If the run crashes:** check `ls outputs/full_run/ | grep ^cycle_`
-for the last completed cycle, then resume with
-`--resume_from_cycle <N>`.
+```bash
+tail -f outputs/full_run/run.log
+```
+
+7.3 **[VERIFY — per cycle]** After each cycle, a new directory
+`outputs/full_run/cycle_<N>/` appears, plus
+`calibrated_config_cycle<N>.json` (see note below).
+
+7.4 **[VERIFY — final]** When the run completes:
+
+```bash
+ls outputs/full_run/
+cat outputs/full_run/experiment_summary.csv
+```
+
+Expected:
+- `experiment_summary.csv` has **11 rows** (cycles 0 through 10).
+- `retroverify_cycle*.json` files exist for cycles 1..10.
+- The `mmlu_retention_pct` column is **≥ 93%** for every cycle.
+
+7.5 **[NOTE — per-cycle recalibration (automatic)]** Each cycle ends
+with an implicit calibration step before the next cycle starts: `T`
+is re-fit on the disjoint calibration slice via LBFGS
+(`scripts.run_calibration.calibrate_pipeline_temperature_only`), and
+`outputs/full_run/calibrated_config_cycle<N>.json` is written. The
+`u_stored` composite weights are fixed by design and are NOT re-fit.
+Opt-out: pass `--skip_calibration` at the CLI (debug only; **do not**
+do this for the headline run).
+
+7.6 **[IF IT CRASHES]** Identify the last completed cycle and resume:
+
+```bash
+ls outputs/full_run/ | grep ^cycle_   # last N shown
+python -m scripts.run_experiment --resume_from_cycle <N+1> ...(same args as 7.1)
+```
+
+**[CHECKPOINT 7]** Headline CAEM result produced.
 
 ---
 
-## Step 6B — External baseline runs (B1–B7)
+## Step 8 — FLARE pre-flight smoke test (mandatory before B5)
 
-Run after the main 10-cycle CAEM run in Step 6 and **before** the
-screening sweep in Step 7. These populate the Chapter 5 headline
-comparison table. Baselines are independent of each other, so if a
-later one crashes you can resume from exactly that baseline without
-re-running the earlier ones. Outputs all land under
-`outputs/baselines/<name>/` in the same schema as the main run so
-`eval/reporting.py` consumes them unchanged.
+**[WHY]** `eval/baselines.py` had a decoder-slicing bug on T5
+encoder–decoder models. Confirm the fix still lands before burning
+~90 min on the full B5 run.
 
-**Pre-flight: FLARE smoke test (mandatory before B5 — verifies the
-decoder-slicing fix).** The B5 FLARE implementation at
-`eval/baselines.py` was patched after an audit found that the
-look-ahead was slicing `out.sequences[0, input_ids.shape[1]:]` which
-yields an empty tensor for T5 encoder–decoder (correct offset is 1).
-Run this first on 5 FEVER samples and confirm the output JSON has
-non-empty `answer` strings and at least one sample with
-`"escalated": true`. If answers are empty or escalated is always
-false, the fix did not land — do not run the full B5 panel until
-this passes.
+8.1 **[ACTION]** Run on 5 FEVER samples:
 
 ```bash
 python -m scripts.run_baseline \
@@ -283,7 +433,11 @@ python -m scripts.run_baseline \
     --flare_look_ahead 64 \
     --output_dir outputs/baselines_smoke \
     2>&1 | tee outputs/baselines_smoke/B5_flare_smoke.log
+```
 
+8.2 **[VERIFY]**
+
+```bash
 python - <<'PY'
 import json, glob
 for f in sorted(glob.glob("outputs/baselines_smoke/flare/*.json")):
@@ -295,16 +449,25 @@ for f in sorted(glob.glob("outputs/baselines_smoke/flare/*.json")):
 PY
 ```
 
-Expected: `empty_answer=0` and `escalated >= 1`. Anything else means
-the FLARE fix regressed; inspect `eval/baselines.py` `_look_ahead`
-method.
+Expected: `empty_answer=0` **and** `escalated >= 1`.
 
-**First run → last run sequence:**
+**[IF IT FAILS]** If `empty_answer > 0` the decoder-slice regression
+is back — inspect `eval/baselines.py` method `_look_ahead` and
+confirm the offset is `+1` for T5. If `escalated == 0` across all 5,
+`--flare_theta` may be too low for your cache; leave it at 0.4 and
+re-check.
+
+**[CHECKPOINT 8]** FLARE smoke passed; safe to run B5.
+
+---
+
+## Step 9 — B1 Zero-shot baseline
+
+**[WHY]** The floor of the Chapter 5 external-baseline table. ~15 min.
+
+9.1 **[ACTION]**
 
 ```bash
-# === INFERENCE BASELINES (single script: scripts/run_baseline.py) ===
-
-# (8) B1 Zero-shot Flan-T5-Large — the floor. ~15 min.
 tmux new-session -s b1
 python -m scripts.run_baseline \
     --baseline zero_shot \
@@ -312,16 +475,51 @@ python -m scripts.run_baseline \
     --n_questions 500 \
     --output_dir outputs/baselines \
     2>&1 | tee outputs/baselines/B1_zero_shot.log
+```
 
-# (9) B2 Chain-of-Thought. ~20 min.
+9.2 **[VERIFY]**
+
+```bash
+python - <<'PY'
+import json, glob
+for f in sorted(glob.glob("outputs/baselines/zero_shot/*.json")):
+    d = json.load(open(f)); agg = d.get("aggregate", {})
+    print(f, "EM=", agg.get("em"), "F1=", agg.get("f1"))
+PY
+```
+
+Expected EM on FEVER ≈ 55–60%, TriviaQA ≈ 40–45%. Large deviation =
+prompt or loader bug.
+
+---
+
+## Step 10 — B2 Chain-of-Thought baseline
+
+**[WHY]** Isolates the CoT contribution. ~20 min.
+
+10.1 **[ACTION]**
+
+```bash
 python -m scripts.run_baseline \
     --baseline cot \
     --benchmarks fever triviaqa natural_questions truthfulqa strategyqa arc_challenge \
     --n_questions 500 \
     --output_dir outputs/baselines \
     2>&1 | tee outputs/baselines/B2_cot.log
+```
 
-# (10) B3 DPR-RAG (k=5, 384-tok context). ~45 min.
+10.2 **[VERIFY]** Re-run the sanity script from 9.2 targeted at
+`outputs/baselines/cot/`.
+
+---
+
+## Step 11 — B3 DPR-RAG baseline
+
+**[WHY]** Isolates external retrieval. ~45 min.
+
+11.1 **[ACTION]**
+
+```bash
 python -m scripts.run_baseline \
     --baseline rag \
     --benchmarks fever triviaqa natural_questions truthfulqa strategyqa arc_challenge \
@@ -329,8 +527,19 @@ python -m scripts.run_baseline \
     --passage_index data/passage_index \
     --output_dir outputs/baselines \
     2>&1 | tee outputs/baselines/B3_rag.log
+```
 
-# (11) B4 CoT + DPR-RAG. ~50 min.
+11.2 **[VERIFY]** Sanity script on `outputs/baselines/rag/`.
+
+---
+
+## Step 12 — B4 CoT + DPR-RAG baseline
+
+**[WHY]** Combines CoT and retrieval. ~50 min.
+
+12.1 **[ACTION]**
+
+```bash
 python -m scripts.run_baseline \
     --baseline cot_rag \
     --benchmarks fever triviaqa natural_questions truthfulqa strategyqa arc_challenge \
@@ -338,8 +547,20 @@ python -m scripts.run_baseline \
     --passage_index data/passage_index \
     --output_dir outputs/baselines \
     2>&1 | tee outputs/baselines/B4_cot_rag.log
+```
 
-# (12) B5 FLARE (theta=0.4, look-ahead=64). ~90 min.
+12.2 **[VERIFY]** Sanity script on `outputs/baselines/cot_rag/`.
+
+---
+
+## Step 13 — B5 FLARE baseline
+
+**[WHY]** Active retrieval reference. ~90 min. Runs only after Step 8
+smoke test passed.
+
+13.1 **[ACTION]**
+
+```bash
 python -m scripts.run_baseline \
     --baseline flare \
     --benchmarks fever triviaqa natural_questions truthfulqa strategyqa arc_challenge \
@@ -349,11 +570,22 @@ python -m scripts.run_baseline \
     --flare_look_ahead 64 \
     --output_dir outputs/baselines \
     2>&1 | tee outputs/baselines/B5_flare.log
+```
 
-# === TRAINING BASELINES (single script: scripts/run_simple_ft.py) ===
-# Each is 10 cycles — same cycle count as the main CAEM run.
+13.2 **[VERIFY]** Sanity script on `outputs/baselines/flare/` and
+spot-check that at least a few samples have `"escalated": true`.
 
-# (13) B6 Vanilla FT — no L2 anchor, no MMLU guard. ~6 h.
+---
+
+## Step 14 — B6 Vanilla FT baseline (10 cycles)
+
+**[WHY]** Fine-tuning baseline with **no** $L_2$ anchor and **no**
+MMLU retention guard — isolates what the anchor + guard protect
+against. ~6 h.
+
+14.1 **[ACTION]**
+
+```bash
 tmux new-session -s b6
 python -m scripts.run_simple_ft \
     --baseline_name vanilla_ft \
@@ -363,8 +595,27 @@ python -m scripts.run_simple_ft \
     --n_questions 500 \
     --output_dir outputs/baselines/vanilla_ft \
     2>&1 | tee outputs/baselines/B6_vanilla_ft.log
+```
 
-# (14) B7 EWC-only FT — L2 anchor + MMLU guard on, everything else off. ~6 h.
+14.2 **[VERIFY]**
+
+```bash
+ls outputs/baselines/vanilla_ft/
+cat outputs/baselines/vanilla_ft/training_log.jsonl | tail -n 20
+```
+
+Expected: 10 cycle records; MMLU often drops below 93% because the
+guard is off — that is the whole point of this baseline.
+
+---
+
+## Step 15 — B7 EWC-only FT baseline (10 cycles)
+
+**[WHY]** Anchor + guard on, everything else off. ~6 h.
+
+15.1 **[ACTION]**
+
+```bash
 tmux new-session -s b7
 python -m scripts.run_simple_ft \
     --baseline_name ewc_only_ft \
@@ -378,40 +629,22 @@ python -m scripts.run_simple_ft \
     2>&1 | tee outputs/baselines/B7_ewc_only_ft.log
 ```
 
-**Total wall-clock for Step 6B:** ~16 h sequential on RTX 4090
-(~$6.50 rental). Inference baselines B1–B5 take ~3.5 h combined;
-training baselines B6–B7 take ~12 h combined.
+15.2 **[VERIFY]** `ls outputs/baselines/ewc_only_ft/training_log.jsonl`
+exists with 10 cycle records. MMLU retention should stay ≥ 93% in
+every cycle; if the guard fires, the rollback is logged.
 
-**Sanity check after each baseline:**
-
-```bash
-ls outputs/baselines/*/
-python - <<'PY'
-import json, glob
-for f in sorted(glob.glob("outputs/baselines/*/*.json")):
-    try:
-        d = json.load(open(f))
-        agg = d.get("aggregate", {})
-        print(f, "EM=", agg.get("em"), "F1=", agg.get("f1"), "N=", agg.get("n"))
-    except Exception as e:
-        print(f, "FAILED:", e)
-PY
-```
-
-Expected: B1 zero-shot EM near published Flan-T5-Large numbers (FEVER
-~55–60%, TriviaQA ~40–45%). Dramatic deviation means a loader or
-prompt bug; debug before proceeding to Step 7.
+**[CHECKPOINT 9–15]** External baseline panel complete.
 
 ---
 
-## Step 7 — Phase 1 screening sweep (16 variants × 3 cycles × n=1500)
+## Step 16 — Phase 1 screening sweep (16 variants × 3 cycles × n=1500)
 
-Screening ranks the 14 training-time variants + 2 inference-time
-variants so that confirmatory budget goes to the high-impact ones
-only. **Screening rows never enter the Chapter 5 ablation table —
-they are a budget-allocation instrument.**
+**[WHY]** Rank the 16 ablation variants so confirmatory budget goes
+only to the high-impact ones. **Screening rows never enter the
+Chapter 5 ablation table** — this is a budget-allocation instrument.
+~14–20 h total.
 
-Create a wrapper script:
+16.1 **[ACTION]** Write the wrapper script:
 
 ```bash
 cat > run_screening.sh <<'BASH'
@@ -436,15 +669,38 @@ for v in "${VARIANTS[@]}"; do
 done
 BASH
 chmod +x run_screening.sh
+```
 
+16.2 **[ACTION]** Launch in tmux:
+
+```bash
 tmux new-session -s screening
 ./run_screening.sh
 ```
 
-Expected wall-clock: ~14–20 h total on RTX 4090 (batched sequentially
-— about 45–75 min per variant × 16 variants).
+16.3 **[VERIFY]** Every 45–75 min, a new variant directory appears
+under `outputs/ablation/`:
 
-When done, aggregate and inspect the screening ranking:
+```bash
+ls outputs/ablation/
+```
+
+After all 16 variants complete (~14–20 h), verify each has a
+`screening` subfolder with a non-empty `ces_axes_per_cycle.json`.
+
+**[IF IT FAILS ON ONE VARIANT]** The wrapper will abort because of
+`set -euo pipefail`. Edit `run_screening.sh` to restart from the
+failing variant, then re-run. You do **not** need to re-run
+completed variants.
+
+---
+
+## Step 17 — Aggregate screening + pick top-N
+
+**[WHY]** Rank variants by `|ΔCES|` vs. `full` to select Step 18
+candidates. ~5 min.
+
+17.1 **[ACTION]**
 
 ```bash
 python scripts/aggregate_ablation.py \
@@ -453,25 +709,30 @@ python scripts/aggregate_ablation.py \
 cat outputs/ablation/ablation_table.csv
 ```
 
-The variants are sorted by CES (lowest first = most damaged).
-Identify the **top N variants by $|\Delta\text{CES}|$ vs. `full`**
-(typically N = 5–7). These are your confirmatory candidates. Record
-the selected variants in `caem-implementation-log.md` before
-proceeding — this is the pre-registration step for Chapter 5.
+17.2 **[VERIFY]** Output shows 16 rows, sorted by CES ascending. The
+reference row `full` should be at or near the top (highest CES).
+
+17.3 **[ACTION]** Pick the top-N by `|ΔCES|` (N = 5–7 typically).
+Record the selected variants in `caem-implementation-log.md` — this
+is the **pre-registration step** for the Chapter 5 ablation table.
+
+**[CHECKPOINT 17]** Confirmatory candidate list frozen.
 
 ---
 
-## Step 8 — Phase 1 confirmatory sweep (top-N + reference, 10 cycles × n=5000)
+## Step 18 — Phase 1 confirmatory sweep (top-N + `full`, 10 cycles × n=5000)
 
-Only run the variants selected in Step 7 plus the `full` reference.
-Example (replace the variant list with your screening-selected
-candidates):
+**[WHY]** Produce the Chapter 5 ablation table rows. ~50–60 h total
+for N = 5–6 variants. Longest step in Phase 1.
+
+18.1 **[ACTION]** Write the wrapper, editing the variant list to match
+your Step 17 selection:
 
 ```bash
 cat > run_confirmatory.sh <<'BASH'
 #!/usr/bin/env bash
 set -euo pipefail
-# EDIT THIS LIST from your screening-mode top-N selection
+# EDIT THIS LIST from your Step 17 selection
 VARIANTS=(
     full
     no_self_improvement
@@ -492,68 +753,113 @@ for v in "${VARIANTS[@]}"; do
 done
 BASH
 chmod +x run_confirmatory.sh
+```
 
+18.2 **[ACTION]** Launch in tmux:
+
+```bash
 tmux new-session -s confirmatory
 ./run_confirmatory.sh
 ```
 
-Expected wall-clock: ~50–60 h total on RTX 4090 (~8–10 h per variant
-× 6 variants). This is the longest step — you may want to stop and
-resume the instance across multiple days; just remember to **stop** it
-in the Vast website between sessions (Vast charges idle time).
+18.3 **[ACTION]** Because this runs 50–60 h, expect to **stop and
+resume** the Vast instance across multiple days. Vast charges idle
+time, so use the **Stop** button on the instance card between
+sessions, not just disconnect. Resume with **Start**. Tmux will
+survive instance stop/start as long as the instance is not
+destroyed.
+
+18.4 **[VERIFY]** After each variant finishes (~8–10 h):
+
+```bash
+ls outputs/ablation/<variant>/seed_42/
+cat outputs/ablation/<variant>/seed_42/experiment_summary.csv | head
+```
+
+Expected: 11-row summary CSV, MMLU retention ≥ 93% for `full`
+(retention floor may be violated intentionally by some variants).
+
+**[CHECKPOINT 18]** Ablation sweep complete.
 
 ---
 
-## Step 9 — Purity theorem validation
+## Step 19 — Purity theorem validation
+
+**[WHY]** Produces Chapter 5 §5.3 purity tables. ~30 min.
+
+19.1 **[ACTION]**
 
 ```bash
 python scripts/run_purity_validation.py \
     --output_dir outputs/purity_validation
 ```
 
-Expected: `outputs/purity_validation/theory_validation.json` with
-observed vs. predicted purity across all 6 benchmarks. This populates
-Chapter 5 §5.3.
-
----
-
-## Step 10 — Aggregate Phase 1 outputs
+19.2 **[VERIFY]**
 
 ```bash
-python scripts/aggregate_ablation.py \
-    --output_dir outputs/ablation
+ls outputs/purity_validation/
+cat outputs/purity_validation/theory_validation.json
 ```
 
-Phase 1 aggregator outputs (single-seed point estimates):
-- `outputs/ablation/ablation_table.csv` — headline ablation table.
-- `outputs/ablation/ablation_per_cycle.csv` — per-cycle CES trace.
-- `outputs/ablation/ablation_aggregate_manifest.json` — run provenance.
+Expected: `theory_validation.json` with observed vs. predicted purity
+across all 6 benchmarks.
 
 ---
 
-## Step 10B — Optional STaR ceiling run (only if Phase 1 is under envelope)
+## Step 20 — Aggregate Phase 1 outputs + download + stop
 
-> **Gate:** run this step **only** if everything above (Steps 1–10)
-> has completed and your Vast.ai spend is still comfortably inside the
-> USD 200 Phase 1 envelope, with at least USD 5 headroom. STaR is a
-> pure iterative-refinement scheme (Zelikman et al. 2022, NeurIPS
-> \cite{NEURIPS2022_639a9a17}) cited in Ch2 §2.2 and Ch5 §5.1 as an
-> aspirational ceiling; having a numerical row for it lets you claim
-> "\caem{}'s gap to STaR isolates what the verifier + memory add on
-> top of pure iterative refinement." If the budget is tight, skip this
-> step — STaR remains a citation-only ceiling and the thesis story is
-> still defensible.
+**[WHY]** Consolidate artifacts, pull them locally, and halt billing.
 
-STaR reuses `scripts/run_simple_ft.py` via three extra flags:
-`--use_rationalisation` turns on the per-cycle forward-filter +
-back-rationalise pass; the remaining flags match B6 Vanilla FT
-(no $L_2$ anchor, no MMLU guard — the point of STaR is the
-rationalisation delta over B6, not the retention protection).
+20.1 **[ACTION — on the remote instance]** Final aggregate:
 
 ```bash
-# ~7–8 h on RTX 4090 (10 cycles × rationalisation generation + FT).
-# ~30 min of the cycle time is rationalisation generation;
-# the rest is the standard 3-epoch fine-tune.
+python scripts/aggregate_ablation.py --output_dir outputs/ablation
+```
+
+**[VERIFY]** The following files now exist and are non-empty:
+- `outputs/ablation/ablation_table.csv` (headline ablation)
+- `outputs/ablation/ablation_per_cycle.csv` (per-cycle CES traces)
+- `outputs/ablation/ablation_aggregate_manifest.json` (provenance)
+
+20.2 **[ACTION — on your local PC]** Pull everything down:
+
+```bash
+mkdir -p "C:\Users\aksan\Documents\for cowork caem\outputs_from_vast"
+scp -r -P <PORT> root@<IP>:~/caem/outputs/ \
+    "C:\Users\aksan\Documents\for cowork caem\outputs_from_vast\"
+```
+
+20.3 **[VERIFY — locally]**
+
+```bash
+ls "C:\Users\aksan\Documents\for cowork caem\outputs_from_vast\outputs\"
+```
+
+Expected sub-dirs: `full_run/`, `baselines/`, `ablation/`,
+`purity_validation/`, `cold_start_memory/`.
+
+20.4 **[ACTION]** Browser: Vast.ai instance card → **Stop**
+(**not** "Destroy" unless Phase 2 is not planned). Idle instances
+continue to bill.
+
+**[CHECKPOINT 20]** Phase 1 complete; instance stopped.
+
+---
+
+## Step 20B — Optional STaR ceiling run (gated on budget)
+
+**[WHY]** A numerical STaR row lets Chapter 5 claim that "CAEM's gap
+to STaR isolates what the verifier + memory add on top of pure
+iterative refinement." Skip if Phase 1 is already near the USD 200
+envelope.
+
+20B.1 **[GATE]** Only run if:
+- Everything in Steps 1–20 is complete.
+- Vast spend so far is ≤ USD 197 (≥ USD 3 headroom).
+
+20B.2 **[ACTION]**
+
+```bash
 tmux new-session -s star
 python -m scripts.run_simple_ft \
     --baseline_name star \
@@ -566,69 +872,65 @@ python -m scripts.run_simple_ft \
     2>&1 | tee outputs/baselines/STaR_ceiling.log
 ```
 
-Sanity check after completion: inspect
-`outputs/baselines/star/training_log.jsonl` and confirm every cycle
-records `"use_rationalisation": true`. The per-cycle EM should be
-monotonically non-decreasing on the in-domain benchmarks (FEVER,
-TriviaQA, NQ); if it is not, the rationalisation pass is producing
-low-quality rationales and the fine-tune is degrading the model.
-
-If STaR beats B6 Vanilla FT and B7 EWC-only FT on the Chapter 5
-headline table, \caem{}'s gap to STaR becomes the cleanest
-ceiling-adjusted measurement of the verifier + memory contribution.
-If STaR underperforms B7 (likely, because Flan-T5-Large's
-rationalisation quality on factual QA is weaker than on the
-commonsense benchmarks STaR was originally validated on), record
-that finding in the impl log and cite the benchmark-mismatch
-caveat in Ch2 §2.2.
-
----
-
-## Step 11 — Download everything and stop the instance
-
-From your **local PC terminal** (not the remote):
+20B.3 **[VERIFY]**
 
 ```bash
-mkdir -p "C:\Users\aksan\Documents\for cowork caem\outputs_from_vast"
-scp -r -P <PORT> root@<IP>:~/caem/outputs/ \
-    "C:\Users\aksan\Documents\for cowork caem\outputs_from_vast\"
+grep '"use_rationalisation"' outputs/baselines/star/training_log.jsonl | head
 ```
 
-Then in the Vast website: **Stop** the instance. Idle instances bill
-at full rate.
+Expected: every cycle record has `"use_rationalisation": true`.
+Per-cycle EM on in-domain benchmarks (FEVER, TriviaQA, NQ) should be
+monotonically non-decreasing; if it is not, rationalisation quality
+is too weak and the fine-tune is degrading the model. Record that
+finding in the impl log (benchmark-mismatch caveat in Ch2 §2.2).
+
+20B.4 **[ACTION]** Re-run Step 20.1 (aggregate) and 20.2 (download)
+to include the STaR row.
 
 ---
 
-## After Phase 1 (writeup)
+## After Phase 1 — writeup (local, no Vast required)
 
-1. Populate Chapter 5 §5.5 ablation table from
-   `outputs_from_vast/outputs/ablation/ablation_table.csv`.
-2. Add the single-seed limitation paragraph (wording in
-   `writing-suggestions.md` S44-03) under §5.5.
-3. Populate Chapter 5 §5.1 headline tables from
-   `outputs_from_vast/outputs/full_run/experiment_summary.csv`.
-4. Populate Chapter 5 §5.1 external-baseline comparison row from
-   `outputs_from_vast/outputs/baselines/*/` (one row per B1–B7).
-5. Populate Chapter 5 §5.3 purity tables from
-   `outputs_from_vast/outputs/purity_validation/theory_validation.json`.
+All steps below run on your local PC against
+`outputs_from_vast/outputs/...`.
+
+W.1 Populate Chapter 5 §5.5 ablation table from
+`outputs_from_vast/outputs/ablation/ablation_table.csv`.
+
+W.2 Add the single-seed limitation paragraph (wording in
+`writing-suggestions.md` S44-03) under §5.5.
+
+W.3 Populate Chapter 5 §5.1 headline tables from
+`outputs_from_vast/outputs/full_run/experiment_summary.csv`.
+
+W.4 Populate Chapter 5 §5.1 external-baseline comparison rows from
+`outputs_from_vast/outputs/baselines/*/` (one row per B1–B7, plus
+STaR if Step 20B ran).
+
+W.5 Populate Chapter 5 §5.3 purity tables from
+`outputs_from_vast/outputs/purity_validation/theory_validation.json`.
+
+W.6 `pdflatex → biber → pdflatex → pdflatex` on `main.tex`; spot-check
+that the ablation table references resolve (no `??` placeholders).
 
 ---
 
 ## Phase 2 — post-funding upgrade (plan only; do not execute yet)
 
-Once funding is secured, Phase 2 re-runs the confirmatory sweep on
-two additional seeds (123, 456) across **all 14 cyclic variants +
-reference**. Expected compute: ~300–360 h on RTX 4090
-(~$130–180), or ~180–220 h on A100 SXM 80 GB (~$400–620). Budget
-envelope: ~USD 700.
+Once ~USD 700 funding is secured, Phase 2 re-runs the confirmatory
+sweep on two additional seeds (123, 456) across **all 14 cyclic
+variants + reference** (14 mechanism; the 2 inference-time variants
+do not touch training state so are not re-run). Expected compute:
+~300–370 h on RTX 4090 (~USD 120–180), or ~180–230 h on A100 SXM
+80 GB (~USD 400–620).
 
 Phase 2 execution is the same `scripts/run_cyclic_ablation.py`
-invocation pattern as Step 8, just with `--seed 123` and `--seed 456`
-in place of `--seed 42`, and the full 14-variant cyclic list instead
-of the Phase 1 top-N. The aggregator auto-switches from point estimate
-to mean±std reporting once the second seed's outputs exist in
-`outputs/ablation/<variant>/seed_<N>/`. Chapter 5 §5.5 tables are
-re-generated by re-running `aggregate_ablation.py` with no CLI
+invocation pattern as Step 18, just with `--seed 123` and
+`--seed 456` in place of `--seed 42`, and the full 14-variant cyclic
+list instead of the Phase 1 top-N. The aggregator auto-switches from
+point estimate to mean±std reporting once the second seed's outputs
+exist under `outputs/ablation/<variant>/seed_<N>/`. Chapter 5 §5.5
+tables regenerate by re-running `aggregate_ablation.py` with no CLI
 changes.
 
 ---
@@ -637,21 +939,32 @@ changes.
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| CUDA OOM during fine-tuning | Batch size too high for detected GPU | Override `batch_size` in `caem/config.py`; re-run |
-| `FileNotFoundError` on passage index | Didn't build or upload | Return to Step 3 |
-| Screening rows missing for some variants | One variant crashed mid-loop | `--resume_from_cycle 0` on that variant, re-aggregate |
+| CUDA OOM during fine-tuning | Batch size too high | Override `batch_size` in `caem/config.py`; re-run |
+| `FileNotFoundError: passage_index` | Didn't build (Step 4) or not uploaded | Return to Step 4 |
+| Screening rows missing for some variants | One variant crashed mid-loop | Edit `run_screening.sh` to restart from failing variant, re-aggregate |
 | `ces = 0` in aggregator output | Axis collapse (CAL or VER = 0) — expected for extreme variants like `no_verification` | Inspect per-axis values in `ces_axes_per_cycle.json`; not a bug |
-| `mmlu_retention_pct < 93%` | Forgetting abort should have fired | Check `retroverify_cycle*.json` for abort flag; if not set, investigate |
+| `mmlu_retention_pct < 93%` on `full` | Forgetting abort should have fired | Check `retroverify_cycle*.json` for abort flag; if not set, investigate |
+| `calibrated_config_cycle<N>.json` missing | `--skip_calibration` was passed | Re-run without `--skip_calibration` |
+| FLARE smoke returns `empty_answer > 0` | Decoder-slice regression | Inspect `eval/baselines.py::_look_ahead`, confirm T5 offset = 1 |
+| Instance stuck "Scheduling" > 5 min | Vast host issue | Destroy; rent a different host |
 
 ---
 
-## Success criteria for Phase 1
+## Phase 1 success criteria — the five greens
 
-- Main 10-cycle run completed; `experiment_summary.csv` with 11 rows, retention ≥ 93%.
-- Screening aggregate CSV ranks all 16 variants; top-N recorded in impl log.
-- Confirmatory sweep completed for top-N + reference; aggregate CSV populated.
-- Purity validation JSON produced.
-- All artifacts downloaded; instance stopped.
+Phase 1 is **done** when all five of these are true:
 
-When all five are green, Phase 1 is done and Chapter 5 can be drafted
-from point-estimate tables while Phase 2 funding is being secured.
+- [ ] Step 7 main run: `experiment_summary.csv` has 11 rows; every
+  cycle's `mmlu_retention_pct ≥ 93%`.
+- [ ] Steps 9–15 baselines: `outputs/baselines/<name>/` exists for
+  each of B1, B2, B3, B4, B5, B6, B7; sanity-script numbers are
+  within expected ranges.
+- [ ] Step 17 screening: `ablation_table.csv` lists all 16 variants;
+  top-N selection recorded in `caem-implementation-log.md`.
+- [ ] Step 18 confirmatory: `ablation_table.csv` lists `full` + top-N
+  in the 10-cycle mode; per-cycle CSVs populated.
+- [ ] Step 19 purity: `theory_validation.json` populated across all
+  6 benchmarks.
+
+When all five are green, Chapter 5 can be drafted from point-estimate
+tables while Phase 2 funding is being secured.

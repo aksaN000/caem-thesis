@@ -51,8 +51,8 @@ class _FakeNLIModel(torch.nn.Module):
     def __init__(self, probs: Sequence[float]) -> None:
         super().__init__()
         assert len(probs) == 3, "probs must be (CONTRA, NEUTRAL, ENTAIL)"
-        # Scale logits so softmax recovers `probs`.
-        logits = torch.log(torch.tensor(list(probs), dtype=torch.float32)) * 3.0
+        # softmax(log p) == p when probs sum to 1, so no scaling is needed.
+        logits = torch.log(torch.tensor(list(probs), dtype=torch.float32))
         self.logits_param = torch.nn.Parameter(logits.unsqueeze(0), requires_grad=False)
 
     def forward(self, **kwargs) -> SimpleNamespace:
@@ -66,10 +66,15 @@ class _FakeTokenizer:
 
     def __call__(self, *args, **kwargs) -> Any:
         ids = torch.tensor([[1, 2, 3]], dtype=torch.long)
-        return SimpleNamespace(
-            input_ids=ids,
-            to=lambda *a, **k: SimpleNamespace(input_ids=ids),
-        )
+        enc = {"input_ids": ids}
+        enc_with_to = dict(enc)
+        enc_with_to["to"] = lambda *a, **k: enc  # type: ignore[assignment]
+
+        class _Enc(dict):
+            def to(self, *a, **k):
+                return self
+
+        return _Enc(enc)
 
     def decode(self, *args, **kwargs) -> str:
         return "decoded answer"

@@ -1,18 +1,26 @@
 """
 scripts/run_calibration.py
 ===========================
-Temperature Scaling + Signal Weight Calibration (Category 3 hyperparameters)
+Temperature Scaling (Category 3 hyperparameter)
 
-Runs AFTER Cycle 0 evaluation is complete. Uses the 500-sample calibration
-set (non-overlapping with the purity validation set and eval set).
+Runs AFTER Cycle 0 evaluation is complete. Uses the disjoint calibration
+slice (non-overlapping with the SIL training pool and the held-out eval
+set).
 
-Two calibration steps:
-  1. Temperature scaling -- fits scalar T to minimise ECE (Expected Calibration
-     Error) on the calibration set using L-BFGS. Adjusts token probability
-     confidence to be better calibrated.
-  2. Signal weight calibration -- fits û signal weights (u_token, u_dropout,
-     u_consistency, u_entropy) to maximise AUROC on the calibration set using
-     logistic regression (scikit-learn).
+One calibration step:
+  1. Temperature scaling -- fits scalar T to minimise ECE (Expected
+     Calibration Error) on the calibration set using L-BFGS
+     (Guo et al. 2017). Applied to u_pre only.
+
+Note
+----
+The legacy post-generation u_hat gate fit four signal weights
+(u_token, u_dropout, u_consistency, u_entropy) via logistic regression.
+That gate was removed when the UnifiedVerifier nine-signal Stage 5
+became the single source of post-generation truth. The u_stored
+composite weights are fixed by design (grounding dominates by
+construction) and are NOT re-fit per cycle. ``log_signal_auroc`` below
+is retained as a diagnostic only.
 
 Results are:
   - Printed to stdout with before/after ECE comparison
@@ -23,7 +31,6 @@ Thesis reference
 ----------------
   §4.5 Confidence calibration (temperature scaling)
   hyperparameter-reference.md Category 3 -- Empirically calibrated
-  Chapter 5: report actual calibrated weights here (not the projected 0.20/0.20/0.20/0.40)
 
 Usage
 -----
@@ -176,76 +183,42 @@ def fit_temperature_scalar(
 
 
 # -----------------------------------------------------------------------------
-# Signal weight calibration (AUROC-based)
+# Diagnostic: signal AUROC (logged only, not used to fit weights)
 # -----------------------------------------------------------------------------
+#
+# The legacy post-generation u_hat gate (which fit 4 signal weights via
+# logistic regression on an AUROC-maximising objective) was removed when
+# the UnifiedVerifier nine-signal stage became the single source of
+# post-generation truth. The u_stored composite weights are fixed by
+# design (grounding dominates by construction) and are NOT re-fit per
+# cycle. Temperature scaling on u_pre is the only runtime-active
+# calibration surface. The function below is kept solely as a
+# diagnostic log of per-signal AUROC on the calibration slice.
 
-def fit_signal_weights(
+
+def log_signal_auroc(
     signal_matrix: List[List[float]],
     labels: List[int],
-) -> List[float]:
-    """Fit û signal weights using logistic regression to maximise AUROC.
-
-    Each row of signal_matrix is [u_token, u_dropout, u_consistency, u_entropy]
-    for one sample. Labels: 1 = answer correct, 0 = wrong.
-
-    The fitted coefficients (after softmax normalisation) become the
-    new signal weights. This directly answers the thesis question of
-    whether SE's AUROC advantage (Farquhar et al. 2024 ≈ 0.79) causes
-    the calibration to up-weight u_entropy toward ~0.40.
-
-    Thesis note (hyperparameter-reference.md Category 3):
-      "Initial weights are equal at 0.25 each. Post-calibration weights
-       are projected to be ~0.20/0.20/0.20/0.40. Actual values reported
-       in Chapter 5."
-
-    Parameters
-    ----------
-    signal_matrix : list of [u_token, u_dropout, u_sc, u_entropy] per sample
-    labels        : list of int (1 = correct)
-
-    Returns
-    -------
-    list of 4 floats -- normalised weights summing to 1.0
-    """
-    try:
-        from sklearn.linear_model import LogisticRegression
-        import numpy as np
-    except ImportError:
-        logger.warning("scikit-learn not available -- signal weight calibration skipped. "
-                       "Install: pip install scikit-learn --break-system-packages")
-        return [0.25, 0.25, 0.25, 0.25]
-
-    X = np.array(signal_matrix, dtype=np.float64)
-    y = np.array(labels, dtype=np.int32)
-
-    if len(X) < 20 or y.sum() < 5:
-        logger.warning("Too few samples for reliable signal weight calibration "
-                       "(%d total, %d positive). Using equal weights.", len(X), int(y.sum()))
-        return [0.25, 0.25, 0.25, 0.25]
-
-    clf = LogisticRegression(fit_intercept=False, max_iter=1000, C=1.0)
-    clf.fit(X, y)
-    coefs = clf.coef_[0]
-
-    # Normalise to sum to 1.0 (softmax)
-    coefs = coefs - coefs.min()   # shift to non-negative
-    total = coefs.sum()
-    weights = (coefs / total).tolist() if total > 1e-9 else [0.25, 0.25, 0.25, 0.25]
-
-    labels_str = ["u_token", "u_dropout", "u_consistency", "u_entropy"]
-    for name, w in zip(labels_str, weights):
-        logger.info("  Calibrated weight -- %s: %.4f", name, w)
-
-    # AUROC for each signal
+) -> None:
+    """Log AUROC of each post-generation signal. No state mutation."""
+    if not signal_matrix:
+        return
     try:
         from sklearn.metrics import roc_auc_score
-        for i, name in enumerate(labels_str):
-            auc = roc_auc_score(y, X[:, i])
-            logger.info("  AUROC -- %s: %.4f", name, auc)
-    except Exception:
+        import numpy as np
+        X = np.array(signal_matrix, dtype=np.float64)
+        y = np.array(labels, dtype=np.int32)
+        if len(X) < 20 or y.sum() < 5 or y.sum() == len(y):
+            return
+        names = ["u_token", "u_dropout", "u_consistency", "u_entropy"]
+        for i, name in enumerate(names):
+            try:
+                auc = roc_auc_score(y, X[:, i])
+                logger.info("  AUROC (diag) -- %s: %.4f", name, auc)
+            except Exception:
+                pass
+    except ImportError:
         pass
-
-    return weights
 
 
 # -----------------------------------------------------------------------------
@@ -374,7 +347,7 @@ def calibrate_pipeline(
     config,
     output_dir: Path,
 ) -> Dict:
-    """Fit T and signal weights; update config in-place; save to disk.
+    """Fit temperature scalar T on u_pre; update config in-place; save to disk.
 
     Called from run_experiment.py after Cycle 0. Also usable standalone.
 
@@ -382,17 +355,19 @@ def calibrate_pipeline(
     ----------
     pipeline      : CAEMPipeline
     calib_samples : dict[bm -> list of BenchmarkSample]
-    config        : CAEMConfig -- updated in-place with fitted values
+    config        : CAEMConfig -- updated in-place with fitted T
     output_dir    : Path -- save calibrated_config.json here
 
     Returns
     -------
-    dict with keys: temperature, signal_weights, ece_before, ece_after
+    dict with keys: temperature_scalar, ece_before, ece_after, n_samples
     """
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # -- Collect raw signals ------------------------------------------------ #
+    # signal_matrix/signal_labels are unused at runtime (u_hat gate removed);
+    # they are passed to log_signal_auroc below as a diagnostic only.
     u_pre_logits, u_pre_labels, signal_matrix, signal_labels = \
         collect_calibration_data(pipeline, calib_samples)
 
@@ -436,49 +411,21 @@ def calibrate_pipeline(
 
     calibrated_confs = [apply_temp(u, T) for u in u_pre_logits]
     ece_after = expected_calibration_error(calibrated_confs, [float(l) for l in u_pre_labels])
-    logger.info("ECE after  temperature scaling: %.6f (ΔT=%.4f)", ece_after, T)
+    logger.info("ECE after  temperature scaling: %.6f (T=%.4f)", ece_after, T)
 
-    # -- Signal weight calibration ------------------------------------------- #
-    if signal_matrix:
-        new_weights = fit_signal_weights(signal_matrix, signal_labels)
-    else:
-        logger.warning(
-            "No verifier-scored samples found in calibration set "
-            "(vout was None for every query -- all Tier-1 hits?) -- "
-            "signal weights not calibrated. Using equal weights (0.25 each)."
-        )
-        new_weights = [0.25, 0.25, 0.25, 0.25]
+    # -- Diagnostic only: per-signal AUROC log (no state mutation) ---------- #
+    log_signal_auroc(signal_matrix, signal_labels)
 
-    # -- Update config in-place ---------------------------------------------- #
-    config.temperature_scalar = T       # new field written to config
-    config.u_hat_weight_token       = new_weights[0]
-    config.u_hat_weight_dropout     = new_weights[1]
-    config.u_hat_weight_sc          = new_weights[2]
-    config.u_hat_weight_entropy     = new_weights[3]
+    # -- Update config in-place --------------------------------------------- #
+    config.temperature_scalar = T       # the only calibrated runtime surface
 
-    # -- Save results -------------------------------------------------------- #
+    # -- Save results ------------------------------------------------------- #
     calib_result = {
         "temperature_scalar": T,
         "ece_before": ece_before,
         "ece_after":  ece_after,
         "n_samples":  len(u_pre_logits),
-        "n_tier2_samples": len(signal_matrix),
-        "signal_weights": {
-            "u_token":       new_weights[0],
-            "u_dropout":     new_weights[1],
-            "u_consistency": new_weights[2],   # correct field name
-            "u_entropy":     new_weights[3],
-        },
-        "projected_weights_from_plan": {
-            "u_token":       0.20,
-            "u_dropout":     0.20,
-            "u_consistency": 0.20,
-            "u_entropy":     0.40,
-        },
-        "note": (
-            "Actual calibrated values -- these replace the projected 0.20/0.20/0.20/0.40 "
-            "estimates in the thesis plan. Report these in Chapter 5."
-        ),
+        "protocol":   "temperature_scaling_only",
     }
 
     out_path = output_dir / "calibrated_config.json"
@@ -493,17 +440,107 @@ def calibrate_pipeline(
     print(f"  Temperature scalar T: {T:.4f}")
     print(f"  ECE before: {ece_before:.6f}")
     print(f"  ECE after:  {ece_after:.6f}  (improvement: {ece_before - ece_after:.6f})")
-    print(f"\n  û Signal weights (calibrated vs projected):")
-    names = ["u_token", "u_dropout", "u_consistency", "u_entropy"]
-    proj  = [0.20, 0.20, 0.20, 0.40]
-    for name, w, p in zip(names, new_weights, proj):
-        delta = w - p
-        print(f"    {name:<12} : {w:.4f}  (projected {p:.2f}, Δ={delta:+.4f})")
     print("-" * 55)
-    print("  -> Report actual values in Chapter 5 (Table: Category 3 calibration)")
+    print("  -> u_stored composite weights are design-fixed (not calibrated).")
     print("-" * 55 + "\n")
 
     return calib_result
+
+
+def calibrate_pipeline_temperature_only(
+    pipeline,
+    calib_samples: Dict[str, list],
+    config,
+    output_dir: Path,
+    cycle: int,
+) -> Dict:
+    """Re-fit only the temperature scalar T on the disjoint calibration slice.
+
+    Conservative per-cycle recalibration protocol (Ovadia et al. NeurIPS
+    2019, Thulasidasan et al. 2019). Invoked unconditionally at each cycle
+    boundary: T is the only runtime-active calibration surface. The
+    u_stored composite weights are fixed by design and are NOT re-fit.
+
+    Rationale for temperature-only:
+      * Fine-tuning shifts the generator's logit scale every cycle, so T
+        must be re-fit to keep u_pre calibrated.
+      * The u_stored composite weights are stabler across cycles and are
+        vulnerable to overfitting when re-fit on a 500-sample calibration
+        split, so we keep them locked at their design-time values.
+
+    Parameters
+    ----------
+    pipeline      : CAEMPipeline
+    calib_samples : dict[bm -> list of BenchmarkSample]
+    config        : CAEMConfig -- updated in-place with new T
+    output_dir    : Path -- calibrated_config_cycle{N}.json written here
+    cycle         : int -- for log/output tagging
+    """
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    u_pre_logits, u_pre_labels, _, _ = collect_calibration_data(pipeline, calib_samples)
+    if not u_pre_logits:
+        logger.warning(
+            "Cycle %d temperature re-fit: no calibration data collected; "
+            "keeping T=%.4f from the previous cycle.",
+            cycle, config.temperature_scalar,
+        )
+        return {}
+
+    # Same finite-value guarding as calibrate_pipeline().
+    cleaned = [
+        (float(u), int(l))
+        for u, l in zip(u_pre_logits, u_pre_labels)
+        if math.isfinite(float(u))
+    ]
+    if not cleaned:
+        logger.warning(
+            "Cycle %d temperature re-fit: no finite u_pre samples after filtering; "
+            "keeping T=%.4f from the previous cycle.",
+            cycle, config.temperature_scalar,
+        )
+        return {}
+    u_pre_logits = [u for u, _ in cleaned]
+    u_pre_labels = [l for _, l in cleaned]
+
+    ece_before = expected_calibration_error(u_pre_logits, [float(l) for l in u_pre_labels])
+
+    # Convert u_pre [0,1] to logit space for temperature fitting.
+    logits = []
+    for u in u_pre_logits:
+        u_clamped = min(max(float(u), 1e-7), 1.0 - 1e-7)
+        logits.append(math.log(u_clamped / (1.0 - u_clamped)))
+    T_new = fit_temperature_scalar(logits, u_pre_labels)
+
+    def _apply_temp(u: float, T: float) -> float:
+        logit = math.log(max(u, 1e-7) / max(1 - u, 1e-7)) / T
+        return 1 / (1 + math.exp(-logit))
+
+    calibrated = [_apply_temp(u, T_new) for u in u_pre_logits]
+    ece_after = expected_calibration_error(calibrated, [float(l) for l in u_pre_labels])
+
+    T_old = config.temperature_scalar
+    config.temperature_scalar = T_new
+
+    result = {
+        "cycle": cycle,
+        "temperature_before": T_old,
+        "temperature_after": T_new,
+        "ece_before": ece_before,
+        "ece_after": ece_after,
+        "n_samples": len(u_pre_logits),
+        "protocol": "conservative_temperature_only",
+    }
+
+    out_path = output_dir / f"calibrated_config_cycle{cycle}.json"
+    with open(out_path, "w") as f:
+        json.dump(result, f, indent=2)
+    logger.info(
+        "Cycle %d temperature re-fit: T %.4f -> %.4f | ECE %.6f -> %.6f",
+        cycle, T_old, T_new, ece_before, ece_after,
+    )
+    return result
 
 
 # -----------------------------------------------------------------------------

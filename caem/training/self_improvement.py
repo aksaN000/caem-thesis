@@ -1,4 +1,4 @@
-﻿"""
+"""
 caem/training/self_improvement.py
 ===================================
 SelfImprovementLoop -- Stage 8 of the CAEM pipeline.
@@ -66,6 +66,7 @@ import logging
 import math
 import pickle
 import random
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -75,7 +76,7 @@ import torch.nn as nn
 from torch.optim import AdamW
 from torch.utils.data import DataLoader, Dataset
 
-from caem.config import CAEMConfig
+from caem.config import CAEMConfig, TRAINING_BENCHMARKS
 from caem.memory.store import EpisodicMemoryStore
 
 logger = logging.getLogger(__name__)
@@ -531,31 +532,51 @@ class SelfImprovementLoop:
         strategy is added, `reasoning_chain` and `answer` will diverge, and
         this training target will automatically benefit from richer supervision
         without any code change here.
+
+        Training-pool benchmark gate (thesis Ch3 §Data, Ch5 §Metrics):
+        Only episodes whose ``source_benchmark`` is in
+        ``caem.config.TRAINING_BENCHMARKS`` are eligible to feed fine-tuning.
+        The three transfer benchmarks (TruthfulQA, StrategyQA, ARC-C) are
+        held out so their post-cycle scores measure *transfer* of the
+        consolidated mechanisms (memory + routing + L2 anchor) rather than
+        mere memorisation. Entries with ``source_benchmark=None`` are
+        treated as training-eligible to keep legacy / unit-test paths
+        working; production runs must tag every entry at storage time.
         """
         threshold = self.config.min_u_stored_for_training
         pairs = []
         n_empty = 0
         n_too_short = 0
+        n_ood_skipped = 0
         chain_lengths = []
         preview_texts = []
 
         for entry in memory_store.all_entries():
-            if entry.u_stored >= threshold:
-                chain = (entry.reasoning_chain or "").strip()
-                chain_len = len(chain)
-                chain_lengths.append(chain_len)
+            if entry.u_stored < threshold:
+                continue
 
-                # Quality filter (EXP-16): empty/too-short chains are replaced
-                # with the verified answer so we do not train on blank targets.
-                if chain_len == 0:
-                    n_empty += 1
-                    chain = (entry.answer or "").strip()
-                elif chain_len < 10:
-                    n_too_short += 1
-                    chain = (entry.answer or "").strip()
+            # ID/OOD training-pool gate: untagged entries pass through;
+            # explicitly-tagged OOD entries are skipped.
+            if entry.source_benchmark is not None and \
+                    entry.source_benchmark not in TRAINING_BENCHMARKS:
+                n_ood_skipped += 1
+                continue
 
-                pairs.append(QAPair(question=entry.question, answer=chain))
-                preview_texts.append(chain.replace("\n", " ").strip()[:120])
+            chain = (entry.reasoning_chain or "").strip()
+            chain_len = len(chain)
+            chain_lengths.append(chain_len)
+
+            # Quality filter (EXP-16): empty/too-short chains are replaced
+            # with the verified answer so we do not train on blank targets.
+            if chain_len == 0:
+                n_empty += 1
+                chain = (entry.answer or "").strip()
+            elif chain_len < 10:
+                n_too_short += 1
+                chain = (entry.answer or "").strip()
+
+            pairs.append(QAPair(question=entry.question, answer=chain))
+            preview_texts.append(chain.replace("\n", " ").strip()[:120])
 
         previews = random.sample(preview_texts, min(3, len(preview_texts))) if preview_texts else []
         self._last_chain_diagnostics = {
@@ -565,8 +586,16 @@ class SelfImprovementLoop:
             "max_len": max(chain_lengths) if chain_lengths else 0,
             "n_empty": n_empty,
             "n_too_short": n_too_short,
+            "n_ood_skipped": n_ood_skipped,
             "previews": previews,
         }
+
+        if n_ood_skipped > 0:
+            logger.info(
+                "Training-pool gate skipped %d OOD episodes (transfer benchmarks); "
+                "kept %d ID episodes.",
+                n_ood_skipped, len(pairs),
+            )
 
         return pairs
 
@@ -1009,32 +1038,61 @@ class SelfImprovementLoop:
         aborted: bool,
         theta_prev: Optional[List[torch.Tensor]],
     ) -> str:
-        """Save model weights + metadata to outputs/cycle_{n}/."""
+        """Save model weights + metadata to outputs/cycle_{n}/.
+
+        Writes two files per cycle:
+          * ``model.pt``   -- torch.save of the current model.state_dict().
+                              On an aborted cycle, self.model already holds
+                              the restored theta_prev (the caller invoked
+                              ``_restore_weights`` before us), so the saved
+                              weights correctly reflect what the next cycle
+                              will pick up.
+          * ``meta.pkl``   -- picklable dict with cycle_num, seed,
+                              epochs_done, final_loss, forgetting_score,
+                              aborted flag, and the checkpoint timestamp.
+                              ``load_checkpoint`` reads this dict back and
+                              separately restores weights from model.pt.
+
+        Returns
+        -------
+        str
+            Absolute string path of the cycle checkpoint directory.
+        """
         ckpt_dir = self.output_dir / f"cycle_{cycle_num}"
         ckpt_dir.mkdir(parents=True, exist_ok=True)
 
-        # Save model weights.
-        # INVARIANT: at this point self.model always holds the correct state:
-        #   - not aborted -> fine-tuned weights (training just completed)
-        #   - aborted     -> _restore_weights(theta_prev) was already called
-        #                   before this method, so state_dict() == theta_prev
-        # Saving self.model.state_dict() is therefore always correct.
-        # Do NOT compute a separate dict from theta_prev here -- that would
-        # save tensors without proper parameter names, breaking load_state_dict.
-        torch.save(self.model.state_dict(), str(ckpt_dir / "model.pt"))
+        # Weights.
+        weights_path = ckpt_dir / "model.pt"
+        try:
+            torch.save(self.model.state_dict(), weights_path)
+        except Exception as exc:  # pragma: no cover -- defensive
+            logger.error(
+                "Cycle %d: failed to save model weights to %s: %s",
+                cycle_num, weights_path, exc,
+            )
+            raise
 
-        # Save metadata
+        # Metadata.
         meta = {
-            "cycle_num":       cycle_num,
-            "seed":            seed,
-            "epochs_done":     epochs_done,
-            "final_loss":      final_loss,
-            "forgetting_score": forgetting_score,
-            "aborted":         aborted,
-            "config":          self.config,
+            "cycle_num": cycle_num,
+            "seed": seed,
+            "epochs_done": epochs_done,
+            "final_loss": float(final_loss),
+            "forgetting_score": float(forgetting_score),
+            "aborted": bool(aborted),
+            "timestamp": time.time(),
+            # theta_prev is NOT pickled -- it is a list of CUDA tensors that
+            # would fail or waste disk space. Its presence in the call
+            # signature is a flag: non-None means the cycle aborted and
+            # weights were restored before this save (see run_cycle Step 7).
+            "theta_prev_was_restored": theta_prev is not None,
         }
-        with open(ckpt_dir / "meta.pkl", "wb") as f:
+        meta_path = ckpt_dir / "meta.pkl"
+        with open(meta_path, "wb") as f:
             pickle.dump(meta, f)
 
-        logger.info("Cycle %d checkpoint saved to %s.", cycle_num, ckpt_dir)
+        logger.info(
+            "Cycle %d: checkpoint saved to %s (aborted=%s).",
+            cycle_num, ckpt_dir, aborted,
+        )
         return str(ckpt_dir)

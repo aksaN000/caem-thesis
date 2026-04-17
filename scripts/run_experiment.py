@@ -279,23 +279,25 @@ def split_calibration_sets(
     calib_size: int = 500,
     purity_size: int = 500,
 ) -> tuple:
-    """Split each benchmark's samples into purity / calibration / eval sets.
+    """Split each benchmark's samples into purity / calibration / train sets.
 
     Returns
     -------
-    purity_samples  : dict[bm -> first purity_size (or half of available)]
-    calib_samples   : dict[bm -> next calib_size (or quarter of available)]
-    eval_samples    : dict[bm -> remainder]
+    purity_samples  : dict[bm -> first purity_size (or scaled down)]
+    calib_samples   : dict[bm -> next calib_size (or scaled down)]
+    train_samples   : dict[bm -> remainder (used for SIL memory population)]
 
-    These sets are non-overlapping -- critical for theory validation (§5.3).
+    These three slices are strictly disjoint by index -- critical for
+    Gap-5 isolation (the calibration slice must NEVER be seen by the
+    generator during SIL) and for the memorisation-ceiling purity check.
 
     Notes
     -----
     TruthfulQA has only 817 questions total. Using fixed 500+500 would leave
-    zero samples for eval. For benchmarks where total < purity_size + calib_size,
+    zero samples for train. For benchmarks where total < purity_size + calib_size,
     we scale splits proportionally (plan §5.3 specifies 250/250/317 for TruthfulQA).
     """
-    purity, calib, evl = {}, {}, {}
+    purity, calib, train = {}, {}, {}
     for bm, slist in samples.items():
         total = len(slist)
         effective_purity = purity_size
@@ -304,25 +306,25 @@ def split_calibration_sets(
         # Scale down proportionally when the dataset is too small to fit both
         # purity + calibration windows (e.g. TruthfulQA: 817 < 500+500).
         if total < purity_size + calib_size:
-            # Use ≈30% for purity, ≈30% for calibration, ≈40% for eval --
+            # Use ≈30% for purity, ≈30% for calibration, ≈40% for train --
             # roughly matching the 250/250/317 ratio the plan specifies.
             effective_purity = total // 3
             effective_calib = total // 3
             logger.warning(
                 "  %s: only %d samples -- scaling splits to "
-                "%d purity / %d calibration / %d eval (plan §5.3)",
+                "%d purity / %d calibration / %d train (plan §5.3)",
                 bm, total, effective_purity, effective_calib,
                 total - effective_purity - effective_calib,
             )
 
         purity[bm] = slist[:effective_purity]
         calib[bm] = slist[effective_purity: effective_purity + effective_calib]
-        evl[bm] = slist[effective_purity + effective_calib:]
+        train[bm] = slist[effective_purity + effective_calib:]
         logger.info(
-            "  %s: %d purity | %d calibration | %d eval",
-            bm, len(purity[bm]), len(calib[bm]), len(evl[bm]),
+            "  %s: %d purity | %d calibration | %d train",
+            bm, len(purity[bm]), len(calib[bm]), len(train[bm]),
         )
-    return purity, calib, evl
+    return purity, calib, train
 
 
 # -----------------------------------------------------------------------------
@@ -367,7 +369,7 @@ def load_general_data(n: int = 1000) -> list:
 
 
 # -----------------------------------------------------------------------------
-# Calibration (temperature scaling + signal weights)
+# Calibration (temperature scaling)
 # -----------------------------------------------------------------------------
 
 def run_calibration_step(
@@ -377,16 +379,17 @@ def run_calibration_step(
     output_dir: Path,
     m,
 ) -> None:
-    """Fit temperature scalar T and signal weights on calibration set.
+    """Fit the temperature scalar T on the disjoint calibration slice.
 
     Calls run_calibration.py logic inline so the main loop stays clean.
     Results are written to outputs/calibration/calibrated_config.json
     and the config object is updated in place.
 
     Called once after Cycle 0 evaluation, before Cycle 1 fine-tuning.
+    u_stored composite weights are fixed by design and are NOT calibrated.
     """
     logger.info("-" * 60)
-    logger.info("CALIBRATION -- fitting temperature scalar and signal weights")
+    logger.info("CALIBRATION -- fitting temperature scalar T (u_stored weights fixed)")
     logger.info("-" * 60)
 
     calib_dir = output_dir / "calibration"
@@ -398,11 +401,97 @@ def run_calibration_step(
     except Exception as exc:
         logger.warning(
             "Calibration step failed (%s). "
-            "Continuing with initial equal signal weights (0.25 each). "
-            "Calibrated values will not be reported in Chapter 5 -- "
-            "re-run scripts/run_calibration.py manually after Cycle 0.",
+            "Continuing with the uncalibrated default T=1.0. "
+            "Re-run scripts/run_calibration.py manually after Cycle 0.",
             exc,
         )
+
+
+def run_per_cycle_recalibration(
+    pipeline,
+    calib_samples: Dict[str, list],
+    config,
+    output_dir: Path,
+    cycle: int,
+) -> None:
+    """Unconditional per-cycle temperature re-fit at the end of Cycle `cycle`.
+
+    Conservative recalibration protocol (Ovadia et al. NeurIPS 2019,
+    Thulasidasan et al. 2019): T is the only runtime-active calibration
+    surface, and fine-tuning shifts the generator's logit scale every
+    cycle, so T must be re-fit. The u_stored composite weights are fixed
+    by design and are NOT re-fit.
+
+    The calibration slice must be DISJOINT from the current cycle's SIL
+    training pool and from the held-out eval set. Caller is responsible
+    for ensuring `calib_samples` obeys this partition (see
+    :func:`assert_disjoint_calibration` below).
+
+    Called at the end of each cycle, after retroactive re-verification
+    and memory-store save, before the next cycle's fine-tuning.
+    """
+    calib_dir = output_dir / "calibration"
+    calib_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        from scripts.run_calibration import calibrate_pipeline_temperature_only
+        logger.info(
+            "Cycle %d: per-cycle temperature re-fit (T only; weights design-fixed).",
+            cycle,
+        )
+        calibrate_pipeline_temperature_only(
+            pipeline, calib_samples, config, calib_dir, cycle=cycle
+        )
+    except Exception as exc:
+        logger.warning(
+            "Cycle %d per-cycle temperature re-fit failed (%s); "
+            "continuing with the previous cycle's T value.",
+            cycle, exc,
+        )
+
+
+def assert_disjoint_calibration(
+    calib_ids_by_bm: Dict[str, set],
+    train_ids_by_bm: Dict[str, set],
+    eval_ids_by_bm: Optional[Dict[str, set]] = None,
+) -> None:
+    """Raise AssertionError if the calibration slice overlaps SIL train or eval.
+
+    Gap 5 isolation guarantee (ch.4 §calibration): T must be fit on a slice
+    that is NEVER shown to the generator during SIL, and that is distinct
+    from the held-out benchmark eval set. Violating this biases ECE.
+
+    Parameters
+    ----------
+    calib_ids_by_bm : dict[benchmark_name -> set of sample IDs]
+    train_ids_by_bm : dict[benchmark_name -> set of sample IDs]
+    eval_ids_by_bm  : optional dict[benchmark_name -> set of sample IDs]
+
+    Notes
+    -----
+    The IDs should be read from ``dataset_splits.json`` which is the single
+    source of truth for the three-way partition (train / calib / eval).
+    """
+    for bm, calib_ids in calib_ids_by_bm.items():
+        train_ids = train_ids_by_bm.get(bm, set())
+        overlap_train = calib_ids & train_ids
+        assert not overlap_train, (
+            f"Calibration slice for {bm!r} overlaps SIL training pool "
+            f"({len(overlap_train)} shared IDs). "
+            f"First 5: {list(overlap_train)[:5]}"
+        )
+        if eval_ids_by_bm is not None:
+            eval_ids = eval_ids_by_bm.get(bm, set())
+            overlap_eval = calib_ids & eval_ids
+            assert not overlap_eval, (
+                f"Calibration slice for {bm!r} overlaps held-out eval set "
+                f"({len(overlap_eval)} shared IDs). "
+                f"First 5: {list(overlap_eval)[:5]}"
+            )
+    logger.info(
+        "Disjoint calibration slice verified across %d benchmarks.",
+        len(calib_ids_by_bm),
+    )
 
 
 # -----------------------------------------------------------------------------
@@ -659,21 +748,26 @@ def run_experiment(ns: argparse.Namespace) -> None:
             sil_benchmarks = ["fever", "triviaqa", "natural_questions"]
         sil_samples = {bm: make_synthetic_samples(bm, n=10) for bm in sil_benchmarks}
         eval_samples = {bm: make_synthetic_samples(bm, n=10) for bm in requested}
-        
-        purity_samples = {bm: s[:5] for bm, s in sil_samples.items()}
-        calib_samples = {bm: s[5:] for bm, s in sil_samples.items()}
+
+        # Minimal disjoint partition for smoke mode (IDs are trivially unique).
+        purity_samples = {bm: s[:3] for bm, s in sil_samples.items()}
+        calib_samples  = {bm: s[3:6] for bm, s in sil_samples.items()}
+        train_samples  = {bm: s[6:]  for bm, s in sil_samples.items()}
     else:
         sil_samples = load_sil_training_pool(ns, m)
         eval_samples = load_eval_transfer_pool(ns, m)
-        
-        # Purity and Calibration are carved securely out of the SIL Train Pool
-        purity_samples, calib_samples, _ = split_calibration_sets(
+
+        # Purity, Calibration, and Train are carved into three DISJOINT slices
+        # of the SIL Train Pool. The calibration slice is NEVER shown to the
+        # generator during SIL (Gap-5 isolation; see §4.Verifier-Calibration
+        # discussion in Chapter 4).
+        purity_samples, calib_samples, train_samples = split_calibration_sets(
             sil_samples,
             calib_size=config.calibration_set_size,
             purity_size=config.purity_validation_set_size,
         )
 
-    # -- Save purity/calibration sample IDs (for reproducibility) ---------- #
+    # -- Save purity/calibration/train sample IDs (for reproducibility) ---- #
     meta_path = output_dir / "dataset_splits.json"
     with open(meta_path, "w") as f:
         meta_out = {}
@@ -681,9 +775,32 @@ def run_experiment(ns: argparse.Namespace) -> None:
             meta_out[bm] = {"eval_ids": [s.get("id", i) for i, s in enumerate(eval_samples[bm])]}
             if bm in purity_samples:
                 meta_out[bm]["purity_ids"] = [s.get("id", i) for i, s in enumerate(purity_samples[bm])]
-                meta_out[bm]["calib_ids"] = [s.get("id", i) for i, s in enumerate(calib_samples[bm])]
+                meta_out[bm]["calib_ids"]  = [s.get("id", i) for i, s in enumerate(calib_samples[bm])]
+                meta_out[bm]["train_ids"]  = [s.get("id", i) for i, s in enumerate(train_samples[bm])]
         json.dump(meta_out, f, indent=2)
     logger.info("Dataset split metadata saved -> %s", meta_path)
+
+    # -- Assert the three-way partition is disjoint (Gap-5 isolation) ------- #
+    # calib vs train: never seen by the generator during SIL.
+    # calib vs eval:  never seen by the harness during eval.
+    try:
+        assert_disjoint_calibration(
+            calib_ids_by_bm={
+                bm: {s.get("id", i) for i, s in enumerate(calib_samples[bm])}
+                for bm in calib_samples
+            },
+            train_ids_by_bm={
+                bm: {s.get("id", i) for i, s in enumerate(train_samples[bm])}
+                for bm in train_samples
+            },
+            eval_ids_by_bm={
+                bm: {s.get("id", i) for i, s in enumerate(eval_samples[bm])}
+                for bm in eval_samples if bm in calib_samples
+            },
+        )
+    except AssertionError as exc:
+        logger.error("Gap-5 isolation violated: %s", exc)
+        raise
 
     # -- General-domain data (for anti-forgetting mix) ---------------------- #
     general_data = load_general_data(n=1000)
@@ -903,11 +1020,16 @@ def run_experiment(ns: argparse.Namespace) -> None:
         # Track per-cycle MMLU for summary CSV
         mmlu_per_cycle.append(mmlu_val)
 
-        # Step 4.5: Populate Memory by answering SIL Pool (Train split) with store_to_memory=True
-        # This occurs so that we populate the EpisodicMemoryStore with the *upgraded* fine-tuned
-        # model weights. Because this is for *generation*, we do not care about the benchmark scores.
-        logger.info("  Step 2.5: Generating Episodic Memory from SIL Pool (cycle=%d) ...", cycle_num)
-        harness.run_all(sil_samples, cycle=cycle_num, store_to_memory=True)
+        # Step 4.5: Populate Memory by answering the SIL Train split (DISJOINT
+        # from the calibration slice) with store_to_memory=True. This occurs
+        # so that we populate the EpisodicMemoryStore with the *upgraded*
+        # fine-tuned model weights. Because this is for *generation*, we do
+        # not care about the benchmark scores.
+        #
+        # Gap-5 isolation: we pass `train_samples`, NOT `sil_samples`, so
+        # the calibration slice stays unseen by the generator during SIL.
+        logger.info("  Step 2.5: Generating Episodic Memory from SIL Train split (cycle=%d) ...", cycle_num)
+        harness.run_all(train_samples, cycle=cycle_num, store_to_memory=True)
 
         # Step 5: Evaluate all benchmarks (Dev/Transfer split), NO Memory Leakage
         logger.info("  Step 3: Evaluating all benchmarks (cycle=%d) ...", cycle_num)
@@ -916,6 +1038,17 @@ def run_experiment(ns: argparse.Namespace) -> None:
         
         # Step 6: Save memory checkpoint for resuming
         pipeline.memory_store.save(str(output_dir / f"memory_store_cycle_{cycle_num}"))
+
+        # Step 7: Per-cycle recalibration (Conservative default: temperature
+        # only; no-op if both calibration flags are False). Runs after
+        # fine-tuning + retroverify so the calibration set is scored with
+        # the updated weights — matches the Cycle-0 protocol position
+        # (calibration immediately follows eval). See Ovadia et al.
+        # NeurIPS 2019 / Thulasidasan et al. 2019 for the motivation.
+        if not getattr(ns, "skip_calibration", False):
+            run_per_cycle_recalibration(
+                pipeline, calib_samples, config, output_dir, cycle=cycle_num,
+            )
 
         logger.info("Cycle %d done in %.1f min.", cycle_num, (time.time() - t0) / 60)
 

@@ -115,6 +115,12 @@ class DeferredEntry:
     # Reconsideration state
     age: int = 0                    # number of reconsideration passes survived
 
+    # Benchmark tag carried from initial deferral -- preserved on promotion
+    # so the training-pool ID/OOD gate in SelfImprovementLoop._collect_episodes
+    # sees the same source_benchmark whether an entry entered main memory via
+    # the STORE path or via a later promotion from the deferred buffer.
+    source_benchmark: Optional[str] = None
+
 
 # -----------------------------------------------------------------------------
 # Buffer
@@ -166,6 +172,7 @@ class DeferredBuffer:
         embedding: np.ndarray,
         storage_cycle: int,
         vout: Any,
+        source_benchmark: Optional[str] = None,
     ) -> None:
         """Hold a DEFERRED episode for the next cycle-boundary reconsideration.
 
@@ -181,6 +188,12 @@ class DeferredBuffer:
             Full Stage-5 verifier output captured at push time. Only
             ``u_stored`` and ``decision`` are retained explicitly; the
             reconsideration pass recomputes the signals from scratch.
+        source_benchmark : str or None
+            Benchmark tag passed through to the promoted EpisodicEntry if
+            this deferred entry later clears ``tau_store`` at cycle
+            boundary. Required for the training-pool ID/OOD gate to remain
+            consistent across the STORE path and the deferred-promotion
+            path.
 
         If the buffer is full (``size == max_size``), the oldest entry is
         evicted (FIFO via the bounded ``deque``). Eviction is logged at
@@ -217,6 +230,7 @@ class DeferredBuffer:
             initial_u_stored=float(getattr(vout, "u_stored", 0.0)),
             initial_decision=str(getattr(vout, "decision", "DEFERRED")),
             age=0,
+            source_benchmark=source_benchmark,
         ))
         logger.debug(
             "Deferred push: q=%r, u_stored=%.4f, cycle=%d, buffer=%d/%d.",
@@ -348,6 +362,7 @@ class DeferredBuffer:
                     # ^ keep original storage_cycle: it is the cycle the
                     # episode originated from, which is the correct audit
                     # trail for the training pool's cycle-of-origin filter.
+                    source_benchmark=de.source_benchmark,
                     u_stored=new_u,
                     u_token=float(getattr(vout, "u_token", 0.0)),
                     u_dropout=float(getattr(vout, "u_dropout", 0.0)),

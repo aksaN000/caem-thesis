@@ -102,6 +102,11 @@ Figure~\ref{fig:caem-pipeline} shows the per-query path through CAEM on a single
 \node[tC] (t3) at (12.0,-12.2)  {%
     \textbf{Tier 3}\\[3pt]RAG: DPR top-5\\{\scriptsize$\to$ cross-encoder rerank to top-3}};
 
+% ---- S4: Tier execution grouping (compact left-side label; no wrapper) ----
+\node[draw=none, inner sep=6pt, fit=(t1)(t2)(t3),
+      label={[font=\small\bfseries, teal!65!black, anchor=east, xshift=-6pt]left:S4}]
+     (s4box) {};
+
 % Tier 1 direct-serve terminal  (left side, same y-band as S5)
 \node[oServe] (serve) at (-3.5,-17.0) {%
     \textsc{Answer served}\\{\scriptsize from verified memory}};
@@ -130,6 +135,11 @@ Figure~\ref{fig:caem-pipeline} shows the per-query path through CAEM on a single
 \node[oDefer] (out2) at (5.0, -24.5)  {\textsc{Deferred}\\{\tiny write, no train}};
 \node[oAbst]  (out3) at (8.0, -24.5)  {\textsc{Abstain}\\{\tiny principled refusal}};
 \node[oDisc]  (out4) at (11.0,-24.5)  {\textsc{Discard}\\{\tiny suppressed}};
+
+% ---- S7: Memory write grouping (compact left-side label; no wrapper) ----
+\node[draw=none, inner sep=6pt, fit=(out1)(out2)(out3)(out4),
+      label={[font=\small\bfseries, teal!65!black, anchor=east, xshift=-6pt]left:S7}]
+     (s7box) {};
 
 % S8: between-cycle self-improvement  (wide band at bottom)
 \node[simp] (s8) at (6, -27.5) {%
@@ -469,7 +479,7 @@ The two signals are fused into a raw pre-route confidence by the linear combinat
 \end{equation}
 with $\tilde{u}_{\text{pre}}$ then clipped to $[0,1]$ to absorb the floating-point tail of either component. The clipping is mechanically necessary because the finite precision of the softmax and the hidden-state variance can each produce values marginally outside the unit interval, but in practice it fires only on degenerate queries where it is already immaterial which tier executes.
 
-The raw estimate $\tilde{u}_{\text{pre}}$ is a biased estimator of empirical correctness: language models are systematically over-confident, and a weighted sum of two such signals is over-confident in the same direction. To remove the bias, $\tilde{u}_{\text{pre}}$ is passed through a single-parameter temperature scaler fit once, offline, at the end of Cycle~0 on a held-out calibration split of 500 queries never used for training or evaluation. The scaler operates in logit space:
+The raw estimate $\tilde{u}_{\text{pre}}$ is a biased estimator of empirical correctness: language models are systematically over-confident, and a weighted sum of two such signals is over-confident in the same direction. To remove the bias, $\tilde{u}_{\text{pre}}$ is passed through a single-parameter temperature scaler fit at the end of every cycle on a disjoint $500$-query calibration slice that is strictly non-overlapping with the SIL training pool and with the held-out evaluation set (this three-way isolation is enforced by an assertion in \texttt{run\_experiment.assert\_disjoint\_calibration} before SIL begins). The scaler operates in logit space:
 \begin{equation}
 \upre \;=\; \sigma\!\Bigl(\frac{\mathrm{logit}(\tilde{u}_{\text{pre}})}{T}\Bigr),
 \qquad \sigma(x) = \frac{1}{1+e^{-x}},
@@ -480,7 +490,7 @@ where $T$ is the scalar temperature. This is the standard post-hoc recalibration
 T^{*} \;=\; \arg\min_{T > 0} \; -\frac{1}{N}\sum_{i=1}^{N}\Bigl[ y_{i} \log \sigma\bigl(\mathrm{logit}(\tilde{u}_{\text{pre}}^{(i)})/T\bigr) + (1 - y_{i}) \log\bigl(1 - \sigma(\mathrm{logit}(\tilde{u}_{\text{pre}}^{(i)})/T)\bigr)\Bigr].
 \label{eq:temp-fit}
 \end{equation}
-NLL is used as the training objective in place of the expected calibration error (ECE) reported in Chapter~3's acceptance criterion, because ECE is a binned statistic and not differentiable; minimising NLL produces a temperature that minimises ECE in practice while remaining tractable for L-BFGS. The fitted $T^{*}$ is written to the pipeline configuration and held fixed for all subsequent cycles; Chapter~3's NFR on calibration stability (ECE $\leq 0.05$ after Cycle~1) is an acceptance check on this fit rather than an inline regularisation.
+NLL is used as the training objective in place of the expected calibration error (ECE) reported in Chapter~3's acceptance criterion, because ECE is a binned statistic and not differentiable; minimising NLL produces a temperature that minimises ECE in practice while remaining tractable for L-BFGS. $T^{*}$ is re-fit at each cycle boundary because SIL fine-tuning shifts the generator's logit scale, so the Cycle-0 scalar becomes stale \citep{ovadia2019trust,thulasidasan2019mixup}; the $u_{\text{stored}}$ composite weights are fixed by design and are \emph{not} re-fit, avoiding the small-$n$ overfitting risk of re-training a six-weight composite on a 500-sample slice. Chapter~3's NFR on calibration stability (ECE $\leq 0.05$ after Cycle~1) is an acceptance check on this fit rather than an inline regularisation.
 
 Algorithm~\ref{alg:prerout} summarises the stage. The algorithm assumes that the temperature $T$ has been fit; in the very first cycle the temperature defaults to unity and the sigmoid-of-logit identity leaves the raw estimate unchanged, so the calibration is a strict improvement applied from Cycle~1 onward rather than a correctness dependency.
 
@@ -860,6 +870,8 @@ p_{\text{contra}} \;\geq\; \tau_{\text{veto}} \qquad \Rightarrow \qquad \textsc{
 \end{equation}
 The veto is categorical because contradiction is an asymmetric signal: a passage that contradicts the answer is evidence of incorrectness that cannot be arithmetically outweighed by even a very high composite. If a strong entailment on one passage and a strong contradiction on another both enter a weighted average, a high average implies nothing about whether the answer is true. Stage~6 therefore removes $p_{\text{contra}}$ from the composite altogether (Section~\ref{sec:verifier}) and consumes it only as a veto at this step. The threshold $\tau_{\text{veto}} = 0.30$ is deliberately low: an ensemble-max contradiction probability of $0.30$ means that at least one NLI bundle assigns $30\%$ probability to a contradiction claim on at least one of the top-three passages. Because of the asymmetric ensemble aggregation (max rather than min for contradiction), this corresponds to a very weak threshold on single-model contradiction detection, which is appropriate for a veto that is supposed to be a tripwire rather than a smooth signal.
 
+\paragraph{On the semantics of the cutoffs.}
+The three cutoffs $\tau_{\text{store}} = 0.65$, $\tau_{\text{defer}} = 0.45$, and $\tau_{\text{abs}} = 0.20$ that follow are heuristic bands on the \emph{unitless} composite $u_{\text{stored}}$ of Equation~\ref{eq:ustored}, not probabilities of correctness. A value of $0.65$ is therefore \emph{not} a claim that the answer has a $65\%$ chance of being right: the composite is a weighted sum of six bounded signals (grounding, entailment, self-consistency, internal calibration, and the complement of normalised semantic entropy) whose individual scales are not probability-calibrated, and only the token-probability sub-signal passes through the temperature scaler. What is calibrated in the probability sense is $\upre$ at the pre-route stage (Equation~\ref{eq:temp-scale}); the post-generation composite here is a policy-defining aggregate, chosen so that the induced decision bands yield acceptable \textsc{Store} / \textsc{Deferred} / \textsc{Abstain} / \textsc{Discard} rates on the held-out calibration slice. The Chapter~5 ablations sweep these cutoffs to confirm the policy is not brittle, but the numeric values themselves should be read as operating points on a dimensionless scale rather than as probabilistic guarantees.
 \paragraph{Store and Deferred thresholds.}
 When the veto does not fire, the composite $u_{\text{stored}}$ is thresholded against two cutoffs in a cascade:
 \begin{equation}
@@ -1314,7 +1326,7 @@ Value weights $I / R$ & $0.70 / 0.30$ & [DES] & $V = 0.7\,I + 0.3\,R$ \\
 \midrule
 \multicolumn{4}{@{}l}{\emph{Pre-routing confidence}} \\
 $u_{\text{pre}}$ weights (token / $C_{\text{conv}}$) & $0.60 / 0.40$ & [DES] & Two-signal estimator \\
-Temperature $T$ & $1.0$ init & [CAL] & Platt-style calibration \citep{pmlr-v70-guo17a} \\
+Temperature $T$ & $1.0$ init & [CAL] & Single-parameter temperature scaling \citep{pmlr-v70-guo17a}; refit per cycle on the disjoint calibration slice \citep{ovadia2019trust,thulasidasan2019mixup} \\
 \midrule
 \multicolumn{4}{@{}l}{\emph{Adaptive router}} \\
 Routing weight $\lambda$ & $0.70$ & [DES] & $S = \lambda\,s + (1-\lambda)\,\hat u$ \\

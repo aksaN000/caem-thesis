@@ -851,6 +851,181 @@ def forward_transfer(per_cycle_em_matrix, baseline_em=None):
     return sum(diffs) / len(diffs)
 
 
+def pooled_ce(
+    em_scores: Sequence[float],
+    u_stored_values: Sequence[Optional[float]],
+    benchmark_labels: Sequence[str],
+    u_threshold: float = 0.50,
+    training_benchmarks: Optional[Sequence[str]] = None,
+    transfer_benchmarks: Optional[Sequence[str]] = None,
+) -> Dict[str, float]:
+    """Pooled confident-error rate with ID/OOD transfer-learning split.
+
+    The thesis commits (Ch3 §Evaluation Methodology, Ch5 §Metrics and
+    §Expected-results) to a ≥40% relative reduction in the *pooled*
+    confident-error rate against the zero-shot Flan-T5-Large baseline on
+    the six-benchmark factual-QA panel. "Pooled" means one big pile:
+    every confidently-stored episode from every benchmark is thrown
+    together before the wrong-and-confident fraction is computed, rather
+    than per-benchmark CE values being averaged (which would give small
+    benchmarks the same weight as large ones and mask distributional
+    shift).
+
+    Definition (same as :func:`hallucination_rate`):
+        CE = | {i : u_stored_i >= u_threshold AND em_i = 0} |
+             / | {i} |
+
+    Parameters
+    ----------
+    em_scores : sequence of float
+        Per-sample EM in {0.0, 1.0} using the benchmark-appropriate
+        metric (FEVER label accuracy, ROUGE-L>0.15 for TruthfulQA,
+        yes/no for StrategyQA, MCQ letter for ARC-C, any-match EM for
+        TriviaQA/NQ -- see eval/harness.py::_score).
+    u_stored_values : sequence of float or None
+        Per-sample u_stored. None is mapped to 0.0 (Tier 1 hits do not
+        run the verifier; they already carry the stored u from their
+        original write cycle, but callers typically supply that on this
+        path).
+    benchmark_labels : sequence of str
+        Per-sample benchmark identifier (must match
+        ``caem.config.TRAINING_BENCHMARKS`` / ``TRANSFER_BENCHMARKS``
+        naming).
+    u_threshold : float, default 0.50
+        Confidence cutoff for "confidently generated".
+    training_benchmarks, transfer_benchmarks : sequence of str or None
+        Override the split; defaults to ``caem.config`` constants.
+
+    Returns
+    -------
+    dict with keys ``"all"``, ``"id"``, ``"ood"`` -> float CE in [0, 1].
+        ``id`` is the pooled CE over the training-eligible benchmarks;
+        ``ood`` is the pooled CE over the held-out transfer benchmarks.
+        A split is 0.0 if no samples fall into it (rather than undefined).
+
+    Notes
+    -----
+    The pre-registered pass/fail floor is on ``"all"``; the ID/OOD split
+    is *diagnostic*. A soft-falsification profile (pooled floor cleared
+    but OOD flat) is an architectural disappointment the thesis reports
+    under §Expected-results, not a run failure. See Chapter 6's
+    limitations discussion.
+    """
+    n = len(em_scores)
+    assert len(u_stored_values) == n, \
+        "em_scores and u_stored_values must have the same length."
+    assert len(benchmark_labels) == n, \
+        "em_scores and benchmark_labels must have the same length."
+
+    if training_benchmarks is None or transfer_benchmarks is None:
+        # Deferred import to avoid circular-import risk at module load.
+        from caem.config import (
+            TRAINING_BENCHMARKS as _TRAIN,
+            TRANSFER_BENCHMARKS as _OOD,
+        )
+        if training_benchmarks is None:
+            training_benchmarks = _TRAIN
+        if transfer_benchmarks is None:
+            transfer_benchmarks = _OOD
+
+    train_set = set(training_benchmarks)
+    ood_set = set(transfer_benchmarks)
+
+    def _rate(indices: List[int]) -> float:
+        if not indices:
+            return 0.0
+        hits = 0
+        for i in indices:
+            u_val = u_stored_values[i] if u_stored_values[i] is not None else 0.0
+            if em_scores[i] == 0.0 and u_val >= u_threshold:
+                hits += 1
+        return hits / len(indices)
+
+    all_idx = list(range(n))
+    id_idx = [i for i in all_idx if benchmark_labels[i] in train_set]
+    ood_idx = [i for i in all_idx if benchmark_labels[i] in ood_set]
+
+    return {
+        "all": _rate(all_idx),
+        "id": _rate(id_idx),
+        "ood": _rate(ood_idx),
+        "n_all": len(all_idx),
+        "n_id": len(id_idx),
+        "n_ood": len(ood_idx),
+    }
+
+
+def ce_reduction_verdict(
+    ce_baseline: float,
+    ce_final: float,
+    floor: float = 0.40,
+) -> Dict[str, object]:
+    """Pre-registered CE-reduction pass/fail verdict.
+
+    Implements the architectural commitment from Ch3 §Evaluation
+    Methodology and Ch5 §Expected-results: a relative reduction of at
+    least ``floor`` (default 40%) in pooled confident-error rate from
+    the zero-shot Flan-T5-Large baseline to the post-cycle CAEM run is
+    the *floor* for the thesis to claim success. This helper formalises
+    the comparison so the verdict is not re-derived by hand in every
+    experiment script.
+
+    Parameters
+    ----------
+    ce_baseline : float in [0, 1]
+        Pooled CE of the baseline (typically zero-shot Flan-T5-Large).
+        Pulled from ``pooled_ce(...)["all"]`` on the baseline run.
+    ce_final : float in [0, 1]
+        Pooled CE of the post-cycle CAEM system (same "all" key).
+    floor : float in (0, 1], default 0.40
+        Required relative reduction. 0.40 = the CAEM pre-registration.
+
+    Returns
+    -------
+    dict
+        ``verdict`` -- "PASS" / "FAIL"
+        ``relative_reduction`` -- (ce_baseline - ce_final) / ce_baseline,
+            clamped to [0, 1]; 0.0 if the baseline CE is zero (no room
+            to improve, trivially FAIL).
+        ``absolute_reduction`` -- ce_baseline - ce_final
+        ``floor`` -- the required threshold (echoed for audit trail).
+        ``achieved`` -- same as relative_reduction, named for reports.
+
+    Notes
+    -----
+    This helper does NOT perform statistical significance testing --
+    that requires the three-seed run matrix and is handled separately
+    (bootstrap CIs in :func:`bootstrap_ci`, McNemar's for paired items
+    in :func:`mcnemar_test`). The verdict here is the point-estimate
+    gate; the seed-matrix robustness check lives in the falsification
+    owner's script.
+    """
+    if ce_baseline <= 0.0:
+        # Baseline is already perfect -- no room for a relative reduction.
+        return {
+            "verdict": "FAIL",
+            "relative_reduction": 0.0,
+            "achieved": 0.0,
+            "absolute_reduction": 0.0 - ce_final,
+            "floor": floor,
+            "ce_baseline": ce_baseline,
+            "ce_final": ce_final,
+        }
+
+    rel = (ce_baseline - ce_final) / ce_baseline
+    rel_clamped = max(rel, 0.0)
+    verdict = "PASS" if rel >= floor else "FAIL"
+    return {
+        "verdict": verdict,
+        "relative_reduction": rel_clamped,
+        "achieved": rel_clamped,
+        "absolute_reduction": ce_baseline - ce_final,
+        "floor": floor,
+        "ce_baseline": ce_baseline,
+        "ce_final": ce_final,
+    }
+
+
 def ces_score(acc, epi, ret, cal, ver, eps=0.01):
     """CAEM Efficacy Score: geometric mean of five orthogonal quality axes.
 

@@ -448,7 +448,7 @@ class TestRunCycle:
         cfg.min_u_stored_for_training = 0.70
         loop, _ = make_loop(config=cfg)
         store = make_store_with_entries([make_entry(u_stored=0.80)])
-        with patch.object(loop, "_forgetting_score", side_effect=[0.14, 0.10]):
+        with patch.object(loop, "_mmlu_score", side_effect=[0.14, 0.10]):
             result = loop.run_cycle(1, store, make_general_data(10))
         assert result.aborted is True
         assert result.forgetting_score == pytest.approx(0.10 / 0.14, abs=1e-6)
@@ -460,7 +460,7 @@ class TestRunCycle:
         cfg.min_u_stored_for_training = 0.70
         loop, _ = make_loop(config=cfg)
         store = make_store_with_entries([make_entry(u_stored=0.80)])
-        with patch.object(loop, "_forgetting_score", side_effect=[0.14, 0.14]):
+        with patch.object(loop, "_mmlu_score", side_effect=[0.14, 0.14]):
             result = loop.run_cycle(1, store, make_general_data(10))
         assert result.aborted is False
         assert result.forgetting_score == pytest.approx(1.0)

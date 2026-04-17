@@ -147,13 +147,19 @@ class TestConfidenceDataclasses:
         pc = PreRoutingConfidence(u_token=0.4, c_conv=2.0, u_pre=0.35)
         assert pc.is_safe(0.60) is False
 
-    def test_post_generation_should_accept(self):
+    def test_post_generation_dataclass_constructs(self):
+        # The legacy u_hat gate and its should_accept method were removed
+        # when the UnifiedVerifier nine-signal stage became the single
+        # source of post-generation truth. The PostGenerationConfidence
+        # dataclass is retained as a type-compat shell; we verify only that
+        # its four remaining signal fields construct and round-trip.
         pgc = PostGenerationConfidence(
-            u_token=0.70, u_dropout=0.65, u_consistency=0.80,
-            u_entropy=0.75, u_hat=0.72
+            u_token=0.70, u_dropout=0.65, u_consistency=0.80, u_entropy=0.75,
         )
-        assert pgc.should_accept(0.60) is True
-        assert pgc.should_accept(0.80) is False
+        assert pgc.u_token == 0.70
+        assert pgc.u_dropout == 0.65
+        assert pgc.u_consistency == 0.80
+        assert pgc.u_entropy == 0.75
 
     def test_routing_decision_fields(self):
         rd = RoutingDecision(

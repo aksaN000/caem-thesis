@@ -140,8 +140,13 @@ def make_routing(
 
 
 def make_post_conf(u_hat: float = 0.70) -> PostGenerationConfidence:
+    # u_hat is retained as a function arg for call-site compatibility; the
+    # PostGenerationConfidence dataclass no longer stores it (the gate that
+    # consumed it was removed when the UnifiedVerifier became the single
+    # source of post-generation truth).
+    del u_hat  # silence unused-arg linters
     return PostGenerationConfidence(
-        u_token=0.7, u_dropout=0.7, u_consistency=0.7, u_entropy=0.7, u_hat=u_hat
+        u_token=0.7, u_dropout=0.7, u_consistency=0.7, u_entropy=0.7,
     )
 
 
@@ -235,7 +240,6 @@ def _build_pipeline(
 
     with patch("caem.pipeline.PreRoutingConfidenceEstimator") as MockPre, \
          patch("caem.pipeline.AdaptiveRouter") as MockRouter, \
-         patch("caem.pipeline.PostGenerationConfidenceEstimator") as MockPost, \
          patch("caem.pipeline.UnifiedVerifier") as MockVerifier, \
          patch("caem.pipeline.TierThreeRAG") as MockRAG:
 
@@ -243,7 +247,6 @@ def _build_pipeline(
         MockRouter.return_value.route.return_value = make_routing(
             tier, safety_override, similarity, u_pre=u_pre,
         )
-        MockPost.return_value.estimate.return_value = make_post_conf(u_hat)
         MockVerifier.return_value.verify.return_value = make_vout(
             u_stored=u_stored,
             decision=decision,
@@ -359,12 +362,6 @@ class TestTier2Path:
         r = p.answer("q")
         assert r.tier == 2
 
-    def test_post_confidence_set(self):
-        p = _build_pipeline(tier=2, u_hat=0.72)
-        r = p.answer("q")
-        assert r.post_confidence is not None
-        assert r.post_confidence.u_hat == pytest.approx(0.72)
-
     def test_verifier_output_attached(self):
         p = _build_pipeline(tier=2, u_stored=0.77, decision="STORE")
         r = p.answer("q")
@@ -393,20 +390,10 @@ class TestTier2Path:
 # =============================================================================
 
 class TestTier2Escalation:
-    def test_escalated_when_u_hat_below_threshold(self):
-        p = _build_pipeline(tier=2, u_hat=0.30)
-        r = p.answer("q")
-        assert r.escalated is True
-
     def test_escalation_uses_rag_answer(self):
         p = _build_pipeline(tier=2, u_hat=0.30, answer="RAG answer")
         r = p.answer("q")
         assert r.answer == "RAG answer"
-
-    def test_post_conf_still_set_after_escalation(self):
-        p = _build_pipeline(tier=2, u_hat=0.30)
-        r = p.answer("q")
-        assert r.post_confidence is not None
 
     def test_verifier_still_runs_after_escalation(self):
         p = _build_pipeline(tier=2, u_hat=0.30, u_stored=0.72)

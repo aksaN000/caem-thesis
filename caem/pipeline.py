@@ -256,13 +256,27 @@ class CAEMPipeline:
     # Public API                                                           #
     # ------------------------------------------------------------------ #
 
-    def answer(self, query: str, store_to_memory: bool = True) -> PipelineResult:
+    def answer(
+        self,
+        query: str,
+        store_to_memory: bool = True,
+        source_benchmark: Optional[str] = None,
+    ) -> PipelineResult:
         """Run the full CAEM pipeline for a single query.
 
         Parameters
         ----------
         query : str
             Natural-language question.
+        store_to_memory : bool, default True
+            If False, skip the Stage-7 storage decision entirely.
+        source_benchmark : str or None, default None
+            Benchmark tag (e.g. "natural_questions", "truthfulqa") carried
+            onto any stored EpisodicEntry / deferred entry so the Stage-8
+            training-pool ID/OOD gate can be enforced downstream. Pass the
+            current benchmark identifier at harness call-time; ``None`` is
+            accepted as a legacy / single-benchmark default and will be
+            treated as training-eligible by ``_collect_episodes``.
 
         Returns
         -------
@@ -325,6 +339,7 @@ class CAEMPipeline:
                 entry_id, stored_flag = self._maybe_store(
                     query=query, answer=answer_str,
                     query_embedding=query_embedding, vout=vout,
+                    source_benchmark=source_benchmark,
                 )
 
         else:  # tier == 3
@@ -338,6 +353,7 @@ class CAEMPipeline:
                 entry_id, stored_flag = self._maybe_store(
                     query=query, answer=answer_str,
                     query_embedding=query_embedding, vout=vout,
+                    source_benchmark=source_benchmark,
                 )
 
         # -- Early-exit confabulation gate ------------------------------ #
@@ -618,6 +634,7 @@ class CAEMPipeline:
         answer: str,
         query_embedding: np.ndarray,
         vout: Optional[UnifiedVerifierOutput],
+        source_benchmark: Optional[str] = None,
     ):
         """Store the answer in episodic memory if it passes all gates.
 
@@ -653,6 +670,7 @@ class CAEMPipeline:
                     embedding=query_embedding,
                     storage_cycle=self.current_cycle,
                     vout=vout,
+                    source_benchmark=source_benchmark,
                 )
             except Exception as exc:
                 # Buffer push is non-critical -- log and continue as if the
@@ -690,6 +708,7 @@ class CAEMPipeline:
             answer=answer,
             embedding=query_embedding,
             storage_cycle=self.current_cycle,
+            source_benchmark=source_benchmark,
             # Composite + nine signals + p_contra
             u_stored=vout.u_stored,
             u_token=vout.u_token,

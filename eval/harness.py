@@ -244,7 +244,11 @@ class EvalHarness:
 
         # -- Pipeline call ---------------------------------------------- #
         try:
-            result = self.pipeline.answer(question, store_to_memory=store_to_memory)
+            result = self.pipeline.answer(
+                question,
+                store_to_memory=store_to_memory,
+                source_benchmark=benchmark,
+            )
             prediction = result.answer
             tier = result.tier
             stored = result.stored
