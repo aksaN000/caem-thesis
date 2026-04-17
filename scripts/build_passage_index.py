@@ -384,7 +384,7 @@ def build_passage_index(
         cp_passages, cp_embeddings = _load_checkpoint(out)
         if cp_passages is not None:
             all_passages = cp_passages
-            all_embedding_batches = cp_embeddings
+            all_embedding_batches = cp_embeddings  # type: ignore[assignment]
 
     already_have = len(all_passages)
     remaining = max_passages - already_have
@@ -489,7 +489,7 @@ def _sanity_check(output_dir: Path, sbert_model: str, device: str) -> None:
     model = SentenceTransformer(sbert_model, device=device)
 
     test_query = "Who wrote Romeo and Juliet?"
-    emb = model.encode(test_query, normalize_embeddings=True).astype(np.float32)
+    emb = model.encode(test_query, normalize_embeddings=True).astype(np.float32)  # type: ignore[union-attr]
     hits = store.search(emb, k=3)
 
     if not hits:

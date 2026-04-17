@@ -160,7 +160,7 @@ def get_hardware_profile() -> HardwareProfile:
     else:                      # < 10 GB (laptop GPUs, GTX 1080, etc.)
         use_fp16, use_bf16 = True, False
         batch_size = 2
-        note = "< 10 GB VRAM. fp16, batch_size=2. Consider --no_nli to save ~1.4 GB."
+        note = "< 10 GB VRAM. fp16, batch_size=2. NLI is required for verification; additional headroom may require reducing max sequence length."
 
     return HardwareProfile(
         device=device,

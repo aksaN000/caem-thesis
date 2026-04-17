@@ -1,541 +1,281 @@
-% Chapter 3 — Requirements, Impacts and Constraints
-%
-% (Standalone-safety) If this chapter is compiled directly, keep natbib-style
-% citation commands from erroring, and define CAEM macros.
-\providecommand{\citet}{\textcite}
-\providecommand{\citep}{\parencite}
-\providecommand{\caem}{CAEM}
-\providecommand{\upre}{u_{\text{pre}}}
-\providecommand{\uhat}{\hat{u}}
-\providecommand{\ustored}{\hat{u}_{\text{stored}}}
-\providecommand{\Cconv}{C_{\text{conv}}}
+% Chapter 3 -- Requirements, Impacts and Constraints
 
-% ---------------------------------------------------------------
-% Chapter preamble — appears before §3.1
-% ---------------------------------------------------------------
-This chapter specifies the requirements for \caem{} (Confidence-Aware Episodic Memory
-with Self-Improvement), documents the hardware constraints that directly shaped each
-design decision, analyses the system's broader societal and ethical impact, and outlines
-the project management plan used to deliver the research within the available timeline
-and resources.
+\section{Introduction}
+\label{sec:ch3-intro}
 
-The requirements presented here follow directly from the three architectural problems
-identified in Chapter~1 --- stateless operation, poor confidence calibration, and the
-absence of self-improvement --- and from the eight processing stages described in the
-methodology overview.
-Every functional requirement corresponds to exactly one pipeline stage.
-Every non-functional requirement maps to a measurable threshold that determines whether
-the system has succeeded.
+Chapter 1 argued that hallucination in large language models is a structural consequence of stateless, uncalibrated generation rather than an engineering defect to be patched. Chapter 2 surveyed the prior work that treats the symptom through post hoc detectors or single signal confidence estimators, and that mitigates it through external retrieval alone, and identified the gap that motivates this thesis: a pipeline that verifies its own outputs against multiple orthogonal signals, commits to durable memory only what it can ground externally, and fine-tunes itself on verified content under an explicit guarantee that general capability will not be eroded.
 
-% -------------------------------------------------------------------
-\section{System Requirements}
-\label{sec:requirements}
-% -------------------------------------------------------------------
+This chapter fixes the terms of reference for the system that closes that gap. It names the functional capabilities the system must provide, the quality attributes it must achieve, the hardware and data constraints within which it must operate, the evaluation methodology that will determine whether it succeeds, and the risks and ethical considerations raised by its deployment. Every requirement stated here corresponds to a concrete mechanism developed in Chapter 4, and every threshold or hyperparameter named here is held constant across the experimental program reported in Chapter 5.
 
-% -------------------------------------------------------------------
-\subsection{Functional Requirements}
+The system under specification, CAEM (Confidence Aware Episodic Memory with Self-Improvement), augments a Flan-T5-Large base model with four architectural additions: a verified episodic memory, a confidence aware three tier router, a nine signal post hoc verifier with external Wikipedia grounding, and a ten cycle self improvement loop governed by an explicit forgetting bound. At a high level, CAEM accepts a factual question, estimates how confidently it can answer without external help, dispatches the query to one of three processing tiers, verifies the resulting answer against nine signals grouped into three families, commits the answer to memory only if a composite threshold is cleared and no contradiction has been detected, periodically re-verifies every stored answer against the current model weights, and fine-tunes itself on the verified pool while a held out general knowledge probe determines whether the cycle is retained or rolled back. The eight functional requirements in Section~\ref{sec:functional-requirements} correspond to the eight responsibilities in that sentence.
+
+\section{Functional Requirements}
 \label{sec:functional-requirements}
-% -------------------------------------------------------------------
 
-The CAEM pipeline processes a query through eight sequential stages. Each stage constitutes
-a functional requirement of the system. Table~\ref{tab:functional-requirements} summarises
-all eight requirements. The following paragraphs elaborate on their design intent.
+A functional requirement names a capability the system must deliver. We organise the requirements by their role in the query level control flow, following an arriving question from its arrival through its eventual disposition as either a stored answer, a deferred candidate, a principled abstention, or a discarded generation. Each requirement is stated declaratively, is accompanied by the quantitative parameters that govern its realisation, and is traced forward to the mechanism of Chapter 4 that satisfies it.
 
-\textbf{FR-01} and \textbf{FR-02} impose a strict ordering constraint: pre-routing
-confidence must be estimated from the query alone, before any generation occurs.
+\subsection{FR1: Pre-Routing Confidence Estimation}
+\label{sec:fr1}
 
-This is a deliberate design decision that avoids the cost of generating an answer only
-to discard it at the routing stage.
+Before any generation or external retrieval is performed, the system shall produce a calibrated scalar $\upre \in [0,1]$ that estimates the confidence with which the base model could answer the query using its internal parameters alone. This quantity governs all downstream dispatch decisions and shall be computable in a single encoder forward pass, so that its cost is paid even on queries that will subsequently be answered by the cheap retrieval tier.
 
-\textbf{FR-03} introduces the OR-condition safety veto as a hard constraint separate
-from the routing score formula. A dangerously low $\upre$ signals that the model does
-not understand the query well enough to trust any memory match, regardless of how
-similar the retrieved episode appears. Combining these two mechanisms into a single
-formula would allow a high-quality memory match to arithmetically mask an untrustworthy
-model state --- the OR-condition prevents this.
+The estimate shall combine two complementary signals. The first is a token level aggregate, $u_{\text{token}}$, computed as the geometric mean of per-token log probabilities over a short greedy prefix of the candidate answer. The second is an encoder layer convergence ratio $\Cconv$, defined as the ratio of stacked early layer activation variance to stacked late layer activation variance, which measures how quickly the internal representation stabilises as it propagates through the encoder. The signals shall be combined linearly as
+\begin{equation}
+\upre \;=\; w_{\text{tok}} \cdot u_{\text{token}} \;+\; w_{\text{conv}} \cdot \frac{1}{1 + \Cconv},
+\qquad w_{\text{tok}} + w_{\text{conv}} = 1,
+\label{eq:upre}
+\end{equation}
+with weights $w_{\text{tok}} = 0.60$ and $w_{\text{conv}} = 0.40$.
 
-\textbf{FR-05} establishes an asymmetric acceptance gate: the $\uhat$ threshold of
-0.60 is set to preserve recall (avoid rejecting correct answers too early) while still
-escalating uncertain Tier-2 outputs to Tier 3. Stage 5 then computes the independent
-stored-confidence signal $\ustored$ and applies the storage gate.
-\begin{center}
-\label{tab:functional-requirements}
-\renewcommand{\arraystretch}{1.15}
-\footnotesize
-\begin{tabular}{@{}p{0.8cm} p{3.2cm} p{8.5cm}@{}}
-\toprule
-\textbf{FR} & \textbf{Stage} & \textbf{Requirement} \\
-\midrule
-FR-01 & Encode (Stage 1--2) &
-  The system shall accept a natural-language query, tokenise it for the language model,
-  and produce a 768-dimensional Sentence-BERT embedding \mbox{(all-mpnet-base-v2)} for
-  memory retrieval. \\
-FR-02 & Pre-routing confidence (Stage 3a) &
-  The system shall estimate a pre-routing confidence score $\upre \in [0,1]$ from
-  token probability and an internal convergence signal $\Cconv$, without performing
-  full answer generation. \\
-FR-03 & Adaptive routing (Stage 3b) &
-  The system shall route each query to exactly one of three processing tiers based on
-  a routing score combining memory similarity and stored confidence, subject to an
-  OR-condition safety veto that forces Tier 3 when $\upre < 0.60$ regardless of
-  memory similarity. \\
-FR-04 & Answer generation (Stages 4 and 6) &
-  The system shall generate a full answer using the fine-tuned Flan-T5-Large model
-  with a retrieved reasoning chain as a soft prompt (Tier 2), or using
-  retrieval-augmented generation with Wikipedia passages as context (Tier 3). \\
-FR-05 & Post-generation gate (Stage 4a) &
-  For Tier 2 answers only, the system shall estimate a post-generation confidence
-  score $\uhat \in [0,1]$ from four signals (token probability, MC Dropout, self-consistency,
-  semantic entropy). If $\uhat < 0.60$, the query shall be escalated to Tier 3. \\
-FR-06 & Verification (Stage 5) &
-  The system shall verify all non-Tier-1 answers through a three-signal pipeline:
-  NLI entailment probability ($p_{\text{entail}}$) via RoBERTa-Large-MNLI, average
-  unique-pair self-consistency ($s_{\text{avg}}$, over $i<j$ chain pairs) via Sentence-BERT, and normalised
-  semantic entropy ($h_{\text{norm}}$), producing a stored confidence score
-  $\ustored = 0.50\,p_{\text{entail}} + 0.30\,s_{\text{avg}} + 0.20\,(1 - h_{\text{norm}})$. \\
-FR-07 & Memory storage (Stage 7) &
-  The system shall write a verified episode to the episodic memory store if and only if
-  $\ustored \geq 0.50$ and the query is sufficiently novel (nearest-neighbour
-  cosine similarity $< 0.95$). Episodes shall be pruned by value score when the store
-  exceeds 95\% capacity. \\
-FR-08 & Self-improvement (Stage 8) &
-  The system shall fine-tune the language model on verified reasoning chains after
-  each cycle, using L2 regularisation ($\lambda = 0.01$) and a mixed training
-  corpus (90\% verified, 10\% general-domain) to prevent catastrophic forgetting.
-  Fine-tuning shall abort and revert to the previous cycle's weights if the
-  held-out general-domain retention ratio (post/pre) drops below 0.93. \\
-\bottomrule
-\end{tabular}
-\captionof{table}[Functional Requirements]{CAEM functional requirements derived from the
-eight-stage pipeline architecture.}
-\end{center}
+Starting from Cycle 1, the raw estimate shall be post processed by a single parameter temperature scaler fit at the end of Cycle 0 on a held out calibration split of 500 examples through minimisation of expected calibration error. The fit is performed once and held fixed through the remaining nine cycles, so that $\upre$ carries the semantics of a calibrated probability rather than an uncalibrated logit response. Acceptance is enforced through the CAL axis of the Composite Evaluation Score defined in Section~\ref{sec:ces}, which requires ECE at most 0.05 on the calibration split after Cycle 1.
 
+\subsection{FR2: Adaptive Three-Tier Routing}
+\label{sec:fr2}
 
-\textbf{FR-08} introduces a forgetting circuit-breaker. Unlike naive continual
-learning approaches, which have been shown to produce 30--50\% degradation of prior
-capabilities under repeated fine-tuning \cite{doi:10.1073/pnas.1611835114}, CAEM
-monitors held-out general-domain retention after each cycle and reverts the model if
-the post/pre retention ratio falls below 0.93. MMLU is reported as an external
-retention check, but it is not the in-loop abort signal. This abort condition ensures
-that improvements on the target
-benchmarks never come at the cost of general language competence.
+Given $\upre$ and the single nearest stored episode returned by memory retrieval, the router shall dispatch the query to exactly one of three processing tiers. Tier 1 returns the answer attached to the retrieved episode directly, without any generation or verification, and is reserved for queries that are both semantically close to the retrieved episode and corroborated by a high composite confidence on that episode. Tier 2 performs zero shot generation from the base model without context. Tier 3 performs retrieval augmented generation against the full DPR preprocessed Wikipedia passage index.
 
-% -------------------------------------------------------------------
-\subsection{Non-Functional Requirements}
+The dispatch decision shall be governed by a combined score,
+\begin{equation}
+S(q) \;=\; \alpha \cdot \mathrm{sim}(q, e^{\ast}) \;+\; (1 - \alpha) \cdot u_{\text{stored}}(e^{\ast}),
+\qquad \alpha = 0.70,
+\label{eq:route-score}
+\end{equation}
+where $e^{\ast}$ is the nearest memory entry and $\mathrm{sim}$ denotes cosine similarity in the sentence embedding space. The query routes to Tier 1 when $S(q) \geq 0.90$, to Tier 2 when $\mathrm{sim}(q, e^{\ast}) \geq 0.75$ and Tier 1 has not been taken, and to Tier 3 otherwise. Layered on top of the combined score, and evaluated before it, is a safety override: whenever $\upre$ falls below a minimum floor of $0.60$, the query shall be forced to Tier 3 irrespective of what was retrieved, so that queries for which the base model has already signalled low confidence are never permitted to bypass external grounding.
+
+\subsection{FR3: Multi-Signal Post-Hoc Verification}
+\label{sec:fr3}
+
+Every answer produced in Tier 2 or Tier 3 shall be passed through a single verification module before any storage decision is made. Tier 1 retrievals are exempt from per query verification because the stored episode already carries a composite confidence from its original storage event; those entries are instead re-verified between cycles under FR6.
+
+The verifier shall compute nine signals, grouped into three orthogonal families. The first family captures the model's internal confidence and comprises the token level aggregate $u_{\text{token}}$, the Monte Carlo dropout disagreement $u_{\text{dropout}}$ computed over $K = 5$ stochastic forward passes, and their fusion
+\begin{equation}
+u_{\text{internal}} \;=\; 0.5 \cdot u_{\text{token}} \;+\; 0.5 \cdot (1 - u_{\text{dropout}}).
+\label{eq:u-internal}
+\end{equation}
+The second family captures disagreement across sampled reasoning chains and comprises the average pairwise sentence embedding similarity $s_{\text{avg}}$ over $M = 3$ chains sampled at temperature $T = 0.7$, the mean natural language inference entailment probability $p_{\text{entail}}$ from each chain to the final answer, and the normalised semantic entropy $h_{\text{norm}}$ over $K = 10$ chains sampled at $T = 1.0$ and clustered by bidirectional entailment, following the formulation of Farquhar et al.\ \cite{farquhar2024semantic}. The third family captures grounding against external evidence and comprises the maximum entailment $p_{\text{ground}}^{\text{max}}$, the mean entailment $p_{\text{ground}}^{\text{mean}}$, and the weakest link atomic fact entailment $p_{\text{ground}}^{\text{atomic}}$ between the answer and the top three reranked passages retrieved from the Wikipedia index. The verifier shall also record the maximum contradiction probability $p_{\text{contra}}$ across those same passages, used only as a veto in FR4.
+
+Before the signals are combined, the verifier shall apply a hard confabulation gate. If internal confidence is high while external grounding is effectively absent, specifically when $u_{\text{internal}} \geq 0.70$ and $p_{\text{ground}}^{\text{max}} \leq 0.20$, the answer shall be discarded immediately and the composite shall not be computed. The existence of this gate is a direct response to the most dangerous failure mode of self improving systems: a fluent, internally consistent generation that happens to be unsupported by any external source.
+
+For answers that survive the gate, a six weight convex combination shall produce the composite
+\begin{equation}
+\ustored \;=\;
+w_1 p_{\text{ground}}^{\text{mean}} +
+w_2 p_{\text{ground}}^{\text{atomic}} +
+w_3 p_{\text{entail}} +
+w_4 s_{\text{avg}} +
+w_5 u_{\text{internal}} +
+w_6 (1 - h_{\text{norm}}),
+\label{eq:ustored}
+\end{equation}
+with $(w_1, \ldots, w_6) = (0.30, 0.15, 0.15, 0.15, 0.15, 0.10)$ and $\sum_i w_i = 1$. External grounding thereby accounts for $0.45$ of the weight, natural language inference consistency for $0.30$, internal calibration for $0.15$, and the semantic entropy penalty for $0.10$. The weighting reflects a deliberate design commitment: the verifier trusts evidence it can cite against an external source more than it trusts the model's self assessment.
+
+\subsection{FR4: Four-Outcome Storage Decision}
+\label{sec:fr4}
+
+The verification module shall emit one of four categorical decisions, not a binary accept or reject. The decision function is defined as
+\begin{equation}
+d(\ustored, p_{\text{contra}}, p_{\text{ground}}^{\text{max}}) =
+\begin{cases}
+\textsc{Discard} & \text{if } p_{\text{contra}} \geq \tau_{\text{veto}} \\
+\textsc{Store}    & \text{else if } \ustored \geq \tau_{\text{store}} \\
+\textsc{Deferred} & \text{else if } \ustored \geq \tau_{\text{defer}} \\
+\textsc{Abstain}  & \text{else if } p_{\text{ground}}^{\text{max}} < \tau_{\text{abs}} \\
+\textsc{Discard}  & \text{otherwise}
+\end{cases}
+\label{eq:decide}
+\end{equation}
+with thresholds $\tau_{\text{veto}} = 0.30$, $\tau_{\text{store}} = 0.65$, $\tau_{\text{defer}} = 0.45$, and $\tau_{\text{abs}} = 0.20$. A \textsc{Store} decision commits the episode to memory and marks it as training eligible. A \textsc{Deferred} decision writes the episode to memory but withholds it from the training pool, pending a future cycle's retroactive re-verification which may promote it to \textsc{Store} or prune it. An \textsc{Abstain} decision returns a principled refusal to the user and does not write to memory. A \textsc{Discard} decision suppresses the generation entirely. The contradiction veto sits above the composite threshold: a sufficiently confident contradiction from the grounding corpus forces rejection regardless of the composite score, because an answer a source actively contradicts is qualitatively worse than an answer a source merely fails to support.
+
+\subsection{FR5: Episodic Memory Management}
+\label{sec:fr5}
+
+Episodes surviving the storage decision shall be written to a persistent episodic memory capped at $K = 10^{6}$ entries, backed by a FAISS index over the 768 dimensional sentence embedding space. The index shall bootstrap as an exact inner product structure for the first $N_{\text{train}} = 20{,}000$ inserted vectors, at which point it shall automatically promote to an IVF-PQ approximation with $n_{\text{list}} = 4096$ coarse centroids, subquantiser count $M = 64$, and $8$ bits per subquantiser. Each memory entry shall record, at minimum, the question text, the full reasoning chain, the final answer, the sentence embedding, the storage cycle index, the nine signal verifier record, the composite $\ustored$, the contradiction probability $p_{\text{contra}}$, and the storage decision.
+
+Two quality control mechanisms shall operate over the memory. First, novelty: at write time, if the embedding of a candidate episode lies within cosine $0.95$ of any already stored episode, the candidate shall be rejected so that the memory is not permitted to fill with paraphrases of existing entries. Second, pruning: when utilisation crosses $95\%$ of capacity, the bottom $20\%$ of entries by value score shall be removed, where value is a convex combination of an importance term (derived from the storage cycle, the cumulative retrieval count, the running success rate, and the stored composite) and an exponential time decay recency term. These two mechanisms, acting together, ensure that the memory accumulates distinct, durable, and high value episodes across all ten cycles.
+
+\subsection{FR6: Retroactive Re-Verification}
+\label{sec:fr6}
+
+An episode stored in Cycle 2 has been scored against a model that no longer exists by Cycle 5, because two rounds of fine-tuning have intervened. Leaving the memory frozen at the verdict of an earlier model risks carrying forward decisions that the current model would no longer endorse. Between every pair of consecutive cycles, therefore, the system shall re-run the full verifier over every stored entry using the newly fine-tuned weights, and shall update each entry's nine signals, composite $\ustored$, contradiction probability, and storage decision in place. Entries whose new composite falls below the retroactive prune threshold $\tau_{\text{retro}} = 0.50$ shall be removed from memory. This mechanism keeps the memory faithful to the current model's beliefs and is the primary guard against verification drift (Section~\ref{sec:risks}).
+
+\subsection{FR7: Constrained Self-Improvement}
+\label{sec:fr7}
+
+At the end of each cycle, the system shall curate a training batch from the episodes marked \textsc{Store} with composite confidence at or above the training eligibility threshold $\tau_{\text{train}} = 0.75$, and shall mix these with general domain examples in a $90{:}10$ ratio so that self improvement does not cannibalise pretraining coverage. Fine-tuning shall minimise the regularised objective
+\begin{equation}
+\mathcal{L}(\theta) \;=\; \mathcal{L}_{\mathrm{CE}}(\theta) \;+\; \frac{\lambda}{2} \, \lVert \theta - \theta_{\mathrm{prev}} \rVert_{2}^{2},
+\qquad \lambda = 0.01,
+\label{eq:l2anchor}
+\end{equation}
+where $\theta_{\mathrm{prev}}$ is a snapshot of the model weights taken at the start of the current cycle and $\mathcal{L}_{\mathrm{CE}}$ is the standard sequence to sequence cross entropy. This is a uniform prior approximation of Elastic Weight Consolidation \cite{doi:10.1073/pnas.1611835114}, chosen in preference to the full Fisher weighted penalty because the latter would require an additional pass over the training distribution to estimate the diagonal Fisher matrix and would double the memory footprint of the regulariser.
+
+After fine-tuning, the system shall evaluate the updated weights on a held out general knowledge probe and compute the retention ratio
+\begin{equation}
+\rho \;=\; \frac{A_{\text{post}}}{A_{\text{pre}}},
+\label{eq:retention}
+\end{equation}
+where $A_{\text{pre}}$ and $A_{\text{post}}$ are MMLU accuracies measured before and after the cycle. MMLU is chosen as the abort guard probe in preference to any narrower in-distribution measurement because catastrophic forgetting, in the continual-learning sense, manifests as loss of unrelated capability rather than as erosion of the target task; a broad multiple choice benchmark is the only signal that can detect silent drift in domains the training pool does not cover. A QA-family probe on the same distribution the loop is editing would be systematically insensitive to the failure mode the rollback is designed to catch, because fine-tuning on training-eligible episodes reinforces exactly that distribution. The same per-cycle MMLU evaluation additionally feeds the RET axis of the Composite Evaluation Score (Section~\ref{sec:evaluation}); a single pass therefore serves both as the rollback trigger and as the reported retention metric. If $\rho < \tau_{\text{forget}} = 0.93$ the cycle shall be declared a failure, the post cycle weights shall be discarded, and $\theta_{\mathrm{prev}}$ shall be restored. This rollback mechanism is the primary guard against catastrophic forgetting: no single bad cycle is permitted to propagate into the next.
+
+The self improvement loop shall execute for ten cycles (Cycle 0 being the untrained baseline). Cycle 0 serves both as a reference for subsequent retention ratios and as the fitting set for the temperature calibration of FR1.
+
+\subsection{FR8: Ablation and Evaluation Instrumentation}
+\label{sec:fr8}
+
+The system shall expose a registry of ablation variants (Section~\ref{sec:ablation-design}), each specifying exactly which component is disabled or perturbed, whether the variant requires a separate ten cycle trajectory (because it changes what gets stored or trained on) or can reuse the reference trajectory (because it changes only inference time behaviour), and how the Composite Evaluation Score shall be computed when a source dataset is missing. The evaluation harness shall compute the five axis CES defined in Section~\ref{sec:ces} for every variant at every cycle, report per cycle axis breakdowns, and persist the full per run manifest under a deterministic output directory so that every reported number can be regenerated from seed.
+
+\section{Non-Functional Requirements}
 \label{sec:nfr}
-% -------------------------------------------------------------------
 
-Non-functional requirements constrain \emph{how} the system meets its functional
-obligations. The targets in Table~\ref{tab:nfr} are derived from three sources: the
-thesis's computational budget, theoretical conditions of the data purity theorem, and
-the system's intended deployment context.
+Functional requirements state what the system must do; non-functional requirements state how well. We name five and tie each to a measurable acceptance criterion, so that the experimental chapter can determine without interpretive latitude whether the requirement was met.
 
-\begin{center}
-\captionof{table}[Non-Functional Requirements]{CAEM non-functional requirements with targets,
-sources, and measurement methods.}
+The most important is the \emph{forgetting bound}. A self improvement system that cannot demonstrate it is not degrading its own base capability is worse than a static system, because silent erosion of pretraining knowledge is a particularly pernicious failure mode: it is invisible to the objective the system optimises. We hold ourselves to the relative standard $\rho \geq 0.93$ cycle over cycle, enforced operationally by the rollback mechanism of FR7.
+
+The second is \emph{calibration stability}. After temperature scaling has been fit at the end of Cycle 0, the $\upre$ channel shall maintain ECE at most $0.05$ on the calibration split through the remaining nine cycles. Without this property, the numerical thresholds that define Tier 1, Tier 2, and Tier 3 boundaries cease to correspond to the probabilistic semantics assumed by FR2, and the routing premise collapses.
+
+The third is \emph{single-GPU feasibility}. Every component of the pipeline, at training and at inference, shall fit on a single 24~GB consumer class accelerator (the RTX 4090 class being the reference hardware) under mixed precision arithmetic. This is an operational constraint, not an aspirational target: experiments that cannot be reproduced on this hardware are considered out of scope.
+
+The fourth is the \emph{latency envelope}. Tier 1 retrievals shall not invoke the verifier, because the entire justification for storing a verified episode is that future queries close to it can be answered without paying verification cost again. The verifier path is reserved for Tier 2 and Tier 3 and is permitted to be slow; per tier latency distributions are reported in Chapter 5.
+
+The fifth is \emph{reproducibility}. Every run shall record its seed, model revision, FAISS parameters, and active variant manifest, and two runs of the same variant at the same seed shall produce numerically identical results to within floating point noise. The registry shall therefore be deterministic given a seed.
+
+Table~\ref{tab:nfr} summarises the five with their quantitative acceptance criteria.
+
+\begin{table}[H]
+\centering
+\caption{Non-functional requirements and their acceptance criteria.}
 \label{tab:nfr}
-\renewcommand{\arraystretch}{1.3}
-\begin{tabular}{@{}p{3.5cm} p{2.4cm} p{3.5cm} p{3.8cm}@{}}
+\small
+\begin{tabular}{@{}p{3.4cm}p{10.2cm}@{}}
 \toprule
-\textbf{Requirement} & \textbf{Target} & \textbf{Source} & \textbf{Measurement} \\
+\textbf{Property} & \textbf{Acceptance criterion} \\
 \midrule
-Tier 1 end-to-end latency &
-  $< 400$\,ms &
-  Design constraint (retrieval only) &
-  Wall-clock timing on RTX 3060 \\
-Tier 2 end-to-end latency &
-  $< 2.5$\,s &
-  Design constraint &
-  Wall-clock timing per call \\
-Tier 3 end-to-end latency &
-  $< 6$\,s &
-  Design constraint &
-  Wall-clock timing per call \\
-Verification balanced accuracy $\alpha$ &
-  $\geq 85\%$ &
-  Purity theorem: $\alpha > 0.5$ required, $\alpha \geq 0.85$ ensures $P \gg p$ &
-  $(TP + TN) / N$ on validation set \\
-General-domain retention ratio per cycle &
-  $\geq 93\%$ &
-  Forgetting abort threshold (FR-08) &
-  Held-out general-domain accuracy ratio (post/pre cycle) \\
-GPU budget (total) &
-  $\leq 50$\,h &
-  RTX 3060 university allocation &
-  Cumulative GPU time across all cycles \\
-Memory store capacity &
-  $\leq 20{,}000$ episodes &
-  VRAM and disk budget &
-  Episode count before pruning triggers \\
-Embedding dimension &
-  768 dimensions &
-  \texttt{all-mpnet-base-v2} specification &
-  Verified at initialisation \\
+Forgetting bound         & Cycle retention ratio $\rho \geq 0.93$; cycles that violate the bound are rolled back to $\theta_{\mathrm{prev}}$. \\
+Calibration stability    & After Cycle 1, temperature scaled $\upre$ achieves ECE at most $0.05$ on the calibration split. \\
+Single-GPU feasibility   & Full pipeline runs on a single 24~GB accelerator at fp16; Wikipedia passage index is memory mapped from disk. \\
+Latency envelope         & Tier 1 bypasses the verifier; verifier path is reserved for Tier 2 and Tier 3. \\
+Reproducibility          & Deterministic registry given a seed; per run manifests contain seed, weights revision, and FAISS parameters. \\
 \bottomrule
 \end{tabular}
-\end{center}
+\end{table}
 
-The latency targets define the three tiers as a performance spectrum rather than
-an arbitrary categorisation. Tier 1 must be fast enough to represent a meaningful
-efficiency gain over generation; 400\,ms achieves this for interactive use.
-Tier 3 at 6\,s reflects the genuine cost of Wikipedia retrieval and full generation;
-the system earns this latency only for queries that cannot be served from memory.
+\section{System Constraints}
+\label{sec:constraints}
 
-The verification accuracy target of $\alpha \geq 85\%$ is not arbitrary. The data
-purity theorem (Chapter 4, Theorem 1) proves that memory purity $P > p$ (base accuracy)
-if and only if $\alpha > 0.5$. The 85\% target provides substantial margin above this
-theoretical minimum, ensuring that even under realistic calibration error, memory
-quality remains well above base generation quality across all four benchmarks.
+Four classes of constraint shape the design space and must be named explicitly, because they render otherwise arbitrary looking design choices intelligible.
 
-The general-domain retention target of 93\% per cycle is tied directly to FR-08's
-circuit-breaker.
-This threshold was calibrated conservatively: preliminary implementation tests showed
-that L2-regularised fine-tuning with $\lambda = 0.01$ achieves 1.75$\times$ above-baseline
-retention in Cycle 1, comfortably clearing the 93\% floor. The abort condition makes
-this a hard safety constraint rather than a best-effort target.
+\paragraph{Hardware.} The reference deployment target is a single RTX 4090 class accelerator with 24~GB of VRAM. Flan-T5-Large (780M parameters) occupies approximately $1.5$~GB at fp16, the sentence embedding encoder (110M) and the RoBERTa-Large-MNLI verifier (355M) together approximately $1.0$~GB, and the Wikipedia passage index in IVF-PQ form approximately $4$ to $6$~GB on disk, memory mapped rather than resident. Mixed precision arithmetic is used throughout. No multi-GPU training, distributed retrieval, or cluster scheduling is assumed at any stage.
 
-% -------------------------------------------------------------------
-\subsection{Hardware Constraints as Design Drivers}
-\label{sec:hw-constraints}
-% -------------------------------------------------------------------
+\paragraph{Compute budget.} The experimental program is planned in two phases so that the full ablation registry remains feasible on a student scale budget. Phase 1 is a screening sweep across all sixteen ablation variants at a reduced per cycle question count and a single seed, intended to rule out variants whose CES is obviously dominated by the reference before the thesis commits compute to variance estimation. Phase 2 promotes the surviving variants to a full ten cycle trajectory across three seeds, so that Chapter 5 can report means with confidence intervals rather than point estimates.
 
-The hardware available for this research --- an NVIDIA RTX 3060 with 12\,GB VRAM and
-a 50\,GPU-hour university allocation --- is not merely a limitation to work around.
-Every major architectural decision in CAEM was shaped by these constraints, and the
-thesis's central contribution is demonstrating that meaningful, measurable hallucination
-reduction is achievable within real-world resource limits, not in spite of them.
+\paragraph{Data.} Only public, redistributable benchmarks are used. Training eligible episodes originate from Natural Questions, TriviaQA, and FEVER. Hallucination focused evaluation uses HaluEval and TruthfulQA. General knowledge retention is probed by MMLU. The Tier 3 grounding corpus is the standard DPR preprocessed 100 word passage split of Wikipedia. No private, user, or restricted content is used at any stage, and no user specific memory is populated in released checkpoints.
 
-Table~\ref{tab:hw-constraints} documents each constraint and the design decision it
-forced.
+\paragraph{Scope.} CAEM is a system for factual, knowledge intensive question answering. It is not a system for creative writing, open ended dialogue, code generation, or multi turn conversation. Those domains do not admit the kind of external ground truth against which the verifier can check, which makes the whole architecture of gates and composite thresholds ill defined on them. We make this scope explicit because it is easy, and incorrect, to read the framing of CAEM as claiming to reduce hallucination in language models generically; it does so only where hallucination can be defined, measured, and verified against an external source.
 
-\begin{center}
-\captionof{table}[Hardware Constraints and Design Decisions]{How each hardware constraint
-produced a specific CAEM design decision.}
-\label{tab:hw-constraints}
-\renewcommand{\arraystretch}{1.3}
-\begin{tabular}{@{}p{3.5cm} p{3.0cm} p{6.2cm}@{}}
+\section{Evaluation Methodology}
+\label{sec:evaluation}
+
+The evaluation methodology for a system with this many interacting components must be chosen with care: a single axis metric is trivially gameable by sacrificing a neglected axis, and a collection of unrelated metrics invites selective reporting. We therefore commit to a single primary metric, the Composite Evaluation Score (CES), supported by a small set of diagnostic metrics that together permit a defensible end to end judgement.
+
+\subsection{Composite Evaluation Score}
+\label{sec:ces}
+
+The Composite Evaluation Score is the unweighted geometric mean of five axes:
+\begin{equation}
+\mathrm{CES} \;=\; \bigl(\mathrm{ACC} \cdot \mathrm{EPI} \cdot \mathrm{RET} \cdot \mathrm{CAL} \cdot \mathrm{VER}\bigr)^{1/5}.
+\label{eq:ces}
+\end{equation}
+Each axis lies in $[0, 1]$. Before aggregation, each axis is clamped to $[\varepsilon, 1]$ with $\varepsilon = 0.01$, so that an uncomputable axis (for example, an MMLU load failure for a particular variant) degrades CES visibly but does not annihilate it, which would render the affected variant incomparable to its peers.
+
+Geometric mean aggregation is a deliberate design commitment. A system that collapses on any single axis cannot be rescued by strong performance on the other four, because the fifth root of zero is zero. This reflects the honest position that a hallucination reducing pipeline that has forgotten its general knowledge has failed, even if it has, on some narrow measure, reduced hallucinations. Arithmetic mean aggregation would obscure such a collapse; geometric mean aggregation refuses to.
+
+The five axes are defined in Table~\ref{tab:ces-axes}. ACC is the mean per-benchmark correctness across a panel of factual benchmarks, where the correctness metric is chosen per benchmark to match its answer format (exact match for open-ended question answering, token-level F1 for free-form answers, label accuracy for multi-way classification, and ROUGE-L at a fixed threshold for generation-style benchmarks); the per-benchmark choice is specified in Chapter~5. EPI is the complement of the confident error rate, where a confident error is an answer that scored $\ustored \geq 0.50$ yet was nevertheless wrong under the benchmark's correctness metric, which isolates the failure mode the system is explicitly built to suppress. RET is the ratio of MMLU accuracy after fine-tuning to MMLU accuracy at baseline, clipped at one so that retention cannot exceed the baseline capability. CAL is derived from the expected calibration error of $\ustored$ against empirical correctness, scaled so that an ECE of zero maps to unity and an ECE at or above $0.5$ maps to zero. VER is reserved for direct evaluation of the verifier against gold \textsc{Store}/\textsc{Discard} labels and is set at a placeholder value of $0.5$ until such labels are available for a held out sample.
+
+\begin{table}[H]
+\centering
+\caption{The five axes of the Composite Evaluation Score.}
+\label{tab:ces-axes}
+\small
+\begin{tabular}{@{}p{1.2cm}p{6.0cm}p{6.4cm}@{}}
 \toprule
-\textbf{Constraint} & \textbf{Limit} & \textbf{Design decision forced} \\
+\textbf{Axis} & \textbf{Definition} & \textbf{Source} \\
 \midrule
-VRAM capacity &
-  12\,GB &
-  Training batch size fixed at 4 (not 16). Previous-cycle weights ($\theta_{\text{prev}}$)
-  stored on CPU and transferred per batch to avoid holding two full model copies
-  in VRAM simultaneously. \\
-Passage index size &
-  500K Wikipedia passages &
-  Limits Tier 3 retrieval quality relative to full-scale DPR deployments, but remains
-  within the 10\,GB FAISS index that fits on disk alongside the model. \\
-GPU budget &
-  50\,h total &
-  Drives $n_{\text{questions}} = 5{,}000$ per benchmark (not 10{,}000+) and
-  $n_{\text{cycles}} = 3$ (not 5--7). Three cycles capture the essential
-  self-improvement dynamics while using approximately 40--45 GPU hours. \\
-Memory store capacity &
-  $\leq 20{,}000$ episodes &
-  Drives the cold-start seeding strategy (447 episodes seeded before Cycle 0
-  to prevent empty-memory cold-start degradation) and the value-based pruning
-  mechanism that activates at 95\% capacity. \\
+ACC & Mean per-benchmark correctness, using the metric appropriate to each benchmark (EM, F1, label accuracy, or ROUGE-L; see Chapter~5). & FEVER, TriviaQA, NQ, HaluEval, TruthfulQA. \\
+EPI & $1 - \text{confident error rate}$, where a confident error satisfies $\ustored \geq 0.50$ and the sample is incorrect under the benchmark's correctness metric. & Pooled over ACC benchmarks. \\
+RET & $\min(\mathrm{MMLU}_{\text{cycle}} / \mathrm{MMLU}_{\text{baseline}},\ 1)$. & MMLU 57 task 4-choice. \\
+CAL & $1 - 2 \cdot \min(\mathrm{ECE},\ 0.5)$ on $(\ustored,\ \text{correctness})$ reliability bins, where correctness is the benchmark-appropriate binary indicator. & Pooled over ACC benchmarks. \\
+VER & Placeholder at $0.5$ pending gold verifier labels. & Held out verifier sample (future work). \\
 \bottomrule
 \end{tabular}
-\end{center}
+\end{table}
 
-The RTX 3060's 12\,GB VRAM also prevents loading the NLI model (RoBERTa-Large-MNLI,
-355M parameters) and the main model (Flan-T5-Large, 780M parameters) simultaneously
-at full precision. The solution --- loading both in \texttt{fp16} and reserving
-gradient storage only during fine-tuning --- was implemented as a design constraint
-at the system level rather than a runtime workaround.
+\subsection{Diagnostic Metrics}
+\label{sec:diagnostics}
 
-These constraints are a research contribution in themselves. Much of the existing
-self-improvement literature assumes access to multi-GPU clusters or 70B-scale models.
-\caem{} demonstrates a complete verified self-improvement loop under single-GPU, 12\,GB
-constraints, making the approach reproducible at institutions without dedicated
-AI infrastructure. If the full experiment is later rerun on a higher-capacity device
-(e.g.\ RTX 4090 or A100), Chapter~5 will report latency numbers from that device; the
-architectural decisions above remain unchanged regardless.
+Alongside CES, three diagnostic metrics are reported at every cycle so that a reader can attribute any observed change in CES to an underlying mechanism. The \emph{confident error rate} is tracked directly and drives the EPI axis, but is additionally reported as an absolute percentage to aid cross work comparison. The \emph{AUROC of $\ustored$ against empirical correctness} measures whether the composite has any discriminative power over answer correctness independently of threshold placement, and is the single best indicator of whether the verifier is learning something non trivial. The \emph{reliability diagram} of $\ustored$ against empirical accuracy, partitioned into ten confidence bins, reveals whether the system is well calibrated or merely threshold lucky.
 
-With the functional, non-functional, and hardware requirements established, the next
-section turns to the broader question of impact: the societal value the system can
-deliver, the risks it introduces, and the boundaries within which its claims hold.
+\section{Ablation Study Design}
+\label{sec:ablation-design}
 
-% ===================================================================
-\section{Societal and Ethical Impact}
+Sixteen ablation variants constitute the study. One is the reference. One, \emph{No self-improvement}, freezes the pipeline at Cycle 0 and thereby isolates the contribution of the self improvement loop at a fraction of the compute of a full run. The remaining fourteen are cyclic lesions that each require their own ten cycle trajectory because each one modifies what is stored in memory or what is trained on, and therefore cannot reuse the reference trajectory's weights or memory. Table~\ref{tab:ablation-registry} lists the registry, distinguishing cyclic from non-cyclic variants.
+
+\begin{table}[H]
+\centering
+\caption{Ablation registry. The cyclic column indicates whether the variant requires its own ten cycle trajectory because it modifies storage or training behaviour.}
+\label{tab:ablation-registry}
+\small
+\begin{tabular}{@{}p{4.6cm}p{7.8cm}c@{}}
+\toprule
+\textbf{Variant} & \textbf{Ablation} & \textbf{Cyclic} \\
+\midrule
+Reference                          & Full pipeline; no mutation.                                             & ---  \\
+No verification                    & Store every Tier 2 and Tier 3 generation without verification.          & yes  \\
+No grounding                       & Zero the four external grounding weights and renormalise.               & yes  \\
+No contradiction veto              & Neutralise the $p_{\text{contra}}$ veto.                                & yes  \\
+No store gate                      & Remove the composite store threshold.                                   & yes  \\
+No internal calibration            & Zero the $u_{\text{internal}}$ weight and renormalise.                  & yes  \\
+No semantic entropy                & Drop the $(1 - h_{\text{norm}})$ term.                                  & yes  \\
+Equal signal weights               & Collapse all six composite weights to equal values.                     & yes  \\
+No early-exit gate                 & Disable the confabulation gate.                                         & yes  \\
+No self-improvement                & Full pipeline evaluated at Cycle 0 only; no fine-tuning.                & no   \\
+No retroactive re-verification     & Skip retroactive re-verification between cycles.                        & yes  \\
+No Tier 1 shortcut                 & Force every query through the verifier path.                            & yes  \\
+No Tier 3 RAG                      & Disable Tier 3 retrieval; zero shot fallback.                           & yes  \\
+No novelty filter                  & Permit near duplicate episodes.                                         & yes  \\
+No recency decay                   & Flatten the recency term in the pruning score.                          & yes  \\
+Aggressive store threshold         & Raise $\tau_{\text{store}}$ from $0.65$ to $0.85$.                      & yes  \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Because cyclic lesions are roughly as expensive as the reference trajectory, the full ablation registry is run in the two phase structure described in Section~\ref{sec:constraints}. Phase 1 screens the registry at reduced per cycle budget and a single seed; Phase 2 promotes the survivors to full budget and three seeds. This keeps the study feasible within the student scale compute constraint without compromising the scientific content of the ablations that survive screening.
+
+\section{Risk Analysis and Mitigation}
+\label{sec:risks}
+
+A system that writes to a durable memory and fine-tunes itself on what it has written admits, by construction, several catastrophic failure modes. Five are serious enough to warrant explicit mitigation, and for each the mitigation is a mechanism already specified in Section~\ref{sec:functional-requirements}.
+
+The first is \emph{verification drift}. Thresholds that partition \textsc{Store}, \textsc{Deferred}, and \textsc{Discard} are set against Cycle 0's base model; by Cycle 5 the model is a different entity, and the composite $\ustored$ on episodes written early may no longer reflect the current beliefs. The mitigation is FR6 retroactive re-verification, which re-scores every entry at every cycle boundary and updates or prunes its decision accordingly.
+
+The second is \emph{catastrophic forgetting}. Fine-tuning on a hundred high confidence episodes sounds benign until the hundredth happens to erase something important from the pretraining distribution. The mitigation is the cycle level rollback of FR7: if $\rho < 0.93$ the cycle is discarded and $\theta_{\mathrm{prev}}$ is restored, so that no bad cycle propagates.
+
+The third is \emph{near duplicate episode accumulation}. Across ten cycles, without a novelty filter, the memory would trivially fill with paraphrases of the same high frequency questions while covering no additional ground. The FR5 novelty filter rejects any write within cosine $0.95$ of an existing entry, so that each stored episode is distinct.
+
+The fourth is the \emph{confident confabulation that a weighted composite would miss}. It is possible for a well formed but ungrounded generation to score highly on internal calibration, self consistency, and low entropy, and only moderately on external grounding, which the composite might still average into a pass. The early exit gate of FR3 is defined precisely to catch this profile: it discards the generation before the composite is computed whenever internal confidence is high and grounding is effectively absent.
+
+The fifth is \emph{benchmark contamination}. A variant that accidentally memorises a particular benchmark would inflate ACC while quietly degrading RET, and an arithmetic mean aggregator would hide this. The geometric mean of Equation~\ref{eq:ces} cannot: a collapse on RET drags CES down as the fifth root of the collapse, and is surfaced in the per axis breakdown that accompanies every reported CES value.
+
+\section{Ethical Considerations and Broader Impact}
 \label{sec:impact}
-% ===================================================================
 
-% -------------------------------------------------------------------
-\subsection{Potential Benefits and Societal Value}
-\label{sec:benefits}
-% -------------------------------------------------------------------
+The anticipated benefit of a successful CAEM deployment is a concrete capability that does not currently exist in the open model space: a single GPU language model pipeline that declines to answer when it cannot ground its answer, stores only what it has verified, and improves over time under an explicit forgetting bound. Such a capability is most useful in settings where large closed models are out of reach but the cost of hallucination is high, for example small legal aid clinics, local educational tutoring platforms, and single institution knowledge bases. The \textsc{Abstain} decision of FR4 is itself a broader impact feature, because it gives users a principled refusal in place of a confident fabrication.
 
-The primary societal benefit of CAEM is reducing the rate at which factually incorrect
-information is generated with high confidence by language model systems. Hallucination
-in deployed AI has measurable real-world costs: medical literature analysis has found
-hallucination rates of 69--77\% in ChatGPT responses to clinical questions
-\cite{alkaissi2023artificial}, and the TruthfulQA benchmark demonstrates that current
-frontier models answer only 58\% of questions truthfully alone and as low as 21--25\%
-on the combined truthful-and-informative metric, a performance substantially below
-human accuracy \cite{lin-etal-2022-truthfulqa}.
+The risks are equally concrete. CAEM inherits biases from three sources: the Flan-T5 pretraining corpus, the Wikipedia passage index used for Tier 3 grounding, and the benchmark data that seeds the self improvement loop. An episode verified against a biased passage can pass the composite threshold, enter the memory, and be confidently retrieved on future queries, thereby compounding the bias across cycles. FR6 retroactive re-verification partially mitigates this by permitting later cycles to revise earlier decisions, but we do not claim the mitigation is sufficient in domains where the grounding corpus is known to be systematically biased. The \textsc{Store} decision is a durable write, and a sufficiently confident but incorrect answer is stored indefinitely; the novelty filter, the pruning policy, and the contradiction veto limit the damage, but the memory is not self cleaning.
 
-CAEM addresses this through three complementary mechanisms. First, it prevents
-unverified knowledge from accumulating in memory: only answers that pass multi-signal
-verification are stored, so the system's knowledge base cannot grow through
-confabulation. Second, it makes accumulated knowledge reusable: verified reasoning
-chains become training data that improves future generation, avoiding the stateless
-wastage of current systems in which each correct answer is discarded after delivery.
-Third, it provides a principled confidence signal that separates high-reliability
-Tier 1 responses from uncertain Tier 3 queries, allowing downstream systems or users
-to act on this signal appropriately.
+We do not recommend deployment in any setting where an incorrect stored answer cannot be recalled or corrected, and we will not release model checkpoints with user specific episodic content populated. The substantive claim the thesis aims to establish in Chapter 5 is not that CAEM eliminates hallucination (no such system can), but that a pipeline built around multi-signal verification and constrained self improvement can reduce confident error rates over a ten cycle trajectory without eroding general capability, at a compute budget that fits on a single consumer accelerator.
 
-These properties make the system particularly relevant to knowledge-intensive
-applications where hallucination has high costs: educational content delivery, enterprise
-knowledge management, and domain-specific question answering. The verified episodic
-memory design also enables an interpretable audit trail --- every stored episode records
-its source query, answer, verification scores ($p_{\text{entail}}, s_{\text{avg}},
-h_{\text{norm}}$), and cycle provenance, providing a level of transparency absent
-from purely generative systems.
+\section{Chapter Summary}
+\label{sec:ch3-summary}
 
-% -------------------------------------------------------------------
-\subsection{Risks and Ethical Considerations}
-\label{sec:risks-ethics}
-% -------------------------------------------------------------------
+This chapter has specified the obligations and constraints under which CAEM will be designed, implemented, and evaluated. Section~\ref{sec:functional-requirements} stated the eight functional requirements that partition the query level control flow, beginning with pre-routing confidence estimation and ending with ablation and evaluation instrumentation. Section~\ref{sec:nfr} tied five quality attributes to quantitative acceptance criteria. Section~\ref{sec:constraints} named the hardware, compute, data, and scope boundaries within which the work is conducted. Section~\ref{sec:evaluation} committed the evaluation to a single primary metric, the geometric mean Composite Evaluation Score, supported by three diagnostic metrics and the sixteen variant ablation registry of Section~\ref{sec:ablation-design}. Section~\ref{sec:risks} enumerated five catastrophic failure modes and matched each to a mitigating mechanism already folded into the functional requirements. Section~\ref{sec:impact} named the ethical considerations raised by deployment.
 
-CAEM introduces several risks that must be acknowledged alongside its benefits.
-
-\textbf{False positive storage.} The multi-signal verification pipeline targets
-$\alpha \geq 85\%$ balanced accuracy, which means approximately 10--15\% of stored
-episodes may contain incorrect answers that passed the verification gate. An incorrect
-episode stored with high $\ustored$ will be retrieved for similar future queries and may
-also appear as training data in subsequent fine-tuning cycles, potentially reinforcing
-the error. This is the primary systemic risk of the design. Mitigation mechanisms ---
-retroactive re-verification between cycles and the $\ustored \geq 0.50$ pruning
-threshold --- reduce but cannot eliminate this risk. Chapter 5 quantifies the observed
-false positive rate empirically.
-
-\textbf{Miscalibrated confidence.} If temperature scaling calibration is performed
-incorrectly or on an unrepresentative calibration set, the $\uhat$ thresholds
-may not correspond to actual accuracy rates. A miscalibrated system could route
-low-quality answers through Tier 1 (direct retrieval) without triggering the
-verification gate, compounding errors silently. Calibration is therefore performed on
-a held-out 500-sample set, and the expected calibration error (ECE) is reported in
-Chapter 5 to document calibration quality.
-
-\textbf{Benchmark scope.} The system is evaluated exclusively on English-language,
-closed-form question answering tasks with objectively verifiable answers. Claims about
-hallucination reduction are scoped to this setting. The system should \emph{not} be
-interpreted as a general solution to hallucination in open-ended generation, medical
-advice, legal reasoning, or multilingual contexts. These domains introduce evaluation
-criteria --- subjectivity, jurisdiction-specific facts, code-switching --- that the
-current design does not address.
-
-\textbf{Model selection and bias.} Flan-T5-Large inherits biases present in its
-pre-training corpus \cite{JMLR:v25:23-0870}. Fine-tuning on verified episodic
-memory does not correct for distributional biases in the base model; it can only
-improve factual correctness within the knowledge distribution already captured during
-pre-training. Users and downstream integrators should be aware that high $\ustored$
-indicates that an answer is self-consistent and entailed by the model's own reasoning,
-not that it is verified against a trusted external ground truth.
-
-% -------------------------------------------------------------------
-\subsection{Scope and Deployment Limitations}
-\label{sec:scope-limits}
-% -------------------------------------------------------------------
-
-This research is an undergraduate thesis project and its claims are correspondingly
-scoped. The experimental results apply to the specific combination of model (Flan-T5-Large,
-780M parameters), benchmarks (HotpotQA, TruthfulQA, FEVER, StrategyQA), and hardware
-(RTX 3060, 12\,GB VRAM). Generalisation to larger models, real-time deployment
-environments, or domains outside knowledge-intensive QA requires further investigation.
-
-The closed-loop design does not involve any human feedback signal, user data collection,
-or external API calls during inference. Memory episodes are derived entirely from
-model-generated content, and all training data is either pre-existing (Flan-T5's
-original training) or generated by the model itself. No personally identifiable
-information is collected or processed.
-
-With the impact and risk analysis complete, the final section describes how the research
-is managed to deliver these components within the available time and resource constraints.
-
-% ===================================================================
-\section{Project Management}
-\label{sec:project-management}
-% ===================================================================
-
-% -------------------------------------------------------------------
-\subsection{Phases and Timeline}
-\label{sec:timeline}
-% -------------------------------------------------------------------
-
-The research is structured into four sequential phases, each with defined deliverables
-and gate conditions that must pass before the subsequent phase begins.
-Figure~\ref{fig:timeline} gives a visual overview of the four-phase progression;
-Table~\ref{tab:timeline} details the deliverables for each phase.
-
-\begin{center}
-\begin{tikzpicture}[
-    phase/.style={rectangle, rounded corners=4pt, draw=black!60, fill=#1,
-                  minimum width=2.4cm, minimum height=1.1cm,
-                  text width=2.2cm, align=center, font=\small\bfseries},
-    gate/.style={diamond, draw=black!50, fill=yellow!20, aspect=1.8,
-                 inner sep=1pt, font=\tiny, align=center},
-    arr/.style={->, >=stealth, line width=1.1pt, black!60},
-    sub/.style={font=\scriptsize, text=black!70, align=center, text width=2.4cm}
-]
-% Phase boxes
-\node[phase=blue!15]   (p1) at (0,   0) {Phase 1\\Months 1--3};
-\node[phase=teal!20]   (p2) at (3.6, 0) {Phase 2\\Months 4--7};
-\node[phase=orange!20] (p3) at (7.2, 0) {Phase 3\\Months 8--10};
-\node[phase=red!15]    (p4) at (10.8,0) {Phase 4\\Months 11--12};
-
-% Gate diamonds
-\node[gate] (g1) at (1.8,  0) {smoke\\test};
-\node[gate] (g2) at (5.4,  0) {mini-\\run};
-\node[gate] (g3) at (9.0,  0) {full\\exp.};
-
-% Arrows
-\draw[arr] (p1) -- (g1);
-\draw[arr] (g1) -- (p2);
-\draw[arr] (p2) -- (g2);
-\draw[arr] (g2) -- (p3);
-\draw[arr] (p3) -- (g3);
-\draw[arr] (g3) -- (p4);
-
-% Annotations below
-\node[sub] at (0,   -1.0) {Design \&\\Literature};
-\node[sub] at (3.6, -1.0) {Implementation\\(critical path)};
-\node[sub] at (7.2, -1.0) {Experiments\\\& Ablation};
-\node[sub] at (10.8,-1.0) {Writing \&\\Submission};
-\end{tikzpicture}
-\captionof{figure}{Four-phase project timeline. Each diamond represents a gate condition
-(smoke test, mini-run validation, and full-scale experiment completion respectively)
-that must pass before the next phase begins. Phase~2 is the critical path: the
-full-scale experiment cannot start until all eight pipeline stages run end-to-end
-without failures.}
-\label{fig:timeline}
-\end{center}
-
-The twelve-month allocation across phases and the deliverables for each gate are
-described in Table~\ref{tab:timeline}.
-
-\begin{center}
-\captionof{table}[Project Timeline]{Phase-based project plan with deliverables and dependencies.}
-\label{tab:timeline}
-\renewcommand{\arraystretch}{1.3}
-\begin{tabular}{@{}p{0.6cm} p{2.3cm} p{2.3cm} p{7.0cm}@{}}
-\toprule
-\textbf{Ph.} & \textbf{Duration} & \textbf{Period} & \textbf{Deliverables and Gate Conditions} \\
-\midrule
-1 &
-  3 months &
-  Months 1--3 &
-  Literature review (Ch.\ 2). System design: pipeline architecture, confidence estimation
-  design, routing logic, verification protocol. Pre-thesis report submitted with
-  Chapters 1--2 and methodology overview. \\
-2 &
-  4 months &
-  Months 4--7 &
-  Full implementation of all 8 pipeline stages. Passage index construction (500K Wikipedia
-  passages). Cold-start seeding (447 episodes). Smoke test on RTX 3060: Cycle 0--3 on
-  $n = 8$ synthetic queries, all stages verified end-to-end. \\
-3 &
-  3 months &
-  Months 8--10 &
-  Mini-run ($n = 500$ per benchmark, 4 cycles) to validate improvement signal and
-  mechanism evidence. Full-scale experiment ($n = 5{,}000$ per benchmark, 3 cycles)
-  on confirmed device. Ablation study and purity validation scripts. \\
-4 &
-  2 months &
-  Months 11--12 &
-  Chapter writing (Ch.\ 3--6). Final corrections. Thesis submission. \\
-\bottomrule
-\end{tabular}
-\end{center}
-
-Phase 2 is the critical path. The full-scale experiment (Phase 3) cannot begin until
-all eight pipeline stages pass the smoke test with no exception-raising failures.
-Chapter 5 similarly cannot be written until Phase 3 is complete.
-
-% -------------------------------------------------------------------
-\subsection{Risk Register}
-\label{sec:risk-register}
-% -------------------------------------------------------------------
-
-Table~\ref{tab:risks} identifies the four highest-impact risks to the project timeline
-and documents the contingency action for each.
-
-\begin{center}
-\captionof{table}[Risk Register]{Key project risks, likelihood, and mitigation actions.}
-\label{tab:risks}
-\renewcommand{\arraystretch}{1.3}
-\begin{tabular}{@{}p{3.8cm} p{1.4cm} p{1.4cm} p{6.0cm}@{}}
-\toprule
-\textbf{Risk} & \textbf{Likelihood} & \textbf{Impact} & \textbf{Mitigation} \\
-\midrule
-GPU OOM during fine-tuning &
-  Medium &
-  High &
-  Batch size = 4. $\theta_{\text{prev}}$ on CPU. Gradient checkpointing.
-  Dynamic padding via \texttt{DataCollatorForSeq2Seq}. \\
-Verification $\alpha < 85\%$ (below NFR-04) &
-  Low &
-  Medium &
-  Increase NLI sample count $M$. Retune $\ustored$ threshold.
-  Report boundary condition as a finding rather than a failure. \\
-General-domain retention ratio below 93\% abort threshold &
-  Low &
-  Medium &
-  Increase general-domain mixing ratio from 10\% to 20\%.
-  Reduce learning rate from $10^{-5}$ to $5\times 10^{-6}$.
-  Revert to previous cycle's model weights. \\
-Full-scale GPU device unavailable in Phase 3 &
-  Medium &
-  Medium &
-  Mini-run ($n = 500$) on RTX 3060 provides publishable results.
-  Scale to $n = 5{,}000$ on Kaggle T4, Vast.ai, or university cluster
-  if available before submission. \\
-\bottomrule
-\end{tabular}
-\end{center}
-
-% -------------------------------------------------------------------
-\subsection{Development Methodology}
-\label{sec:dev-methodology}
-% -------------------------------------------------------------------
-
-The implementation follows a test-driven development approach. Each pipeline stage is
-implemented with an accompanying unit test suite that verifies both the happy path and
-common failure modes (e.g.\ empty memory store, NLI model unavailable, FAISS index not
-built). At the time of writing, 96 unit tests and 3 prompt sanity tests pass with no
-failures across the complete pipeline codebase.
-
-Configuration management uses a centralised \texttt{CAEMConfig} dataclass
-from which all numeric constants are drawn. No magic numbers appear in pipeline code.
-Every hyperparameter is annotated with its category (literature-fixed, design choice,
-or empirically calibrated) and its source, enabling full traceability from thesis claim
-to implementation constant.
-
-Version control and reproducibility are maintained throughout. The implementation log
-(\texttt{caem-implementation-log.md}) records every resolved bug, design revision, and
-experimental result chronologically, providing a complete record of decisions made
-between Chapters~2 and 5.
-
-% -------------------------------------------------------------------
-% Chapter summary
-% -------------------------------------------------------------------
-\bigskip
-\noindent
-This chapter has established the complete specification boundary for \caem{}.
-Section~\ref{sec:requirements} grounded eight functional requirements in the pipeline
-stages and bounded performance through measurable non-functional targets; the hardware
-subsection showed that real resource constraints drove specific architectural choices
-rather than limiting the design arbitrarily.
-Section~\ref{sec:impact} framed the societal value of the work and documented the
-risks --- particularly false positive storage and miscalibrated confidence --- that
-experimental evaluation in Chapter~5 must address.
-Section~\ref{sec:project-management} defined the gated four-phase delivery plan and
-the test-driven development practice that keeps implementation and specification
-aligned throughout.
-Chapter~4 now translates these requirements into the full technical methodology:
-the mathematical formalisation of each pipeline stage, the confidence estimation
-equations, the verification protocol, and the theoretical analysis of the
-self-improvement dynamics.
+Chapter 4 operationalises each of the eight functional requirements into a concrete mechanism, Chapter 5 reports the experimental trajectory against the acceptance criteria of Section~\ref{sec:nfr} and the CES framework of Section~\ref{sec:ces}, and Chapter 6 discusses the results in light of the risks and ethical considerations of the present chapter.

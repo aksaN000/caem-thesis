@@ -10,7 +10,7 @@ Ties all 8 stages together for a single query:
   Stage 3 -- PreRoutingConfidence    u_pre (2 fast signals)
   Stage 3 -- AdaptiveRouter          Tier 1 / 2 / 3 dispatch
   Stage 4a -- PostGenerationConf.    û (4 signals, Tier 2 only)
-  Stage 5 -- MultiLayerVerifier      û_stored (quality gate, all tiers)
+  Stage 5 -- UnifiedVerifier         û_stored (quality gate, all tiers)
   Stage 6 -- TierThreeRAG            retrieval-augmented generation
   Stage 7 -- Storage decision        novelty + û_stored threshold
   Stage 8 -- SelfImprovementLoop     (called externally; not triggered here)
@@ -47,19 +47,18 @@ import numpy as np
 import torch
 
 from caem.config import CAEMConfig
-from caem.confidence.post_generation import PostGenerationConfidenceEstimator
 from caem.confidence.pre_routing import PreRoutingConfidenceEstimator
 from caem.memory.entry import (
     EpisodicEntry,
     PostGenerationConfidence,
     PreRoutingConfidence,
     RoutingDecision,
-    StoredConfidence,
 )
+from caem.memory.deferred import DeferredBuffer
 from caem.memory.store import EpisodicMemoryStore
 from caem.retrieval.rag import PassageStore, TierThreeRAG
 from caem.routing.router import AdaptiveRouter
-from caem.verification.verifier import MultiLayerVerifier
+from caem.verification.verifier import UnifiedVerifier, UnifiedVerifierOutput
 
 logger = logging.getLogger(__name__)
 
@@ -90,8 +89,18 @@ class PipelineResult:
         u_pre and its components.
     post_confidence : PostGenerationConfidence or None
         û and its components -- None if Tier 1 or Tier 3.
-    stored_confidence : StoredConfidence or None
-        û_stored from Stage 5 verification -- None if verification was skipped.
+    verifier_output : UnifiedVerifierOutput or None
+        Full Stage-5 verifier record: all nine signals (u_token, u_dropout,
+        u_internal, s_avg, h_norm, p_entail, p_ground_max, p_ground_mean,
+        p_ground_atomic), p_contra, the composite u_stored, the decision
+        string (STORE/DEFERRED/ABSTAIN/DISCARD), and the early-exit flag.
+        ``None`` for Tier 1 hits (the verifier is deliberately skipped) and
+        for Tier 2/3 failures. Downstream code (harness, metric suite)
+        reads ``u_stored`` / ``decision`` / per-signal fields directly.
+    u_stored : float or None
+        Convenience scalar. For Tier 1 hits this is the retrieved entry's
+        stored composite (the verifier was not re-run). For Tier 2/3 it is
+        ``verifier_output.u_stored`` when verification succeeded, else None.
     entry_id : int or None
         FAISS entry ID if the answer was stored; None otherwise.
     escalated : bool
@@ -106,7 +115,8 @@ class PipelineResult:
     routing_decision: Optional[RoutingDecision] = None
     pre_confidence: Optional[PreRoutingConfidence] = None
     post_confidence: Optional[PostGenerationConfidence] = None
-    stored_confidence: Optional[StoredConfidence] = None
+    verifier_output: Optional[UnifiedVerifierOutput] = None
+    u_stored: Optional[float] = None
     entry_id: Optional[int] = None
     escalated: bool = False
 
@@ -162,6 +172,7 @@ class CAEMPipeline:
         passage_store: Optional[PassageStore] = None,
         config: Optional[CAEMConfig] = None,
         memory_store: Optional[EpisodicMemoryStore] = None,
+        deferred_buffer: Optional[DeferredBuffer] = None,
         device: Optional[str] = None,
         current_cycle: int = 0,
     ) -> None:
@@ -181,6 +192,13 @@ class CAEMPipeline:
         # -- Stage 1: Episodic Memory ------------------------------------ #
         self.memory_store = memory_store or EpisodicMemoryStore(self.config)
 
+        # -- Stage 7b: Deferred-entry buffer ----------------------------- #
+        # Bounded FIFO for Stage-5 DEFERRED episodes. Populated at Stage 7
+        # when vout.decision == "DEFERRED"; drained at cycle boundary by
+        # SelfImprovementLoop via DeferredBuffer.reconsider(). See
+        # thesis Section 4.9 (Deferred-Entry Reconsideration).
+        self.deferred_buffer = deferred_buffer or DeferredBuffer(self.config)
+
         # -- Stage 3a: Pre-routing confidence --------------------------- #
         self.pre_estimator = PreRoutingConfidenceEstimator(
             model=model,
@@ -192,19 +210,16 @@ class CAEMPipeline:
         # -- Stage 3b: Adaptive Router ----------------------------------- #
         self.router = AdaptiveRouter(config=self.config)
 
-        # -- Stage 4a: Post-generation confidence (Tier 2 only) --------- #
-        self.post_estimator = PostGenerationConfidenceEstimator(
-            model=model,
-            tokenizer=tokenizer,
-            sbert_encoder=encoder,
-            nli_model=nli_model,
-            nli_tokenizer=nli_tokenizer,
-            config=self.config,
-            device=device,
-        )
-
-        # -- Stage 5: Multi-layer verifier ------------------------------ #
-        self.verifier = MultiLayerVerifier(
+        # -- Stage 5: UnifiedVerifier (post-generation quality gate) --- #
+        # The verifier emits UnifiedVerifierOutput carrying all nine signals
+        # (u_token, u_dropout, u_internal, s_avg, h_norm, p_entail,
+        # p_ground_max, p_ground_mean, p_ground_atomic) plus the
+        # STORE/DEFER/ABSTAIN/DISCARD decision and the scalar u_stored.
+        # Passage retrieval for grounding signals is threaded through the
+        # same PassageStore used by Tier 3 RAG; passing a bound method here
+        # keeps the retriever path consistent across Tier 3 generation and
+        # Stage 5 grounding.
+        self.verifier = UnifiedVerifier(
             model=model,
             tokenizer=tokenizer,
             sbert_encoder=encoder,
@@ -279,7 +294,8 @@ class CAEMPipeline:
         # -- Tier dispatch ---------------------------------------------- #
         answer_str: str
         post_conf: Optional[PostGenerationConfidence] = None
-        stored_conf: Optional[StoredConfidence] = None
+        vout: Optional[UnifiedVerifierOutput] = None
+        u_stored_scalar: Optional[float] = None
         escalated: bool = False
         entry_id: Optional[int] = None
         stored_flag = False
@@ -287,41 +303,63 @@ class CAEMPipeline:
         if routing.tier == 1:
             # -- Tier 1: fast path -- NO Stage-5 verification ----------- #
             # Rationale: Tier 1 is the <400 ms fast path. Running Stage 5
-            # (MultiLayerVerifier) would require generating M=3 chains -- this
-            # violates the "no generation" principle and inflates measured Tier-1
-            # latency, making it indistinguishable from Tier 2 in experiments.
-            # The stored entry already holds a verified u_stored from its
-            # original storage cycle; we reconstruct StoredConfidence from those
-            # scores and update retrieval stats.
-            answer_str, stored_conf = self._tier1(search_with_ids)
-            self._update_tier1_stats(search_with_ids=search_with_ids,
-                                     stored_conf=stored_conf)
+            # (UnifiedVerifier) would require generating M=3 chains -- this
+            # violates the "no generation" principle and inflates measured
+            # Tier-1 latency, making it indistinguishable from Tier 2 in
+            # experiments. The stored entry already holds a verified
+            # u_stored from its original storage cycle; we surface that
+            # scalar on PipelineResult and update retrieval stats.
+            answer_str, u_stored_scalar = self._tier1(search_with_ids)
+            self._update_tier1_stats(search_with_ids=search_with_ids)
 
         elif routing.tier == 2:
             answer_str, post_conf, escalated = self._tier2(query, pre_conf)
-            # -- Stage 5: Verify (Tier 2 and escalated-to-3 answers) --- #
-            stored_conf = self._verify(query, answer_str)
+            # -- Stage 5: UnifiedVerifier (nine signals + decision) ---- #
+            # Pass through the already-computed u_token and u_dropout so the
+            # verifier does not pay for a duplicate forward pass.
+            u_tok = getattr(post_conf, "u_token", None) if post_conf else None
+            u_drop = getattr(post_conf, "u_dropout", None) if post_conf else None
+            vout = self._verify(query, answer_str, u_token=u_tok, u_dropout=u_drop)
+            u_stored_scalar = vout.u_stored if vout else None
             if store_to_memory:
                 entry_id, stored_flag = self._maybe_store(
                     query=query, answer=answer_str,
-                    query_embedding=query_embedding, stored_conf=stored_conf,
+                    query_embedding=query_embedding, vout=vout,
                 )
 
         else:  # tier == 3
             answer_str = self._tier3(query)
-            # -- Stage 5: Verify ----------------------------------------#
-            stored_conf = self._verify(query, answer_str)
+            # -- Stage 5: UnifiedVerifier ------------------------------ #
+            # Tier 3 has no pre-computed internal signals, so the verifier
+            # computes u_token and u_dropout itself.
+            vout = self._verify(query, answer_str)
+            u_stored_scalar = vout.u_stored if vout else None
             if store_to_memory:
                 entry_id, stored_flag = self._maybe_store(
                     query=query, answer=answer_str,
-                    query_embedding=query_embedding, stored_conf=stored_conf,
+                    query_embedding=query_embedding, vout=vout,
                 )
+
+        # -- Early-exit confabulation gate ------------------------------ #
+        # UnifiedVerifier sets ``early_exit_triggered=True`` when
+        # u_internal >= 0.70 AND p_ground_max <= 0.20 -- i.e. confidently
+        # asserted without grounding. The verifier has already mapped that
+        # state to decision=DISCARD internally, so no tier re-route is
+        # needed here; we only log the flag so it surfaces in harness logs
+        # and, downstream, in Table 5.5's confabulation-rate columns.
+        if vout is not None and vout.early_exit_triggered:
+            logger.info(
+                "Stage 5 early-exit confabulation gate fired "
+                "(u_internal=%.3f, p_ground_max=%.3f) -- decision=%s",
+                vout.u_internal, vout.p_ground_max, vout.decision,
+            )
 
         latency_ms = (time.perf_counter() - t_start) * 1000.0
         logger.info(
-            "Pipeline: Tier %d | stored=%s | u_stored=%.3f | latency=%.1f ms",
+            "Pipeline: Tier %d | stored=%s | u_stored=%.3f | decision=%s | latency=%.1f ms",
             routing.tier, stored_flag,
-            stored_conf.u_stored if stored_conf else 0.0,
+            u_stored_scalar if u_stored_scalar is not None else 0.0,
+            vout.decision if vout else ("TIER1_HIT" if routing.tier == 1 else "SKIPPED"),
             latency_ms,
         )
 
@@ -334,7 +372,8 @@ class CAEMPipeline:
             routing_decision=routing,
             pre_confidence=pre_conf,
             post_confidence=post_conf,
-            stored_confidence=stored_conf,
+            verifier_output=vout,
+            u_stored=u_stored_scalar,
             entry_id=entry_id,
             escalated=escalated,
         )
@@ -347,42 +386,33 @@ class CAEMPipeline:
         """Return the stored answer for a Tier 1 hit.
 
         No model generation occurs. The reasoning chain and answer are read
-        directly from the matched EpisodicEntry. Stage 5 (MultiLayerVerifier)
-        is deliberately skipped -- see answer() for the full rationale.
-
-        A StoredConfidence is reconstructed from the entry's stored scores so
-        that PipelineResult.stored_confidence is always populated.
+        directly from the matched EpisodicEntry. Stage 5 (UnifiedVerifier)
+        is deliberately skipped -- see ``answer()`` for the full rationale.
 
         Returns
         -------
-        (answer_str, stored_conf)
+        (answer_str, u_stored)
+            ``u_stored`` is the entry's stored composite scalar, surfaced
+            directly onto ``PipelineResult.u_stored`` so downstream code
+            (eval harness, retrieval feedback) has a single field to read.
         """
         entry, entry_id, similarity = search_with_ids[0]
         logger.debug(
             "Tier 1 hit: id=%d | sim=%.4f | answer='%s...'",
             entry_id, similarity, entry.answer[:80],
         )
-        # Reconstruct StoredConfidence from stored quality scores.
-        stored_conf = StoredConfidence(
-            p_entail=entry.nli_score,
-            s_avg=entry.sc_score,
-            h_norm=1.0 - entry.se_score,
-            u_stored=entry.u_stored,
-        )
-        return entry.answer, stored_conf
+        return entry.answer, entry.u_stored
 
     def _tier2(self, query: str, pre_conf: PreRoutingConfidence):
-        """Generate a Tier 2 answer with Flan-T5 and compute û.
+        """Generate a Tier 2 answer with Flan-T5.
 
-        If û < u_hat_accept_threshold, escalate to Tier 3.
+        Post-generation quality gating is handled entirely by UnifiedVerifier
+        (Stage 5); this method returns (answer_str, None, escalated).
 
         Returns
         -------
         (answer_str, post_conf, escalated)
         """
-        cfg = self.config
-
-        # Tokenise query (benchmark-aware for classification tasks).
         prompt = self._build_tier2_prompt(query)
         enc = self.tokenizer(
             prompt,
@@ -392,7 +422,6 @@ class CAEMPipeline:
         )
         input_ids = enc["input_ids"].to(self.device)
 
-        # Generate
         try:
             self.model.eval()
             with torch.no_grad():
@@ -412,29 +441,7 @@ class CAEMPipeline:
             logger.warning("Tier 2 produced empty answer -- escalating to Tier 3.")
             return self._tier3(query), None, True
 
-        # Stage 4a: post-generation confidence
-        try:
-            post_conf = self.post_estimator.estimate(
-                query=query,
-                generated_answer=answer_str,
-                input_ids=input_ids,
-            )
-        except Exception as exc:
-            logger.warning("PostGenerationConfidenceEstimator failed: %s", exc)
-            # Treat as low confidence -> escalate
-            return self._tier3(query), None, True
-
-        # Efficiency gate: escalate if û below threshold
-        if not post_conf.should_accept(cfg.u_hat_accept_threshold):
-            logger.debug(
-                "Tier 2 û=%.4f < %.2f -> escalating to Tier 3.",
-                post_conf.u_hat, cfg.u_hat_accept_threshold,
-            )
-            escalated_answer = self._tier3(query)
-            return escalated_answer, post_conf, True
-
-        logger.debug("Tier 2 accepted: û=%.4f ≥ %.2f", post_conf.u_hat, cfg.u_hat_accept_threshold)
-        return answer_str, post_conf, False
+        return answer_str, None, False
 
     def _tier3(self, query: str) -> str:
         """Generate a Tier 3 answer via RAG.
@@ -498,18 +505,108 @@ class CAEMPipeline:
     # Verification (Stage 5)                                               #
     # ------------------------------------------------------------------ #
 
-    def _verify(self, query: str, answer: str) -> Optional[StoredConfidence]:
-        """Run MultiLayerVerifier to compute û_stored.
+    def _verify(
+        self,
+        query: str,
+        answer: str,
+        *,
+        u_token: Optional[float] = None,
+        u_dropout: Optional[float] = None,
+    ) -> Optional[UnifiedVerifierOutput]:
+        """Run UnifiedVerifier and return the full nine-signal output.
 
-        Returns None on total failure (answer is not stored in that case).
+        Parameters
+        ----------
+        query : str
+            The user query.
+        answer : str
+            The candidate answer being verified. Returns None if empty --
+            an empty answer cannot be stored.
+        u_token, u_dropout : float or None
+            Pre-computed internal signals from the generation stage. When
+            supplied they let the verifier skip a duplicate forward pass;
+            when None the verifier recomputes them. Passing them in is the
+            efficient default for Tier 2 / Tier 3 generation paths.
+
+        Returns
+        -------
+        UnifiedVerifierOutput or None
+            ``None`` on verification failure (the answer then cannot be
+            stored). Otherwise the full nine-signal record; callers read
+            ``u_stored`` / ``decision`` / ``early_exit_triggered`` and the
+            per-signal fields directly.
         """
         if not answer:
             return None
         try:
-            return self.verifier.verify(query, answer)
+            return self.verifier.verify(
+                query, answer,
+                u_token=u_token, u_dropout=u_dropout,
+            )
         except Exception as exc:
             logger.error("Verification failed: %s -- answer will not be stored.", exc)
             return None
+
+    # ------------------------------------------------------------------ #
+    # Retroactive re-verification helper (Phase 5d)                        #
+    # ------------------------------------------------------------------ #
+
+    def make_retroverify_fn(self):
+        """Return a closure ``(entry) -> UnifiedVerifierOutput`` for retroverify.
+
+        Binds the pipeline's current ``UnifiedVerifier`` (which already owns the
+        passage store via ``_retrieve_and_rerank``) so that the self-improvement
+        loop can call ``memory_store.retroverify(verify_fn)`` without needing
+        any knowledge of retrieval or verifier wiring.
+
+        The closure captures ``self.verifier`` by reference, so if the caller
+        swaps models mid-cycle (unusual) the next retroverify pass sees the
+        new weights automatically.
+
+        Returns None on verification failure so ``retroverify`` skips the entry
+        cleanly rather than raising.
+        """
+        verifier = self.verifier
+
+        def _retroverify(entry) -> Optional[UnifiedVerifierOutput]:
+            try:
+                return verifier.verify(entry.question, entry.answer)
+            except Exception as exc:  # pragma: no cover -- defensive
+                logger.warning(
+                    "Retroverify of entry (q=%r) raised %s -- entry left unchanged.",
+                    entry.question[:60], exc,
+                )
+                return None
+
+        return _retroverify
+
+    def make_reconsider_deferred_fn(self):
+        """Return a closure ``(deferred_entry) -> UnifiedVerifierOutput``.
+
+        Used by :meth:`DeferredBuffer.reconsider` at cycle boundaries. The
+        contract is identical to :meth:`make_retroverify_fn` -- the verifier
+        receives ``(question, answer)`` and returns the full nine-signal
+        output -- so a single verifier instance serves both passes. Kept as
+        a separate closure for symmetry and so a future asymmetric signal
+        policy (e.g. cheaper verification on deferred entries) can diverge
+        without touching retroverify.
+        """
+        verifier = self.verifier
+
+        def _reconsider(deferred_entry) -> Optional[UnifiedVerifierOutput]:
+            try:
+                return verifier.verify(
+                    deferred_entry.question,
+                    deferred_entry.answer,
+                )
+            except Exception as exc:  # pragma: no cover -- defensive
+                logger.warning(
+                    "Deferred reconsideration of (q=%r) raised %s -- entry kept.",
+                    deferred_entry.question[:60], exc,
+                )
+                return None
+
+        return _reconsider
 
     # ------------------------------------------------------------------ #
     # Storage decision (Stage 7)                                           #
@@ -520,30 +617,61 @@ class CAEMPipeline:
         query: str,
         answer: str,
         query_embedding: np.ndarray,
-        stored_conf: Optional[StoredConfidence],
+        vout: Optional[UnifiedVerifierOutput],
     ):
         """Store the answer in episodic memory if it passes all gates.
 
         Gates
         -----
-        1. stored_conf is not None (verification succeeded).
-        2. û_stored ≥ retroverify_prune_threshold (answer is good enough).
+        1. ``vout`` is not None (verification succeeded).
+        2. ``vout.decision == "STORE"`` (the Stage-5 decision tree
+           green-lit the episode; ABSTAIN/DISCARD skip storage entirely).
+           ``DEFERRED`` is routed to ``self.deferred_buffer`` instead,
+           where it awaits cycle-boundary reconsideration under the
+           fine-tuned verifier (Section 4.9 of the thesis, Stage 7b).
         3. The query embedding is novel (no near-duplicate already stored).
         4. Memory is not full (if near-full, prune first).
 
         Returns
         -------
         (entry_id, stored_flag) : (int or None, bool)
+            ``stored_flag`` is True only for the STORE path (main-memory
+            write). DEFERRED-buffer pushes return ``(None, False)`` because
+            the entry is not yet committed to memory; the PipelineResult's
+            ``stored`` flag and the downstream counters already treat
+            "held for reconsideration" as a non-store event.
         """
-        cfg = self.config
-
-        if stored_conf is None:
+        if vout is None:
             return None, False
 
-        if stored_conf.u_stored < cfg.retroverify_prune_threshold:
+        # DEFERRED -> buffer it (do not write to main memory yet).
+        if vout.decision == "DEFERRED":
+            try:
+                self.deferred_buffer.push(
+                    question=query,
+                    answer=answer,
+                    embedding=query_embedding,
+                    storage_cycle=self.current_cycle,
+                    vout=vout,
+                )
+            except Exception as exc:
+                # Buffer push is non-critical -- log and continue as if the
+                # entry had been DISCARDed rather than failing the whole
+                # pipeline call.
+                logger.warning(
+                    "Deferred-buffer push failed (%s); entry dropped.", exc,
+                )
+            else:
+                logger.debug(
+                    "Deferred: u_stored=%.4f | p_ground_max=%.3f | buffer=%d",
+                    vout.u_stored, vout.p_ground_max, self.deferred_buffer.size,
+                )
+            return None, False
+
+        if vout.decision != "STORE":
             logger.debug(
-                "Not storing: û_stored=%.4f < threshold=%.2f",
-                stored_conf.u_stored, cfg.retroverify_prune_threshold,
+                "Not storing: decision=%s | u_stored=%.4f | p_ground_max=%.3f",
+                vout.decision, vout.u_stored, vout.p_ground_max,
             )
             return None, False
 
@@ -562,28 +690,34 @@ class CAEMPipeline:
             answer=answer,
             embedding=query_embedding,
             storage_cycle=self.current_cycle,
-            u_stored=stored_conf.u_stored,
-            nli_score=stored_conf.p_entail,
-            sc_score=stored_conf.s_avg,
-            se_score=1.0 - stored_conf.h_norm,
+            # Composite + nine signals + p_contra
+            u_stored=vout.u_stored,
+            u_token=vout.u_token,
+            u_dropout=vout.u_dropout,
+            u_internal=vout.u_internal,
+            s_avg=vout.s_avg,
+            h_norm=vout.h_norm,
+            p_entail=vout.p_entail,
+            p_ground_max=vout.p_ground_max,
+            p_ground_mean=vout.p_ground_mean,
+            p_ground_atomic=vout.p_ground_atomic,
+            p_contra=vout.p_contra,
+            decision=vout.decision,
+            early_exit_triggered=vout.early_exit_triggered,
         )
 
         try:
             entry_id = self.memory_store.add(entry)
             logger.info(
-                "Stored new episode: id=%d | û_stored=%.4f | q='%s...'",
-                entry_id, stored_conf.u_stored, query[:60],
+                "Stored new episode: id=%d | u_stored=%.4f | q='%s...'",
+                entry_id, vout.u_stored, query[:60],
             )
             return entry_id, True
         except RuntimeError as exc:
             logger.error("Failed to store episode: %s", exc)
             return None, False
 
-    def _update_tier1_stats(
-        self,
-        search_with_ids,
-        stored_conf: Optional[StoredConfidence],
-    ) -> None:
+    def _update_tier1_stats(self, search_with_ids) -> None:
         """Update retrieval stats for a Tier 1 hit.
 
         The episode is not re-stored. retrieval_count and success_rate are

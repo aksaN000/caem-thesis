@@ -21,7 +21,8 @@ ARC-Challenge  -- Multiple-choice letter EM: extract_arc_label() + exact match.
 
 Generic EM/F1  -- exact_match + token_f1 for single-answer open-ended QA.
                   (Both are case-insensitive after normalising punctuation and
-                  stripping articles "a", "an", "the" -- matches SQuAD/HotpotQA.)
+                  stripping articles "a", "an", "the" -- matches SQuAD
+                  convention.)
 
 TruthfulQA -- ROUGE-L
              The dataset provides a list of acceptable answer strings; a
@@ -138,7 +139,7 @@ def any_match_em(prediction: str, golds: Sequence[str]) -> float:
 def token_f1(prediction: str, gold: str) -> float:
     """Compute token-level F1 between prediction and gold.
 
-    Matches the SQuAD / HotpotQA official F1 computation:
+    Matches the SQuAD official F1 computation:
     - Both strings are normalised.
     - F1 is over the multiset of tokens.
 
@@ -385,7 +386,7 @@ def aggregate(
     benchmark : str -- one of "fever", "triviaqa", "natural_questions",
                        "truthfulqa", "strategyqa", or "arc_challenge"
     em_scores : per-sample EM (0.0/1.0)
-    f1_scores : per-sample F1 (for HotpotQA); set to em_scores for others
+    f1_scores : per-sample token F1; set to em_scores when F1 is unused
     tiers : per-sample tier (1/2/3)
     u_stored_values : per-sample û_stored or None
     stored_flags : per-sample bool -- was the answer stored in memory?
@@ -515,5 +516,442 @@ def mcnemar_test(
 
     # McNemar statistic with continuity correction (Edwards 1948)
     statistic = (abs(n01 - n10) - 1) ** 2 / (n01 + n10)
-    p_value = 1.0 - chi2.cdf(statistic, df=1)
-    return statistic, p_value
+    p_value = float(1.0 - chi2.cdf(statistic, df=1))
+    return float(statistic), p_value
+
+
+# =====================================================================
+# Phase 4m.1 -- Extended metric suite for top-venue evaluation
+# ---------------------------------------------------------------------
+# The helpers below complement the core `aggregate()` block above. They
+# expose the architectural signals that CAEM generates but that a single
+# exact-match + hallucination_rate pair does not surface. Each helper is
+# annotated with (a) which evaluation task it serves and (b) where it
+# lands in the five-table reviewer layout designed in Phase 4l.
+#
+# Task/table mapping (see docs/metrics-audit.md and Ch.5 methodology):
+#
+#   Table 5.1 Headline         -- em_by_tier, mean_latency_by_tier
+#   Table 5.2 Calibration      -- brier_score, auroc, reliability_bins
+#   Table 5.3 Data Purity      -- decision_breakdown
+#   Table 5.4 Grounding        -- unsupported_correct_rate,
+#                                  ungrounded_assertion_rate
+#   Table 5.5 Hallucination    -- confabulation_rate (per-signal variants)
+#   Continual-learning panel   -- backward_transfer, forward_transfer
+#   Unified efficacy scalar    -- ces_score
+#
+# All helpers are pure functions, take plain lists, and never depend on
+# torch / transformers at import time so they can be reused from
+# scripts/make_tables.py and analysis notebooks without loading the
+# model weights.
+# =====================================================================
+
+
+def em_by_tier(em_scores, tiers):
+    """Exact-match accuracy stratified by routing tier.
+
+    CAEM's whole premise is that Tier 1 (memory hit) should dominate
+    Tier 2 (deferred) and Tier 3 (abstain) on EM, because stored entries
+    carry verified high-confidence answers. Reporting a single pooled EM
+    hides that selectivity. This helper is used by Table 5.1 to show the
+    EM-by-tier triple (Tier1, Tier2, Tier3) per benchmark.
+
+    Parameters
+    ----------
+    em_scores : list of float
+        Per-sample EM in {0.0, 1.0}.
+    tiers : list of int
+        Per-sample routing decision in {1, 2, 3}.
+
+    Returns
+    -------
+    dict
+        {'tier1': (em, n), 'tier2': (em, n), 'tier3': (em, n)}.
+        Returns (0.0, 0) for empty tiers so downstream formatting
+        does not crash on the first cycle when Tier 1 is empty.
+    """
+    assert len(em_scores) == len(tiers), "em_scores and tiers must align."
+    out = {}
+    for label, t in (("tier1", 1), ("tier2", 2), ("tier3", 3)):
+        bucket = [s for s, tt in zip(em_scores, tiers) if tt == t]
+        if bucket:
+            out[label] = (sum(bucket) / len(bucket), len(bucket))
+        else:
+            out[label] = (0.0, 0)
+    return out
+
+
+def mean_latency_by_tier(latencies_ms, tiers):
+    """Per-tier mean wall-clock latency (ms).
+
+    Tier 1 should be ~10x faster than Tier 2 because memory retrieval
+    skips full decoding. This helper feeds the latency column of Table
+    5.1 and is required for the efficiency claim in the abstract.
+    """
+    assert len(latencies_ms) == len(tiers), "latencies and tiers must align."
+    out = {}
+    for label, t in (("tier1", 1), ("tier2", 2), ("tier3", 3)):
+        bucket = [lat for lat, tt in zip(latencies_ms, tiers) if tt == t]
+        out[label] = (sum(bucket) / len(bucket)) if bucket else 0.0
+    return out
+
+
+def confabulation_rate(em_scores, signal_values, threshold, direction="ge"):
+    """Generic confident-error / confabulation rate.
+
+    Follows Farquhar et al. 2024: a confabulation is an answer that is
+    (a) wrong and (b) produced with high internal confidence / low
+    uncertainty. The concrete "high confidence" criterion depends on
+    which signal drives it -- this helper abstracts the shape so the
+    same function is used for u_stored-based, u_internal-based, and
+    semantic-entropy-based confabulation rates reported in Table 5.5.
+
+    Parameters
+    ----------
+    em_scores : list of float
+        Per-sample EM in {0.0, 1.0}.
+    signal_values : list of float
+        Per-sample confidence-like signal (e.g. u_stored, 1-H_sem).
+    threshold : float
+        Cutoff defining "high confidence".
+    direction : {"ge", "le"}
+        "ge" -- confident when signal >= threshold (e.g. u_stored >= 0.5)
+        "le" -- confident when signal <= threshold (e.g. H_sem <= 0.3)
+
+    Returns
+    -------
+    float
+        Fraction of samples that are wrong AND confident.
+    """
+    assert direction in ("ge", "le"), "direction must be 'ge' or 'le'."
+    assert len(em_scores) == len(signal_values), "lengths must align."
+    if not em_scores:
+        return 0.0
+    if direction == "ge":
+        hits = sum(1 for em, s in zip(em_scores, signal_values)
+                   if em == 0.0 and s >= threshold)
+    else:
+        hits = sum(1 for em, s in zip(em_scores, signal_values)
+                   if em == 0.0 and s <= threshold)
+    return hits / len(em_scores)
+
+
+def brier_score(confidences, labels):
+    """Brier score = mean squared error between confidence and correctness.
+
+    Proper scoring rule (Brier 1950). Sensitive to both calibration and
+    resolution; complements ECE, which can mask counter-balanced errors
+    inside bins. Reported in Table 5.2 alongside ECE and AUROC to form
+    the calibration panel.
+
+    Parameters
+    ----------
+    confidences : list of float in [0, 1]
+    labels : list of float in {0.0, 1.0}
+
+    Returns
+    -------
+    float in [0, 1]; lower is better.
+    """
+    assert len(confidences) == len(labels), "lengths must align."
+    if not confidences:
+        return 0.0
+    return sum((c - y) ** 2 for c, y in zip(confidences, labels)) / len(confidences)
+
+
+def auroc(confidences, labels):
+    """Area under the ROC curve for confidence-as-correctness predictor.
+
+    Measures whether a higher confidence score reliably corresponds to
+    a correct answer -- a discrimination metric independent of
+    calibration scale. Useful because a model can be mis-calibrated
+    (wrong scale) but still rank-correct (good AUROC), which matters
+    for CAEM's STORE/DEFER thresholding.
+
+    Returns 0.5 if there is only one class present (undefined AUROC).
+
+    Requires scikit-learn; if unavailable, falls back to a pure-python
+    Mann-Whitney U implementation equivalent to AUROC.
+    """
+    assert len(confidences) == len(labels), "lengths must align."
+    if not confidences:
+        return 0.5
+    pos = [c for c, y in zip(confidences, labels) if y == 1.0]
+    neg = [c for c, y in zip(confidences, labels) if y == 0.0]
+    if not pos or not neg:
+        return 0.5
+
+    try:
+        from sklearn.metrics import roc_auc_score
+        return float(roc_auc_score(labels, confidences))
+    except ImportError:
+        # Mann-Whitney U fallback: fraction of (pos, neg) pairs where
+        # pos confidence strictly beats neg confidence, with 0.5 credit
+        # for ties.
+        wins = 0.0
+        for p in pos:
+            for n in neg:
+                if p > n:
+                    wins += 1.0
+                elif p == n:
+                    wins += 0.5
+        return wins / (len(pos) * len(neg))
+
+
+def reliability_bins(confidences, labels, n_bins=10):
+    """Equal-width reliability-diagram bins (Guo et al. 2017, ICML).
+
+    Returns one row per bin containing (mean_conf, mean_acc, count)
+    so Figure 3 in the paper can plot the classic reliability diagram
+    (mean confidence on x-axis, empirical accuracy on y-axis, diagonal
+    = perfect calibration). This is the standard visualization that
+    grounds the ECE number reported in Table 5.2.
+
+    Parameters
+    ----------
+    confidences : list of float in [0, 1]
+    labels : list of float in {0.0, 1.0}
+    n_bins : int
+        Default 10 (i.e. [0, 0.1), [0.1, 0.2), ..., [0.9, 1.0]).
+
+    Returns
+    -------
+    list of (mean_conf, mean_acc, count) tuples of length n_bins.
+    Empty bins produce (bin_midpoint, 0.0, 0).
+    """
+    assert len(confidences) == len(labels), "lengths must align."
+    assert n_bins >= 1, "n_bins must be positive."
+    width = 1.0 / n_bins
+    bins = [[] for _ in range(n_bins)]
+    for c, y in zip(confidences, labels):
+        # Clamp c to [0, 1] defensively; last bin is closed on the right.
+        cc = min(max(c, 0.0), 1.0)
+        idx = min(int(cc / width), n_bins - 1)
+        bins[idx].append((cc, y))
+    out = []
+    for i, rows in enumerate(bins):
+        if rows:
+            mc = sum(r[0] for r in rows) / len(rows)
+            ma = sum(r[1] for r in rows) / len(rows)
+            out.append((mc, ma, len(rows)))
+        else:
+            out.append(((i + 0.5) * width, 0.0, 0))
+    return out
+
+
+def decision_breakdown(decisions):
+    """Counts of UnifiedVerifier decisions: STORE / DEFER / ABSTAIN / DISCARD.
+
+    Feeds Table 5.3 (Data Purity Theorem). Purity analysis needs the
+    raw STORE count and the correctness rate among stored items; this
+    helper provides the denominator and the rejection-mass tallies
+    (abstain, discard, defer) that justify the "selective retention"
+    framing in Ch 4.
+
+    Parameters
+    ----------
+    decisions : list of str
+        Each element in {"STORE", "DEFER", "ABSTAIN", "DISCARD"}.
+
+    Returns
+    -------
+    dict with counts and normalized fractions.
+    """
+    total = len(decisions)
+    out = {k: 0 for k in ("STORE", "DEFER", "ABSTAIN", "DISCARD")}
+    for d in decisions:
+        if d in out:
+            out[d] += 1
+    result = {"counts": dict(out), "total": total}
+    if total > 0:
+        result["fractions"] = {k: v / total for k, v in out.items()}
+    else:
+        result["fractions"] = {k: 0.0 for k in out}
+    return result
+
+
+def backward_transfer(per_cycle_em_matrix):
+    """BWT score (Lopez-Paz & Ranzato 2017, NeurIPS).
+
+    Backward transfer measures how learning new cycles affects earlier
+    benchmarks. Positive BWT = later training *improves* earlier
+    benchmarks (ideal for CAEM's self-improvement claim). Negative BWT
+    = catastrophic forgetting.
+
+    Formula (for T cycles, measured on T benchmarks):
+        BWT = 1/(T-1) * sum_{i=1..T-1} (R[T,i] - R[i,i])
+    where R[k,i] is EM on benchmark i after cycle k.
+
+    This is the gold-standard continual-learning metric; complements
+    our MMLU retention ratio (which is cycle-0-anchored and domain-
+    neutral) by tracking per-benchmark-per-cycle drift.
+
+    Parameters
+    ----------
+    per_cycle_em_matrix : list of list of float
+        R[k][i] = EM on benchmark i after cycle k. Square matrix of
+        shape (T, T).
+
+    Returns
+    -------
+    float
+        BWT score; 0.0 if T < 2 or matrix empty.
+    """
+    T = len(per_cycle_em_matrix)
+    if T < 2:
+        return 0.0
+    # Expect square, but be lenient: use min(T, cols).
+    diffs = []
+    for i in range(T - 1):
+        row_final = per_cycle_em_matrix[T - 1]
+        row_diag = per_cycle_em_matrix[i]
+        if i < len(row_final) and i < len(row_diag):
+            diffs.append(row_final[i] - row_diag[i])
+    if not diffs:
+        return 0.0
+    return sum(diffs) / len(diffs)
+
+
+def forward_transfer(per_cycle_em_matrix, baseline_em=None):
+    """FWT score (Lopez-Paz & Ranzato 2017, NeurIPS).
+
+    Forward transfer measures whether pretraining on earlier cycles
+    helps performance on benchmarks not yet seen. Formally:
+        FWT = 1/(T-1) * sum_{i=2..T} (R[i-1,i] - bbar[i])
+    where bbar[i] is the random/zero-shot baseline for benchmark i.
+
+    If no baseline is supplied we use the cycle-0 diagonal (i.e. the
+    pristine-model EM for that benchmark), which is how the paper
+    will compute it given CAEM always evaluates all benchmarks on
+    every cycle.
+
+    Parameters
+    ----------
+    per_cycle_em_matrix : list of list of float
+        R[k][i] = EM on benchmark i after cycle k.
+    baseline_em : list of float or None
+        bbar[i] per benchmark. If None, uses R[0][i].
+
+    Returns
+    -------
+    float
+        FWT score; 0.0 if T < 2.
+    """
+    T = len(per_cycle_em_matrix)
+    if T < 2:
+        return 0.0
+    bbar = baseline_em if baseline_em is not None else per_cycle_em_matrix[0]
+    diffs = []
+    for i in range(1, T):
+        row_prev = per_cycle_em_matrix[i - 1]
+        if i < len(row_prev) and i < len(bbar):
+            diffs.append(row_prev[i] - bbar[i])
+    if not diffs:
+        return 0.0
+    return sum(diffs) / len(diffs)
+
+
+def ces_score(acc, epi, ret, cal, ver, eps=0.01):
+    """CAEM Efficacy Score: geometric mean of five orthogonal quality axes.
+
+    Motivation: reviewers of a five-table result panel need a single
+    scalar to anchor the headline claim "CAEM improves across cycles"
+    without cherry-picking a favorable metric. CES is a geometric
+    mean so that any near-zero axis (e.g. catastrophic forgetting
+    collapsing RET) drags the whole score down -- multiplicative
+    rather than additive composition punishes failure modes rather
+    than masking them.
+
+    Axes:
+        ACC -- accuracy  : mean EM across eval benchmarks, in [0, 1]
+        EPI -- epistemic : 1 - pooled confident_error_rate at store gate,
+                           clamped to [0, 1]
+        RET -- retention : min(mmlu_retention_ratio, 1.0), in [0, 1]
+        CAL -- calibration: 1 - 2 * min(ECE, 0.5), in [0, 1]
+                            (so ECE=0 -> 1.0, ECE=0.5+ -> 0.0)
+        VER -- verifier  : max(2*balanced_accuracy - 1, 0), in [0, 1]
+                           (Youden's J rescaled; chance -> 0)
+
+    Components are clamped to [eps, 1] with eps = 0.01 to prevent a
+    single degenerate axis from zeroing the score (useful in
+    smoke-test regimes where one axis may be uncomputed).
+
+    Returns
+    -------
+    float in [eps, 1]; higher is better.
+
+    Notes
+    -----
+    CES is a custom aggregate metric introduced by this thesis. It is
+    NOT a substitute for the per-table results -- it is a visualization
+    and headline tool only. The thesis reports CES alongside all five
+    component values so readers can reconstruct the geometric mean.
+    """
+    comps = [acc, epi, ret, cal, ver]
+    clamped = [min(max(c, eps), 1.0) for c in comps]
+    prod = 1.0
+    for c in clamped:
+        prod *= c
+    return prod ** (1.0 / len(clamped))
+
+
+def unsupported_correct_rate(em_scores, p_ground_max_values, ground_threshold=0.30):
+    """Fraction of correct answers that lack retrieval grounding.
+
+    "Right for the wrong reason": the model produced a correct answer
+    but retrieval evidence did not support it. This is a diagnostic
+    of over-reliance on parametric memory -- not necessarily a failure,
+    but an honesty signal for the grounding discussion in Table 5.4.
+
+    Parameters
+    ----------
+    em_scores : list of float in {0.0, 1.0}
+    p_ground_max_values : list of float in [0, 1]
+        Maximum entailment probability across retrieved passages.
+    ground_threshold : float
+        Below this value the answer is considered ungrounded.
+
+    Returns
+    -------
+    float in [0, 1] or 0.0 if no correct answers.
+    """
+    assert len(em_scores) == len(p_ground_max_values), "lengths must align."
+    correct = [(em, g) for em, g in zip(em_scores, p_ground_max_values) if em == 1.0]
+    if not correct:
+        return 0.0
+    return sum(1 for _, g in correct if g < ground_threshold) / len(correct)
+
+
+def ungrounded_assertion_rate(p_ground_max_values, u_values,
+                              g_thresh=0.30, u_thresh=0.50):
+    """Fraction of answers that are confidently asserted without grounding.
+
+    Companion to unsupported_correct_rate. This one does NOT condition
+    on EM -- it counts high-confidence, low-grounding outputs regardless
+    of correctness. This is the exact early-exit-confabulation gate
+    signal from Stage 5 of CAEM (u_internal high AND p_ground_max low),
+    but generalized to any (u, g) pair so the same helper serves both
+    the Stage 5 diagnostic and the evaluation-side Table 5.4 row.
+
+    Parameters
+    ----------
+    p_ground_max_values : list of float in [0, 1]
+    u_values : list of float in [0, 1]
+        Any uncertainty/confidence signal; typically u_internal or
+        u_stored depending on whether analysis is pre- or post-STORE.
+    g_thresh : float
+        Upper bound for "ungrounded".
+    u_thresh : float
+        Lower bound for "confidently asserted".
+
+    Returns
+    -------
+    float in [0, 1].
+    """
+    assert len(p_ground_max_values) == len(u_values), "lengths must align."
+    n = len(p_ground_max_values)
+    if n == 0:
+        return 0.0
+    hits = sum(1 for g, u in zip(p_ground_max_values, u_values)
+               if g <= g_thresh and u >= u_thresh)
+    return hits / n

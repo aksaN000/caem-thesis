@@ -17,9 +17,6 @@ Training benchmarks (SIL pool -- train split):
 Transfer eval benchmarks (held-out -- never used for SIL):
   truthfulqa, strategyqa, arc_challenge
 
-Legacy (removed from main loop, kept for ablations):
-  hotpotqa
-
 Quick start
 -----------
 >>> from eval.benchmarks import load_benchmark, make_synthetic_samples
@@ -38,12 +35,19 @@ Quick start
 >>> result["em"], result["f1"]
 """
 
+from eval.baselines import (
+    BaselineBase,
+    CoTBaseline,
+    CoTRAGBaseline,
+    FLAREBaseline,
+    RAGBaseline,
+    ZeroShotBaseline,
+)
 from eval.benchmarks import (
     BenchmarkSample,
     load_benchmark,
     load_arc_challenge,
     load_fever,
-    load_hotpotqa,      # legacy -- kept for ablations only; not part of main loop
     load_natural_questions,
     load_strategyqa,
     load_triviaqa,
@@ -70,11 +74,17 @@ from eval.metrics import (
 )
 
 __all__ = [
+    # baselines
+    "BaselineBase",
+    "ZeroShotBaseline",
+    "CoTBaseline",
+    "RAGBaseline",
+    "CoTRAGBaseline",
+    "FLAREBaseline",
     # benchmarks
     "BenchmarkSample",
     "load_benchmark",
     "load_arc_challenge",
-    "load_hotpotqa",
     "load_truthfulqa",
     "load_fever",
     "load_strategyqa",

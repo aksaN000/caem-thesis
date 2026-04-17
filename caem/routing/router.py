@@ -53,7 +53,7 @@ If the episodic store is empty (no retrieved episode), similarity = 0.0 and
 from __future__ import annotations
 
 import logging
-from typing import List, Optional, Tuple, Union
+from typing import List, Optional, Sequence, Tuple, Union
 
 from caem.config import CAEMConfig
 from caem.memory.entry import EpisodicEntry, PreRoutingConfidence, RoutingDecision
@@ -86,7 +86,7 @@ class AdaptiveRouter:
     def route(
         self,
         pre_confidence: PreRoutingConfidence,
-        search_results: List[Union[Tuple[EpisodicEntry, float], Tuple[EpisodicEntry, int, float]]],
+        search_results: Sequence[Union[Tuple[EpisodicEntry, float], Tuple[EpisodicEntry, int, float]]],
     ) -> RoutingDecision:
         """Compute a routing decision for one query.
 
@@ -230,7 +230,7 @@ class AdaptiveRouter:
 
     def route_batch(
         self,
-        items: List[Tuple[PreRoutingConfidence, List[Tuple[EpisodicEntry, float]]]],
+        items: Sequence[Tuple[PreRoutingConfidence, Sequence[Union[Tuple[EpisodicEntry, float], Tuple[EpisodicEntry, int, float]]]]],
     ) -> List[RoutingDecision]:
         """Route a batch of (confidence, search_results) pairs.
 

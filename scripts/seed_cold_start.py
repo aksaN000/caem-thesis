@@ -111,11 +111,9 @@ def load_train_samples(benchmark: str, n: int, seed: int = 0) -> List[dict]:
 
     Uses separate splits from the evaluation splits to prevent contamination:
       - FEVER train (145K samples) -> sample n
-            - TriviaQA train (rc.nocontext train split) -> sample n
-            - Natural Questions train (nq_open train split) -> sample n
-            - Optional legacy compatibility:
-                        HotpotQA / TruthfulQA / StrategyQA are supported but not part of
-                        the final thesis cold-start plan.
+      - TriviaQA train (rc.nocontext train split) -> sample n
+      - Natural Questions train (nq_open train split) -> sample n
+      - TruthfulQA / StrategyQA: no usable training split -> memory starts empty.
 
     Parameters
     ----------
@@ -130,19 +128,7 @@ def load_train_samples(benchmark: str, n: int, seed: int = 0) -> List[dict]:
     import random
     from datasets import load_dataset
 
-    if benchmark == "hotpotqa":
-        # LEGACY -- HotpotQA was removed from the thesis training benchmark suite
-        # after Session 21. The three active training benchmarks are:
-        #   FEVER, TriviaQA, Natural Questions.
-        # This branch is kept for historical ablation compatibility only.
-        # The CLI defaults in main() do NOT include "hotpotqa".
-        logger.warning(
-            "hotpotqa is a legacy benchmark not used in the thesis cold-start plan. "
-            "Returning empty sample list. Use fever, triviaqa, or natural_questions instead."
-        )
-        return []
-
-    elif benchmark == "truthfulqa":
+    if benchmark == "truthfulqa":
         # TruthfulQA has no training split. Skip seeding.
         logger.info(
             "TruthfulQA: no training split available -- skipping cold-start seeding. "

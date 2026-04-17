@@ -8,21 +8,21 @@ The fundamental challenge expands beyond accuracy benchmarks. Current LLMs opera
 
 All these limitations have significant practical consequences. For example, in educational sectors, students may learn incorrect information presented confidently. In healthcare sectors, hallucinated medical information can lead to harmful decisions. In enterprise knowledge management, fake citations and sources can hamper trust. The stateless nature also causes the repetition of inefficient-expensive generation for similar queries rather than using past verified reasonings.
 
-This research addresses these fundamental limitations through CAEM (Confidence-Aware Episodic Memory with Self-Improvement), a system that constantly reduces hallucination occurrences through three core changes. Firstly, \textit{verified episodic memory} that stores only high-quality reasoning chains which is verified through multi-layer verification. Secondly, \textit{multi-signal confidence estimation} that enables adaptive routing between retrieval and generation. Thirdly, \textit{iterative fine-tuning} which creates a closed feedback loop where verified examples improve model generation quality, which in turn produces better training data. Unlike post-hoc detection methods, which find the occurrence of hallucinations through generation, CAEM avoids hallucinations by combining external memory, confidence-gated routing, and progressive learning to reduce hallucinations by 20-30\%, while maintaining general language capabilities.
+This research addresses these fundamental limitations through CAEM (Confidence-Aware Episodic Memory with Self-Improvement), a system that targets a substantial reduction in confident hallucination through three architectural commitments. First, a \textit{verified episodic memory} that admits a reasoning chain only after a nine-signal post-generation verifier has passed it through a four-outcome decision (store, defer, abstain, or discard), so that stored knowledge is distinguished from marginal or uncertain output rather than collapsed into a single binary gate. Second, a \textit{confidence-aware three-tier router} that combines stored-answer quality with query-to-memory similarity and overlays an independent safety override driven by a pre-routing uncertainty estimate, so that forced grounding is available before generation has started rather than only after it has failed. Third, a \textit{constrained self-improvement loop} that fine-tunes on the high-quality training pool under an $L_2$ anchor regulariser and aborts with a weight rollback if an out-of-distribution retention probe drops below a fixed ratio, so that accumulation across cycles is compounding rather than drifting. The quantitative hallucination-reduction target is stated relative to a zero-shot Flan-T5-Large baseline on a multi-benchmark factual-QA panel using the confident-error-rate diagnostic defined in Chapter~\ref{ch:requirements}; the specific value is reported in Chapter~5.
 
 \section{Rationale of the Study or Motivation}
 
 The motivation for this research is that there is a wide gap between what LLM are capable of and what is required when they are used. While current models are capable of writing fluent, relevant text with excellent capacity, they usually cannot distinguish between \textit{real facts} and \textit{confabulation}, which makes it difficult to apply them in domains requiring precision.
 
-The existing approaches to decrease the number of hallucinations could be classified into three categories, with all of them possessing considerable limitations. Firstly, \textit{Retrieval-augmented generation} (RAG) methods \cite{NEURIPS2020_6b493230}, which looks up documents and uses them for generation. But, the model's answer is as good as the documents it retrieves and only depends on retrieval quality, not experience. Secondly, \textit{Prompting techniques} such as chain-of-thought \cite{NEURIPS2022_9d560961} and self-consistency \cite{wang2023selfconsistency} makes the model think more carefully and checks multiple reasoning paths, but cannot remember information later and each session starts with no knowledge stored. Thirdly, \textit{Post-hoc verification methods} \cite{manakul-etal-2023-selfcheckgpt, farquhar2024semantic} checks the answer after it is generated and can detect hallucinations after it happens, but does not teach the model what to do next time to reduce the mistakes, meaning the same hallucinations can happen again in the future.
+The existing approaches to decrease the number of hallucinations could be classified into three categories, with all of them possessing considerable limitations. Firstly, \textit{Retrieval-augmented generation} (RAG) methods \cite{NEURIPS2020_6b493230}, which looks up documents and uses them for generation. But, the model's answer is as good as the documents it retrieves and only depends on retrieval quality, not experience. Secondly, \textit{Prompting techniques} such as chain-of-thought \cite{NEURIPS2022_9d560961} and self-consistency \cite{wang2023selfconsistency} makes the model think more carefully and checks multiple reasoning paths, but cannot remember information later and each session starts with no knowledge stored. Thirdly, \textit{post-generation verification methods} \cite{manakul-etal-2023-selfcheckgpt, farquhar2024semantic}, which check the answer after it is generated and can detect hallucinations after they occur, but do not teach the model what to do next time to reduce mistakes. So the same hallucinations can happen again in the future.
 
-The key insight driving this research is that hallucination reduction requires \textit{architectural intervention} rather than incremental improvements to existing methods. Specifically, three capabilities are essential but absent from current systems. First, models need \textit{episodic memory} to store and retrieve verified reasoning chains, enabling instant access to known-correct solutions rather than regenerating potentially incorrect responses. Second, models require \textit{calibrated confidence estimation} to determine when retrieval is appropriate versus when external verification is needed, preventing overconfident errors while avoiding unnecessary computation. Third, systems must support \textit{iterative self-improvement}, where verified examples create training data that improves generation quality, establishing a virtuous cycle of progressive accuracy gains.
+The key insight driving this research is that hallucination reduction requires \textit{architectural intervention} rather than incremental improvements to existing methods. Specifically, three capabilities are essential but absent from current systems. First, models need \textit{verified episodic memory} whose storage decision is not a single binary threshold but a four-outcome cascade, so that an answer which is plausible but has not cleared the commit bar is deferred for a second pass rather than committed to Tier~1 retrieval or discarded outright. Second, models require \textit{confidence-aware routing} that reads pre-routing uncertainty as an independent safety signal alongside a combined similarity-and-stored-quality score, so that low model readiness triggers forced external grounding before generation has started rather than only after an overconfident answer has propagated through the pipeline. Third, systems must support \textit{constrained self-improvement}, in which fine-tuning on a high-quality training pool is bounded by a regulariser that pulls weights toward the base model and an out-of-distribution retention probe that aborts the cycle if general capability has eroded, so that knowledge accumulation compounds across cycles rather than drifting into the benchmark at the expense of the base capability.
 
 This research is significant for both theoretical and practical reasons. Theoretically, it addresses the open question of whether imperfect verification can enable monotonic improvement in self-training systems. Prior work in semi-supervised learning demonstrates that noisy labels can degrade model performance \cite{natarajan2013learning}, yet our preliminary analysis suggests that when base model accuracy exceeds random chance, verified data purity can exceed verification accuracy itself through favorable base rate dynamics. This counterintuitive property, if validated empirically, provides theoretical justification for self-improvement under realistic verification constraints.
 
-Practically, reducing hallucinations by even 20-30\% would make language models much more useful without hampering their overall abilities. This would allow educational systems to safely learn and remember specific institutional knowledge. Also, it would help businesses gradually build reliable domain expertise through verified interactions. In healthcare and law domains, it would grasp language understanding while maintaining strict accuracy standards. Additionally, using memory to reuse past answers would significantly lower computation costs, making AI systems more affordable and sustainable.
+Practically, a substantial reduction in the confident-error rate of a 780M-parameter model would make language models much more useful without hampering their overall abilities. This would allow educational systems to safely learn and remember specific institutional knowledge. Also, it would help businesses gradually build reliable domain expertise through verified interactions. In healthcare and law domains, it would preserve language understanding while maintaining strict accuracy standards. Additionally, using memory to reuse past answers would significantly lower computation costs, making AI systems more affordable and sustainable. The specific reduction achieved by CAEM is reported in Chapter~5 relative to a zero-shot Flan-T5-Large baseline under the confident-error-rate diagnostic defined in Chapter~\ref{ch:requirements}.
 
-The undergraduate thesis scope is appropriate because the main ideas can be tested using well-known models like \textit{Flan-T5 Large}, public benchmarks like \textit{HotpotQA, StrategyQA, FEVER, TruthfulQA} and manageable computational resources like \textit{approximately 30--45 GPU hours} (8--12 hours per cycle for inference and verification across three cycles, plus 20--30 minutes per cycle for fine-tuning Flan-T5-Large, well within a standard university cluster allocation of 50 GPU hours). A 12 month timeline is enough to properly evaluate the system while focusing only on the factual and knowledge based tasks. The correctness can be clearly checked, while excluding creative tasks that are harder to evaluate objectively.
+The undergraduate thesis scope is appropriate because the main ideas can be tested using well-known models like \textit{Flan-T5-Large}, a factual-QA benchmark panel (\textit{FEVER, TriviaQA, Natural Questions, HaluEval, TruthfulQA, StrategyQA,} and \textit{ARC-Challenge}) with \textit{MMLU} as an out-of-distribution retention control, and manageable computational resources compatible with a single RTX 4090 (24\,GB VRAM). Three self-improvement cycles are sufficient to evaluate whether the memory accumulates under the retention guard without requiring the 7--10 cycles that a long-horizon equilibrium study would need. A 12-month timeline is enough to properly evaluate the system while focusing only on factual and knowledge-based tasks, where correctness can be clearly checked, and excluding creative tasks that are harder to evaluate objectively.
 
 \section{Problem Statement}
 
@@ -36,39 +36,37 @@ Current large language models suffer from three fundamental limitations that pre
     \item \textbf{Absence of Self-Improvement Mechanisms:} Deployed LLMs remain static after training, unable to learn from mistakes or adapt to domain-specific patterns. If a model hallucinates, it will keep making the same mistake forever unless humans retrain it again. Trying to teach the model new things through naive fine-tuning causes a big problem called \textit{catastrophic forgetting} \cite{doi:10.1073/pnas.1611835114}, where learning new information causes 30-50\% degradation of already acquired capabilities. The absence of self-improvement means that verification efforts provide no long-term value, for example, verifying 1000 answers today provides no benefit tomorrow, as the system cannot combine verified knowledge into improved generation.
 \end{itemize}
 
-These three limitations make each other worse, creating systems that remain simultaneously overconfident and unreliable, expensive yet static, capable yet ultimately unsuitable for high-stakes deployment. This research addresses all three simultaneously through architectural innovation such as verified episodic memory providing knowledge accumulation, multi-signal confidence estimation enabling reliable routing, and iterative fine-tuning with catastrophic forgetting mitigation creating sustainable self-improvement.
+These three limitations make each other worse, creating systems that remain simultaneously overconfident and unreliable, expensive yet static, capable yet ultimately unsuitable for high-stakes deployment. This research addresses all three simultaneously through architectural innovation: verified episodic memory with a four-outcome storage decision for knowledge accumulation, confidence-aware three-tier routing with a pre-routing safety override for reliable dispatch, and constrained self-improvement under an $L_2$ anchor regulariser and an out-of-distribution retention guard that aborts the cycle with weight rollback if general capability has eroded.
 
 \section{Objective}
 
-The primary objective of this research is to develop and evaluate CAEM (Confidence-Aware Episodic Memory with Self-Improvement), a system that helps AI models to make fewer hallucinations over time through remembering verified knowledge and iterative refinement. This comprehensive goal decomposes into seven specific objectives:
+The primary objective of this research is to develop and evaluate CAEM (Confidence-Aware Episodic Memory with Self-Improvement), a system that reduces confident hallucination in a 780M-parameter instruction-tuned language model through accumulated verified knowledge and constrained iterative fine-tuning. This comprehensive goal decomposes into seven specific objectives:
 
 \begin{itemize}
-    \item \textbf{Design a Verified Episodic Memory System with Multi-Layer Quality Control:} Develop an episodic memory architecture that stores question-reasoning-answer tuples only after passing comprehensive verification. Implement a three-layer verification cascade combining natural language inference for factual correctness which checks if the answer matches known facts, self-consistency for logical coherence which checks if the reasoning makes sense and does not contradict itself , and semantic entropy for confabulation detection which checks whether the model is guessing or making things up. Design strategic pruning mechanisms to maintain memory quality as capacity approaches limits, prioritizing high-value episodes means keeping memories based on how often used, high success rate, and relatively recent. Target verification accuracy of 85-90\% using multiple checking methods together.
-    
-    \item \textbf{Develop Multi-Signal Confidence Estimation for Adaptive Routing Decisions:} Implement a confidence estimation framework combining four complementary signals like token-level probability using geometric mean to see how likely the words are according to the model itself, MC Dropout uncertainty through stochastic forward passes to see how much the answers vary if the model answers the same question multiple times, self-consistency via reasoning chain agreement to check whether different reasoning paths lead to the same answer, and semantic entropy for uncertainty quantification to measure how uncertain or unstable the meaning of the answer is. Calibrate confidence scores using temperature scaling to match empirical accuracy. Enable reliable discrimination between high, medium, and low confidence states to support intelligent routing between retrieval, generation, and external verification.
-    
-    \item \textbf{Implement Three-Tier Adaptive Routing Based on Similarity and Confidence:} Design a hierarchical routing system that adapts processing strategy depending on whether the question is new than before or similar. Tier 1, if the question is identical to a previous one (similarity greater than 0.95), the system just retrieves the answer from the memory. Tier 2, if the question is somewhat similar (similarity 0.75-0.95), the model generates a new answer using generalization. Tier 3, if the question is new (similarity below 0.75), the system uses full retrieval, generation and verification to ensure accuracy. Optimize routing thresholds to balance accuracy, latency, and computational cost.
-    
-    \item \textbf{Integrate Cutting-Edge Verification Techniques from Recent Literature:} Implement natural language inference using RoBERTa-Large-MNLI for premise-hypothesis entailment checking on factual claims. The system runs various reasoning attempts and checks to ensure consistency. Incorporate semantic entropy computation following Farquhar et al. (Nature 2024) \cite{farquhar2024semantic}, clustering diverse samples by bidirectional entailment to detect confabulation. Develop dataset-adaptive verification strategies that select primary and secondary verification layers based on task characteristics.
-    
-    \item \textbf{Create a Closed Self-Improvement Loop over Multiple Learning Cycles:} Establish an iterative refinement process where verification creates high-quality training data, fine-tuning improves model generation accuracy, and improved generation produces even better training data in subsequent cycles. Implement catastrophic forgetting mitigation through mixed training data (90\% verified examples, 10\% general tasks) and L2 regularization. Target progressive accuracy improvement across three cycles while maintaining at least 95\% retention of general language capabilities measured on MMLU benchmark.
-    
-    \item \textbf{Demonstrate 20-30\% Hallucination Reduction on Established Benchmarks:} Evaluate system performance on four well-known benchmarks like HotpotQA for multi-hop reasoning with explicit evidence, StrategyQA for implicit reasoning requiring world knowledge, FEVER for direct fact verification, and TruthfulQA for resistance to common misconceptions. Track how accurate the answers are and how often hallucinations occur across three learning cycles. Compare against strong baselines including zero-shot prompting, chain-of-thought, retrieval-augmented generation, self-consistency, and vanilla fine-tuning without verification.
-    
-    \item \textbf{Provide Theoretical Analysis of Convergence and Data Purity Dynamics:} Derive and validate the data purity formula proving that the verified data purity can exceed verification accuracy when base model performance surpasses random chance. Conduct sensitivity analysis across varying verification accuracy levels (75-90\%) to demonstrate robustness. Predict that the system will stabilize after 7-10 learning cycles, achieving 85-90\% high quality memory coverage. And, by measuring actual verified answer quality during experiments, confirm the predictions.
+    \item \textbf{Design a Verified Episodic Memory with a Four-Outcome Storage Decision:} Develop an episodic memory architecture that admits a question-reasoning-answer tuple only after a post-generation verifier has emitted one of four outcomes (store, defer, abstain, or discard) based on the composite verification score, an atomic-level grounding pass, and an explicit contradiction veto. Defer entries that are plausible but have not cleared the commit bar into a bounded first-in-first-out buffer with a time-to-live, so that a later cycle can reconsider them rather than discarding the signal. Implement value-score pruning combining recency, retrieval frequency, and success rate, with a novelty filter that suppresses near-duplicate writes.
+
+    \item \textbf{Develop Pre-Routing Confidence Estimation Independent of Generation:} Implement an encoder-only confidence estimate formed by fusing a token-probability aggregate over a short greedy prefix and an encoder convergence ratio that measures how much the late encoder layers disagree with the early layers on the same input. Temperature-scale the fused scalar against a held-out calibration split so that reported confidence matches empirical accuracy. The estimate is paid per query regardless of tier and is used independently of the stored-answer quality score to drive the safety override in the router.
+
+    \item \textbf{Implement Three-Tier Adaptive Routing with an Independent Safety Override:} Design a routing rule that combines query-to-memory similarity with the stored-answer quality of the nearest neighbour into a weighted combined score and dispatches to Tier~1 (retrieve), Tier~2 (zero-shot generate), or Tier~3 (retrieval-augmented generate) based on three thresholds. Overlay an independent safety override: if the pre-routing confidence falls below a fixed floor, force Tier~3 regardless of the combined score, so that forced grounding is available before generation has started and is not entangled with the quality of memory the query happens to land near.
+
+    \item \textbf{Implement a Nine-Signal Post-Generation Verifier Organised into Three Complementary Families:} Combine three internal-calibration signals (token-probability aggregate on the generated answer, MC-dropout plurality, and a fused internal scalar), three sample-set signals (average pairwise similarity across sampled chains, chain-to-answer entailment, and normalised semantic entropy following Farquhar et~al.~\cite{farquhar2024semantic}), and three external-grounding signals (max-match and mean-match entailment against retrieved evidence, and an ensemble-max contradiction probability) into a single composite score. Gate the composite with a contradiction veto and a confabulation early-exit rule, and augment the grounding score with a weakest-link atomic-fact decomposition to catch partially-unsupported answers.
+
+    \item \textbf{Implement Retroactive Re-Verification and Deferred-Entry Reconsideration as Cycle-Boundary Memory Update Passes:} Because three of the nine verifier signals read the model's internal state directly, stored composites are model-relative snapshots that drift with every fine-tune. At each cycle boundary, re-score every stored episode under the updated model using an upward-only update rule that promotes entries whose composite has improved past a re-verification threshold and categorically prunes those that have fallen below it. Run a companion pass over the deferred buffer that promotes entries now above the store threshold, drops those that exceed the time-to-live, and requeues the rest. Both passes are abort-guarded and expose per-cycle counter diagnostics.
+
+    \item \textbf{Implement Constrained Self-Improvement with a Retention Guard and Weight Rollback:} Curate the training pool from entries that pass a strict quality filter (a training threshold set above the store threshold) so that training-pool quality is held to a higher bar than Tier~1 retrieval quality. Fine-tune on a 90/10 mix of verified reasoning chains and general-QA pairs under an $L_2$ anchor regulariser toward the base-model parameters as an EWC approximation~\cite{doi:10.1073/pnas.1611835114}. Probe MMLU before and after fine-tuning in each cycle and abort the cycle with a weight rollback if the retention ratio falls below a fixed floor; the memory is never rolled back, so knowledge accumulation survives abort events even when weights do not.
+
+    \item \textbf{Evaluate on a Factual-QA Panel with an Out-of-Distribution Retention Control and a Geometric Composite Score:} Evaluate on FEVER, TriviaQA, Natural Questions, HaluEval, TruthfulQA, StrategyQA, and ARC-Challenge as the primary factual-QA panel, with MMLU as the out-of-distribution retention control. Report a Composite Evaluation Score defined as the geometric mean of five axes (answer accuracy, epistemic quality, retention, calibration, and verification reliability) and a confident-error-rate diagnostic measuring the fraction of responses that are both high-confidence under the stored-quality score and incorrect under the benchmark's correctness metric. Compare against zero-shot Flan-T5-Large, a RAG-only baseline, and per-mechanism ablations of the verifier composite, the router overlay, the retroactive re-verification pass, and the $L_2$ anchor.
 \end{itemize}
 
-These objectives collectively address the three fundamental limitations identified in the Problem Statement. The first three objectives provide episodic memory, confidence estimation, and intelligent routing to overcome stateless operation and poor calibration. Objectives four through six create the self-improvement mechanism with empirical validation. Objective seven provides theoretical foundations ensuring the approach is grounded in principled analysis of verification and learning dynamics.
+These objectives collectively address the three fundamental limitations identified in the Problem Statement. Objectives one through four provide the per-query mechanism: verified episodic memory with a four-outcome storage gate, pre-routing confidence, three-tier routing with a safety override, and a nine-signal post-generation verifier. Objectives five and six provide the cycle-boundary mechanism: retroactive re-verification, deferred reconsideration, and constrained self-improvement under a retention guard. Objective seven provides the evaluation framework that tests whether the joint system improves along the axes the design optimises for while preserving the out-of-distribution capability the guard protects.
 
 \section{Methodology in Brief}
 
-This section provides a high-level overview of the CAEM system architecture. In the methodology chapter, detailed technical specifications will be presented.
+This section provides a high-level overview of the CAEM system architecture. Chapter~\ref{ch:methodology} develops each stage in full, with equations, algorithms, and hyperparameters.
 
 \subsection{System Architecture Overview}
 
-CAEM integrates five core components. One, the \textit{verified episodic memory} stores 20,000 concrete question-reasoning-answer tuples validated through complete verification, indexed with FAISS for efficient retrieval. Two, the \textit{fine-tuned model} serves as implicit semantic memory, learning generalized patterns from verified examples through iterative training. Three, \textit{Multi-signal confidence estimation} combines token probability, MC Dropout uncertainty, self-consistency, and semantic entropy to produce calibrated confidence scores. Four, \textit{Three-tier adaptive routing} directs queries to retrieval (exact matches), generation (similar patterns), or RAG (novel problems) based on similarity and confidence. Five, \textit{Multi-layer verification} validates all outputs through NLI entailment, self-consistency checking, and semantic entropy analysis before storage.
-
-Figure~\ref{fig:architecture} illustrates the system architecture.
+CAEM organises a single query into an eight-stage pipeline that is traversed once per query and wrapped in a per-cycle update loop. Stage~1 produces a \textit{pre-routing confidence} $\upre$ from an encoder-only pass, fusing a short-prefix token-probability aggregate with an encoder convergence ratio. Stage~2 encodes the query with Sentence-BERT and searches a FAISS-indexed episodic memory for the nearest stored entry, returning a similarity score $s$ and the neighbour's stored-quality score $\ustored$. Stage~3 dispatches the query to one of three tiers using the combined routing score $\mathcal{S} = 0.70\,s + 0.30\,\ustored$, overlaid with an independent safety override that forces Tier~3 whenever $\upre$ falls below a fixed floor. Stage~4 executes the tier: Tier~1 serves the neighbour's stored answer directly; Tier~2 runs a zero-shot generation on the fine-tuned model; Tier~3 retrieves Wikipedia evidence and runs a retrieval-augmented generation. Stage~5 passes the tier output through a nine-signal verifier organised into three families (internal calibration, sample-set agreement, external grounding) to produce the composite $\ustored$. Stage~6 emits one of four outcomes (store, defer, abstain, or discard) from the composite, an ensemble-max contradiction probability, and a max-match grounding score; Stage~7 executes the implied memory and user-facing actions. Stage~8 runs at cycle boundaries: a retroactive re-verification pass refreshes stored composites under the updated model, a deferred-entry reconsideration pass sweeps the deferred buffer, a fine-tuning step accumulates weights under an $L_2$ anchor, and an MMLU retention probe aborts the cycle with a weight rollback if general capability has dropped below a fixed floor. Figure~\ref{fig:architecture} gives the high-level view; the full per-stage pipeline appears as Figure~4.1 in Chapter~\ref{ch:methodology}.
 
 \begin{figure}[p]
 \centering
@@ -95,47 +93,44 @@ Figure~\ref{fig:architecture} illustrates the system architecture.
 ]
 
 % Row 1: Input -> Encode -> Route
-\node[box=orange!60] (input) at (0,0) {1 INPUT\\[0.15cm]\footnotesize Question};
-\node[box=teal!60, right=1.8cm of input] (encode) {2 ENCODE\\[0.15cm]\footnotesize SBERT};
-\node[storage, above=0.5cm of encode] (mem) {Memory\\20K};
-\node[box=teal!60, right=1.8cm of encode] (route) {3 ROUTE\\[0.15cm]\footnotesize Similarity};
+\node[box=orange!60] (input) at (0,0) {1 $\upre$\\[0.15cm]\footnotesize Pre-route conf};
+\node[box=teal!60, right=1.8cm of input] (encode) {2 ENCODE\\[0.15cm]\footnotesize SBERT + FAISS};
+\node[storage, above=0.5cm of encode] (mem) {Episodic\\Memory};
+\node[box=teal!60, right=1.8cm of encode] (route) {3 ROUTE\\[0.15cm]\footnotesize $\mathcal{S} = 0.7s + 0.3\ustored$};
 
 % Tier 1 - Simple retrieval (top)
 \node[box=green!60, right=2.5cm of route, yshift=2.5cm] (t1) {
     \textbf{TIER 1}\\
     \scriptsize Retrieve\\
-    \scriptsize $>$0.95\\
-    \scriptsize 80ms\\
-    \scriptsize\textbf{50\%}
+    \scriptsize High $\mathcal{S}$
 };
 
-% Tier 2 - Generation with confidence gate (middle)
+% Tier 2 - Generation with safety override (middle)
 \node[box=orange!60, right=1.8cm of route] (t2gen) {
     \textbf{TIER 2}\\
-    \scriptsize Generate\\
-    \scriptsize 0.75--0.95
+    \scriptsize Zero-shot\\
+    \scriptsize Generate
 };
 \node[smallbox=orange!60, right=1.5cm of t2gen] (t2conf) {
-    4 CONF\\[0.1cm]
-    \tiny Check\\
-    \tiny $u>0.6$?
+    4 SAFETY\\[0.1cm]
+    \tiny override\\
+    \tiny $\upre < \tau$?
 };
 
 % Tier 3 - RAG (bottom)
 \node[box=red!60, right=1.8cm of route, yshift=-2.5cm] (t3) {
     \textbf{TIER 3}\\
     \scriptsize RAG\\
-    \scriptsize $<$0.75\\
-    \scriptsize 3.2s\\
-    \scriptsize\textbf{15\%}
+    \scriptsize Low $\mathcal{S}$ or\\
+    \scriptsize forced
 };
 
 % External KB for Tier 3
 \node[external, left=5.5cm of t3] (extkb) {External\\KB\\(Wiki)};
 
 % Verify and Output
-\node[box=red!60, right=2.5cm of t2conf] (verify) {5 VERIFY\\[0.15cm]\footnotesize 85--90\%};
-\node[box=green!60, right=1.8cm of verify] (output) {6 OUTPUT\\[0.15cm]\footnotesize Answer};
+\node[box=red!60, right=2.5cm of t2conf] (verify) {5 VERIFY\\[0.05cm]\footnotesize 9 signals\\[-0.05cm]\footnotesize + 6 DECIDE\\[-0.05cm]\scriptsize Store/Defer/\\[-0.1cm]\scriptsize Abstain/Discard};
+\node[box=green!60, right=1.8cm of verify] (output) {7 OUTPUT\\[0.15cm]\footnotesize Answer};
 
 % Bottom: Model
 \node[storage, below=2.5cm of route] (model) {Fine-Tuned\\Model};
@@ -184,10 +179,7 @@ Figure~\ref{fig:architecture} illustrates the system architecture.
 % Loop box
 \node[draw=purple!70, line width=2.5pt, dashed, rectangle, rounded corners=6pt,
       fit={(model) (mem)}, inner sep=0.5cm,
-      label={[font=\normalsize\bfseries, text=purple!70]above:7 SELF-IMPROVEMENT}] {};
-
-% Add note for Tier 2
-\node[below=0.1cm of t2gen, font=\scriptsize, text=orange!70!black] {\textit{35\% / 850ms}};
+      label={[font=\normalsize\bfseries, text=purple!70]above:8 SELF-IMPROVEMENT\\[-0.1cm]{\scriptsize\mdseries retroverify + deferred-reconsider + $L_2$-anchor fine-tune + MMLU guard (abort + weight rollback)}}] {};
 
 \end{tikzpicture}
 }%
@@ -195,27 +187,27 @@ Figure~\ref{fig:architecture} illustrates the system architecture.
 
 \vspace{0.3cm}
 
-{\small\caption[Proposed CAEM Architecture]{Proposed CAEM Architecture: 7-stage pipeline with 3-tier routing. Tier 1: direct retrieval from memory (estimated 200-400ms). Tier 2: generate with fine-tuned model, then check confidence to accept or fallback (estimated 1.5-2.5s when successful). Tier 3: RAG for novel/low-confidence queries (estimated 3-6s). Multi-layer verification (target: up to 85--90\%) enables self-improvement through verified knowledge accumulation. \textit{Latencies/confidence values are engineering estimates to be validated empirically.}}}
+{\small\caption[CAEM Architecture (High-Level View)]{High-level view of the CAEM architecture. A pre-routing confidence $\upre$ (Stage~1) and a Sentence-BERT memory lookup (Stage~2) feed a three-tier router (Stage~3) that dispatches to direct retrieval (Tier~1), zero-shot generation (Tier~2), or retrieval-augmented generation (Tier~3) based on a combined similarity-and-stored-quality score $\mathcal{S}$, with an independent safety override that forces Tier~3 whenever $\upre$ falls below a fixed floor. Tier outputs pass through a nine-signal post-generation verifier (Stage~5) and a four-outcome storage decision (Stage~6) before reaching the user (Stage~7). At cycle boundaries (Stage~8), retroactive re-verification, deferred-entry reconsideration, $L_2$-anchored fine-tuning, and an MMLU retention guard jointly update memory and weights; failed cycles roll back weights but not memory. Figure~4.1 in Chapter~\ref{ch:methodology} shows the full per-stage pipeline with notation, equations, and algorithms.}}
 \label{fig:architecture}
 \end{figure}
 
 \subsection{Query Processing and Routing}
 
-When a query comes in, the system turns it into a numerical representation using Sentence-BERT, searches its memory quickly using FAISS and checks how confident it is using four different methods. Routing decisions employ a hierarchical strategy. Tier 1, if the question is almost identical to something already stored (similarity greater than 0.95), just retrieve it from memory. Tier 2, if the question is somewhat similar (similarity between 0.75 and 0.95), the system generates a new answer using fine-tuned model for similar patterns. And, Tier 3, if the question is new (similarity below 0.75), the system uses RAG and full verification for accuracy surety. This progressive strategy achieves efficiency gains as memory coverage expands across cycles.
+Every incoming query is first encoded by Sentence-BERT as a 768-dimensional, $L_2$-normalised embedding, then looked up in a FAISS index. The lookup returns the similarity $s$ to the nearest stored entry and that entry's stored-quality score $\ustored$. In parallel, Stage~1 produces the pre-routing confidence $\upre$ from an encoder-only pass that fuses a token-probability aggregate with the encoder convergence ratio and is temperature-scaled against a held-out calibration split. The router combines $s$ and $\ustored$ into a single routing score $\mathcal{S} = 0.70\,s + 0.30\,\ustored$ and dispatches the query to Tier~1 (direct retrieval) when the combined score is high enough that the stored answer can be served without regeneration, to Tier~2 (zero-shot generation on the fine-tuned model) in the middle band, and to Tier~3 (retrieval-augmented generation against Wikipedia) when the combined score is low. An independent safety override is layered on top of this dispatch: if $\upre$ falls below a fixed floor, the query is forced to Tier~3 regardless of the combined score, so that low model readiness triggers forced external grounding before generation has started rather than only after an overconfident answer has been produced. This override is the two-mechanism separation that distinguishes CAEM's router from a pure similarity-threshold dispatcher. As memory coverage grows across cycles, a greater fraction of queries land on Tier~1, yielding efficiency gains without routing queries that the model is not ready for to the cheapest path.
 
-\subsection{Multi-Layer Verification}
+\subsection{Post-Generation Verification and the Four-Outcome Storage Decision}
 
-All outputs undergo three-layer verification achieving 85-90\% combined accuracy. Layer 1 uses NLI (Natural Language Inference) to verify factual correctness against retrieved evidence. Layer 2 generates multiple reasoning chains and measures agreement through checking if they all agree. Layer 3 applies semantic entropy from Farquhar et al. (2024) \cite{farquhar2024semantic}, clustering diverse samples by meaning to detect confabulation. Depending on the type of dataset, the system chooses which verification layers are most important to focus on.
+All tier outputs undergo a nine-signal post-generation verifier organised into three complementary families, so that no single exploitable signal can drive storage on its own. The \textit{internal calibration} family (token-probability aggregate on the generated answer, MC-dropout plurality~\cite{pmlr-v48-gal16}, and a fused internal scalar) measures what the model itself thinks of its output. The \textit{sample-set} family (average pairwise similarity of sampled chains, chain-to-answer entailment, and normalised semantic entropy~\cite{farquhar2024semantic}) measures the stability of the answer across stochastic decodes. The \textit{external grounding} family (max-match and mean-match entailment against retrieved evidence, and an ensemble-max contradiction probability) measures whether retrieved evidence supports the claim, augmented by a weakest-link atomic-fact decomposition that catches partially-unsupported answers. The nine signals are combined into a composite score $\ustored$. A confabulation early-exit rule short-circuits storage whenever semantic entropy is high; a contradiction veto rejects any output whose grounding pass returns a high ensemble-max contradiction. The surviving composite feeds a four-outcome storage decision: \textsc{Store} if the composite is above the store threshold, \textsc{Deferred} if it falls in a lower band that is plausible but has not cleared the commit bar, \textsc{Abstain} if the composite is low and grounding is also low (an explicit refusal rather than a silent failure), and \textsc{Discard} otherwise. Deferred entries enter a bounded first-in-first-out buffer with a time-to-live and are reconsidered at the next cycle boundary by a dedicated pass that parallels the retroactive re-verification of committed memory.
 
-\subsection{Self-Improvement Loop}
+\subsection{Constrained Self-Improvement Loop}
 
-CAEM implements iterative refinement over three cycles. Each cycle processes questions through the current system, collecting verified episodes that serve as training data. Fine-tuning employs mixed training data (90\% verified, 10\% general tasks) and L2 regularization to prevent catastrophic forgetting. As the model improves, verification becomes more accurate, verified answers create better training data and this leads to steady improvement, targeting a 20--30\% hallucination reduction across three cycles (estimated progression from approximately 60\% to 87\% accuracy on the evaluation benchmarks).
+CAEM implements iterative refinement over three cycles. Each cycle processes a workload of questions through the current system, collecting verified episodes, deferred entries, and contradiction-veto or abstain cases. At the cycle boundary, a retroactive re-verification pass re-scores every stored episode under the updated model with an upward-only rule (promote when the composite has improved past a re-verification threshold, prune when it has fallen below); a deferred-entry reconsideration pass promotes, drops by time-to-live, or requeues each held entry. Fine-tuning then draws a training pool from entries that pass a strict quality filter (a training threshold set above the store threshold, so that training-pool quality is held to a higher bar than Tier~1 retrieval quality), and optimises a mixed batch (90\% verified reasoning chains, 10\% general-QA) under an $L_2$ anchor regulariser toward the base model as an EWC approximation~\cite{doi:10.1073/pnas.1611835114}. Before and after the fine-tune, the cycle probes MMLU~\cite{hendrycks2021measuring} and computes a retention ratio. If the retention ratio falls below a fixed floor, the cycle aborts: weights are rolled back to the previous checkpoint and retroverify is skipped for that cycle. The memory, however, is never rolled back, so verified knowledge accumulated during the aborted cycle survives even when the weights do not. This asymmetry decouples weight-level drift from memory-level accumulation and is what makes the self-improvement loop safe to iterate.
 
 \subsection{Implementation}
 
-The system employs Flan-T5 Large (780M parameters) for its instruction-tuned capabilities and encoder-decoder architecture. Sentence-BERT converts questions into numerical representations, FAISS searches memory quickly for similar questions, and RoBERTa-Large-MNLI performs NLI verification. Evaluation uses HotpotQA, StrategyQA, FEVER, and TruthfulQA benchmarks, measuring exact match accuracy, F1 score, and hallucination rate. The 12-month timeline allocates four months for implementation, four for experimental cycles, and four for analysis and writing.
+The system employs Flan-T5-Large (780M parameters)~\cite{JMLR:v25:23-0870} as the only trainable component for its instruction-tuned capabilities and encoder-decoder architecture. Sentence-BERT (all-mpnet-base-v2, 110M, frozen)~\cite{reimers-gurevych-2019-sentence} converts queries into 768-dimensional embeddings; FAISS~\cite{8733051} backs the episodic memory; RoBERTa-Large-MNLI (355M, frozen)~\cite{liu2019roberta} performs the natural-language-inference checks that feed the grounding and entailment signals. All components fit in the 24\,GB VRAM of a single RTX 4090 under bfloat16 mixed precision, with fine-tuning made memory-feasible by the $L_2$ anchor (which requires only the base-model parameters on-device, rather than a full Fisher Information Matrix). Evaluation uses FEVER, TriviaQA, Natural Questions, HaluEval, TruthfulQA, StrategyQA, and ARC-Challenge as the primary factual-QA panel, with MMLU as an out-of-distribution retention control, reporting the geometric Composite Evaluation Score (Chapter~\ref{ch:requirements}) and a confident-error-rate diagnostic. The 12-month timeline allocates four months for implementation, four for experimental cycles, and four for analysis and writing.
 
-Figure~\ref{fig:experimental-workflow} illustrates the planned experimental workflow across iterative self-improvement cycles. Each cycle builds upon verified knowledge from previous cycles to drive progressive improvements in accuracy, data purity, and computational efficiency.
+Figure~\ref{fig:experimental-workflow} illustrates the planned experimental workflow across three self-improvement cycles. Each cycle runs the per-query pipeline over a fixed workload, then applies the cycle-boundary update passes (retroactive re-verification, deferred-entry reconsideration, $L_2$-anchored fine-tuning) under the MMLU retention guard.
 
 \begin{figure}[htbp]
 \centering
@@ -232,74 +224,69 @@ Figure~\ref{fig:experimental-workflow} illustrates the planned experimental work
 
 % Cycle 1 - Red to Yellow gradient
 \node[cycle, fill=red!20, draw=red!70!black] (c1) {
-\textbf{Cycle 1} \textit{(Baseline)}\\
+\textbf{Cycle 1} \textit{(cold start)}\\
 \vspace{0.1cm}
 $\bullet$ Memory: \textbf{Empty}\\
-$\bullet$ Process: questions\\
-$\bullet$ Generate: \textbf{100\%}\\
-$\bullet$ Collect verified data\\
-$\bullet$ Accuracy: baseline $\rightarrow$ \textbf{improved}
+$\bullet$ All queries to Tier 2/3\\
+$\bullet$ 9-signal verify $\rightarrow$ 4-outcome decide\\
+$\bullet$ Store / Defer / Abstain / Discard
 };
 
 % Consolidation 1
 \node[consolidate, below=0.3cm of c1] (cons1) {
-Fine-tune on verified data\\
-Accumulated episodes $\rightarrow$ Model improves
+Cycle boundary: retroverify $+$ defer-reconsider\\
+$L_2$-anchor fine-tune + MMLU guard ($\rho \ge 0.93$)
 };
 
 % Cycle 2 - Yellow gradient
 \node[cycle, fill=yellow!25, draw=orange!70!black, below=0.8cm of cons1] (c2) {
-\textbf{Cycle 2} \textit{(Improved)}\\
+\textbf{Cycle 2} \textit{(accumulating)}\\
 \vspace{0.1cm}
 $\bullet$ Memory: \textbf{Growing}\\
-$\bullet$ Process: questions\\
-$\bullet$ Retrieve increases\\
-$\bullet$ Collect more verified data\\
-$\bullet$ Accuracy: \textbf{further improvement}
+$\bullet$ Tier 1 share rises\\
+$\bullet$ Training pool filtered at $\tau_{\text{train}} = 0.75$\\
+$\bullet$ Retroverify promotes/prunes under current model
 };
 
 % Consolidation 2
 \node[consolidate, below=0.3cm of c2] (cons2) {
-Fine-tune on cumulative data\\
-More episodes $\rightarrow$ Further improvement
+Cycle boundary: retroverify $+$ defer-reconsider\\
+$L_2$-anchor fine-tune; abort $\rightarrow$ rollback weights (memory kept)
 };
 
 % Cycle 3 - Green gradient
 \node[cycle, fill=green!25, draw=green!70!black, below=0.8cm of cons2] (c3) {
-\textbf{Cycle 3+} \textit{(Target)}\\
+\textbf{Cycle 3} \textit{(report)}\\
 \vspace{0.1cm}
 $\bullet$ Memory: \textbf{Mature}\\
-$\bullet$ Process: questions\\
-$\bullet$ High retrieval rate\\
-$\bullet$ Sustained quality\\
-$\bullet$ Accuracy: \textbf{target performance}
+$\bullet$ Higher Tier 1 share\\
+$\bullet$ Composite Evaluation Score\\
+$\bullet$ Confident-error rate vs.\ baseline
 };
 
 % Metrics boxes with better styling
-\node[right=1.2cm of c1, text width=3.8cm, align=left, font=\scriptsize, 
+\node[right=1.2cm of c1, text width=3.8cm, align=left, font=\scriptsize,
       fill=red!10, inner sep=4pt, rounded corners=3pt, draw=red!50] (m1) {
-\textbf{Expected (Cycle 1):}\\
-$\bullet$ Data purity: 85-95\%\\
-$\bullet$ Memory coverage: Low\\
-$\bullet$ Avg latency: 2-4s
+\textbf{Per-cycle logs:}\\
+$\bullet$ (Store, Defer, Abstain, Discard) counts\\
+$\bullet$ Training-pool size\\
+$\bullet$ Routing distribution
 };
 
-\node[right=1.2cm of c2, text width=3.8cm, align=left, font=\scriptsize, 
+\node[right=1.2cm of c2, text width=3.8cm, align=left, font=\scriptsize,
       fill=yellow!10, inner sep=4pt, rounded corners=3pt, draw=orange!50] (m2) {
-\textbf{Expected (Cycle 2):}\\
-$\bullet$ Data purity: improving\\
-$\bullet$ Memory coverage: Medium\\
-$\bullet$ Avg latency: 1.5-3s
+\textbf{Cycle-boundary logs:}\\
+$\bullet$ $(n_{\text{up}}, n_{\text{rm}})$ retroverify\\
+$\bullet$ $(n_{\text{pr}}, n_{\text{dr}}, n_{\text{kp}})$ deferred\\
+$\bullet$ MMLU retention $\rho$
 };
 
-\node[right=1.2cm of c3, text width=3.8cm, align=left, font=\scriptsize, 
+\node[right=1.2cm of c3, text width=3.8cm, align=left, font=\scriptsize,
       fill=green!10, inner sep=4pt, rounded corners=3pt, draw=green!50] (m3) {
-\textbf{Target (Cycle 3+):}\\
-$\bullet$ Data purity: 88-96\%\\
-$\bullet$ Memory coverage: High\\
-$\bullet$ Avg latency: 1-2s\\
-\vspace{0.1cm}
-\textit{\textcolor{green!60!black}{Progressive improvement}}
+\textbf{Final report (Ch 5):}\\
+$\bullet$ CES geometric mean across 5 axes\\
+$\bullet$ Confident-error reduction vs.\ zero-shot\\
+$\bullet$ Ablation grid
 };
 
 % Arrows with gradient colors
@@ -309,7 +296,7 @@ $\bullet$ Avg latency: 1-2s\\
 \draw[arrow, green!60!black] (cons2) -- (c3);
 
 \end{tikzpicture}
-\caption[Experimental Workflow]{Three self-improvement cycles: process 5K questions, collect verified data, fine-tune. Progressive improvement estimated: +15-20\% accuracy.}
+\caption[Experimental Workflow]{Three self-improvement cycles. Each cycle processes a fixed workload through the per-query pipeline (Stages 1--7) with verification and four-outcome storage. At each cycle boundary (Stage~8) a retroactive re-verification pass refreshes stored composites under the updated model, a deferred-entry reconsideration pass sweeps the deferred buffer, $L_2$-anchored fine-tuning draws from a strict training pool, and an MMLU retention probe aborts the cycle with a weight rollback if the retention ratio falls below $\rho_{\min} = 0.93$. Memory is never rolled back. Headline results (Composite Evaluation Score, confident-error reduction against baselines, and the ablation grid) are reported at the end of Cycle~3 in Chapter~5.}
 \label{fig:experimental-workflow}
 \end{figure}
 
@@ -317,34 +304,34 @@ $\bullet$ Avg latency: 1-2s\\
 
 \subsection{Research Scope}
 
-This research focuses on tasks where there is a clear right or wrong answer and not subjective questions. The system's target is to handle questions that need to find information from sources, connecting multiple pieces of information, checking facts and avoiding common false beliefs. The four evaluation benchmarks (HotpotQA, StrategyQA, FEVER, TruthfulQA) are chosen because they have questions with definite answers which can be checked objectively. 
+This research focuses on tasks where there is a clear right or wrong answer and not subjective questions. The system's target is to handle questions that need to find information from sources, connect multiple pieces of information, verify facts, and avoid common false beliefs. The seven primary evaluation benchmarks (FEVER, TriviaQA, Natural Questions, HaluEval, TruthfulQA, StrategyQA, and ARC-Challenge) are chosen because they have questions with definite answers that can be checked objectively under per-benchmark correctness metrics (exact match, token-F1, label accuracy, or ROUGE-L depending on the task family). MMLU is reserved as an out-of-distribution retention control rather than a target benchmark: the fine-tune is not optimised for MMLU, but the retention guard aborts any cycle in which MMLU accuracy drops below a fixed fraction of the pre-cycle baseline.
 
 The scope explicitly \textit{excludes} creative generation tasks such as story writing, poetry composition, or open-ended dialogue where evaluation criteria are subjective and multiple valid responses exist. Similarly, tasks requiring up-to-date real-world information beyond the training cutoff such as stock prices, breaking news and current events are outside scope, as the system lacks mechanisms for continuous knowledge based updates. Important grounds like Code generation and mathematical theorem proving are excluded to maintain focus on natural language reasoning. The system operates on English text only, with the scope of working on multilingual capabilities in the future.
 
-The model selection reflects resource constraints appropriate for undergraduate thesis work. Flan-T5 Large (780 million parameters) provides sufficient capacity for complex reasoning while remaining feasible for fine-tuning with university GPU allocations. Larger models such as LLaMA-13B or GPT-3.5 scale would require computational resources that are too expensive and resource-heavy. The three-cycle experimental design captures the essential self-improvement dynamics while remaining achievable within a 12-month timeline, though in theory, the convergence requires 7-10 cycles for practical equilibrium.
+The model selection reflects resource constraints appropriate for undergraduate thesis work. Flan-T5-Large (780M parameters) provides sufficient capacity for complex reasoning while remaining feasible for fine-tuning with university GPU allocations. Larger models such as LLaMA-13B or GPT-3.5 scale would require computational resources that are too expensive and resource-heavy. The three-cycle experimental design captures the essential self-improvement dynamics while remaining achievable within a 12-month timeline, though in theory a full long-horizon equilibrium study would require 7--10 cycles.
 
-Instead of using every question in the dataset, the system will be tested on about 5,000 questions per benchmark. This number is enough to get meaningful results but small enough to avoid excessive computational costs. The system can store 20,000 past question-answer-reasoning episodes in memory, which is large enough to test memory management strategies but small enough to run on university-level hardware resources.
+Per-benchmark evaluation uses a fixed sub-sample sized for meaningful statistical power without excessive computational cost. The episodic memory is bounded at a target capacity of $10^6$ entries with a flat FAISS index promoted to IVF-PQ above a threshold; for the three-cycle experiments reported in Chapter~5 the memory is initialised empty and grows up to the low tens of thousands of entries, which is well within single-GPU capacity and exercises the novelty filter and value-score pruning policies without saturating them.
 
 \subsection{Technical Challenges}
 
 The implementation of CAEM faces six primary technical challenges that must be addressed:
 
 \begin{itemize}
-    \item \textbf{Verification Accuracy Limitations:} The multi-layer verification system targets 85-90\% accuracy, meaning 10-15\% of stored episodes may contain errors. The system tends to produce cleaner data, but any single wrong memory could teach the model a misinformation. The challenge lies in maximizing verification accuracy while maintaining computational feasibility. Semantic entropy verification requires generating ten samples and performing bidirectional NLI classification for clustering, creating substantial overhead. Trade-offs between verification thoroughness and system efficiency must be carefully balanced.
-    
-    \item \textbf{Catastrophic Forgetting During Fine-Tuning:} Iterative fine-tuning on domain-specific verified examples risks degrading general language capabilities, a phenomenon called \textit{catastrophic forgetting}. While mitigation strategies including mixed training data (90\% verified, 10\% general) and L2 regularization aim to preserve at least 95\% of baseline performance on general tasks measured by MMLU, the effectiveness of these techniques must be validated empirically. If the model still forgets too much, mixing more general data (20\%), efficient fine-tuning methods like LoRA or stopping fine-tuning and just using episodic memory for answers can be some of the possible fixes.
-    
-    \item \textbf{Confidence Calibration Complexity:} Combining four confidence signals (token probability, MC Dropout, self-consistency, semantic entropy) requires determining optimal weights. At first, we start by treating all four signals equally (0.25 each), but later we can adjust weights based on performance data. However, weight optimization requires sufficient labeled data distinguishing correct from incorrect model outputs, creating a bootstrapping challenge. Another adjustment called Temperature scaling for calibration adds another hyperparameter requiring validation set tuning. Calculating confidence can be expensive, because MC Dropout and semantic entropy need multiple computations per question. So, the system must balance accuracy with speed and cost.
-    
-    \item \textbf{Memory Retrieval Quality and Pruning Strategy:} The system uses FAISS to quickly find similar past questions, which as introduces potential errors where similar questions are not retrieved despite existing in memory. When the memory is nearly full, the system has to decide which episodes to remove. It considers retrieval frequency (how often episodes are used), success rate (how often retrieved episodes help), confidence (quality at storage time), and recency (newer episodes may be more relevant). Suboptimal pruning could remove valuable episodes while retaining redundant or low-quality entries. The novelty detection threshold of 0.95 similarity requires careful tuning, for example, too high allows many duplicates and too low rejects genuinely novel variations.
-    
-    \item \textbf{Baseline Performance Dependencies:} The theoretical proof assumes that the baseline model has learned meaningful patterns and performs better than random guessing, meaning accuracy above 50\% for binary classification and above 25\% for four-way. If Flan-T5 Large achieves below 50\% accuracy on specific benchmark subsets, storing verified answers could actually make things worse. To reduce this risk, the project chooses Flan-T5 Large, which can follow instructions well and picks benchmarks where the model already does reasonably well.
-    
-    \item \textbf{Evaluation Metric Selection:} Measuring hallucination reduction requires careful metric design beyond simple accuracy. The FActScore methodology for atomic fact verification provides a gold standard but it takes a lot of effort, requiring manual annotation or expensive API calls to verification models. So, there is a balance between checking everything perfectly and keeping evaluation doable. Binary accuracy metrics may miss subtle improvements in explanation quality or hedge expressions. Comparing against strong baselines requires faithful reimplementation, as published results often differ in how they were measured or which data they used.
+    \item \textbf{Verifier Reliability and Stored-Quality Drift:} The nine-signal post-generation verifier produces a composite score $\ustored$ that is used as both a Tier-1 retrieval proxy and a training-pool quality filter. Three of the nine signals (the internal-calibration family) read the model's internal state directly and drift with every fine-tune, so stored composites are model-relative snapshots that must be refreshed at each cycle boundary. The retroactive re-verification pass addresses this drift with an upward-only update rule: only entries whose composite has improved past a re-verification threshold are promoted, while those that have fallen below it are categorically pruned. The cost is the full verifier re-scoring of every stored episode at each cycle boundary.
+
+    \item \textbf{Catastrophic Forgetting Under Iterative Fine-Tuning:} Fine-tuning on domain-specific verified examples risks degrading general language capabilities. CAEM addresses this through three layers of defence: a strict training-pool quality filter at a threshold above the store threshold, a 90/10 mix of verified reasoning chains and general-QA pairs in each training batch, and an $L_2$ anchor toward the base-model parameters that approximates EWC under a uniform-Fisher assumption~\cite{doi:10.1073/pnas.1611835114}. A hard out-of-distribution retention guard on MMLU aborts the cycle and rolls back weights if the retention ratio falls below a fixed floor; memory is never rolled back, so the fine-tune failing in cycle $k$ does not lose the verified episodes accumulated during it. The effectiveness of each layer is validated empirically through the ablation grid in Chapter~\ref{ch:requirements}.
+
+    \item \textbf{Pre-Routing Confidence Calibration:} The pre-routing confidence $\upre$ is used both as a one-dimensional scalar in the combined routing score and as the sole input to the safety override, so its calibration matters directly. CAEM fuses two signals (a short-prefix token-probability aggregate and an encoder convergence ratio) and temperature-scales the fused scalar against a held-out calibration split by L-BFGS on binary negative-log-likelihood. The non-obvious design choice is that confidence is computed from the encoder alone (no decode) so that its cost is paid per query regardless of tier; the cost of the signals it avoids (MC-dropout plurality, sample-set agreement, semantic entropy) is deferred to the post-generation verifier on Tier~2 and Tier~3 paths only.
+
+    \item \textbf{Memory Retrieval Quality and Novelty Filtering:} The system uses FAISS for approximate nearest-neighbour search, which introduces the possibility of missing a semantically-similar entry if the embedding happens to fall near an index partition boundary. Near-duplicates are filtered at write time by a novelty threshold on cosine similarity (suppressing new writes when a stored neighbour exceeds the threshold); pruning at capacity uses a value score that combines retrieval frequency, success rate, recency, and storage-time confidence. The novelty threshold is a tuning knob: too high admits many near-duplicates that bloat the index without adding coverage, too low rejects paraphrase-level rewording that would have been genuinely useful additions.
+
+    \item \textbf{Baseline Performance Dependency for Self-Improvement:} The self-improvement argument depends on the base model performing above random chance on the target benchmarks, because training on verified-but-imperfect episodes can only compound accuracy when the verifier's false-positive rate is low enough that the training pool is cleaner than the raw model's outputs. To reduce this risk, the project chooses Flan-T5-Large, which already performs competitively on factual-QA after instruction tuning, and picks benchmarks where the base model clears the threshold. Benchmarks on which the base model underperforms (e.g., narrow-domain subsets where zero-shot accuracy is near chance) are excluded from the training pool and used only for evaluation.
+
+    \item \textbf{Evaluation Metric Selection:} Measuring hallucination reduction requires careful metric design beyond simple accuracy. CAEM's primary metric is the confident-error rate: the fraction of responses that are both high-confidence under $\ustored$ and incorrect under the benchmark's correctness metric. This captures the central clinical concern (confidently-wrong outputs) more directly than overall accuracy. A geometric Composite Evaluation Score (accuracy, epistemic quality, retention, calibration, and verification reliability) provides the joint-axis view; the geometric mean penalises any axis that collapses, which is the behaviour that matches the use-case (a system that sacrifices retention for accuracy is not acceptable). Comparison against strong baselines (zero-shot Flan-T5-Large, a RAG-only variant, and per-mechanism ablations) is run under identical benchmarks and metric definitions to avoid the confound of re-implementing published baselines with different evaluation choices.
 \end{itemize}
 
 \subsection{Mitigation Strategies}
 
-For each challenge identified, the research design incorporates mitigation strategies. The three layer verification system, which is NLI, self-consistency , semantic entropy, ensures answers are checked carefully which will reduce errors. Catastrophic forgetting monitoring includes early stopping criteria. For example, if MMLU score drops below 93\% of baseline, training halts and the previous cycle's model is retained. Confidence calibration begins with equal weighting, deferring optimization to future work if validation data proves insufficient. The system removes old and less-valuable memories only when reaching 95\% capacity and value-based metrics combining multiple criteria like usage, success rate and recency. Computational constraints are managed through efficient implementation choices (DeepSpeed, gradient checkpointing) and scoped experimentation. Before full experiments, the system checks all baseline methods to make sure if everything works.
+For each challenge identified, the research design incorporates mitigation strategies. Verifier-reliability and stored-quality drift are addressed by the retroactive re-verification pass, which re-scores every stored episode at each cycle boundary under the updated model and applies an upward-only update rule. Catastrophic forgetting is addressed by the combination of the strict training-pool quality filter ($\tau_{\text{train}} > \tau_{\text{store}}$), the 90/10 episode-general batch mix, the $L_2$ anchor regulariser, and the hard MMLU retention guard that aborts the cycle with a weight rollback if the retention ratio falls below the fixed floor $\rho_{\min} = 0.93$. Pre-routing confidence calibration is tackled by temperature-scaling the fused scalar on a held-out calibration split before deployment, rather than on-the-fly adaptation. Memory retrieval quality is managed by the novelty filter at write time (suppressing near-duplicate writes at a cosine similarity threshold of 0.95) and by value-score pruning that triggers only when capacity is exceeded. Baseline-performance dependency is managed by benchmark selection and by the verifier's contradiction veto and confabulation early-exit rule, both of which reduce the expected false-positive rate of the storage decision below the raw composite-threshold baseline. Evaluation metric risk is managed by reporting both the geometric Composite Evaluation Score and the confident-error-rate diagnostic, so that no single collapsing axis can mask a regression on another.
 
-Although the problems are significant, they can be managed within the resources and the time frame. The aim is to improve the system clearly and measurably while focusing on using smart design choices to reduce errors.
+Although the problems are significant, they can be managed within the resources and the time frame. The aim is to improve the system clearly and measurably while making the architectural commitments that the current state of the literature supports.

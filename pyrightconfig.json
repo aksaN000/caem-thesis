@@ -1,8 +1,1 @@
-{
-  "include": ["."],
-  "extraPaths": ["."],
-  "pythonVersion": "3.10",
-  "typeCheckingMode": "basic",
-  "venvPath": ".",
-  "venv": ".venv"
-}
+{"include":["caem","eval","scripts","tests"],"reportPrivateImportUsage":"none","reportMissingModuleSource":"none"}

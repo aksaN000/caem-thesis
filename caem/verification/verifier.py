@@ -1,58 +1,112 @@
-﻿"""
+"""
 caem/verification/verifier.py
 ==============================
-MultiLayerVerifier -- Stage 5 of the CAEM pipeline.
+UnifiedVerifier -- the single Stage-5 quality gate of the CAEM pipeline.
 
-Runs after a Tier 2 answer passes Stage 4a (û ≥ 0.60).
-Determines whether the answer is trustworthy enough to store in episodic
-memory and at what confidence level (û_stored).
+This module replaces the previous split between
+  Stage 4a : caem/confidence/post_generation.py (PostGenerationConfidenceEstimator)
+  Stage 5  : caem/verification/verifier.py     (legacy two-layer NLI verifier)
 
-Three signals
--------------
-Signal 1 -- p_entail  [DES]
-    NLI entailment probability: P(ENTAILMENT | query, answer) from the NLI
-    model's softmax output (NOT just argmax). Captures factual consistency
-    between the question and the generated answer.
+Both of the old modules computed overlapping signals (u_consistency ≡ s_avg
+and u_entropy ≡ h_norm) and the old verifier only checked self-referential
+NLI. The Session 42 (2026-04-17) redesign collapses them into one pass and
+adds external grounding via NLI against reranked Wikipedia passages --
+finally fulfilling the Chapter 1 promise that "NLI verifies factual
+correctness against retrieved evidence."
 
-    Implementation: for each of M independently generated chains, compute
-    P(ENTAILMENT) of (chain -> original_answer), then average. This checks
-    that the model's own reasoning chains consistently support the answer,
-    rather than trusting the NLI model's relationship between a raw question
-    and an opaque answer string.
+See: caem-implementation-log.md Session 42 for the full design rationale
+and cost/latency envelope.
 
-Signal 2 -- s_avg  [LIT: Wang et al. 2022]
-    Average pairwise cosine similarity of M=3 independent chain-of-thought
-    generations (Sentence-BERT, 768-dim, same encoder as memory store).
-    High similarity = the model's reasoning is stable; low = uncertain or
-    multi-modal answer space.
+Signal set (nine signals, computed once per Tier 2 / Tier 3 answer)
+-------------------------------------------------------------------
+Internal calibration (cheap, no external dependency):
+    u_token      -- mean token log-prob from generation     [LIT]
+    u_dropout    -- variance across K=5 MC-dropout passes   [LIT: Gal 2016]
+    u_internal   -- 0.5·u_token + 0.5·(1 − u_dropout)       [DES]
 
-Signal 3 -- h_norm  [LIT: Farquhar et al. 2024]
-    Normalised semantic entropy from K=10 samples at T=1.0, using
-    bidirectional NLI clustering (same method as Stage 4a u_entropy).
-    Measures meaning-level, not surface-level, diversity.
+Sample-set signals (model talking to itself, M/K chains):
+    s_avg        -- unique-pair cosine sim over M=3 chains  [LIT: Wang 2022]
+                                                            (Session 40: i<j)
+    h_norm       -- normalised semantic entropy, K=10        [LIT: Farquhar 2024]
+    p_entail     -- P(entail | chain -> answer), averaged over M chains,
+                    ensemble-min across NLI models          [DES]
 
-Combination
------------
-    û_stored = 0.50·p_entail + 0.30·s_avg + 0.20·(1 − h_norm)
+External grounding (model vs retrieved Wikipedia evidence):
+    p_ground_max     -- top-1 passage -> answer entailment   [DES]
+    p_ground_mean    -- mean entailment over top-3 reranked  [DES]
+    p_ground_atomic  -- weakest-link atomic-fact entailment  [DES]
+    p_contra         -- max contradiction prob, top-3        [DES]
 
-    Weights [DES]: NLI entailment is the strongest post-hoc signal (0.50),
-    self-consistency is secondary (0.30), semantic entropy contributes the
-    remainder (0.20). See: hyperparameter-reference.md u_stored_weight_*.
+Composite stored confidence (Session 42 baseline prior, pre-calibration)
+------------------------------------------------------------------------
+    û_stored = 0.30·p_ground_mean
+             + 0.15·p_ground_atomic
+             + 0.15·s_avg
+             + 0.10·(1 − h_norm)
+             + 0.15·u_internal
+             + 0.15·p_entail
 
-Distinction from Stage 4a
---------------------------
-Stage 4a (PostGenerationConfidenceEstimator) is an EFFICIENCY gate:
-it prevents sending low-confidence answers to expensive Stage 5 compute.
-Stage 5 (MultiLayerVerifier) is a QUALITY gate: it determines what û_stored
-value to write into the episodic memory entry. These two stages are
-deliberately separate -- Stage 4a can be calibrated for recall (avoid false
-negatives) while Stage 5 is calibrated for precision (avoid storing junk).
-See: writing-suggestions.md C4-05.
+Weights are re-fit by scripts/run_calibration.py after the main run; the
+equal-ish split is a deliberately diffuse starting prior.
 
-If û_stored ≥ retroverify_prune_threshold (default 0.50):
-    -> Write to episodic memory (Stage 7).
-If û_stored < threshold:
-    -> Discard -- not stored.
+Early-exit confabulation check (hard gate, before composite is formed)
+----------------------------------------------------------------------
+    IF  u_internal ≥ 0.70  AND  p_ground_max ≤ 0.20 :
+        REJECT -> early_exit -> caller routes to Tier 3 regeneration
+
+This is the one explicit safety rule preventing the "confident-and-wrong"
+failure mode. Triggered before any composite scoring -- remaining signals
+are not consulted when this fires.
+
+Decision tree outcomes
+----------------------
+    STORE     : û_stored ≥ 0.65  AND  p_contra < 0.30
+    DEFERRED  : 0.45 ≤ û_stored < 0.65  AND  p_contra < 0.30
+                -- held in the deferred review queue; re-checked by the
+                   retroverify pass each cycle
+    ABSTAIN   : û_stored < 0.45  AND  top-3 p_ground_max < 0.20
+                -- no evidence either way; emit "I don't know" instead of
+                   silently storing or discarding
+    DISCARD   : anything else (contradiction veto hit, or composite too
+                low with some grounding present)
+
+All thresholds and weights above are read from CAEMConfig with
+`getattr(cfg, name, default)` so this module continues to work during the
+Phase 5b config migration. The hard-coded defaults match the Session 42
+freeze.
+
+Dependency injection
+--------------------
+The verifier does not own any of the large models it uses -- they are
+passed in by the pipeline at construction time. Every optional dependency
+has a graceful fallback so the verifier remains useful in smoke/test
+configurations.
+
+    model, tokenizer      -- Flan-T5-Large (required; used for M-chain,
+                             K-sample and atomic-decomposition generation)
+    sbert_encoder         -- all-mpnet-base-v2 (required; s_avg similarity)
+    nli_bundles           -- list of (model, tokenizer) tuples forming the
+                             ensemble. Falls back to the legacy single
+                             (nli_model, nli_tokenizer) pair for BC.
+                             When empty -> p_entail=0.5, p_ground_*=0.5,
+                             p_contra=0.0, h_norm uses surface entropy.
+    reranker              -- sentence-transformers CrossEncoder for the
+                             top-20 -> top-3 passage rerank. When None,
+                             the top-3 are taken directly from the
+                             retriever's ordering.
+    passage_retriever     -- Callable(query, k) -> List[str]. Must be
+                             supplied to enable p_ground_* / p_contra;
+                             otherwise those signals fall back to
+                             0.5 / 0.0 respectively and the early-exit
+                             gate cannot fire.
+    enable_atomic         -- When False, p_ground_atomic == p_ground_mean
+                             (atomic decomposition step skipped).
+
+Tier-1 behaviour
+----------------
+Tier 1 queries bypass this verifier for latency; quality refresh is handled
+by retroactive re-verification between cycles. pipeline.py is responsible
+for NOT calling verify() on Tier 1.
 """
 
 from __future__ import annotations
@@ -60,45 +114,187 @@ from __future__ import annotations
 import itertools
 import logging
 import math
-from typing import List, Optional
+import re
+from dataclasses import dataclass, field
+from typing import Any, Callable, List, Optional, Sequence, Tuple
 
 import numpy as np
 import torch
 import torch.nn.functional as F
 
 from caem.config import CAEMConfig
-from caem.memory.entry import StoredConfidence
 
 logger = logging.getLogger(__name__)
 
 
-class MultiLayerVerifier:
-    """Compute û_stored for a (query, answer) pair.
+# ============================================================================ #
+# Output schema                                                                 #
+# ---------------------------------------------------------------------------- #
+# This is the verifier's public contract. EpisodicEntry (caem.memory.entry)    #
+# stores a flattened copy of these nine signals + p_contra + decision.          #
+# ============================================================================ #
 
-    Parameters
-    ----------
-    model : transformers.T5ForConditionalGeneration
-        Flan-T5-Large in eval mode. Used for M-chain generation (s_avg)
-        and K-sample generation (h_norm).
-    tokenizer : transformers.AutoTokenizer
-        Matching tokenizer for the main model.
-    sbert_encoder : QueryEncoder
-        Sentence-BERT encoder (shared with EpisodicMemoryStore).
-    nli_model : optional
-        RoBERTa-Large-MNLI for p_entail and h_norm NLI clustering.
-        If None, p_entail falls back to 0.5 and h_norm uses surface entropy.
-    nli_tokenizer : optional
-        Tokenizer for nli_model.
-    config : CAEMConfig
-    device : str or None
+@dataclass
+class UnifiedVerifierOutput:
+    """Full verifier output for one (query, answer) pair.
 
-    Usage
-    -----
-    >>> verifier = MultiLayerVerifier(model, tokenizer, encoder,
-    ...                               nli_model, nli_tokenizer)
-    >>> sc = verifier.verify("Who wrote Hamlet?", "William Shakespeare")
-    >>> sc.u_stored   # e.g. 0.82
-    >>> sc.u_stored >= 0.50  # True -> store in memory
+    Consumed directly by the pipeline, the eval harness, and the seven-table
+    metric suite. There is no back-compat projection dataclass -- Session 42
+    removed StoredConfidence in favour of this single record.
+    """
+
+    # --- Internal calibration (cheap) ------------------------------------- #
+    u_token: float
+    u_dropout: float
+    u_internal: float
+
+    # --- Sample-set signals (M/K chains) ---------------------------------- #
+    s_avg: float
+    h_norm: float
+    p_entail: float
+
+    # --- External grounding (against reranked passages) ------------------- #
+    p_ground_max: float
+    p_ground_mean: float
+    p_ground_atomic: float
+    p_contra: float
+
+    # --- Composite + decision --------------------------------------------- #
+    u_stored: float
+    decision: str               # "STORE" | "DEFERRED" | "ABSTAIN" | "DISCARD"
+    early_exit_triggered: bool
+    abstained: bool
+
+    # --- Metadata for logging / ablation bookkeeping ---------------------- #
+    top_passages: List[str] = field(default_factory=list)
+    atomic_facts: List[str] = field(default_factory=list)
+    per_atom_entail: List[float] = field(default_factory=list)
+
+
+# ============================================================================ #
+# NLI ensemble helper                                                           #
+# ============================================================================ #
+
+class _NLIEnsemble:
+    """Thin wrapper around one-or-more NLI bundles.
+
+    Each bundle is a (model, tokenizer) pair. Label convention assumed
+    throughout: [CONTRADICTION=0, NEUTRAL=1, ENTAILMENT=2]. Both
+    RoBERTa-Large-MNLI and DeBERTa-v3-Large-MNLI follow this order.
+
+    Aggregation rules:
+      entail_prob      -> MIN across bundles (conservative: every model must
+                          agree before we trust the evidence)
+      contradict_prob  -> MAX across bundles (safety: any model flags it)
+      argmax_label     -> majority vote (ties break to NEUTRAL)
+    """
+
+    def __init__(
+        self,
+        bundles: Sequence[Tuple[Any, Any]],
+        device: str,
+    ) -> None:
+        self.bundles = list(bundles)
+        self.device = device
+
+    def __bool__(self) -> bool:
+        return len(self.bundles) > 0
+
+    def _probs(self, model: Any, tokenizer: Any, premise: str, hypothesis: str) -> np.ndarray:
+        enc = tokenizer(
+            premise, hypothesis,
+            return_tensors="pt",
+            truncation=True, max_length=512,
+            padding=True,
+        ).to(self.device)
+        with torch.no_grad():
+            logits = model(**enc).logits
+        return F.softmax(logits, dim=-1).squeeze(0).detach().cpu().numpy()
+
+    def entail_prob(self, premise: str, hypothesis: str) -> float:
+        """min over bundles of P(ENTAIL). Conservative."""
+        if not self.bundles:
+            return 0.5
+        scores = [self._probs(m, t, premise, hypothesis)[2] for (m, t) in self.bundles]
+        return float(np.clip(min(scores), 0.0, 1.0))
+
+    def contradict_prob(self, premise: str, hypothesis: str) -> float:
+        """max over bundles of P(CONTRADICT). Safety."""
+        if not self.bundles:
+            return 0.0
+        scores = [self._probs(m, t, premise, hypothesis)[0] for (m, t) in self.bundles]
+        return float(np.clip(max(scores), 0.0, 1.0))
+
+    def argmax_label(self, premise: str, hypothesis: str) -> int:
+        """Majority-vote argmax label. Used only by h_norm NLI clustering."""
+        if not self.bundles:
+            return 1  # NEUTRAL default when the ensemble is empty
+        labels = []
+        for (m, t) in self.bundles:
+            p = self._probs(m, t, premise, hypothesis)
+            labels.append(int(np.argmax(p)))
+        counts = np.bincount(labels, minlength=3)
+        top = np.flatnonzero(counts == counts.max())
+        if len(top) == 1:
+            return int(top[0])
+        return 1  # ties -> NEUTRAL
+
+
+# ============================================================================ #
+# Atomic-fact decomposer                                                        #
+# ---------------------------------------------------------------------------- #
+# Uses the main Flan-T5-Large model with a fixed decomposition prompt.          #
+# Returns a list of simple declarative sentences; each is NLI-checked          #
+# independently against the reranked passages; p_ground_atomic = min entail.   #
+# ============================================================================ #
+
+_ATOMIC_DECOMP_PROMPT = (
+    "Decompose the following statement into a numbered list of simple, "
+    "independent factual claims. Each claim must be one complete sentence "
+    "expressing a single fact, with all pronouns resolved.\n\n"
+    "Statement: {answer}\n\n"
+    "Numbered list of facts:"
+)
+
+_ATOMIC_FACT_LINE = re.compile(r"^\s*\d+[.):\-]\s*(.+?)\s*$")
+
+
+def _parse_atomic_facts(raw: str) -> List[str]:
+    """Parse a numbered list from model output into a list of claims.
+
+    Tolerant to "1." / "1)" / "1:" / "1-" numbering and to paragraphs that
+    put one claim on each line without numbering.
+    """
+    facts: List[str] = []
+    for line in raw.splitlines():
+        m = _ATOMIC_FACT_LINE.match(line)
+        if m:
+            facts.append(m.group(1).strip())
+        else:
+            stripped = line.strip()
+            if stripped and not stripped.endswith(":"):
+                facts.append(stripped)
+    seen = set()
+    unique: List[str] = []
+    for f in facts:
+        key = f.lower()
+        if key not in seen:
+            seen.add(key)
+            unique.append(f)
+    return unique
+
+
+# ============================================================================ #
+# UnifiedVerifier                                                               #
+# ============================================================================ #
+
+class UnifiedVerifier:
+    """Single Stage-5 quality gate. See module docstring for full design.
+
+    All thresholds, composite weights, and retrieval k's are read from
+    ``caem.config.CAEMConfig`` -- no magic numbers in this module. The
+    authoritative defaults live in the ``UnifiedVerifier (Stage 5)``
+    block of ``caem/config.py``.
     """
 
     def __init__(
@@ -106,268 +302,324 @@ class MultiLayerVerifier:
         model,
         tokenizer,
         sbert_encoder,
-        nli_model=None,
-        nli_tokenizer=None,
+        *,
+        nli_bundles: Optional[Sequence[Tuple[Any, Any]]] = None,
+        nli_model: Optional[Any] = None,
+        nli_tokenizer: Optional[Any] = None,
+        reranker: Optional[Any] = None,
+        passage_retriever: Optional[Callable[[str, int], List[str]]] = None,
+        enable_atomic: bool = True,
         config: Optional[CAEMConfig] = None,
         device: Optional[str] = None,
     ) -> None:
         self.model = model
         self.tokenizer = tokenizer
         self.sbert_encoder = sbert_encoder
-        self.nli_model = nli_model
-        self.nli_tokenizer = nli_tokenizer
         self.config = config or CAEMConfig()
+        self.reranker = reranker
+        self.passage_retriever = passage_retriever
+        self.enable_atomic = enable_atomic
 
         if device is None:
             device = str(next(model.parameters()).device)
         self.device = device
 
-    # ------------------------------------------------------------------ #
-    # Public API                                                           #
-    # ------------------------------------------------------------------ #
+        # Build ensemble from explicit bundles or fall back to legacy pair.
+        bundles: List[Tuple[Any, Any]] = []
+        if nli_bundles:
+            bundles.extend(nli_bundles)
+        elif nli_model is not None and nli_tokenizer is not None:
+            bundles.append((nli_model, nli_tokenizer))
+        self.nli = _NLIEnsemble(bundles, device=self.device)
+
+        # Back-compat attributes: some call-sites probe `self.nli_model`.
+        self.nli_model = bundles[0][0] if bundles else None
+        self.nli_tokenizer = bundles[0][1] if bundles else None
+
+    # ====================================================================== #
+    # Public API                                                               #
+    # ====================================================================== #
 
     def verify(
         self,
         query: str,
         answer: str,
         input_ids: Optional[torch.Tensor] = None,
-    ) -> StoredConfidence:
-        """Compute û_stored for a (query, answer) pair.
+        *,
+        u_token: Optional[float] = None,
+        u_dropout: Optional[float] = None,
+    ) -> UnifiedVerifierOutput:
+        """Compute all nine signals, form the composite, and emit a decision.
 
         Parameters
         ----------
         query : str
-            The original query text.
         answer : str
-            The generated answer that passed Stage 4a.
         input_ids : torch.Tensor or None
-            Pre-tokenized query. If None, tokenized internally.
-
-        Returns
-        -------
-        StoredConfidence
-            p_entail, s_avg, h_norm, û_stored.
-            Check sc.u_stored >= config.retroverify_prune_threshold to decide
-            whether to store.
+            Pre-tokenized query; tokenized internally when None.
+        u_token, u_dropout : float or None
+            Pre-computed internal signals from the generation stage. When
+            None, they are recomputed here. pipeline.py should pass these
+            in to avoid paying for a duplicate forward pass.
         """
         if input_ids is None:
             input_ids = self._tokenize(query)["input_ids"]
+        assert input_ids is not None
 
-        p_entail = self._compute_p_entail(query, answer, input_ids)
-        s_avg    = self._compute_s_avg(query, answer, input_ids)
-        h_norm   = self._compute_h_norm(query, input_ids)
+        # ---------- internal calibration (cheap) -------------------------- #
+        if u_token is None:
+            u_token = self._compute_u_token(input_ids, answer)
+        if u_dropout is None:
+            u_dropout = self._compute_u_dropout(input_ids)
+        u_internal = 0.5 * u_token + 0.5 * (1.0 - u_dropout)
 
-        cfg = self.config
-        u_stored = (
-            cfg.u_stored_weight_nli * p_entail
-            + cfg.u_stored_weight_sc  * s_avg
-            + cfg.u_stored_weight_se  * (1.0 - h_norm)
+        # ---------- sample-set signals (M chains reused) ------------------ #
+        chains = self._generate_m_chains(input_ids)
+        s_avg = self._score_s_avg(chains)
+        p_entail = self._score_p_entail(chains, answer)
+        h_norm = self._compute_h_norm(input_ids)
+
+        # ---------- external grounding ------------------------------------ #
+        top_passages = self._retrieve_and_rerank(query, answer)
+        p_ground_max, p_ground_mean = self._score_p_ground(top_passages, answer)
+        p_contra = self._score_p_contra(top_passages, answer)
+        atomic_facts, per_atom_entail, p_ground_atomic = self._score_atomic(
+            top_passages, answer, fallback=p_ground_mean
         )
-        u_stored = float(np.clip(u_stored, 0.0, 1.0))
+
+        # ---------- early-exit confabulation gate ------------------------- #
+        ee_u = self.config.early_exit_u_internal
+        ee_g = self.config.early_exit_p_ground_max
+        early_exit = (u_internal >= ee_u) and (p_ground_max <= ee_g)
+
+        if early_exit:
+            logger.info(
+                "early-exit | u_internal=%.3f >= %.2f AND p_ground_max=%.3f <= %.2f "
+                "-> DISCARD (route to Tier 3 regen)",
+                u_internal, ee_u, p_ground_max, ee_g,
+            )
+            return UnifiedVerifierOutput(
+                u_token=float(u_token),
+                u_dropout=float(u_dropout),
+                u_internal=float(u_internal),
+                s_avg=float(s_avg),
+                h_norm=float(h_norm),
+                p_entail=float(p_entail),
+                p_ground_max=float(p_ground_max),
+                p_ground_mean=float(p_ground_mean),
+                p_ground_atomic=float(p_ground_atomic),
+                p_contra=float(p_contra),
+                u_stored=0.0,
+                decision="DISCARD",
+                early_exit_triggered=True,
+                abstained=False,
+                top_passages=top_passages,
+                atomic_facts=atomic_facts,
+                per_atom_entail=per_atom_entail,
+            )
+
+        # ---------- composite --------------------------------------------- #
+        u_stored = self._composite(
+            p_ground_mean=p_ground_mean,
+            p_ground_atomic=p_ground_atomic,
+            s_avg=s_avg,
+            h_norm=h_norm,
+            u_internal=u_internal,
+            p_entail=p_entail,
+        )
+
+        # ---------- decision tree ----------------------------------------- #
+        decision, abstained = self._decide(
+            u_stored=u_stored,
+            p_contra=p_contra,
+            p_ground_max=p_ground_max,
+        )
 
         logger.debug(
-            "verify | p_entail=%.4f | s_avg=%.4f | h_norm=%.4f | û_stored=%.4f | store=%s",
-            p_entail, s_avg, h_norm, u_stored,
-            u_stored >= cfg.retroverify_prune_threshold,
+            "verify | u_tok=%.3f u_drop=%.3f u_int=%.3f | "
+            "s_avg=%.3f h_norm=%.3f p_ent=%.3f | "
+            "pg_max=%.3f pg_mean=%.3f pg_atomic=%.3f p_contra=%.3f | "
+            "u_stored=%.3f decision=%s",
+            u_token, u_dropout, u_internal,
+            s_avg, h_norm, p_entail,
+            p_ground_max, p_ground_mean, p_ground_atomic, p_contra,
+            u_stored, decision,
         )
 
-        return StoredConfidence(
-            p_entail=float(p_entail),
+        return UnifiedVerifierOutput(
+            u_token=float(u_token),
+            u_dropout=float(u_dropout),
+            u_internal=float(u_internal),
             s_avg=float(s_avg),
             h_norm=float(h_norm),
-            u_stored=u_stored,
+            p_entail=float(p_entail),
+            p_ground_max=float(p_ground_max),
+            p_ground_mean=float(p_ground_mean),
+            p_ground_atomic=float(p_ground_atomic),
+            p_contra=float(p_contra),
+            u_stored=float(u_stored),
+            decision=decision,
+            early_exit_triggered=False,
+            abstained=abstained,
+            top_passages=top_passages,
+            atomic_facts=atomic_facts,
+            per_atom_entail=per_atom_entail,
         )
 
-    def should_store(self, sc: StoredConfidence) -> bool:
-        """Return True if û_stored meets the storage threshold."""
-        return sc.u_stored >= self.config.retroverify_prune_threshold
+    def should_store(self, out: UnifiedVerifierOutput) -> bool:
+        """Back-compat: True iff the verifier's decision is STORE."""
+        return out.decision == "STORE"
 
-    # ------------------------------------------------------------------ #
-    # Signal 1 -- p_entail                                                  #
-    # ------------------------------------------------------------------ #
+    # ====================================================================== #
+    # Signal computation                                                      #
+    # ====================================================================== #
 
-    def _compute_p_entail(
-        self,
-        query: str,
-        answer: str,
-        input_ids: torch.Tensor,
-    ) -> float:
-        """P(ENTAILMENT) averaged over M independent model generations.
+    # ---- internal calibration --------------------------------------------- #
 
-        For each of M chains generated from the query, compute the NLI
-        probability that the chain ENTAILS the given answer. High average
-        p_entail means the model's own reasoning consistently supports
-        the answer -- a strong factual reliability signal.
-
-        If NLI model is unavailable, falls back to 0.5 (neutral).
-        Returns float in [0, 1].
-        """
-        if self.nli_model is None or self.nli_tokenizer is None:
-            logger.debug("p_entail: NLI model unavailable -- returning 0.5.")
-            return 0.5
-
-        M = self.config.sc_chains_m
+    def _compute_u_token(self, input_ids: torch.Tensor, answer: str) -> float:
+        """Geometric mean of per-token probabilities of the answer under the model."""
         try:
             self.model.eval()
+            labels = self.tokenizer(
+                answer, return_tensors="pt",
+                truncation=True, max_length=self.config.cot_max_new_tokens,
+            ).input_ids.to(self.device)
             with torch.no_grad():
-                chains = []
-                for _ in range(M):
-                    out = self.model.generate(
-                        input_ids,
-                        max_new_tokens=self.config.cot_max_new_tokens,
-                        do_sample=True,
-                        temperature=0.7,
-                    )
-                    decoded = self.tokenizer.decode(out[0], skip_special_tokens=True)
-                    chains.append(decoded)
-
-            entail_probs = []
-            for chain in chains:
-                p = self._nli_entail_prob(premise=chain, hypothesis=answer)
-                entail_probs.append(p)
-
-            p_entail = float(np.mean(entail_probs)) if entail_probs else 0.5
-            return float(np.clip(p_entail, 0.0, 1.0))
-
+                out = self.model(input_ids=input_ids, labels=labels)
+                logits = out.logits  # (1, T, V)
+            log_probs = F.log_softmax(logits, dim=-1)
+            gathered = log_probs.gather(-1, labels.unsqueeze(-1)).squeeze(-1)
+            pad_id = getattr(self.tokenizer, "pad_token_id", None)
+            if pad_id is None:
+                mean_logp = gathered.mean().item()
+            else:
+                mask = labels != pad_id
+                if mask.sum() == 0:
+                    return 0.5
+                mean_logp = gathered[mask].mean().item()
+            return float(np.clip(math.exp(mean_logp), 0.0, 1.0))
         except Exception as exc:
-            logger.warning("p_entail: failed with %s -- returning 0.5.", exc)
+            logger.warning("u_token failed: %s -- returning 0.5", exc)
             return 0.5
 
-    def _nli_entail_prob(self, premise: str, hypothesis: str) -> float:
-        """Softmax P(ENTAILMENT) from the NLI model for a (premise, hypothesis) pair.
+    def _compute_u_dropout(self, input_ids: torch.Tensor) -> float:
+        """MC-dropout variance across K passes.
 
-        Unlike Stage 4a which uses argmax label for clustering, here we use
-        the full probability to get a graded signal in [0, 1].
-        Label order: [CONTRADICTION=0, NEUTRAL=1, ENTAILMENT=2].
+        Higher variance across dropout samples -> higher u_dropout. The
+        composite uses (1 - u_dropout), so a model that stably produces
+        the same answer under perturbation scores higher. Proxy metric:
+        fraction of K samples that do NOT match the plurality answer.
         """
-        enc = self.nli_tokenizer(
-            premise,
-            hypothesis,
-            return_tensors="pt",
-            truncation=True,
-            max_length=512,
-            padding=True,
-        ).to(self.device)
-        with torch.no_grad():
-            logits = self.nli_model(**enc).logits      # (1, 3)
-        probs = F.softmax(logits, dim=-1)              # (1, 3)
-        return float(probs[0, 2].item())               # ENTAILMENT index = 2
-
-    # ------------------------------------------------------------------ #
-    # Signal 2 -- s_avg (self-consistency)                                  #
-    # ------------------------------------------------------------------ #
-
-    def _compute_s_avg(
-        self,
-        query: str,
-        answer: str,
-        input_ids: torch.Tensor,
-    ) -> float:
-        """Average pairwise cosine similarity of M=3 independent generations.
-
-        M=3 [LIT: Wang et al. 2022]. Similarity computed via Sentence-BERT
-        (same 768-dim encoder as episodic memory store).
-        Returns float in [0, 1]. Returns 0.5 on error (neutral).
-        """
-        M = self.config.sc_chains_m
+        K = getattr(self.config, "mc_dropout_k", 5)
         try:
-            self.model.eval()
+            self.model.train()  # activate dropout
+            samples: List[str] = []
             with torch.no_grad():
-                chains = []
-                for _ in range(M):
-                    out = self.model.generate(
-                        input_ids,
-                        max_new_tokens=self.config.cot_max_new_tokens,
-                        do_sample=True,
-                        temperature=0.7,
-                    )
-                    decoded = self.tokenizer.decode(out[0], skip_special_tokens=True)
-                    chains.append(decoded)
-
-            if len(chains) < 2:
-                return 0.5
-
-            embeddings = self.sbert_encoder.encode(chains)   # (M, 768)
-            if embeddings.ndim == 1:
-                embeddings = embeddings.reshape(1, -1)
-
-            # Use only unique off-diagonal pairs (i < j).
-            # This avoids the fixed diagonal 1.0 contribution and keeps the
-            # score focused on agreement BETWEEN independent chains.
-            sims = []
-            for i, j in itertools.combinations(range(len(embeddings)), 2):
-                sim = float(np.dot(embeddings[i], embeddings[j]))
-                sims.append(sim)
-
-            s_avg = float(np.mean(sims)) if sims else 0.5
-            return float(np.clip(s_avg, 0.0, 1.0))
-
-        except Exception as exc:
-            logger.warning("s_avg: failed with %s -- returning 0.5.", exc)
-            return 0.5
-
-    # ------------------------------------------------------------------ #
-    # Signal 3 -- h_norm (semantic entropy)                                 #
-    # ------------------------------------------------------------------ #
-
-    def _compute_h_norm(
-        self,
-        query: str,
-        input_ids: torch.Tensor,
-    ) -> float:
-        """Normalised semantic entropy H / log2(K) over K=10 samples at T=1.0.
-
-        Uses bidirectional NLI entailment clustering (Farquhar et al. 2024)
-        when the NLI model is available. Falls back to surface string-match
-        entropy when not. Returns float in [0, 1].
-        """
-        K = self.config.se_samples_k
-        T = self.config.se_temperature
-
-        try:
-            self.model.eval()
-            with torch.no_grad():
-                samples = []
                 for _ in range(K):
                     out = self.model.generate(
                         input_ids,
                         max_new_tokens=self.config.cot_max_new_tokens,
                         do_sample=True,
-                        temperature=T,
+                        temperature=0.7,
                     )
-                    decoded = self.tokenizer.decode(
-                        out[0], skip_special_tokens=True
-                    ).strip()
+                    decoded = self.tokenizer.decode(out[0], skip_special_tokens=True)
                     samples.append(decoded)
-
-            if not samples:
+            self.model.eval()
+            if len(samples) < 2:
                 return 0.5
-
-            if self.nli_model is not None and self.nli_tokenizer is not None:
-                H = self._semantic_entropy_nli(samples)
-            else:
-                logger.debug("h_norm: NLI model unavailable -- using surface fallback.")
-                H = self._semantic_entropy_surface(samples)
-
-            h_norm = H / math.log2(max(K, 2))
-            return float(np.clip(h_norm, 0.0, 1.0))
-
+            counts: dict = {}
+            for s in samples:
+                k = re.sub(r"[^\w\s]", "", s.lower()).strip()
+                counts[k] = counts.get(k, 0) + 1
+            max_count = max(counts.values())
+            var = 1.0 - (max_count / float(K))
+            return float(np.clip(var, 0.0, 1.0))
         except Exception as exc:
-            logger.warning("h_norm: failed with %s -- returning 0.5.", exc)
+            self.model.eval()
+            logger.warning("u_dropout failed: %s -- returning 0.5", exc)
             return 0.5
 
-    # ------------------------------------------------------------------ #
-    # NLI clustering (shared by p_entail and h_norm)                       #
-    # ------------------------------------------------------------------ #
+    # ---- sample-set (M chains shared between s_avg and p_entail) ---------- #
+
+    def _generate_m_chains(self, input_ids: torch.Tensor) -> List[str]:
+        """Generate M=3 sampled chains (T=0.7) shared by s_avg and p_entail."""
+        M = self.config.sc_chains_m
+        chains: List[str] = []
+        try:
+            self.model.eval()
+            with torch.no_grad():
+                for _ in range(M):
+                    out = self.model.generate(
+                        input_ids,
+                        max_new_tokens=self.config.cot_max_new_tokens,
+                        do_sample=True,
+                        temperature=0.7,
+                    )
+                    decoded = self.tokenizer.decode(out[0], skip_special_tokens=True)
+                    chains.append(decoded)
+        except Exception as exc:
+            logger.warning("m-chain generation failed: %s", exc)
+        return chains
+
+    def _score_s_avg(self, chains: List[str]) -> float:
+        """Unique-pair (i<j) cosine similarity over M chains via SBERT."""
+        if len(chains) < 2:
+            return 0.5
+        try:
+            embs = self.sbert_encoder.encode(chains)
+            if embs.ndim == 1:
+                embs = embs.reshape(1, -1)
+            sims = [
+                float(np.dot(embs[i], embs[j]))
+                for i, j in itertools.combinations(range(len(embs)), 2)
+            ]
+            s_avg = float(np.mean(sims)) if sims else 0.5
+            return float(np.clip(s_avg, 0.0, 1.0))
+        except Exception as exc:
+            logger.warning("s_avg failed: %s -- returning 0.5", exc)
+            return 0.5
+
+    def _score_p_entail(self, chains: List[str], answer: str) -> float:
+        """Avg over chains of ensemble-min P(ENTAIL | chain -> answer)."""
+        if not self.nli or not chains:
+            return 0.5
+        try:
+            scores = [self.nli.entail_prob(c, answer) for c in chains]
+            return float(np.clip(np.mean(scores), 0.0, 1.0))
+        except Exception as exc:
+            logger.warning("p_entail failed: %s -- returning 0.5", exc)
+            return 0.5
+
+    # ---- semantic entropy ------------------------------------------------- #
+
+    def _compute_h_norm(self, input_ids: torch.Tensor) -> float:
+        """Normalised semantic entropy via NLI clustering (ensemble argmax)."""
+        K = self.config.se_samples_k
+        T = self.config.se_temperature
+        try:
+            self.model.eval()
+            samples: List[str] = []
+            with torch.no_grad():
+                for _ in range(K):
+                    out = self.model.generate(
+                        input_ids,
+                        max_new_tokens=self.config.cot_max_new_tokens,
+                        do_sample=True, temperature=T,
+                    )
+                    decoded = self.tokenizer.decode(out[0], skip_special_tokens=True).strip()
+                    samples.append(decoded)
+            if not samples:
+                return 0.5
+            H = (self._semantic_entropy_nli(samples)
+                 if self.nli else self._semantic_entropy_surface(samples))
+            h_norm = H / math.log2(max(K, 2))
+            return float(np.clip(h_norm, 0.0, 1.0))
+        except Exception as exc:
+            logger.warning("h_norm failed: %s -- returning 0.5", exc)
+            return 0.5
 
     def _semantic_entropy_nli(self, samples: List[str]) -> float:
-        """Bidirectional NLI clustering -> Shannon entropy (bits).
-
-        Two samples are in the same semantic cluster iff both directions
-        return ENTAILMENT. Union-Find merges clusters incrementally.
-        Identical to the method in Stage 4a, but called from the verifier
-        context (query is not passed; clustering is over samples only).
-        """
+        """Bidirectional NLI clustering -> Shannon entropy (bits)."""
         N = len(samples)
         parent = list(range(N))
 
@@ -380,66 +632,208 @@ class MultiLayerVerifier:
         def union(x: int, y: int) -> None:
             parent[find(x)] = find(y)
 
-        def nli_label(premise: str, hypothesis: str) -> int:
-            enc = self.nli_tokenizer(
-                premise, hypothesis,
-                return_tensors="pt",
-                truncation=True,
-                max_length=512,
-                padding=True,
-            ).to(self.device)
-            with torch.no_grad():
-                logits = self.nli_model(**enc).logits
-            return int(torch.argmax(logits, dim=-1).item())
-
         ENTAILMENT = 2
         for i in range(N):
             for j in range(i + 1, N):
-                if (nli_label(samples[i], samples[j]) == ENTAILMENT and
-                        nli_label(samples[j], samples[i]) == ENTAILMENT):
+                if (self.nli.argmax_label(samples[i], samples[j]) == ENTAILMENT and
+                        self.nli.argmax_label(samples[j], samples[i]) == ENTAILMENT):
                     union(i, j)
 
-        cluster_counts: dict = {}
+        counts: dict = {}
         for i in range(N):
-            root = find(i)
-            cluster_counts[root] = cluster_counts.get(root, 0) + 1
+            r = find(i)
+            counts[r] = counts.get(r, 0) + 1
 
         H = 0.0
-        for count in cluster_counts.values():
-            p = count / N
+        for c in counts.values():
+            p = c / N
             if p > 0:
                 H -= p * math.log2(p)
         return H
 
     def _semantic_entropy_surface(self, samples: List[str]) -> float:
-        """Surface-level entropy fallback (string match, no NLI model required)."""
-        import re
-
+        """Surface-level entropy fallback when no NLI ensemble is available."""
         def normalise(s: str) -> str:
             return re.sub(r"[^\w\s]", "", s.lower()).strip()
-
         counts: dict = {}
         for s in samples:
             key = normalise(s)
             counts[key] = counts.get(key, 0) + 1
-
         N = len(samples)
         H = 0.0
-        for count in counts.values():
-            p = count / N
+        for c in counts.values():
+            p = c / N
             if p > 0:
                 H -= p * math.log2(p)
         return H
 
-    # ------------------------------------------------------------------ #
-    # Internal helpers                                                     #
-    # ------------------------------------------------------------------ #
+    # ---- external grounding ---------------------------------------------- #
+
+    def _retrieve_and_rerank(self, query: str, answer: str) -> List[str]:
+        """Pull top-K passages and rerank down to top-M via the cross-encoder."""
+        if self.passage_retriever is None:
+            return []
+        retrieve_k = self.config.verifier_retrieve_k
+        rerank_k = self.config.verifier_rerank_k
+        try:
+            candidates = self.passage_retriever(query, retrieve_k)
+        except Exception as exc:
+            logger.warning("passage retrieval failed: %s -- returning []", exc)
+            return []
+        if not candidates:
+            return []
+        if self.reranker is None or len(candidates) <= rerank_k:
+            return list(candidates[:rerank_k])
+        try:
+            pairs = [(f"{query} {answer}", p) for p in candidates]
+            scores = self.reranker.predict(pairs)
+            order = np.argsort(scores)[::-1][:rerank_k]
+            return [candidates[int(i)] for i in order]
+        except Exception as exc:
+            logger.warning("reranker failed: %s -- using retriever order", exc)
+            return list(candidates[:rerank_k])
+
+    def _score_p_ground(
+        self,
+        passages: List[str],
+        answer: str,
+    ) -> Tuple[float, float]:
+        """Return (p_ground_max, p_ground_mean) over the reranked passages."""
+        if not self.nli or not passages:
+            return 0.5, 0.5
+        try:
+            scores = [self.nli.entail_prob(p, answer) for p in passages]
+            return (
+                float(np.clip(max(scores), 0.0, 1.0)),
+                float(np.clip(np.mean(scores), 0.0, 1.0)),
+            )
+        except Exception as exc:
+            logger.warning("p_ground failed: %s -- returning 0.5/0.5", exc)
+            return 0.5, 0.5
+
+    def _score_p_contra(self, passages: List[str], answer: str) -> float:
+        """Max contradiction probability across passages (ensemble max per passage)."""
+        if not self.nli or not passages:
+            return 0.0
+        try:
+            scores = [self.nli.contradict_prob(p, answer) for p in passages]
+            return float(np.clip(max(scores), 0.0, 1.0))
+        except Exception as exc:
+            logger.warning("p_contra failed: %s -- returning 0.0", exc)
+            return 0.0
+
+    def _score_atomic(
+        self,
+        passages: List[str],
+        answer: str,
+        *,
+        fallback: float,
+    ) -> Tuple[List[str], List[float], float]:
+        """Decompose answer to atomic facts; return (facts, per-fact p_entail, min).
+
+        When decomposition is disabled or impossible, we return the caller's
+        `fallback` so the composite's p_ground_atomic slot does not silently
+        zero-out. Typically `fallback == p_ground_mean`.
+        """
+        if not self.enable_atomic or not self.nli or not passages:
+            return [], [], float(fallback)
+        try:
+            self.model.eval()
+            prompt = _ATOMIC_DECOMP_PROMPT.format(answer=answer)
+            enc = self._tokenize(prompt)
+            with torch.no_grad():
+                out = self.model.generate(
+                    enc["input_ids"],
+                    max_new_tokens=self.config.cot_max_new_tokens,
+                    do_sample=False,
+                )
+            decoded = self.tokenizer.decode(out[0], skip_special_tokens=True)
+            facts = _parse_atomic_facts(decoded)
+            if not facts:
+                return [], [], float(fallback)
+            per_atom: List[float] = []
+            for f in facts:
+                scores = [self.nli.entail_prob(p, f) for p in passages]
+                per_atom.append(float(np.clip(max(scores), 0.0, 1.0)))
+            return facts, per_atom, float(min(per_atom))
+        except Exception as exc:
+            logger.warning("atomic decomposition failed: %s -- using fallback", exc)
+            return [], [], float(fallback)
+
+    # ====================================================================== #
+    # Composite + decision                                                    #
+    # ====================================================================== #
+
+    def _composite(
+        self,
+        *,
+        p_ground_mean: float,
+        p_ground_atomic: float,
+        s_avg: float,
+        h_norm: float,
+        u_internal: float,
+        p_entail: float,
+    ) -> float:
+        cfg = self.config
+        w_pg_mean = cfg.u_stored_weight_pground_mean
+        w_pg_atom = cfg.u_stored_weight_pground_atomic
+        w_savg = cfg.u_stored_weight_sc
+        w_hnorm = cfg.u_stored_weight_se    # applied as (1 - h_norm)
+        w_uint = cfg.u_stored_weight_uinternal
+        w_pent = cfg.u_stored_weight_nli
+
+        u = (
+            w_pg_mean * p_ground_mean
+            + w_pg_atom * p_ground_atomic
+            + w_savg * s_avg
+            + w_hnorm * (1.0 - h_norm)
+            + w_uint * u_internal
+            + w_pent * p_entail
+        )
+        return float(np.clip(u, 0.0, 1.0))
+
+    def _decide(
+        self,
+        *,
+        u_stored: float,
+        p_contra: float,
+        p_ground_max: float,
+    ) -> Tuple[str, bool]:
+        """Apply the Session 42 decision tree. Returns (decision, abstained)."""
+        cfg = self.config
+        store_thr = cfg.store_threshold
+        defer_thr = cfg.defer_threshold
+        abstain_pg = cfg.abstain_pground_ceiling
+        contra_veto = cfg.contradiction_veto_threshold
+
+        if p_contra >= contra_veto:
+            return "DISCARD", False
+
+        if u_stored >= store_thr:
+            return "STORE", False
+
+        if u_stored >= defer_thr:
+            return "DEFERRED", False
+
+        if p_ground_max < abstain_pg:
+            return "ABSTAIN", True
+
+        return "DISCARD", False
+
+    # ====================================================================== #
+    # Internals                                                               #
+    # ====================================================================== #
 
     def _tokenize(self, text: str) -> dict:
         inputs = self.tokenizer(
             text,
             return_tensors="pt",
-            truncation=True,
-            max_length=512,
+            truncation=True, max_length=512,
         )
         return {k: v.to(self.device) for k, v in inputs.items()}
+
+
+__all__ = [
+    "UnifiedVerifier",
+    "UnifiedVerifierOutput",
+]

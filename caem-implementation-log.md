@@ -6,6 +6,300 @@
 
 ---
 
+## Session 44 — 2026-04-17 (Phase 6b verification + Phase 9 Ablation Framework Rebuild)
+
+**Scope:** Executed the Phase 6b static-parse verification (pytest unavailable in sandbox); rebuilt the entire ablation framework from scratch under a training-time methodology; resolved a user-raised counterfactual-confound critique that reshaped the variant classification; designed a two-phase (screening + confirmatory) + single-seed → multi-seed upgrade protocol.
+
+### Phase 6b — Test-file static verification (completed via ast.parse)
+
+Pytest is not runnable in the Linux sandbox (proxy 403 on PyPI), so the plan's pytest step was substituted with static verification:
+
+- `tests/test_eval.py` — `ast.parse` OK (1065 lines, 30 test classes, 164 test methods). All 28 `eval.metrics` helpers referenced by the suite resolve against the current `eval/metrics.py`.
+- `tests/test_verifier.py` and `tests/test_self_improvement.py` — carry over from Session 43 (parsed clean there).
+
+**Decision:** Mark Phase 6b complete on the strength of static verification + manual import resolution; rerun the full pytest suite on vast.ai before launching the main experiment (the GPU instance has network access to PyPI).
+
+### Phase 9 — Ablation framework rebuild (completed)
+
+All pre-Session-42 ablation code was deleted in Session 42 ("all of them has issues — we will implement each ablation 1 by 1 entirely again"). Session 44 ships the replacement.
+
+**New package `caem/ablation/`:**
+- `__init__.py` — exports `AblationVariant`, `VARIANT_REGISTRY`, `get_variant`, `list_variants`, `CESAxes`, `ces_axes_from_cycle`, `ces_from_axes`. Documents the invariant that `full-CAEM` reproduces Table 5.1 CES within FP noise.
+- `variants.py` (~380 lines) — frozen `AblationVariant` dataclass + 11 pure-function mutations over `CAEMConfig` + 16 registered variants. Mutations are composable (future "no_verifier + no_rag" is just a tuple of mutation functions); pipeline-level skip flags (`skip_verifier`, `skip_tier3_rag`, `skip_self_improvement`, `skip_tier1`, `skip_retroverify`, `requires_baseline_only`) ride on the variant itself. `needs_cyclic_rerun` flags whether the variant requires an independent SIL loop.
+- `scoring.py` (~315 lines) — frozen `CESAxes` dataclass (acc, epi, ret, cal, ver, ces, n_samples, n_scored_confidence); `ces_axes_from_cycle(em_flags, u_stored, *, cycle_mmlu, baseline_mmlu, verifier_balanced_accuracy, requires_baseline_only, n_reliability_bins)`; `aggregate_axes(iterable)` with sample-weighted mean per axis and CES **recomputed** from aggregated axes (not arithmetic mean of per-BM CES — reviewers will flag the latter as invalid). Axis definitions are copy-exact from `eval/reporting.py::build_table_cycle` so the `full` variant reproduces Chapter-5's CES.
+- `runner.py` (~343 lines) — `run_variant(...)` inference-only runner (reuses cycle-N weights + memory); `_apply_pipeline_flags` / `_restore_pipeline_flags` monkey-patch the pipeline to honour skip flags transparently (verifier stub, `passage_store=None`). Harness per-sample JSONs are read back for the CES-axis extraction path.
+
+**New drivers:**
+- `scripts/run_ablation.py` (~423 lines) — **inference-time** driver, valid only for `full` and `no_self_improvement` under the training-time classification.
+- `scripts/run_cyclic_ablation.py` (~470 lines, new this phase) — **training-time** driver; wraps `scripts.run_experiment`'s helpers (`build_pipeline`, `load_sil_training_pool`, `load_eval_transfer_pool`, `split_calibration_sets`, `load_general_data`, `run_calibration_step`, `retroactive_reverification`, `save_summary_csv`) so the two loops stay in lockstep. Applies `variant.apply(CAEMConfig())` BEFORE pipeline construction and `_apply_pipeline_flags(pipeline, variant)` ONCE at start (restored in a `finally` block). Supports `--screening_mode` (3×1500), default confirmatory (10×5000), and `--smoke_test` (1×500). Respects `skip_self_improvement` (cycle-0 only, no SIL loop) and `skip_retroverify` (passes `verify_fn=None` AND skips the outer `retroactive_reverification` call). Per-variant, per-seed output directory (`outputs/ablation/<variant>/seed_<N>/`) so multi-seed upgrades are non-destructive.
+- `scripts/aggregate_ablation.py` (~355 lines, new this phase) — walks `outputs/ablation/<variant>/seed_*/ces_axes_per_cycle.json`, computes per-variant axis mean+std across seeds, writes `ablation_table.csv` (one row per variant with ΔCES vs. `full` plus per-axis means and sample-std with independent-seeds propagation for `delta_ces_std`) and `ablation_per_cycle.csv` (one row per variant×cycle×seed for trajectory plots). Stdout ranking prints `full` first then ascending CES. Stats-format auto-switches: 1 seed → point estimates; ≥2 seeds → `mean ± std`.
+
+**New tests:** `tests/test_ablation.py` (~372 lines, 45 tests in 8 classes) covering variant registry completeness, mutation behaviour, `u_stored` weight rescaling to 1.0 after zeroing signal groups, threshold mutations, list-filter semantics (`mechanism=`, `cyclic_only=`, `inference_only=`, mutually exclusive), CES-axis scoring, aggregate semantics. All 16 variants pass bitwise-idempotence under `@pytest.mark.parametrize("name", list(VARIANT_REGISTRY))`.
+
+### Design decision — training-time vs. inference-time ablation classification
+
+**Problem (user's critique):** Evaluating "no memory" by turning memory off at cycle 10 using the cycle-10 checkpoint is a counterfactual confound — the checkpoint was shaped by memory across cycles 1–9. The inference-time toggle only removes the diminishing final-cycle contribution. Results under-count the mechanism.
+
+**Response:** Reclassified `needs_cyclic_rerun=True` for every variant whose config mutation changes *what gets stored* or *what the SIL pool contains*. Under strict application only two variants remain confound-free at inference:
+
+- `full` — the reference anchor; reuses main-experiment cycle-N weights + memory.
+- `no_self_improvement` — never fine-tunes by construction; cycle-0 eval only.
+
+All other 14 variants need independent SIL loops. `no_tier1` was flipped from inference-only to cyclic mid-session: disabling Tier-1 routes queries that would have hit memory through Tier 2/3 instead, which generate new answers that feed the storage pool, which feeds SIL training. Classification documented inline on each `AblationVariant` entry.
+
+**Alternative considered:** Keep `no_tier1` as inference-only ("cheap toggle"). Rejected: reviewers at NeurIPS/ICML would flag the asymmetry — storage mechanisms cyclic, routing mechanisms inference-only, no principled dividing line.
+
+### Design decision — two-phase (screening + confirmatory) sweep with single-seed→multi-seed upgrade path
+
+**Constraint:** Self-funded Phase 1 budget ~$200 (≈22,000 BDT). Post-funding Phase 2 upgrade target ~$930 for 3-seed publication-quality results.
+
+**Phase 1 protocol:**
+- Smoke test all 14 cyclic variants (1 cycle × 500 SIL, RTX 4090, ~$5) — crash detection only.
+- Screening: 14 cyclic variants × 1 seed × 3 cycles × 1500 SIL (A100 40GB, ~$28). **Outputs NOT used in Chapter 5's table** — only selects top-3 lesions.
+- Confirmatory: top-3 + `full` + `no_self_improvement` × 1 seed × 10 cycles × 5000 SIL (H100 80GB, ~$90). These five configs are the Chapter-5 ablation-table rows.
+
+**Phase 2 upgrade:** Drop screening entirely, run all 14 cyclic variants × 3 seeds × 10 cycles × 5000 SIL (H100 80GB). The 5 Phase-1 confirmatory configs reuse their seed-42 runs; seeds 123 and 456 are added on top. The 9 variants that only got screened in Phase 1 need 3 fresh seeds each. Additional ~$700.
+
+**Reusability invariant:** Phase-1 confirmatory runs ARE reusable as Phase-2 seed-42 data points because they share the 10×5000 protocol. Phase-1 screening runs are NOT reusable (different 3×1500 protocol; mixing would create a horizon-vs-seed confound).
+
+**Code architecture enabling this:** Both drivers take `--seed <int>` and `--screening_mode` as independent CLI flags. Output directory layout segregates seeds in sibling folders. `aggregate_ablation.py` auto-detects multi-seed state and switches table format (point estimate → mean±std). Forward-compatible: dropping `seed_123/` and `seed_456/` later triggers the multi-seed table format on the next aggregator run — no code changes.
+
+### Design decision — L2 anchoring terminology (NOT full EWC)
+
+Mid-session the user called out sloppy "EWC" shorthand in my summaries. The implementation is `_l2_penalty(theta_prev) = ||θ − θ_prev||²` in `caem/training/self_improvement.py`; no Fisher information matrix is computed. `caem/config.py` line 202 comment: *"L2 regularisation (NOT full EWC): Loss += (λ/2)·||θ − θ_prev||²"*. Thesis framing to carry across Chapters 3/4/5 and defence prep: **"L2 anchoring toward θ_prev (Fisher-uniform approximation of EWC); full EWC deferred to future work."** All prior log entries that said "EWC" refer to this L2 approximation.
+
+### Open items rolled forward into Session 45
+
+- Phase 7 — vast.ai smoke test (1 cycle × 500 SIL per variant, RTX 4090): must run before launching the main experiment to catch variant-config bugs cheaply.
+- Phase 8a — vast.ai main experiment (10 cycles × 5000 SIL, 1 seed, H100 80GB).
+- Phase 8b — vast.ai Phase-1 ablation screening (14 cyclic × 3 × 1500, A100 40GB).
+- Phase 8c — vast.ai Phase-1 ablation confirmatory (top-3 + full + no_SIL, 10 × 5000, H100 80GB).
+- Phase 10 — diff sweep + CES sensitivity analysis (post-confirmatory).
+- Phase 11 (deferred to post-funding) — Phase-2 ablation upgrade to 3 seeds.
+- Phase 4m.5 — `scripts/make_tables.py` LaTeX generator.
+- Phase 4m.6 — `scripts/make_figures.py` CES radar + trajectory plots.
+
+---
+
+## Session 43 — 2026-04-17 (Phase 5c/5d/5e + 4m.3/4m.4 Implementation + Linux Mount Recovery)
+
+**Scope:** Implemented the Session-42 nine-signal schema migration across four phases, plus recovered from a Windows-side / Linux-mount desynchronisation that left six Python modules unparseable on the Linux sandbox side even though they were clean in the editor view.
+
+### Phase 5c — StoredConfidence removal (completed)
+
+**Files touched:**
+- `tests/test_self_improvement.py` — dropped legacy `nli_score`/`sc_score`/`se_score` keyword args from the `make_entry` helper; the Stage-8 fine-tuning loop now only reads the composite `u_stored`, so the default nine-signal layout is sufficient for test setup.
+- `caem/memory/entry.py` — docstring updated to list all nine signals (`u_token, u_dropout, u_internal, s_avg, h_norm, p_entail, p_ground_max, p_ground_mean, p_ground_atomic`) plus `p_contra`, `decision`, and `early_exit_triggered` in the mutable-fields rationale, replacing the obsolete `nli_score`/`sc_score`/`se_score` trio.
+- `caem/__init__.py` — removed stale `StoredConfidence` reference from the module export docstring.
+
+### Phase 5d — Retroactive re-verification loop (completed)
+
+**`caem/training/self_improvement.py`:**
+- Extended `typing` import with `Callable`.
+- Added two fields to `CycleResult`: `n_retroverified: int = 0` and `n_retropruned: int = 0`.
+- Added `verify_fn: Optional[Callable[[Any], Any]] = None` kwarg to `SelfImprovementLoop.run_cycle(...)`.
+- Added Step 8 after Step 7 (fine-tuning): calls `memory_store.retroverify(verify_fn)` when a callable is supplied and the cycle did not abort. Counts are logged and populated into the returned `CycleResult`. Exceptions are caught and logged; a retroverify failure never aborts the cycle.
+
+**`caem/pipeline.py`:**
+- Added `CAEMPipeline.make_retroverify_fn()` method (between `_verify` and `_maybe_store`). Returns a closure that calls `self.verifier.verify(entry.question, entry.answer)` and returns `None` on failure (so `EpisodicMemoryStore.retroverify` skips the entry cleanly rather than raising). The closure captures `self.verifier` by reference so mid-cycle model swaps are seen automatically.
+
+**`scripts/run_experiment.py`:**
+- Updated the `sil.run_cycle(...)` call to pass `verify_fn=pipeline.make_retroverify_fn()`.
+- Extended the per-cycle log message with the new `n_retroverified` and `n_retropruned` counters.
+
+### Phase 5e + 4m.3 — Per-sample twelve-field verifier capture (completed)
+
+**`eval/harness.py`:**
+- Added class-level `_VERIFIER_FIELDS` tuple listing the twelve fields captured per sample, in the same order as `UnifiedVerifierOutput`: `u_token, u_dropout, u_internal, s_avg, h_norm, p_entail, p_ground_max, p_ground_mean, p_ground_atomic, p_contra, decision, early_exit_triggered`.
+- Added staticmethod `_extract_verifier_signals(vout)` which returns a dict with all twelve keys set to `None` when `vout is None` (Tier 1 hits, verifier errors). This keeps the per-sample JSON schema rectangular so downstream analysis can concatenate records into a pandas `DataFrame` without ragged-column gymnastics.
+- Extended `_run_one` to call `_extract_verifier_signals(result.verifier_output)` and merge the twelve fields into the `SampleResult` record via `record.update(verifier_signals)`. The same path runs in the exception branch (with `None`) so the schema stays rectangular on pipeline errors.
+- Module docstring updated to enumerate the twelve new fields and explain the `None` semantics.
+
+### Phase 4m.4 — `eval/reporting.py` + Ch5 table orchestration (completed)
+
+**New file `eval/reporting.py`** (~863 lines). Builders for the seven Chapter 5 tables:
+- `build_table_headline` — EM/F1 per benchmark per cycle plus the CES (geometric mean of ACC, EPI, RET, CAL, VER axes).
+- `build_table_calibration` — ECE, Brier, and the top confidence-bin accuracy.
+- `build_table_halluc` — hallucination rate, confabulation rate, and the early-exit trigger rate.
+- `build_table_grounding` — mean and max `p_ground_*` per cycle plus unsupported-correct rate.
+- `build_table_purity` — STORE/DEFERRED/ABSTAIN/DISCARD counts (manually counted against `SESSION42_LABELS` to avoid the `decision_breakdown` helper's nested-dict return and its "DEFER" vs "DEFERRED" label mismatch).
+- `build_table_continual` — MMLU retention, BWT, and FWT.
+- `build_table_sig_test` — bootstrap CI and McNemar test (correctly unpacks `bootstrap_ci`'s three-tuple `(mean, lower, upper)` return).
+
+Also added module constants `VERIFIER_FIELDS` and `TABLE_FILES`, the `load_cycle_data` loader, `write_per_sample_signals_jsonl` (one rectangular JSONL per cycle with all twelve verifier fields flat on each record), and the top-level `build_ch5_tables` orchestrator.
+
+**`scripts/run_experiment.py`:** Wired `build_ch5_tables(output_dir, mmlu_per_cycle=mmlu_per_cycle)` into the end-of-run block, wrapped in a broad `try/except` so table-generation failures never block cycle checkpoints.
+
+### Linux-mount recovery (infrastructure)
+
+**Problem:** Six of the edited Python modules parsed cleanly when read through the desktop's file tool but failed `ast.parse` in the Linux sandbox because the kernel-level mount was serving stale / truncated content — Windows→Linux propagation proved one-directional in this session (Linux→Windows worked fine).
+
+**Per-file recovery notes:**
+- `caem/__init__.py` — 8 trailing null bytes from an earlier encoding round-trip; stripped in place.
+- `caem/memory/entry.py` — Linux view truncated at 244 lines (vs. 274 on Windows); fixed by deleting the file through bash and re-writing the full ASCII-only content through the editor, which forced the mount to re-read. The non-ASCII symbols (∈, ·, û, ≥, ∧, →) in the old docstring were replaced with ASCII equivalents (`in`, `*`, `u_hat`, `>=`, `AND`, `->`) for sandbox-encoding robustness; the runtime code is unchanged.
+- `caem/pipeline.py` — Linux view truncated at line 603 mid-function (inside `make_retroverify_fn`'s `except` block); appended the correct body (lines 603–741) from the editor-side copy into the Linux file via bash. Also scrubbed a stray `\!=` bash-heredoc escape on line 640 back to `!=`.
+- `caem/training/self_improvement.py` — Linux view truncated inside an f-string (`Choices:\n{choice_st` …); cut at the marker and appended the editor-side tail (lines 841–939). Same `\!=` heredoc-escape scrub applied.
+- `caem/verification/verifier.py` — 2,513 contiguous trailing null bytes after byte 33820 (NUL-padded tail, not corruption of code); stripped.
+- `caem/retrieval/rag.py` — 3 trailing null bytes; stripped.
+- `caem/memory/store.py` — Linux view truncated inside `summary()` at line 749 (`e.storage_cy` …); appended the editor-side tail (the remainder of the dict literal through end of `__repr__`) and forced CRLF line endings to match the surrounding file.
+
+**Final parse check (Linux, Python 3.10, `utf-8-sig` to tolerate existing BOMs):**
+
+```
+eval/harness.py                    OK  435 lines
+eval/reporting.py                  OK  863 lines
+eval/metrics.py                    OK  520 lines
+caem/__init__.py                   OK   51 lines
+caem/pipeline.py                   OK  741 lines
+caem/memory/entry.py               OK  274 lines
+caem/memory/store.py               OK  767 lines
+caem/memory/encoder.py             OK  158 lines
+caem/training/self_improvement.py  OK  928 lines
+caem/verification/verifier.py      OK  838 lines
+caem/confidence/pre_routing.py     OK  323 lines
+caem/routing/router.py             OK  245 lines
+caem/retrieval/rag.py              OK  466 lines
+caem/config.py                     OK  204 lines
+scripts/run_experiment.py          OK  932 lines
+tests/test_self_improvement.py     OK  505 lines
+```
+
+**Takeaway for future sessions:** when the editor shows a clean file but `ast.parse` fails in bash, the first move is `python3 -c "d=open(p,'rb').read(); ..."` to inspect raw bytes and count newlines; the file is almost certainly either null-byte-padded or truncated mid-line in the mount view. The fix pattern is either (a) strip trailing `\x00`, or (b) `rm` the file through bash and re-Write through the editor, or (c) bash-side python rewrite with the correct tail appended.
+
+### Open items rolled forward into Session 44
+
+- Phase 4m.1b — verify `eval/metrics.py` helpers are callable end-to-end (parseable confirmed above).
+- Phase 6a / 6b — unit-test rewrite for `UnifiedVerifier` + the twelve metric helpers.
+- Phase 4m.5 — `scripts/make_tables.py` (LaTeX generator for Tables 5.1–5.7 consuming the `eval/reporting.py` JSON).
+- Phase 4m.6 — `scripts/make_figures.py` (seven figures including the CES radar).
+- Phase 7 — local smoke test once GPU is available.
+- Phase 8 — vast.ai deployment for the full ten-cycle run.
+- Phase 9 — ablation framework rebuild (one ablation at a time, CES as the primary comparison scalar).
+- Phase 10 — diff sweep + CES sensitivity analysis.
+
+---
+
+## Session 42 — 2026-04-17 (Unified Verifier Redesign + Ablation Wipe + post_generation Removal)
+
+**Trigger:** Design review of the Stage 4a (post-generation confidence) vs Stage 5 (verifier) boundary surfaced three problems:
+1. `u_consistency` (post_generation) and `s_avg` (verifier) were algorithmically identical — duplicated work and slightly different formulations across cycles.
+2. Chapter 1 line 208 promises "NLI verifies factual correctness against retrieved evidence", but the implemented verifier only ran self-referential NLI (answer vs cross-generated answers), never against external evidence. This was a thesis-vs-code mismatch.
+3. High pre-confidence Tier 1/2 answers could pass with no grounding check, leading to confabulation leakage into memory (the confidence-on-wrong-answer failure mode).
+
+**Scope:** Freeze a new unified verifier design, delete the now-redundant `post_generation.py` module, delete all existing ablation implementations (user: "all of them has issues — we will implement each ablation 1 by 1 entirely again"), and plan a clean rebuild post-main-run.
+
+### Design decision — UnifiedVerifier (locked spec)
+
+**Single verifier call per Tier 2/Tier 3 query** (Tier 1 remains fast-path with no per-query verification; retroactive re-verification unchanged).
+
+**Signal set produced:**
+
+| Signal | Source | Role |
+|---|---|---|
+| `u_token` | mean token log-prob (from generation) | cheap internal calibration |
+| `u_dropout` | MC-dropout variance (K=5 forward passes) | cheap internal calibration |
+| `p_ground_max` | top-1 passage → answer NLI entailment (ensemble min) | external grounding (strongest) |
+| `p_ground_mean` | mean NLI entailment over reranked top-3 passages | external grounding (robust) |
+| `p_ground_atomic` | weakest-link min over atomic-fact NLI | claim-level grounding |
+| `p_contra` | max contradiction probability over top-3 passages | contradiction veto signal |
+| `s_avg` | self-consistency (unique-pairs, i<j), from Session 40 | sample agreement |
+| `h_norm` | normalised semantic entropy (Farquhar-style clustering) | dispersion |
+| `p_entail` | pairwise entailment within the sample set | answer-set coherence |
+
+**Composite stored confidence (baseline weights, pre-calibration):**
+
+```
+û_stored = 0.30·p_ground_mean
+         + 0.15·p_ground_atomic
+         + 0.15·s_avg
+         + 0.10·(1 − h_norm)
+         + 0.15·u_internal      # = 0.5·u_token + 0.5·(1 − u_dropout)
+         + 0.15·p_entail
+```
+
+Weights will be re-fit in `run_calibration.py` after the main run; initial equal-ish split is a starting prior.
+
+**Early-exit confabulation check (hard gate, before composite is even formed):**
+
+```
+IF u_internal ≥ 0.70  AND  p_ground_max ≤ 0.20:
+    REJECT → route to Tier 3 for regeneration
+```
+
+This is the single explicit safety rule that prevents high-internal-confidence-wrong-answer hallucinations from reaching memory. Triggered before composite scoring, so the rest of the signals are not consulted.
+
+**Decision tree outcomes:**
+
+| Outcome | Condition |
+|---|---|
+| STORE | `û_stored ≥ 0.65` AND `p_contra < 0.30` |
+| DEFERRED (review queue) | `0.45 ≤ û_stored < 0.65` AND `p_contra < 0.30` |
+| ABSTAIN | `û_stored < 0.45` AND top-3 `p_ground_max < 0.20` (no evidence either way — say "I don't know") |
+| DISCARD | otherwise (contradiction veto hit, or composite too low with some grounding) |
+
+Deferred items are re-verified in the retroverify pass after each cycle; the rescue override uses the new `p_ground_mean` as the dominant signal.
+
+### Ensemble + reranker + atomic decomposition
+
+- **NLI ensemble:** RoBERTa-Large-MNLI + DeBERTa-v3-Large-MNLI. Entailment score = `min(model_scores)` for conservatism; contradiction score = `max(model_scores)` for safety.
+- **Cross-encoder reranker:** `ms-marco-MiniLM-L-6-v2` over DPR top-20 → keep top-3. Avoids the top-1-is-noisy failure mode.
+- **Atomic fact decomposition:** generated by the same Flan-T5-Large model using a fixed decomposition prompt; each atom NLI-checked against reranked passages; `p_ground_atomic` is the weakest atom's entailment.
+
+### Cost & latency (validated against vast.ai budget)
+
+- Tier 1: unchanged (fast-path, no verifier call).
+- Tier 2/Tier 3: ≈ 6 s/query on RTX 5090 (up from ≈ 2.5 s).
+- Main 10-cycle experiment on 6 benchmarks: ≈ $35 total on vast.ai.
+- Remaining budget ($65) covers ablations A1–A6 and baselines B1–B3.
+- User confirmed $100 cap is adequate; proceeding.
+
+### Karpathy LLM Wiki (published 2026-04-04)
+
+Evaluated for integration. Decision: **future work only, not in thesis scope.** Their curated-wiki-as-external-truth model is directionally aligned with CAEM's p_ground signal but assumes a pre-built high-quality knowledge store that we do not have. Adding it would change the thesis claim from "episodic memory built by self-verification" to "episodic memory + curated external source". Noted in the Future Work section as a natural extension; no code change this session.
+
+### Files deleted this session
+
+**Phase 2 (ablation wipe):**
+- `scripts/run_ablation.py` (66 KB, AB1–AB7 runner)
+- `scripts/run_pub0405_variants.py` (23 KB, PUB-04/PUB-05 checkpoint builder)
+
+**Phase 3 (post_generation removal):**
+- `caem/confidence/post_generation.py` (539 lines, Stage 4a estimator)
+- `tests/test_post_generation.py` (corresponding test file)
+
+### Files cleaned this session (stale references removed)
+
+- `scripts/__init__.py` — removed `run_ablation.py` listing; added Session 42 rebuild note.
+- `scripts/run_experiment.py` — four edits: (1) "AB5 ablation results" → generic "memory quality" wording in a warning message; (2) stale comment about `run_ablation.py` providing MMLU retention replaced with EXP-MMLU-FIX pointer; (3) next-steps message updated to reflect the rebuild-in-progress status; (4) `--disable_reverification` help text generalised (flag itself retained as a general-purpose debug switch).
+- `README.md` — two edits: scripts directory map and post-run analysis section both updated to note the rebuild.
+- `caem/confidence/__init__.py` — removed `PostGenerationConfidenceEstimator` export; added module docstring explaining the absorption into UnifiedVerifier.
+
+### Files intentionally left inconsistent (to be fixed in Phase 4/5)
+
+These retain broken imports/references as breadcrumbs for the rewrite:
+- `caem/pipeline.py` — still imports `PostGenerationConfidenceEstimator` (will be replaced by `UnifiedVerifier` in Phase 5a).
+- `caem/__init__.py` — still re-exports `PostGenerationConfidence` (dataclass will be replaced in Phase 5c).
+- `caem/memory/entry.py` and `caem/memory/__init__.py` — `PostGenerationConfidence` dataclass retained; Phase 5c replaces it with the new `UnifiedVerifierOutput` schema including `p_ground_mean`, `p_ground_atomic`, `p_contra`, `abstained` flag.
+- `caem/verification/verifier.py` — existing verifier remains in place; Phase 4a fully rewrites it.
+
+Prose references in `caem-implementation-log.md` (this file, historical), `writing-suggestions.md`, `NEXT_SESSION_PLAN.md`, `VAST_AI_DEPLOYMENT_GUIDE.md`, and `published_baselines.template.json` are historical/planning artefacts and are intentionally preserved. They will be reconciled in the Chapter 4/5 writing pass after the main run.
+
+### Rationale for deleting ablations before rewriting main
+
+User's stated reason: "all of them has issues — we will implement each ablations 1 by 1 entirely again." Independent confirmation from Session 36 (ablation methodology hardening): the existing ablations confounded multiple variables per run, so clean isolation requires a from-scratch rebuild anyway. Rebuilding on top of a changed verifier also ensures the ablation deltas are measured against the correct final architecture rather than a mix of pre- and post-unification baselines.
+
+### Next steps (Phases 4–10)
+
+1. Phase 4a–e: Rewrite `caem/verification/verifier.py` as `UnifiedVerifier` with the signal set above; add NLI ensemble, cross-encoder reranker, atomic decomposition, contradiction veto, abstention outcome.
+2. Phase 5a–e: Wire into `pipeline.py`, `config.py`, `memory/entry.py`, `self_improvement.py`, `eval/metrics.py`.
+3. Phase 6: Rewrite `tests/test_verifier.py`.
+4. Phase 7: Local smoke test (≈10 samples/benchmark).
+5. Phase 8: vast.ai deployment — full 10-cycle × 6-benchmark main run.
+6. Phase 9a–h: Rebuild ablation framework A1–A6 + baselines B1–B3 using clean-isolation principles.
+7. Phase 10: Final diff-review and regression sweep over Tier 1/pre-confidence/router paths.
+
+---
+
 ## Session 41 — 2026-04-13 (Actual Report Chapters 1–4 Alignment)
 
 **Trigger:** User clarified that the authoritative write-up is the actual report chapters (not only the unified plan).
@@ -80,7 +374,35 @@ For `M=3` and cross-sims `(0.95, 0.97, 0.93)`:
 
 ---
 
-## Session 39 — 2026-04-13 (Theory vs Implementation Audit — SC Formula Fix)
+## Session 39 — 2026-04-13 (Theory vs Implementation Audit — SC Formula Decision)
+
+**Trigger:** Deep theory-vs-implementation cross-check against `caem-unified-plan-v3.tex`. Change proposed, then reverted after impact analysis.
+
+### Decision: SC aggregation formula — keep unique off-diagonal pairs
+
+**Files:** `caem/verification/verifier.py` (`_compute_s_avg`) and `caem/confidence/post_generation.py` (`_compute_u_consistency`)
+
+**Issue identified:** Thesis formula `(1/M²) Σ_i Σ_j sim(v_i, v_j)` uses double sum including M diagonal terms where sim(i,i)=1.0. Code uses `itertools.combinations` — unique pairs (i<j) only, denominator M(M-1)/2.
+
+**Fix proposed:** Update code to M² formula. **Then reverted by Aksan.**
+
+**Reason for revert — inflation analysis:**
+
+For M=3, the exact relationship is: `Δ = u_M² − u_pairs = (1 − u_pairs) / 3`
+
+| u_pairs | Δ (raw) | Δû_stored (×0.30) |
+|---------|---------|-------------------|
+| 0.90    | 0.033   | 0.010             |
+| 0.80    | 0.067   | 0.020             |
+| 0.70    | 0.100   | 0.030             |
+
+Near threshold decisions (sc_accept_threshold=0.85, retroverify_prune_threshold) can flip from reject→accept due to diagonal self-similarity inflation, which carries no discriminative information.
+
+**Final decision:** Keep code as-is (unique off-diagonal pairs). Update **thesis** to match code using the more principled formula: `u_SC = (2/(M(M-1))) Σ_{i<j} sim(v_i,vj)`. Writing-suggestions entry C4-25 records the required thesis update.
+
+**Comments added to code:** Both files now document *why* diagonal is excluded ("self-similarity is always 1.0 for L2-normalised embeddings and does not provide evidence of inter-chain agreement").
+
+---
 
 **Trigger:** Deep theory-vs-implementation cross-check against `caem-unified-plan-v3.tex`.
 

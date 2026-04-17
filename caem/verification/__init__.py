@@ -1,3 +1,3 @@
-from caem.verification.verifier import MultiLayerVerifier
+from caem.verification.verifier import UnifiedVerifier, UnifiedVerifierOutput
 
-__all__ = ["MultiLayerVerifier"]
+__all__ = ["UnifiedVerifier", "UnifiedVerifierOutput"]

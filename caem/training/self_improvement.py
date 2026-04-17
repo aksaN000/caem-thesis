@@ -18,10 +18,17 @@ What a cycle looks like
        Loss = CE(generated, target) + (λ/2) · ||θ − θ_prev||²
    θ_prev are the weights frozen at the START of this cycle (previous
    checkpoint). The L2 term penalises large deviations from the prior.
-4. Forgetting check: after fine-tuning, measure accuracy on a held-out
-    general-domain set and compare post/pre retention ratio. If
+4. Forgetting check: after fine-tuning, run a fixed MMLU split
+    (n=200) and compare post/pre retention ratio. If
     (post / pre) < forgetting_tolerance (0.93), abort and restore θ_prev.
-    This is the catastrophic forgetting guard.
+    MMLU is chosen over any in-distribution (e.g. TriviaQA) probe
+    because catastrophic forgetting in the continual-learning sense
+    manifests as loss of unrelated capability rather than erosion of
+    the target task; a QA-family probe would be systematically
+    insensitive to that failure mode. The same MMLU pass feeds the
+    RET axis of CES (Chapter 3, FR7 and Evaluation Methodology), so
+    one per-cycle evaluation serves both as the rollback trigger and
+    as the reported general-capability retention metric.
 5. Save checkpoint: model weights + cycle metadata to outputs/cycle_{n}/.
 
 L2 vs full EWC
@@ -61,7 +68,7 @@ import pickle
 import random
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import torch
 import torch.nn as nn
@@ -93,10 +100,22 @@ class CycleResult:
     n_general_used:     int
     epochs_completed:   int
     final_train_loss:   float
-    forgetting_score:   float   # post/pre TriviaQA retention ratio (abort guard)
+    forgetting_score:   float   # post/pre MMLU retention ratio (abort guard + RET axis)
     aborted:            bool    # True if forgetting check failed and weights were restored
     checkpoint_path:    str
-    mmlu_retention:     float = 0.0  # MMLU 4-choice accuracy post-fine-tune (reporting metric)
+    mmlu_retention:     float = 0.0  # MMLU 4-choice accuracy post-fine-tune (same value as drives abort)
+    # Retroactive re-verification counters (Phase 5d). Populated after
+    # fine-tuning when verify_fn is supplied to run_cycle. Zero means the
+    # retroverify loop did not run (no verify_fn or cycle aborted).
+    n_retroverified:    int   = 0    # episodes whose u_stored was raised
+    n_retropruned:      int   = 0    # episodes removed (new u_stored < prune threshold)
+    # Deferred-entry reconsideration counters (thesis Section 4.9).
+    # Populated after retroverify when a deferred_buffer and reconsider_fn
+    # are supplied to run_cycle. Zero means the reconsideration pass did
+    # not run (missing buffer, missing closure, or cycle aborted).
+    n_deferred_promoted:   int = 0   # entries promoted from buffer -> main memory
+    n_deferred_ttl_dropped: int = 0  # entries aged past TTL without promotion
+    n_deferred_kept:       int = 0   # entries re-queued for next cycle
 
 
 # -----------------------------------------------------------------------------
@@ -215,6 +234,9 @@ class SelfImprovementLoop:
         memory_store: EpisodicMemoryStore,
         general_data: List[QAPair],
         seed: int = 42,
+        verify_fn: Optional[Callable[[Any], Any]] = None,
+        deferred_buffer: Optional[Any] = None,
+        reconsider_fn: Optional[Callable[[Any], Any]] = None,
     ) -> CycleResult:
         """Run one self-improvement cycle.
 
@@ -231,11 +253,38 @@ class SelfImprovementLoop:
             this list (different random splits).
         seed : int
             Random seed for reproducibility. Stored in the checkpoint.
+        verify_fn : callable or None
+            Retroactive re-verification closure. Signature:
+            ``(entry: EpisodicEntry) -> UnifiedVerifierOutput``. When supplied
+            and the cycle is NOT aborted, the updated model is used to re-score
+            every stored episode after fine-tuning (Step 8). Episodes whose
+            new u_stored falls below CAEMConfig.retroverify_prune_threshold
+            are removed; episodes whose u_stored rises are updated with the
+            full nine-signal record from the new UnifiedVerifierOutput.
+            Pass ``CAEMPipeline.make_retroverify_fn()`` from the orchestrator
+            to bind the verifier and passage store automatically.
+        deferred_buffer : DeferredBuffer or None
+            Buffer of DEFERRED episodes held for cycle-boundary
+            reconsideration (thesis Section 4.9 "Deferred-Entry
+            Reconsideration"). When supplied together with ``reconsider_fn``
+            and the cycle is NOT aborted, the buffer is swept after
+            retroverify: entries whose re-scored decision clears
+            ``store_threshold`` are promoted into ``memory_store``, aged-
+            out entries are dropped, and the remainder are re-queued.
+        reconsider_fn : callable or None
+            Closure with the same signature as ``verify_fn`` but accepting
+            a ``DeferredEntry`` (which exposes ``.question`` and ``.answer``
+            attributes, matching the verifier's input contract). Obtain
+            from ``CAEMPipeline.make_reconsider_deferred_fn()``. If omitted
+            but ``deferred_buffer`` is supplied, ``verify_fn`` is used as
+            a fallback closure -- the verifier input contract is identical
+            for both passes.
 
         Returns
         -------
         CycleResult
-            Summary including whether the cycle was aborted.
+            Summary including whether the cycle was aborted and how many
+            episodes were retroactively updated/pruned.
         """
         cfg = self.config
         random.seed(seed)
@@ -258,15 +307,14 @@ class SelfImprovementLoop:
                 mmlu_retention=float("nan"),
             )
 
-        # Step 2: split general_data -> training mix + held-out forgetting check
+        # Step 2: shuffle general_data for training mix. We no longer split out a
+        # held-out eval slice -- the forgetting guard now uses MMLU (a separate,
+        # never-trained-on 4-choice benchmark) rather than an in-distribution QA
+        # probe, so all of general_data is available for the training mix.
         random.shuffle(general_data)
-        n_general_total = len(general_data)
-        split = max(1, int(n_general_total * 0.5))
-        general_train = general_data[:split]
-        general_eval  = general_data[split:] or general_data   # fallback if tiny
 
         # Step 3: build mixed training set (90% episodes + 10% general)
-        train_pairs, n_general_used = self._mix(episode_pairs, general_train)
+        train_pairs, n_general_used = self._mix(episode_pairs, general_data)
         logger.info(
             "Cycle %d: training on %d pairs (%d episodes + %d general).",
             cycle_num, len(train_pairs), len(episode_pairs), n_general_used,
@@ -275,64 +323,158 @@ class SelfImprovementLoop:
         # Step 4: snapshot θ_prev BEFORE fine-tuning (used for L2 reg + forgetting restore)
         theta_prev = self._snapshot_weights()
 
-        # Step 4b: measure forgetting baseline BEFORE fine-tuning (EXP-14 fix).
-        # The forgetting check compares RELATIVE retention (post/pre), not absolute
-        # accuracy. TriviaQA exact-match baseline for Flan-T5-Large is ~10–20%, so
-        # an absolute 0.93 floor would always abort. Relative ratio ≥ forgetting_tolerance
-        # (0.93) means "retain at least 93% of whatever capability existed before".
-        baseline_forgetting = self._forgetting_score(general_eval)
-        logger.info(
-            "Cycle %d: pre-training forgetting baseline = %.4f",
-            cycle_num, baseline_forgetting,
-        )
+        # Step 4b: measure MMLU baseline BEFORE fine-tuning.
+        # The forgetting guard compares RELATIVE retention (post/pre) on MMLU,
+        # an out-of-distribution 4-choice benchmark that is NEVER in the
+        # training pool. This aligns with the continual-learning literature
+        # (Kirkpatrick et al., 2017) where catastrophic forgetting manifests
+        # as loss of unrelated general capability rather than erosion of the
+        # target task. Using an in-distribution probe (e.g. TriviaQA) would
+        # be systematically insensitive to this failure mode: the model has
+        # just been fine-tuned on TriviaQA-like pairs, so it cannot trigger.
+        # The same MMLU measurement also serves as the CES RET reporting axis,
+        # so there is zero compute overhead to using it as the abort guard.
+        baseline_mmlu = self._mmlu_score(n=200)
+        if __import__("math").isnan(baseline_mmlu):
+            logger.warning(
+                "Cycle %d: MMLU dataset not cached -- forgetting guard DISABLED; "
+                "cycle will complete without abort check.", cycle_num,
+            )
+        else:
+            logger.info(
+                "Cycle %d: pre-training MMLU baseline = %.4f",
+                cycle_num, baseline_mmlu,
+            )
 
         # Step 5: fine-tune with L2 regularisation
         epochs_done, final_loss = self._finetune(train_pairs, theta_prev)
 
-        # Step 6: forgetting check — relative retention ratio (EXP-14 fix)
-        post_forgetting = self._forgetting_score(general_eval)
-        # If baseline is ~0, the ratio is undefined. Treat as "no detectable
-        # forgetting" to avoid false aborts from 0/0 on exact-match metric.
-        if baseline_forgetting <= 1e-6:
+        # Step 6: MMLU forgetting check -- relative retention ratio.
+        # post_mmlu is used simultaneously as (a) the abort-guard trigger via
+        # retention_ratio = post/pre, and (b) the absolute mmlu_retention value
+        # reported in CycleResult / Chapter 5 Table 5.2 RET column.
+        post_mmlu = self._mmlu_score(n=200)
+        if __import__("math").isnan(post_mmlu) or __import__("math").isnan(baseline_mmlu) \
+                or baseline_mmlu <= 1e-6:
+            # Guard unavailable (dataset missing or baseline ~0) -- treat as
+            # "no detectable forgetting" to avoid false aborts from NaN / 0.
             retention_ratio = 1.0
+            guard_active = False
         else:
-            retention_ratio = post_forgetting / baseline_forgetting
-        logger.info(
-            "Cycle %d: post-training forgetting score = %.4f | retention ratio = %.4f "
-            "(threshold = %.4f)",
-            cycle_num, post_forgetting, retention_ratio, cfg.forgetting_tolerance,
-        )
+            retention_ratio = post_mmlu / baseline_mmlu
+            guard_active = True
 
-        # Use retention_ratio as the reported forgetting_score so CycleResult and
-        # checkpoints log a value that is interpretable as "fraction of capability retained".
+        if guard_active:
+            logger.info(
+                "Cycle %d: post-training MMLU = %.4f | retention ratio = %.4f "
+                "(threshold = %.4f)",
+                cycle_num, post_mmlu, retention_ratio, cfg.forgetting_tolerance,
+            )
+        else:
+            logger.info(
+                "Cycle %d: post-training MMLU = %s (forgetting guard inactive)",
+                cycle_num,
+                ("%.4f" % post_mmlu) if not __import__("math").isnan(post_mmlu) else "N/A",
+            )
+
+        # forgetting_score reports the relative MMLU retention ratio; it is the
+        # interpretable "fraction of MMLU capability retained after cycle k".
         forgetting_score = retention_ratio
 
+        # mmlu_retention reports the absolute post-fine-tune MMLU accuracy;
+        # this is the value consumed by Chapter 5's RET axis.
+        mmlu_retention = post_mmlu
+
         aborted = False
-        if retention_ratio < cfg.forgetting_tolerance:
+        if guard_active and retention_ratio < cfg.forgetting_tolerance:
             logger.warning(
-                "Cycle %d: forgetting check FAILED (retention %.4f < %.4f) -- restoring θ_prev.",
+                "Cycle %d: MMLU forgetting check FAILED (retention %.4f < %.4f) "
+                "-- restoring θ_prev.",
                 cycle_num, retention_ratio, cfg.forgetting_tolerance,
             )
             self._restore_weights(theta_prev)
             aborted = True
 
-        # Step 6b: MMLU retention -- domain-neutral reporting metric (EXP-MMLU-FIX).
-        # Distinct from the TriviaQA abort guard above.  Matches the metric used
-        # by run_ablation.eval_mmlu_retention() so per-cycle CSV values and Table 5.2
-        # in Chapter 5 are directly comparable.
-        logger.info("Cycle %d: measuring MMLU retention (n=200) ...", cycle_num)
-        mmlu_retention = self._mmlu_score(n=200)
-        if not __import__("math").isnan(mmlu_retention):
-            logger.info(
-                "Cycle %d: MMLU retention = %.4f (target >= %.2f)",
-                cycle_num, mmlu_retention, cfg.forgetting_tolerance,
-            )
-        else:
-            logger.warning("Cycle %d: MMLU retention unavailable (dataset not cached).", cycle_num)
-
         # Step 7: save checkpoint
         ckpt_path = self._save_checkpoint(cycle_num, seed, epochs_done, final_loss,
                                            forgetting_score, aborted, theta_prev if aborted else None)
+
+        # Step 8: retroactive re-verification (Phase 5d).
+        # Skipped when the cycle was aborted (the restored weights are the
+        # previous cycle's -- retroactively re-scoring with unchanged weights
+        # is a no-op that still pays the compute cost).
+        n_retroverified = 0
+        n_retropruned = 0
+        if verify_fn is not None and not aborted:
+            logger.info(
+                "Cycle %d: running retroactive re-verification on %d episodes ...",
+                cycle_num, memory_store.size,
+            )
+            try:
+                n_retroverified, n_retropruned = memory_store.retroverify(verify_fn)
+                logger.info(
+                    "Cycle %d: retroverify complete -- %d updated, %d pruned (store size %d).",
+                    cycle_num, n_retroverified, n_retropruned, memory_store.size,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Cycle %d: retroverify loop raised %s -- continuing without retroactive update.",
+                    cycle_num, exc,
+                )
+        elif verify_fn is None:
+            logger.debug(
+                "Cycle %d: no verify_fn supplied -- skipping retroactive re-verification.",
+                cycle_num,
+            )
+
+        # Step 8b: deferred-entry reconsideration (thesis Section 4.9).
+        # Runs AFTER retroverify so that the main memory is already
+        # up-to-date under the new weights when a deferred entry is
+        # evaluated for promotion. Also skipped on aborted cycles for
+        # the same reason as retroverify: reconsidering under unchanged
+        # weights is a no-op with a small probability of injecting noise.
+        n_deferred_promoted = 0
+        n_deferred_ttl_dropped = 0
+        n_deferred_kept = 0
+        if deferred_buffer is not None and not aborted:
+            # Prefer the caller's dedicated reconsider_fn, but fall back
+            # to verify_fn: the verifier contract is identical for both
+            # passes, so any closure built by make_retroverify_fn works.
+            effective_fn = reconsider_fn or verify_fn
+            if effective_fn is None:
+                logger.debug(
+                    "Cycle %d: deferred_buffer supplied but no reconsider_fn "
+                    "or verify_fn -- skipping reconsideration.", cycle_num,
+                )
+            else:
+                logger.info(
+                    "Cycle %d: running deferred-entry reconsideration on "
+                    "%d buffered episodes ...", cycle_num, deferred_buffer.size,
+                )
+                try:
+                    n_deferred_promoted, n_deferred_ttl_dropped, n_deferred_kept = \
+                        deferred_buffer.reconsider(
+                            verify_fn=effective_fn,
+                            memory_store=memory_store,
+                        )
+                    logger.info(
+                        "Cycle %d: deferred reconsideration complete -- "
+                        "%d promoted, %d TTL-dropped, %d kept (buffer size %d, "
+                        "store size %d).",
+                        cycle_num, n_deferred_promoted, n_deferred_ttl_dropped,
+                        n_deferred_kept, deferred_buffer.size, memory_store.size,
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "Cycle %d: deferred reconsideration raised %s -- "
+                        "continuing without reconsideration pass.",
+                        cycle_num, exc,
+                    )
+        elif deferred_buffer is None:
+            logger.debug(
+                "Cycle %d: no deferred_buffer supplied -- skipping deferred "
+                "reconsideration.", cycle_num,
+            )
 
         return CycleResult(
             cycle_num=cycle_num,
@@ -344,6 +486,11 @@ class SelfImprovementLoop:
             aborted=aborted,
             checkpoint_path=ckpt_path,
             mmlu_retention=mmlu_retention,
+            n_retroverified=n_retroverified,
+            n_retropruned=n_retropruned,
+            n_deferred_promoted=n_deferred_promoted,
+            n_deferred_ttl_dropped=n_deferred_ttl_dropped,
+            n_deferred_kept=n_deferred_kept,
         )
 
     def load_checkpoint(self, cycle_num: int) -> dict:
@@ -659,19 +806,25 @@ class SelfImprovementLoop:
     # ------------------------------------------------------------------ #
 
     def _forgetting_score(self, general_eval: List[QAPair]) -> float:
-        """Estimate general-capability retention on held-out general pairs.
+        """DEPRECATED -- kept for backward compatibility / diagnostic runs only.
+
+        Historical purpose: estimate general-capability retention on held-out
+        in-distribution pairs (TriviaQA-style) via greedy-generation exact match.
+
+        Why deprecated: using an in-distribution probe as the forgetting guard
+        is systematically insensitive to catastrophic forgetting in the
+        continual-learning sense (Kirkpatrick et al., 2017), because the model
+        has just been fine-tuned on TriviaQA-like pairs. The abort guard is
+        now driven by ``_mmlu_score`` (an out-of-distribution 4-choice
+        benchmark that is never in the training pool) -- see ``run_cycle``.
+        This method is no longer called by the main cycle loop; it remains
+        available for diagnostic scripts that want a cheap in-domain check.
 
         For each pair, run greedy generation and do an exact-match check
         against the reference answer (lowercased, stripped). Retention =
         fraction of pairs where the model still produces the correct answer.
 
-        Exact match is a conservative lower bound -- the real evaluation
-        harness uses F1 and EM against benchmark datasets. Here it is
-        used only as a fast forgetting guard, not a quality metric.
-
-        Capped at MAX_FORGETTING_EVAL_PAIRS (50) to bound wall-clock time:
-        50 pairs is sufficient signal for the rough retention check, while
-        running all 500 TriviaQA pairs would add ~30 min per cycle.
+        Capped at MAX_FORGETTING_EVAL_PAIRS (50) to bound wall-clock time.
 
         Returns float in [0, 1].
         """
@@ -706,17 +859,45 @@ class SelfImprovementLoop:
     def _mmlu_score(self, n: int = 200) -> float:
         """Measure MMLU 4-choice accuracy as a neutral cross-benchmark forgetting proxy.
 
-        Uses the same 200-sample MMLU split and identical evaluation logic as
-        ``run_ablation.eval_mmlu_retention()`` so the per-cycle number logged
-        here matches the retention column in the ablation table (Table 5.2).
+        Uses a fixed 200-sample MMLU split for per-cycle retention logging
+        (Chapter 5, Table 5.2).  Whenever the ablation framework is rebuilt
+        (Phase 9, Session 42+) it must reuse this same split and scoring logic
+        so the numbers remain directly comparable.
 
-        Why a separate metric from the TriviaQA abort guard?
-        The TriviaQA abort guard (``_forgetting_score``) uses the same domain
-        as the training pool and is evaluated on only 50 pairs for speed. MMLU
-        is a held-out, domain-neutral 4-choice benchmark that is *never trained
-        on* in any cycle, making it the scientifically appropriate metric for
-        reporting general-capability retention in Chapter 5. Keeping the two
-        roles separate avoids the mismatch documented in EXP-MMLU-FIX.
+        Scoring methodology.
+        This is a *generation-based* letter-prefix scorer: the prompt ends with
+        "Answer:" and we greedily decode up to 8 new tokens, then check whether
+        the decoded string starts with the gold letter (A/B/C/D). This differs
+        from the log-likelihood protocol used in lm-eval-harness and many
+        leaderboard submissions (which scores P(choice_k | prompt) across the
+        four choices and picks argmax). We use generation scoring because (a)
+        CAEM's pipeline is itself generative — log-likelihood scoring would
+        exercise a code path that is never used at inference time — and (b)
+        it mirrors how the fine-tuned model is actually evaluated in the
+        main benchmark loop. Absolute MMLU numbers are therefore not directly
+        comparable to lm-eval-harness leaderboards, but cycle-over-cycle
+        *retention ratios* (the quantity Chapter 5 reports) are internally
+        consistent and correctly measure forgetting.
+
+        Sampling.
+        We use a ``shuffle(seed=42)`` before ``select`` so the 200-sample
+        subset spans MMLU's 57 subjects rather than only the alphabetically
+        earliest subjects that appear at the head of the validation split.
+        The seed is fixed so every cycle and every re-run scores the same
+        samples, making retention ratios deterministic.
+
+        Dual role: abort guard + RET reporting axis.
+        This single MMLU measurement drives (a) the self-improvement cycle's
+        forgetting abort guard via the post/pre retention ratio, and (b) the
+        absolute ``mmlu_retention`` value reported in Chapter 5's Table 5.2
+        RET column. MMLU is a held-out, domain-neutral 4-choice benchmark
+        that is *never* in the training pool, so it is the scientifically
+        appropriate probe for catastrophic forgetting in the continual-
+        learning sense (Kirkpatrick et al., 2017). The earlier design used
+        a separate in-distribution TriviaQA probe (``_forgetting_score``) as
+        the abort guard; that design was abandoned because an in-distribution
+        probe is systematically insensitive to the failure mode the guard
+        exists to catch.
 
         Returns NaN (float) if the MMLU dataset is unavailable (no internet,
         no HuggingFace cache). NaN is propagated cleanly to the CSV so the
@@ -725,7 +906,7 @@ class SelfImprovementLoop:
         try:
             from datasets import load_dataset
             ds = load_dataset("cais/mmlu", "all", split="validation")
-            ds = ds.select(range(min(n, len(ds))))
+            ds = ds.shuffle(seed=42).select(range(min(n, len(ds))))
         except Exception as exc:
             logger.warning(
                 "MMLU dataset load failed (%s); mmlu_retention set to NaN.", exc
@@ -739,10 +920,16 @@ class SelfImprovementLoop:
         self.model.eval()
         with torch.no_grad():
             for item in ds:
-                question = str(item.get("question", ""))
-                choices  = item.get("choices", [])
-                answer_idx = item.get("answer", -1)
+                item_d: dict = item  # type: ignore[assignment]
+                question = str(item_d.get("question", ""))
+                choices  = item_d.get("choices", [])
+                answer_idx = item_d.get("answer", -1)
                 if not question or not choices or answer_idx < 0:
+                    continue
+                # Defensive: MMLU should always have answer in {0,1,2,3}, but
+                # guard against corrupt rows so a negative index doesn't
+                # silently collide with Python's reverse-indexing semantics.
+                if not (0 <= answer_idx < 4):
                     continue
 
                 choice_str = "\n".join(
@@ -795,7 +982,7 @@ class SelfImprovementLoop:
         return [p.detach().cpu().float().clone() for p in self.model.parameters()]
 
     def _restore_weights(self, theta_prev: List[torch.Tensor]) -> None:
-        """Restore model parameters to θ_prev in-place."""
+        """Restore model parameters to theta_prev in-place."""
         model_params = list(self.model.parameters())
         if len(theta_prev) != len(model_params):
             raise RuntimeError(

@@ -157,8 +157,8 @@ class EpisodicMemoryStore:
             core.nprobe = nprobe
             new_index = faiss.IndexIDMap2(core)
 
-            core.train(np.ascontiguousarray(train_vectors))
-            new_index.add_with_ids(np.ascontiguousarray(vectors), ids)
+            core.train(np.ascontiguousarray(train_vectors))  # type: ignore[call-arg]
+            new_index.add_with_ids(np.ascontiguousarray(vectors), ids)  # type: ignore[call-arg]
 
             self._index = new_index
             self._ivf_enabled = True
@@ -297,7 +297,7 @@ class EpisodicMemoryStore:
 
         vec = self._to_faiss_matrix(entry.embedding)
         ids = np.array([entry_id], dtype=np.int64)
-        self._index.add_with_ids(vec, ids)
+        self._index.add_with_ids(vec, ids)  # type: ignore[union-attr,call-arg]
         self._metadata[entry_id] = entry
 
         # Promote to IVF-PQ once the configured training threshold is reached.
@@ -339,7 +339,7 @@ class EpisodicMemoryStore:
         k_actual = min(k, self.size)
         vec = self._to_faiss_matrix(embedding)
 
-        similarities, ids = self._index.search(vec, k_actual)
+        similarities, ids = self._index.search(vec, k_actual)  # type: ignore[call-arg]
         similarities = similarities[0]   # Unwrap batch dimension
         ids = ids[0]
 
@@ -381,7 +381,7 @@ class EpisodicMemoryStore:
         k_actual = min(k, self.size)
         vec = self._to_faiss_matrix(embedding)
 
-        similarities, ids = self._index.search(vec, k_actual)
+        similarities, ids = self._index.search(vec, k_actual)  # type: ignore[call-arg]
         similarities = similarities[0]
         ids = ids[0]
 
@@ -535,10 +535,10 @@ class EpisodicMemoryStore:
 
         if self._index is not None:
             import faiss
-            id_selector = faiss.IDSelectorBatch(
+            id_selector = faiss.IDSelectorBatch(  # type: ignore[call-arg]
                 np.array([entry_id], dtype=np.int64)
             )
-            self._index.remove_ids(id_selector)
+            self._index.remove_ids(id_selector)  # type: ignore[call-arg]
 
         del self._metadata[entry_id]
         logger.debug("Removed episode %d. Store size: %d", entry_id, self.size)
@@ -563,7 +563,7 @@ class EpisodicMemoryStore:
         Parameters
         ----------
         verify_fn : callable
-            Signature: (entry: EpisodicEntry) -> StoredConfidence
+            Signature: ``(entry: EpisodicEntry) -> UnifiedVerifierOutput``.
             Uses the CURRENT model weights (already updated by fine-tuning).
         threshold : float or None
             Remove episodes whose new u_stored falls below this.
@@ -604,11 +604,23 @@ class EpisodicMemoryStore:
                 logger.debug("Retroverify: removed episode %d (new u_stored=%.3f < %.3f).", eid, new_u, threshold)
             elif new_u > entry.u_stored:
                 # Quality improved -- update upward only (don't downgrade).
+                # Copy all nine signals + p_contra + decision + early_exit
+                # onto the stored entry so downstream calibration tables
+                # see the latest verifier view of this episode.
                 old_u = entry.u_stored
                 self.update_u_stored(eid, new_u)
-                entry.nli_score = new_scores.p_entail
-                entry.sc_score = new_scores.s_avg
-                entry.se_score = 1.0 - new_scores.h_norm
+                entry.u_token = new_scores.u_token
+                entry.u_dropout = new_scores.u_dropout
+                entry.u_internal = new_scores.u_internal
+                entry.s_avg = new_scores.s_avg
+                entry.h_norm = new_scores.h_norm
+                entry.p_entail = new_scores.p_entail
+                entry.p_ground_max = new_scores.p_ground_max
+                entry.p_ground_mean = new_scores.p_ground_mean
+                entry.p_ground_atomic = new_scores.p_ground_atomic
+                entry.p_contra = new_scores.p_contra
+                entry.decision = new_scores.decision
+                entry.early_exit_triggered = new_scores.early_exit_triggered
                 entry.retroverified = True
                 n_updated += 1
                 logger.debug(

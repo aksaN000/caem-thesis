@@ -18,7 +18,13 @@ Output schema
 -------------
 Per-sample (SampleResult dict):
   id, benchmark, question, prediction, gold_answers, gold_label,
-  em, f1, tier, stored, u_stored, latency_ms, escalated
+  em, f1, tier, stored, u_stored, latency_ms, escalated,
+  # Session 42 nine-signal capture (Phase 5e / Phase 4m.3)
+  u_token, u_dropout, u_internal, s_avg, h_norm, p_entail,
+  p_ground_max, p_ground_mean, p_ground_atomic, p_contra,
+  decision, early_exit_triggered
+  -- the twelve verifier fields are None when the Stage-5 verifier did not
+  run (Tier 1 hits, verifier errors, or fail_on_error=False fall-throughs).
 
 Aggregate (EvalResult dict -- one per run):
   benchmark, cycle, n, em, f1, hallucination_rate,
@@ -200,10 +206,37 @@ class EvalHarness:
     # Per-sample evaluation                                                #
     # ------------------------------------------------------------------ #
 
+    # Twelve verifier fields captured per sample when available.
+    # Order matches UnifiedVerifierOutput so make_tables.py can iterate
+    # this tuple directly without reshuffling.
+    _VERIFIER_FIELDS = (
+        "u_token", "u_dropout", "u_internal",
+        "s_avg", "h_norm", "p_entail",
+        "p_ground_max", "p_ground_mean", "p_ground_atomic",
+        "p_contra", "decision", "early_exit_triggered",
+    )
+
+    @staticmethod
+    def _extract_verifier_signals(vout) -> Dict[str, Any]:
+        """Flatten a UnifiedVerifierOutput into a sample-record dict.
+
+        Returns a dict with all twelve keys set to None when ``vout`` is None
+        (Tier 1 hits never run the verifier; Tier 2/3 may fail). This keeps
+        the per-sample JSON schema rectangular so downstream analysis scripts
+        can concatenate records into a pandas DataFrame cleanly.
+        """
+        if vout is None:
+            return {k: None for k in EvalHarness._VERIFIER_FIELDS}
+        return {k: getattr(vout, k) for k in EvalHarness._VERIFIER_FIELDS}
+
     def _run_one(self, sample: BenchmarkSample, benchmark: str, store_to_memory: bool = False) -> SampleResult:
         """Run one sample through the pipeline and score it.
 
         Returns a SampleResult dict. On error, records em=0, f1=0, tier=3.
+        The per-sample record includes the full twelve-field verifier capture
+        (nine signals + p_contra + decision + early_exit_triggered) when the
+        Stage-5 verifier ran, else all twelve fields are None (Tier 1 hits,
+        pipeline errors with fail_on_error=False).
         """
         question = sample["question"]
         gold_answers = sample["answers"]
@@ -215,13 +248,10 @@ class EvalHarness:
             prediction = result.answer
             tier = result.tier
             stored = result.stored
-            u_stored = (
-                result.stored_confidence.u_stored
-                if result.stored_confidence is not None
-                else None
-            )
+            u_stored = result.u_stored
             latency_ms = result.latency_ms
             escalated = result.escalated
+            verifier_signals = self._extract_verifier_signals(result.verifier_output)
         except Exception as exc:
             if self.fail_on_error:
                 raise
@@ -232,11 +262,12 @@ class EvalHarness:
             u_stored = None
             latency_ms = 0.0
             escalated = False
+            verifier_signals = self._extract_verifier_signals(None)
 
         # -- Scoring ---------------------------------------------------- #
         em, f1 = self._score(prediction, gold_answers, gold_label, benchmark)
 
-        return {
+        record: SampleResult = {
             "id": sample.get("id", ""),
             "benchmark": benchmark,
             "question": question,
@@ -251,6 +282,8 @@ class EvalHarness:
             "latency_ms": latency_ms,
             "escalated": escalated,
         }
+        record.update(verifier_signals)
+        return record
 
     def _score(
         self,

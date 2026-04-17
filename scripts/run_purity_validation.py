@@ -727,28 +727,26 @@ def run_purity_validation(ns: argparse.Namespace) -> None:
         tokenizer = AutoTokenizer.from_pretrained("google/flan-t5-large")
 
         nli_model, nli_tokenizer = None, None
-        if not ns.no_nli:
-            try:
-                from transformers import AutoModelForSequenceClassification
-                logger.info("Loading RoBERTa-Large-MNLI for purity verification ...")
-                nli_tokenizer = AutoTokenizer.from_pretrained("roberta-large-mnli")
-                nli_model = AutoModelForSequenceClassification.from_pretrained(
-                    "roberta-large-mnli"
-                ).to(profile.device)
-                nli_model.eval()
-            except Exception as exc:
-                logger.warning("NLI model load failed (%s); continuing without NLI.", exc)
+        try:
+            from transformers import AutoModelForSequenceClassification
+            logger.info("Loading RoBERTa-Large-MNLI for purity verification ...")
+            nli_tokenizer = AutoTokenizer.from_pretrained("roberta-large-mnli")
+            nli_model = AutoModelForSequenceClassification.from_pretrained(
+                "roberta-large-mnli"
+            ).to(profile.device)
+            nli_model.eval()
+        except Exception as exc:
+            logger.warning("NLI model load failed (%s); continuing without NLI.", exc)
 
         passage_store = None
-        if not ns.no_rag:
-            passage_index_path = Path(ns.passage_index)
-            if passage_index_path.exists():
-                try:
-                    passage_store = PassageStore.load(str(passage_index_path))
-                except Exception as exc:
-                    logger.warning("Passage store load failed (%s); continuing without RAG.", exc)
-            else:
-                logger.warning("Passage index not found at %s; continuing without RAG.", passage_index_path)
+        passage_index_path = Path(ns.passage_index)
+        if passage_index_path.exists():
+            try:
+                passage_store = PassageStore.load(str(passage_index_path))
+            except Exception as exc:
+                logger.warning("Passage store load failed (%s); continuing without RAG.", exc)
+        else:
+            logger.warning("Passage index not found at %s; continuing without RAG.", passage_index_path)
 
         checkpoints_dir = ns.checkpoints_dir
         requested_benchmarks = [bm.strip().lower() for bm in ns.benchmarks if bm.strip()]
@@ -897,10 +895,6 @@ def _parse_args() -> argparse.Namespace:
     )
     p.add_argument("--passage_index", default="data/passage_index",
                    help="Path to PassageStore directory (used for Tier-3 RAG during validation).")
-    p.add_argument("--no_nli", action="store_true",
-                   help="Disable loading RoBERTa-MNLI for verification.")
-    p.add_argument("--no_rag", action="store_true",
-                   help="Disable loading passage index for Tier-3 retrieval.")
     p.add_argument("--cycle_results", default="outputs/all_cycle_results.json",
                    help="Path to all_cycle_results.json (for cross-reference).")
     p.add_argument("--smoke_test", action="store_true",

@@ -121,7 +121,7 @@ class QueryEncoder:
         single = isinstance(text, str)
         texts = [text] if single else text
 
-        embeddings = self._model.encode(
+        embeddings = self._model.encode(  # type: ignore[union-attr]
             texts,
             normalize_embeddings=self.normalize,   # sentence-transformers handles L2 norm
             convert_to_numpy=True,

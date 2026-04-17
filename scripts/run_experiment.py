@@ -36,8 +36,7 @@ Notes
 -----
 - Set HUGGINGFACE_HUB_CACHE env var to your cache dir on Colab/cluster.
 - Wikipedia passage index must be pre-built via scripts/build_passage_index.py
-  OR the --no_rag flag will disable Tier 3 RAG (Tier 2 escalation falls back
-  to a Tier 3 without RAG context -- accuracy lower but experiment still runs).
+  before the experiment can run; Tier 3 RAG depends on it.
 - All projected targets are from the unified plan; actual results may differ.
 """
 
@@ -170,45 +169,43 @@ def build_pipeline(config: Any, ns: Any, m: Dict[str, Any]) -> "CAEMPipeline":
 
     # -- NLI model ---------------------------------------------------------- #
     nli_model, nli_tokenizer = None, None
-    if not ns.no_nli:
-        try:
-            from transformers import AutoModelForSequenceClassification
-            logger.info("Loading RoBERTa-Large-MNLI ...")
-            nli_tokenizer = m["AutoTokenizer"].from_pretrained(
-                "roberta-large-mnli"
-            )
-            nli_model = AutoModelForSequenceClassification.from_pretrained(
-                "roberta-large-mnli"
-            ).to(device)
-            nli_model.eval()
-            logger.info("NLI model loaded.")
-        except Exception as exc:
-            logger.error(
-                "NLI MODEL LOAD FAILED: %s\n"
-                "  >> The verifier will use p_entail=0.5 for ALL answers.\n"
-                "  >> This makes entailment indistinguishable from contradiction.\n"
-                "  >> Memory quality, hallucination reduction, and AB5 ablation\n"
-                "     results will be SEVERELY DEGRADED and scientifically invalid.\n"
-                "  >> Do NOT use these results for the thesis.\n"
-                "  >> Fix: ensure 'roberta-large-mnli' is downloadable and\n"
-                "     HuggingFace cache has sufficient disk space (~1.4 GB).",
-                exc,
-            )
+    try:
+        from transformers import AutoModelForSequenceClassification
+        logger.info("Loading RoBERTa-Large-MNLI ...")
+        nli_tokenizer = m["AutoTokenizer"].from_pretrained(
+            "roberta-large-mnli"
+        )
+        nli_model = AutoModelForSequenceClassification.from_pretrained(
+            "roberta-large-mnli"
+        ).to(device)
+        nli_model.eval()
+        logger.info("NLI model loaded.")
+    except Exception as exc:
+        logger.error(
+            "NLI MODEL LOAD FAILED: %s\n"
+            "  >> The verifier will use p_entail=0.5 for ALL answers.\n"
+            "  >> This makes entailment indistinguishable from contradiction.\n"
+            "  >> Memory quality and hallucination reduction results will be\n"
+            "     SEVERELY DEGRADED and scientifically invalid.\n"
+            "  >> Do NOT use these results for the thesis.\n"
+            "  >> Fix: ensure 'roberta-large-mnli' is downloadable and\n"
+            "     HuggingFace cache has sufficient disk space (~1.4 GB).",
+            exc,
+        )
 
     # -- Passage store (Wikipedia FAISS index) ------------------------------ #
     passage_store = None
-    if not ns.no_rag:
-        passage_index_path = Path(ns.passage_index)
-        if passage_index_path.exists():
-            logger.info("Loading passage index from %s ...", passage_index_path)
-            passage_store = m["PassageStore"].load(str(passage_index_path))
-            logger.info("Passage store loaded (%d passages).", len(passage_store.passages))
-        else:
-            logger.warning(
-                "Passage index not found at %s -- Tier 3 RAG disabled. "
-                "Build it with scripts/build_passage_index.py first.",
-                passage_index_path,
-            )
+    passage_index_path = Path(ns.passage_index)
+    if passage_index_path.exists():
+        logger.info("Loading passage index from %s ...", passage_index_path)
+        passage_store = m["PassageStore"].load(str(passage_index_path))
+        logger.info("Passage store loaded (%d passages).", len(passage_store.passages))
+    else:
+        logger.warning(
+            "Passage index not found at %s -- Tier 3 RAG disabled. "
+            "Build it with scripts/build_passage_index.py first.",
+            passage_index_path,
+        )
 
     pipeline = m["CAEMPipeline"](
         model=model,
@@ -434,7 +431,7 @@ def retroactive_reverification(pipeline, cycle: int, config) -> Dict:
 
     logger.info("Retroactive re-verification: %d episodes ...", total_before)
 
-    # verify_fn: (EpisodicEntry) -> StoredConfidence
+    # verify_fn: (EpisodicEntry) -> UnifiedVerifierOutput
     # Uses the pipeline's verifier so re-verification benefits from the
     # updated model weights after this cycle's fine-tuning.
     verify_fn = lambda e: pipeline.verifier.verify(e.question, e.answer)
@@ -462,8 +459,9 @@ def save_summary_csv(
 ) -> None:
     """Save the five-mechanism evidence table as a CSV (Table 1 in Chapter 5).
 
-    Columns: Cycle, HallucReduction%, Tier1Frac%, Tier3Frac%,
-             MeanUStored, MMULRetention%
+    Columns: cycle, benchmark, em, f1, hallucination_rate,
+             tier{1,2,3}_frac_pct, storage_rate_pct, mean_u_stored,
+             mean_latency_ms, mmlu_retention_pct, mmlu_retention_ratio_pct.
 
     Parameters
     ----------
@@ -472,9 +470,10 @@ def save_summary_csv(
     output_dir : Path
         Where to write experiment_summary.csv.
     mmlu_per_cycle : list[float] or None
-        Per-cycle MMLU retention values (0-1 or NaN).  Index 0 corresponds to
-        Cycle 0 (baseline, always NaN -- no fine-tuning occurred).  When None,
-        the column is omitted with a backwards-compatible empty string.
+        Per-cycle MMLU retention values in [0, 1] or NaN.  Index 0 is the
+        pristine-model baseline measured before any fine-tuning, and is the
+        denominator used to compute ``mmlu_retention_ratio_pct`` for cycles
+        >= 1.  When None or all-NaN the ratio column is left blank.
 
     Notes
     -----
@@ -482,6 +481,12 @@ def save_summary_csv(
     the CSV tidy it is written only on the first benchmark row of each cycle;
     all other rows for that cycle leave the field blank.  This matches how
     MMLU is reported in Chapter 5 Table 5.2 (one row per cycle, aggregate).
+
+    Two MMLU columns are emitted:
+      * ``mmlu_retention_pct``       -- absolute MMLU accuracy (%) in this cycle.
+      * ``mmlu_retention_ratio_pct`` -- accuracy relative to the pristine
+        Cycle-0 baseline (%). 100 = no forgetting; <100 = forgetting; >100
+        = slight positive transfer (possible with EWC at low cycle counts).
     """
     import math
     csv_path = output_dir / "experiment_summary.csv"
@@ -497,8 +502,18 @@ def save_summary_csv(
         "storage_rate_pct",
         "mean_u_stored",
         "mean_latency_ms",
-        "mmlu_retention_pct",   # populated on first-benchmark row only; blank for subsequent rows
+        "mmlu_retention_pct",        # absolute MMLU accuracy this cycle
+        "mmlu_retention_ratio_pct",  # ratio against Cycle-0 baseline
     ]
+
+    # Baseline denominator for the retention ratio. The Cycle-0 entry is the
+    # pristine-model MMLU measurement; if unavailable (NaN or <= 0) the ratio
+    # column is left blank to avoid fabricating retention numbers.
+    baseline_mmlu = None
+    if mmlu_per_cycle and len(mmlu_per_cycle) > 0:
+        b = mmlu_per_cycle[0]
+        if not math.isnan(b) and b > 0:
+            baseline_mmlu = b
 
     rows = []
     for cycle_num, cycle_results in enumerate(all_cycle_results):
@@ -510,8 +525,13 @@ def save_summary_csv(
         for bm, res in cycle_results.items():
             if first_bm and not math.isnan(mmlu_val):
                 mmlu_str = str(round(mmlu_val * 100, 2))
+                if baseline_mmlu is not None:
+                    ratio_str = str(round((mmlu_val / baseline_mmlu) * 100, 2))
+                else:
+                    ratio_str = ""
             else:
                 mmlu_str = ""   # leave blank for subsequent BM rows (or if NaN)
+                ratio_str = ""
             first_bm = False
             rows.append({
                 "cycle":              cycle_num,
@@ -525,7 +545,8 @@ def save_summary_csv(
                 "storage_rate_pct":   round(res.get("storage_rate", 0.0) * 100, 1),
                 "mean_u_stored":      round(res.get("mean_u_stored", 0.0), 4),
                 "mean_latency_ms":    round(res.get("mean_latency_ms", 0.0), 1),
-                "mmlu_retention_pct": mmlu_str,
+                "mmlu_retention_pct":       mmlu_str,
+                "mmlu_retention_ratio_pct": ratio_str,
             })
 
     with open(csv_path, "w", newline="", encoding="utf-8") as f:
@@ -580,7 +601,7 @@ def print_mechanism_table(all_cycle_results: List[Dict]) -> None:
             )
     print("=" * 90)
     print("Note: HallRed% = EM improvement vs Cycle 0 (positive = better).")
-    print("MMLU Retention% must be measured separately via scripts/run_ablation.py.\n")
+    print("MMLU Retention% is recorded per-cycle in the summary CSV (EXP-MMLU-FIX).\n")
 
 
 # -----------------------------------------------------------------------------
@@ -678,8 +699,10 @@ def run_experiment(ns: argparse.Namespace) -> None:
         output_dir=str(output_dir),
     )
 
-    # Per-cycle MMLU retention list (index 0 = Cycle 0 = NaN, no fine-tuning).
-    # Populated after each SIL fine-tuning step; passed to save_summary_csv().
+    # Per-cycle MMLU retention list. Index 0 is the pristine-model baseline
+    # measured before any fine-tuning; subsequent indices are measured after
+    # each SIL fine-tuning step. The Cycle-0 baseline is what Chapter 5's
+    # retention ratio denominates against (mmlu_retention_ratio_pct).
     mmlu_per_cycle: List[float] = []
 
     # -- CYCLE 0: Baseline evaluation & Resume Logic ------------------------ #
@@ -696,8 +719,20 @@ def run_experiment(ns: argparse.Namespace) -> None:
         # Save baseline memory store checkpoint
         pipeline.memory_store.save(str(output_dir / "memory_store_cycle_0"))
 
+        # Measure pristine-model MMLU *before* any fine-tuning. This is the
+        # denominator for the retention ratio in later cycles. Persisted to
+        # disk so resume paths can recover it without remeasuring.
+        logger.info("Measuring pristine-model MMLU baseline (200 samples)...")
+        mmlu_baseline = sil._mmlu_score(n=200)
+        logger.info("Pristine MMLU baseline: %.4f", mmlu_baseline)
+        try:
+            with open(output_dir / "mmlu_baseline.json", "w", encoding="utf-8") as f:
+                json.dump({"mmlu_baseline": float(mmlu_baseline)}, f)
+        except Exception as exc:
+            logger.warning("Failed to persist mmlu_baseline.json (%s)", exc)
+
         all_cycle_results = [cycle0_results]
-        mmlu_per_cycle.append(float("nan"))  # Cycle 0: no fine-tuning, no MMLU measurement
+        mmlu_per_cycle.append(float(mmlu_baseline))  # Cycle 0 = pristine baseline
 
         # -- Calibration (after Cycle 0, before Cycle 1 fine-tuning) ------------ #
         if not ns.skip_calibration:
@@ -731,9 +766,26 @@ def run_experiment(ns: argparse.Namespace) -> None:
             all_cycle_results.append(cycle_results)
 
             # Reconstruct mmlu_per_cycle from saved retroverify JSONs.
-            # Cycle 0 never has a retroverify file (no fine-tuning), so use NaN.
+            # Cycle 0 stores the pristine-model baseline in mmlu_baseline.json;
+            # fall back to remeasuring if the file is missing (older runs) so
+            # downstream retention ratios still have a valid denominator.
             if c == 0:
-                mmlu_per_cycle.append(float("nan"))
+                baseline_path = output_dir / "mmlu_baseline.json"
+                if baseline_path.exists():
+                    try:
+                        with open(baseline_path, "r", encoding="utf-8") as f:
+                            mmlu_per_cycle.append(float(json.load(f)["mmlu_baseline"]))
+                    except (json.JSONDecodeError, KeyError, ValueError):
+                        logger.warning(
+                            "mmlu_baseline.json corrupted; remeasuring pristine MMLU."
+                        )
+                        mmlu_per_cycle.append(float(sil._mmlu_score(n=200)))
+                else:
+                    logger.info(
+                        "No mmlu_baseline.json found (older run?); "
+                        "remeasuring pristine MMLU for the retention denominator."
+                    )
+                    mmlu_per_cycle.append(float(sil._mmlu_score(n=200)))
             else:
                 rv_path_c = output_dir / f"retroverify_cycle{c}.json"
                 try:
@@ -781,12 +833,18 @@ def run_experiment(ns: argparse.Namespace) -> None:
         logger.info("-" * 60)
         t0 = time.time()
 
-        # Step 1: Fine-tune on verified episodes from current memory
+        # Step 1: Fine-tune on verified episodes from current memory.
+        # Passing verify_fn enables retroactive re-verification (Phase 5d):
+        # after fine-tuning, every stored episode is re-scored by the updated
+        # model via UnifiedVerifier. Raised u_stored propagates all nine
+        # signals back onto the entry; entries below the prune threshold
+        # are removed.
         logger.info("  Step 1: SelfImprovementLoop.run_cycle(%d) ...", cycle_num)
         cycle_result = sil.run_cycle(
             cycle_num=cycle_num,
             memory_store=pipeline.memory_store,
             general_data=general_data,
+            verify_fn=pipeline.make_retroverify_fn(),
         )
 
         if cycle_result.aborted:
@@ -797,22 +855,21 @@ def run_experiment(ns: argparse.Namespace) -> None:
             )
         else:
             logger.info(
-                "  Fine-tuning done: %d episodes | retention_ratio=%.3f | loss=%.4f",
+                "  Fine-tuning done: %d episodes | retention_ratio=%.3f | loss=%.4f "
+                "| retroverify: %d updated / %d pruned",
                 cycle_result.n_episodes_used,
                 cycle_result.forgetting_score,
                 cycle_result.final_train_loss,
+                cycle_result.n_retroverified,
+                cycle_result.n_retropruned,
             )
 
         # Step 2: Update pipeline's cycle counter
         pipeline.current_cycle = cycle_num
 
         # Step 3: Retroactive re-verification of memory
-        if getattr(ns, "disable_reverification", False):
-            logger.info("  Step 2: Skipped retroactive re-verification (--disable_reverification set)")
-            retroverify_stats = {}
-        else:
-            logger.info("  Step 2: Retroactive re-verification ...")
-            retroverify_stats = retroactive_reverification(pipeline, cycle_num, config)
+        logger.info("  Step 2: Retroactive re-verification ...")
+        retroverify_stats = retroactive_reverification(pipeline, cycle_num, config)
 
         # Step 4: Save retroverify stats alongside cycle results
         # mmlu_retention is included here so the resume path can reconstruct
@@ -872,11 +929,32 @@ def run_experiment(ns: argparse.Namespace) -> None:
         json.dump(all_cycle_results, f, indent=2)
     logger.info("Full results saved -> %s", full_results_path)
 
+    # -- Chapter 5 seven-table split + per_sample_signals.jsonl (Phase 4m.4) -- #
+    # Post-processes every per-benchmark-per-cycle JSON the harness wrote
+    # during this run into the seven CSVs Chapter 5 references plus a flat
+    # per-sample JSONL. Safe to re-run in isolation via ``build_ch5_tables``
+    # if the CSVs need regenerating without re-running the cycles.
+    try:
+        from eval.reporting import build_ch5_tables
+        manifest = build_ch5_tables(output_dir, mmlu_per_cycle=mmlu_per_cycle)
+        if manifest:
+            logger.info(
+                "Chapter-5 tables written: %s",
+                ", ".join(sorted(manifest.keys())),
+            )
+    except Exception as exc:
+        logger.warning(
+            "build_ch5_tables failed (%s). Per-cycle JSONs are still on disk "
+            "-- rerun eval.reporting.build_ch5_tables(output_dir) post-hoc.",
+            exc,
+        )
+
     logger.info("Experiment complete. Outputs in: %s", output_dir)
     logger.info(
         "Next steps:\n"
         "  1. Run scripts/run_purity_validation.py for Theory 1/2/3 validation.\n"
-        "  2. Run scripts/run_ablation.py for baselines and ablation variants.\n"
+        "  2. Run baseline + ablation variants once their runner is rebuilt\n"
+        "     (Session 42 onward; unified-verifier migration in progress).\n"
         "  3. Update caem-implementation-log.md with experiment results.\n"
         "  4. Feed outputs/ into Chapter 5 writing (use paper-writing skill)."
     )
@@ -887,62 +965,78 @@ def run_experiment(ns: argparse.Namespace) -> None:
 # -----------------------------------------------------------------------------
 
 def _parse_args() -> argparse.Namespace:
+    """Parse CLI arguments for the CAEM experiment orchestrator."""
     p = argparse.ArgumentParser(
-        description="CAEM Experiment Orchestrator (Cycle 0->N, default N=10)",
+        description="CAEM Experiment Orchestrator -- runs Cycle 0..N.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     p.add_argument(
-        "--output_dir", default="outputs",
-        help="Root output directory for checkpoints and eval results.",
+        "--output_dir",
+        type=str,
+        default="outputs",
+        help="Directory to write checkpoints, eval JSONs, and the summary CSV.",
     )
     p.add_argument(
-        "--n_questions", type=int, default=5000,
-        help="Questions per benchmark (full run = 5000; smoke test sets this to 10).",
+        "--num_cycles",
+        type=int,
+        default=10,
+        help="Number of SIL cycles to run after Cycle 0 baseline.",
     )
     p.add_argument(
-        "--num_cycles", type=int, default=10,
-        help="Number of self-improvement cycles to run after Cycle 0 baseline.",
+        "--n_questions",
+        type=int,
+        default=5000,
+        help="Total questions per cycle across the SIL training pool.",
     )
     p.add_argument(
-        "--benchmarks", nargs="+",
-        default=["truthfulqa", "strategyqa", "fever", "triviaqa", "natural_questions", "arc_challenge"],
-        help="Which benchmarks to evaluate (for the evaluation metrics).",
+        "--benchmarks",
+        nargs="+",
+        default=[
+            "fever",
+            "triviaqa",
+            "natural_questions",
+            "truthfulqa",
+            "strategyqa",
+            "arc_challenge",
+        ],
+        help="Benchmarks to evaluate each cycle (Dev + Transfer split).",
     )
     p.add_argument(
-        "--passage_index", default="data/passage_index",
-        help="Path to pre-built Wikipedia FAISS passage index (for Tier 3 RAG).",
+        "--passage_index",
+        type=str,
+        default="data/passage_index",
+        help="Path to pre-built Wikipedia FAISS index (for Tier 3 RAG).",
     )
     p.add_argument(
-        "--cold_start_memory", type=str, default=None,
-        help="Path to pre-seeded episodic memory index (from seed_cold_start.py).",
+        "--cold_start_memory",
+        type=str,
+        default=None,
+        help="Optional path to a pre-seeded EpisodicMemoryStore (e.g. from seed_cold_start.py).",
     )
     p.add_argument(
-        "--no_rag", action="store_true",
-        help="Disable Tier 3 RAG (run without passage index).",
+        "--resume_from_cycle",
+        type=int,
+        default=0,
+        help="Cycle number to resume from (0 = start fresh). Requires prior checkpoints.",
     )
     p.add_argument(
-        "--no_nli", action="store_true",
-        help="Disable NLI model (faster but lower verification quality).",
+        "--skip_calibration",
+        action="store_true",
+        help="Skip temperature scaling + signal-weight fitting (use equal initial weights).",
     )
     p.add_argument(
-        "--skip_calibration", action="store_true",
-        help="Skip temperature scaling + signal weight calibration after Cycle 0.",
-    )
-    p.add_argument(
-        "--smoke_test", action="store_true",
-        help="Tiny synthetic run to verify the pipeline is wired correctly (no GPU needed).",
-    )
-    p.add_argument(
-        "--disable_reverification", action="store_true",
-        help="Disable retroactive re-verification between cycles (for AB4 ablation).",
-    )
-    p.add_argument(
-        "--resume_from_cycle", type=int, default=0,
-        help="Resume experiment from a specific cycle (1 to --num_cycles). Bypasses earlier cycles and reloads memory/weights.",
+        "--smoke_test",
+        action="store_true",
+        help="Use synthetic n=10 samples per benchmark for fast CI/local sanity checks.",
     )
     return p.parse_args()
 
 
+def main() -> None:
+    """Entry point: parse CLI args and kick off the experiment."""
+    ns = _parse_args()
+    run_experiment(ns)
+
+
 if __name__ == "__main__":
-    args = _parse_args()
-    run_experiment(args)
+    main()

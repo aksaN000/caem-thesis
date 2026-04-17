@@ -114,25 +114,59 @@ class CAEMConfig:
     u_hat_accept_threshold: float = 0.60
 
     # ------------------------------------------------------------------ #
-    # Multi-Layer Verifier (Stage 5)                                       #
+    # UnifiedVerifier (Stage 5 -- nine-signal gate, Session 42)            #
     # ------------------------------------------------------------------ #
+    # The pre-Session-42 verifier emitted three signals (p_entail, s_avg,
+    # h_norm) and used NLI only self-referentially. The nine-signal
+    # redesign adds internal calibration (u_token, u_dropout, u_internal)
+    # and external grounding (p_ground_max/mean/atomic, p_contra) via NLI
+    # against reranked Wikipedia passages, and replaces the boolean
+    # should_store() gate with a four-way decision tree (STORE / DEFERRED
+    # / ABSTAIN / DISCARD).
+
     # [LIT] Best open NLI model at this parameter scale.
     nli_model: str = "roberta-large-mnli"
-    # [DES] NLI entailment threshold for hard-pass.
-    nli_entailment_threshold: float = 0.90
-    # [DES] Self-consistency gate: s_avg > this -> accept.
-    sc_accept_threshold: float = 0.85
     # [LIT] Farquhar et al. 2024: agglomerative + cosine clustering.
     se_clustering_method: str = "agglomerative"
-    # [DES] Semantic entropy gate: H < this (bits) -> accept.
-    se_entropy_threshold: float = 1.5
-    # [DES] VE1 escalation: NEUTRAL + SC > 0.90 -> escalate (systematic confab).
-    se_escalation_sc_min: float = 0.90
 
-    # û_stored weights [DES]: NLI entailment is strongest post-hoc signal.
-    u_stored_weight_nli: float = 0.50
-    u_stored_weight_sc: float = 0.30
-    u_stored_weight_se: float = 0.20   # applied as (1 - h_norm)
+    # --- Early-exit confabulation gate [DES] ---------------------------- #
+    # IF u_internal >= early_exit_u_internal
+    # AND p_ground_max <= early_exit_p_ground_max
+    #   -> decision = DISCARD (route to Tier 3 regeneration).
+    # Catches high-confidence ungrounded generations -- the Farquhar 2024
+    # confabulation profile -- before spending the remaining signal budget.
+    early_exit_u_internal: float = 0.70
+    early_exit_p_ground_max: float = 0.20
+
+    # --- Decision-tree thresholds [DES] --------------------------------- #
+    # u_stored >= store_threshold                     -> STORE
+    # defer_threshold <= u_stored < store_threshold   -> DEFERRED
+    # u_stored < defer_threshold
+    #   AND p_ground_max < abstain_pground_ceiling    -> ABSTAIN
+    # any p_contra >= contradiction_veto_threshold    -> DISCARD
+    store_threshold: float = 0.65
+    defer_threshold: float = 0.45
+    abstain_pground_ceiling: float = 0.20
+    contradiction_veto_threshold: float = 0.30
+
+    # --- Grounding retrieval / rerank [DES] ----------------------------- #
+    # Retrieve top-k passages from Wikipedia corpus, then rerank to top-N
+    # before scoring p_ground_max / p_ground_mean.
+    verifier_retrieve_k: int = 20
+    verifier_rerank_k: int = 3
+
+    # --- u_stored composite weights [DES] (must sum to 1.0) ------------- #
+    # Session 42 rebalanced from the legacy three-signal mix
+    # (nli=0.50, sc=0.30, se=0.20). External grounding (pground_mean +
+    # pground_atomic = 0.45) now dominates the prior, reflecting the
+    # Chapter 1 promise that NLI verifies correctness against retrieved
+    # evidence rather than self-consistency alone.
+    u_stored_weight_pground_mean: float = 0.30
+    u_stored_weight_pground_atomic: float = 0.15
+    u_stored_weight_nli: float = 0.15          # p_entail (chain -> answer)
+    u_stored_weight_sc: float = 0.15           # s_avg (pairwise SBERT cosine)
+    u_stored_weight_uinternal: float = 0.15    # 0.5·u_token + 0.5·(1 - u_dropout)
+    u_stored_weight_se: float = 0.10           # applied as (1 - h_norm)
 
     # ------------------------------------------------------------------ #
     # Tier 3 RAG (Stage 6)                                                 #
@@ -185,6 +219,23 @@ class CAEMConfig:
     # ------------------------------------------------------------------ #
     # [DES] Remove from memory if updated u_stored drops below this.
     retroverify_prune_threshold: float = 0.50
+
+    # ------------------------------------------------------------------ #
+    # Deferred-entry buffer (Stage 7b -- held for cycle-boundary          #
+    # reconsideration, thesis Section 4.9)                                 #
+    # ------------------------------------------------------------------ #
+    # When Stage-5 emits DEFERRED (0.45 <= u_stored < 0.65), the episode
+    # is written here instead of being dropped. At each cycle boundary,
+    # after retroverify, the buffer is re-scored under the fine-tuned
+    # verifier; entries clearing store_threshold (u_stored >= 0.65 AND
+    # decision == STORE) are promoted into main memory. TTL prevents the
+    # buffer from accumulating entries the model never gains confidence
+    # in; bounded capacity evicts oldest on overflow.
+    # [DES] Bounded FIFO capacity.
+    deferred_buffer_max_size: int = 10_000
+    # [DES] Max reconsideration passes an entry can survive without
+    # promotion before it is dropped.
+    deferred_buffer_ttl_cycles: int = 2
 
     # ------------------------------------------------------------------ #
     # Retrieval feedback loop                                              #

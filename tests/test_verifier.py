@@ -1,398 +1,492 @@
-﻿"""
+"""
 tests/test_verifier.py
 ======================
-Unit tests for MultiLayerVerifier (Stage 5).
+Phase 6a -- Unit tests for the Session 42 UnifiedVerifier nine-signal gate.
 
-Mock strategy: identical to test_post_generation.py -- no real models,
-controlled logits and embeddings, each signal isolated independently.
+These tests replace the legacy two-layer verifier coverage (pre-Session 42).
+They focus on the pure-logic surface that can be exercised without loading
+Flan-T5-Large, all-mpnet-base-v2, or a real NLI ensemble:
 
-Coverage:
-  - StoredConfidence dataclass
-  - p_entail: NLI probability averaging over M chains
-  - p_entail: fallback (0.5) when NLI model is None
-  - s_avg: pairwise SBERT cosine similarity of M chains
-  - h_norm: normalised semantic entropy (NLI clustering + surface fallback)
-  - Combined û_stored formula and config weights
-  - should_store() gate
-  - Error handling (neutral fallback per signal)
-  - u_stored weight sum = 1.0
+  * UnifiedVerifierOutput field contract.
+  * _NLIEnsemble aggregation (min entail, max contra, majority argmax).
+  * _parse_atomic_facts numbering tolerance + dedup.
+  * _composite weight-sum invariant and monotonicity.
+  * _decide decision-tree corners (STORE / DEFERRED / ABSTAIN / DISCARD).
+  * _semantic_entropy_surface known-probabilities entropy.
+  * _score_s_avg / _score_p_ground / _score_p_contra fallback paths.
+  * verify() end-to-end with a fully mocked dependency graph, including
+    the early-exit confabulation gate.
+
+Heavy-model behaviour (actual forward passes, sampling, atomic decomposition
+output quality) is out-of-scope -- those are GPU-only smoke / integration
+tests and live in tests/test_pipeline_integration.py (Phase 7).
 """
 
 from __future__ import annotations
 
-import math
 from types import SimpleNamespace
+from typing import Any, Sequence, Tuple
 from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
 import torch
-import torch.nn.functional as F
 
 from caem.config import CAEMConfig
-from caem.memory.entry import StoredConfidence
-from caem.verification.verifier import MultiLayerVerifier
+from caem.verification.verifier import (
+    UnifiedVerifier,
+    UnifiedVerifierOutput,
+    _NLIEnsemble,
+    _parse_atomic_facts,
+)
 
 
-# -----------------------------------------------------------------------------
-# Shared constants
-# -----------------------------------------------------------------------------
+# =============================================================================
+# Fake bundles / helpers
+# =============================================================================
 
-VOCAB   = 100
-DIM     = 768
-SEQ_LEN = 8
-BATCH   = 1
-EOS_ID  = 1
-PAD_ID  = 0
-CHOSEN  = 2
+class _FakeNLIModel(torch.nn.Module):
+    """Emits a fixed softmax distribution on every forward pass."""
 
+    def __init__(self, probs: Sequence[float]) -> None:
+        super().__init__()
+        assert len(probs) == 3, "probs must be (CONTRA, NEUTRAL, ENTAIL)"
+        # Scale logits so softmax recovers `probs`.
+        logits = torch.log(torch.tensor(list(probs), dtype=torch.float32)) * 3.0
+        self.logits_param = torch.nn.Parameter(logits.unsqueeze(0), requires_grad=False)
 
-# -----------------------------------------------------------------------------
-# Mock builders (reuse the patterns established in test_post_generation.py)
-# -----------------------------------------------------------------------------
-
-def make_plain_seq(n_tokens: int = 3) -> torch.Tensor:
-    """Plain (1, n+2) tensor for generate() without return_dict_in_generate."""
-    return torch.tensor([[PAD_ID] + [CHOSEN] * n_tokens + [EOS_ID]])
+    def forward(self, **kwargs) -> SimpleNamespace:
+        return SimpleNamespace(logits=self.logits_param.clone())
 
 
-def make_mock_model(chosen_logit: float = 8.0) -> MagicMock:
-    model = MagicMock()
-    model.parameters.return_value = iter([torch.zeros(1)])
-    # Stage 5 generate() calls never use return_dict_in_generate -> plain tensor
-    model.generate.return_value = make_plain_seq()
-    model.training = False
-    return model
+class _FakeTokenizer:
+    """Stand-in for a HuggingFace tokenizer (__call__ / decode)."""
 
+    pad_token_id = 0
 
-class _DictWithTo(dict):
-    """dict subclass with .to(device) for HuggingFace-style tokenizer output."""
-    def to(self, device):
-        return self
-
-
-def make_mock_tokenizer(seq_len: int = 4) -> MagicMock:
-    tok = MagicMock()
-    tok.pad_token_id = PAD_ID
-    tok.eos_token_id = EOS_ID
-    input_ids = torch.tensor([[CHOSEN] * seq_len])
-    attention_mask = torch.ones(BATCH, seq_len, dtype=torch.long)
-    tok_output = MagicMock()
-    tok_output.input_ids = input_ids
-    tok_output.attention_mask = attention_mask
-    tok_output.items.return_value = [
-        ("input_ids", input_ids),
-        ("attention_mask", attention_mask),
-    ]
-    tok_output.to.return_value = tok_output
-    tok.return_value = tok_output
-    tok.decode.return_value = "Paris is the capital of France."
-    return tok
-
-
-def make_mock_sbert(similarity: float = 0.85) -> MagicMock:
-    encoder = MagicMock()
-
-    def encode_fn(texts, **kwargs):
-        n = len(texts) if isinstance(texts, list) else 1
-        base    = np.zeros(DIM, dtype=np.float32); base[0] = 1.0
-        perturb = np.zeros(DIM, dtype=np.float32); perturb[1] = 1.0
-        vecs = []
-        for _ in range(n):
-            v = (math.sqrt(similarity) * base
-                 + math.sqrt(max(0.0, 1.0 - similarity)) * perturb)
-            v = v / np.linalg.norm(v)
-            vecs.append(v.astype(np.float32))
-        return np.stack(vecs) if n > 1 else vecs[0]
-
-    encoder.encode.side_effect = encode_fn
-    return encoder
-
-
-def make_mock_nli(label: int = 2) -> tuple:
-    """NLI model always returning the same label (2=ENTAILMENT default)."""
-    nli_model = MagicMock()
-    logits = torch.zeros(1, 3)
-    logits[0, label] = 10.0
-    nli_model.return_value = SimpleNamespace(logits=logits)
-    nli_tok = MagicMock()
-    nli_tok.return_value = _DictWithTo({
-        "input_ids": torch.zeros(1, 8, dtype=torch.long),
-        "attention_mask": torch.ones(1, 8, dtype=torch.long),
-    })
-    return nli_model, nli_tok
-
-
-def make_verifier(
-    sbert_sim: float = 0.85,
-    nli_label: int = 2,
-    include_nli: bool = True,
-    config: CAEMConfig | None = None,
-) -> MultiLayerVerifier:
-    model     = make_mock_model()
-    tokenizer = make_mock_tokenizer()
-    encoder   = make_mock_sbert(sbert_sim)
-    cfg       = config or CAEMConfig()
-    nli_model, nli_tok = make_mock_nli(nli_label) if include_nli else (None, None)
-    return MultiLayerVerifier(model, tokenizer, encoder, nli_model, nli_tok,
-                              cfg, device="cpu")
-
-
-# -----------------------------------------------------------------------------
-# StoredConfidence dataclass
-# -----------------------------------------------------------------------------
-
-class TestStoredConfidenceDataclass:
-    def test_fields_accessible(self):
-        sc = StoredConfidence(p_entail=0.8, s_avg=0.7, h_norm=0.2, u_stored=0.74)
-        assert sc.p_entail == pytest.approx(0.8)
-        assert sc.s_avg    == pytest.approx(0.7)
-        assert sc.h_norm   == pytest.approx(0.2)
-        assert sc.u_stored == pytest.approx(0.74)
-
-    def test_u_stored_in_unit_interval(self):
-        for val in [0.0, 0.5, 1.0]:
-            sc = StoredConfidence(p_entail=val, s_avg=val, h_norm=val, u_stored=val)
-            assert 0.0 <= sc.u_stored <= 1.0
-
-
-# -----------------------------------------------------------------------------
-# p_entail signal
-# -----------------------------------------------------------------------------
-
-class TestPEntail:
-    def test_all_entailment_gives_high_p_entail(self):
-        """NLI model always returns ENTAILMENT -> p_entail near 1.0."""
-        v = make_verifier(nli_label=2)
-        input_ids = torch.zeros(1, SEQ_LEN, dtype=torch.long)
-        p = v._compute_p_entail("q", "answer", input_ids)
-        assert p > 0.95, f"Expected near-1.0, got {p:.4f}"
-
-    def test_all_contradiction_gives_low_p_entail(self):
-        """NLI model always returns CONTRADICTION -> p_entail near 0.0."""
-        v = make_verifier(nli_label=0)
-        input_ids = torch.zeros(1, SEQ_LEN, dtype=torch.long)
-        p = v._compute_p_entail("q", "answer", input_ids)
-        assert p < 0.10, f"Expected near-0.0, got {p:.4f}"
-
-    def test_no_nli_model_returns_neutral(self):
-        """When nli_model=None, fallback is 0.5."""
-        v = make_verifier(include_nli=False)
-        input_ids = torch.zeros(1, SEQ_LEN, dtype=torch.long)
-        p = v._compute_p_entail("q", "answer", input_ids)
-        assert p == pytest.approx(0.5)
-
-    def test_p_entail_in_unit_interval(self):
-        for label in [0, 1, 2]:
-            v = make_verifier(nli_label=label)
-            p = v._compute_p_entail("q", "ans",
-                                    torch.zeros(1, SEQ_LEN, dtype=torch.long))
-            assert 0.0 <= p <= 1.0
-
-    def test_m_chains_generated_for_p_entail(self):
-        """generate() called exactly M=3 times for p_entail."""
-        cfg = CAEMConfig()
-        cfg.sc_chains_m = 3
-        v = make_verifier(config=cfg)
-        count = [0]
-
-        def count_gen(*args, **kwargs):
-            count[0] += 1
-            return make_plain_seq()
-
-        v.model.generate.side_effect = count_gen
-        v._compute_p_entail("q", "ans", torch.zeros(1, SEQ_LEN, dtype=torch.long))
-        assert count[0] == 3
-
-    def test_error_returns_neutral(self):
-        v = make_verifier()
-        v.model.generate.side_effect = RuntimeError("OOM")
-        p = v._compute_p_entail("q", "ans", torch.zeros(1, SEQ_LEN, dtype=torch.long))
-        assert p == pytest.approx(0.5)
-
-    def test_nli_entail_prob_uses_softmax(self):
-        """_nli_entail_prob returns a probability in [0,1], not an integer label."""
-        v = make_verifier(nli_label=2)
-        p = v._nli_entail_prob("premise", "hypothesis")
-        assert 0.0 <= p <= 1.0
-        # With logit=10 at ENTAILMENT and 0 elsewhere: softmax ≈ 1.0
-        assert p > 0.95
-
-    def test_nli_entail_prob_contradiction_near_zero(self):
-        v = make_verifier(nli_label=0)
-        p = v._nli_entail_prob("premise", "hypothesis")
-        # ENTAILMENT logit=0 vs CONTRADICTION logit=10: softmax(entail) ≈ 0
-        assert p < 0.05
-
-
-# -----------------------------------------------------------------------------
-# s_avg signal
-# -----------------------------------------------------------------------------
-
-class TestSAvg:
-    def test_identical_chains_high_s_avg(self):
-        """All chains identical -> pairwise sim = 1.0 -> s_avg ≈ 1.0."""
-        v = make_verifier(sbert_sim=1.0)
-        s = v._compute_s_avg("q", "ans", torch.zeros(1, SEQ_LEN, dtype=torch.long))
-        assert s > 0.95, f"Expected near-1.0, got {s:.4f}"
-
-    def test_s_avg_in_unit_interval(self):
-        for sim in [0.2, 0.6, 0.9]:
-            v = make_verifier(sbert_sim=sim)
-            s = v._compute_s_avg("q", "ans", torch.zeros(1, SEQ_LEN, dtype=torch.long))
-            assert 0.0 <= s <= 1.0
-
-    def test_m_chains_generated_for_s_avg(self):
-        cfg = CAEMConfig()
-        cfg.sc_chains_m = 3
-        v = make_verifier(config=cfg)
-        count = [0]
-
-        def count_gen(*args, **kwargs):
-            count[0] += 1
-            return make_plain_seq()
-
-        v.model.generate.side_effect = count_gen
-        v._compute_s_avg("q", "ans", torch.zeros(1, SEQ_LEN, dtype=torch.long))
-        assert count[0] == 3
-
-    def test_error_returns_neutral(self):
-        v = make_verifier()
-        v.model.generate.side_effect = RuntimeError("fail")
-        s = v._compute_s_avg("q", "ans", torch.zeros(1, SEQ_LEN, dtype=torch.long))
-        assert s == pytest.approx(0.5)
-
-
-# -----------------------------------------------------------------------------
-# h_norm signal
-# -----------------------------------------------------------------------------
-
-class TestHNorm:
-    def test_all_entailment_low_h_norm(self):
-        """All samples cluster into one -> H=0 -> h_norm=0."""
-        v = make_verifier(nli_label=2)
-        h = v._compute_h_norm("q", torch.zeros(1, SEQ_LEN, dtype=torch.long))
-        assert h < 0.05, f"Expected near-0, got {h:.4f}"
-
-    def test_h_norm_in_unit_interval(self):
-        for label in [0, 1, 2]:
-            v = make_verifier(nli_label=label)
-            h = v._compute_h_norm("q", torch.zeros(1, SEQ_LEN, dtype=torch.long))
-            assert 0.0 <= h <= 1.0
-
-    def test_surface_fallback_identical_samples_zero_h_norm(self):
-        """Identical samples -> 1 surface cluster -> H=0 -> h_norm=0."""
-        v = make_verifier(include_nli=False)
-        v.tokenizer.decode.return_value = "identical answer"
-        h = v._compute_h_norm("q", torch.zeros(1, SEQ_LEN, dtype=torch.long))
-        assert h == pytest.approx(0.0, abs=1e-4)
-
-    def test_k_samples_generated(self):
-        cfg = CAEMConfig()
-        cfg.se_samples_k = 10
-        v = make_verifier(config=cfg)
-        count = [0]
-
-        def count_gen(*args, **kwargs):
-            count[0] += 1
-            return make_plain_seq()
-
-        v.model.generate.side_effect = count_gen
-        v._compute_h_norm("q", torch.zeros(1, SEQ_LEN, dtype=torch.long))
-        assert count[0] == 10
-
-    def test_error_returns_neutral(self):
-        v = make_verifier()
-        v.model.generate.side_effect = RuntimeError("OOM")
-        h = v._compute_h_norm("q", torch.zeros(1, SEQ_LEN, dtype=torch.long))
-        assert h == pytest.approx(0.5)
-
-
-# -----------------------------------------------------------------------------
-# Combined verify()
-# -----------------------------------------------------------------------------
-
-class TestVerify:
-    def test_returns_stored_confidence(self):
-        v = make_verifier()
-        sc = v.verify("Who wrote Hamlet?", "William Shakespeare")
-        assert isinstance(sc, StoredConfidence)
-
-    def test_u_stored_in_unit_interval(self):
-        v = make_verifier()
-        sc = v.verify("q", "answer")
-        assert 0.0 <= sc.u_stored <= 1.0
-
-    def test_all_signals_in_unit_interval(self):
-        v = make_verifier()
-        sc = v.verify("q", "answer")
-        for name, val in [("p_entail", sc.p_entail),
-                          ("s_avg", sc.s_avg), ("h_norm", sc.h_norm)]:
-            assert 0.0 <= val <= 1.0, f"{name}={val} out of [0,1]"
-
-    def test_u_stored_formula(self):
-        """û_stored = 0.50·p_entail + 0.30·s_avg + 0.20·(1 − h_norm)."""
-        cfg = CAEMConfig()
-        assert (cfg.u_stored_weight_nli + cfg.u_stored_weight_sc
-                + cfg.u_stored_weight_se) == pytest.approx(1.0, abs=1e-6)
-
-        v = make_verifier(config=cfg)
-        sc = v.verify("q", "answer")
-        expected = (
-            cfg.u_stored_weight_nli * sc.p_entail
-            + cfg.u_stored_weight_sc  * sc.s_avg
-            + cfg.u_stored_weight_se  * (1.0 - sc.h_norm)
+    def __call__(self, *args, **kwargs) -> Any:
+        ids = torch.tensor([[1, 2, 3]], dtype=torch.long)
+        return SimpleNamespace(
+            input_ids=ids,
+            to=lambda *a, **k: SimpleNamespace(input_ids=ids),
         )
-        assert math.isclose(sc.u_stored, expected, abs_tol=1e-5)
 
-    def test_high_confidence_all_signals(self):
-        """High NLI entailment, high SBERT sim, all samples same cluster -> high û_stored."""
-        v = make_verifier(nli_label=2, sbert_sim=0.99)
-        sc = v.verify("q", "answer")
-        assert sc.u_stored > 0.70, f"Expected high û_stored, got {sc.u_stored:.4f}"
+    def decode(self, *args, **kwargs) -> str:
+        return "decoded answer"
 
-    def test_pre_tokenized_input_ids_accepted(self):
-        v = make_verifier()
-        ids = torch.zeros(1, SEQ_LEN, dtype=torch.long)
-        sc = v.verify("q", "answer", input_ids=ids)
-        assert isinstance(sc, StoredConfidence)
 
-    def test_u_stored_weight_nli_is_dominant(self):
-        """Default weights: NLI=0.50 > SC=0.30 > SE=0.20."""
+def _make_nli_bundle(p_contra: float, p_neutral: float, p_entail: float) -> Tuple[Any, Any]:
+    return _FakeNLIModel([p_contra, p_neutral, p_entail]), _FakeTokenizer()
+
+
+# =============================================================================
+# UnifiedVerifierOutput dataclass
+# =============================================================================
+
+class TestUnifiedVerifierOutput:
+    def test_required_fields_present(self):
+        out = UnifiedVerifierOutput(
+            u_token=0.80, u_dropout=0.10, u_internal=0.85,
+            s_avg=0.70, h_norm=0.20, p_entail=0.80,
+            p_ground_max=0.60, p_ground_mean=0.55, p_ground_atomic=0.50,
+            p_contra=0.05,
+            u_stored=0.65, decision="STORE",
+            early_exit_triggered=False, abstained=False,
+        )
+        assert out.decision == "STORE"
+        assert out.top_passages == [] and out.atomic_facts == []
+        assert out.per_atom_entail == []
+        assert not out.early_exit_triggered and not out.abstained
+
+    def test_metadata_fields_override_defaults(self):
+        out = UnifiedVerifierOutput(
+            u_token=0.5, u_dropout=0.5, u_internal=0.5,
+            s_avg=0.5, h_norm=0.5, p_entail=0.5,
+            p_ground_max=0.5, p_ground_mean=0.5, p_ground_atomic=0.5,
+            p_contra=0.0, u_stored=0.5, decision="DEFERRED",
+            early_exit_triggered=False, abstained=False,
+            top_passages=["p1", "p2"], atomic_facts=["f1"], per_atom_entail=[0.7],
+        )
+        assert out.top_passages == ["p1", "p2"]
+        assert out.atomic_facts == ["f1"]
+        assert out.per_atom_entail == [0.7]
+
+
+# =============================================================================
+# _NLIEnsemble aggregation
+# =============================================================================
+
+class TestNLIEnsemble:
+    def test_empty_bundles_returns_fallbacks(self):
+        e = _NLIEnsemble([], device="cpu")
+        assert not bool(e)
+        assert e.entail_prob("a", "b") == 0.5
+        assert e.contradict_prob("a", "b") == 0.0
+        assert e.argmax_label("a", "b") == 1   # NEUTRAL
+
+    def test_entail_prob_is_ensemble_min(self):
+        b1 = _make_nli_bundle(0.05, 0.05, 0.90)
+        b2 = _make_nli_bundle(0.05, 0.35, 0.60)
+        e = _NLIEnsemble([b1, b2], device="cpu")
+        assert e.entail_prob("p", "h") == pytest.approx(0.60, abs=0.02)
+
+    def test_contradict_prob_is_ensemble_max(self):
+        b1 = _make_nli_bundle(0.10, 0.30, 0.60)
+        b2 = _make_nli_bundle(0.80, 0.10, 0.10)
+        e = _NLIEnsemble([b1, b2], device="cpu")
+        assert e.contradict_prob("p", "h") == pytest.approx(0.80, abs=0.02)
+
+    def test_argmax_majority_vote(self):
+        b_ent_1 = _make_nli_bundle(0.05, 0.20, 0.75)
+        b_ent_2 = _make_nli_bundle(0.05, 0.15, 0.80)
+        b_neu   = _make_nli_bundle(0.20, 0.60, 0.20)
+        e = _NLIEnsemble([b_ent_1, b_ent_2, b_neu], device="cpu")
+        assert e.argmax_label("p", "h") == 2
+
+    def test_argmax_tie_defaults_to_neutral(self):
+        b_ent = _make_nli_bundle(0.10, 0.10, 0.80)
+        b_con = _make_nli_bundle(0.80, 0.10, 0.10)
+        e = _NLIEnsemble([b_ent, b_con], device="cpu")
+        assert e.argmax_label("p", "h") == 1
+
+
+# =============================================================================
+# _parse_atomic_facts
+# =============================================================================
+
+class TestParseAtomicFacts:
+    def test_standard_numbering_period(self):
+        out = _parse_atomic_facts("1. Fact A.\n2. Fact B.\n3. Fact C.")
+        assert out == ["Fact A.", "Fact B.", "Fact C."]
+
+    def test_paren_and_colon_and_dash_numbering(self):
+        out = _parse_atomic_facts("1) Alpha.\n2: Beta.\n3- Gamma.")
+        assert out == ["Alpha.", "Beta.", "Gamma."]
+
+    def test_unnumbered_lines_are_kept(self):
+        out = _parse_atomic_facts("Paris is a capital.\nFrance is a country.")
+        assert out == ["Paris is a capital.", "France is a country."]
+
+    def test_deduplicates_case_insensitively(self):
+        out = _parse_atomic_facts("1. Paris is a capital.\n2. paris is a CAPITAL.")
+        assert out == ["Paris is a capital."]
+
+    def test_trailing_colon_headers_dropped(self):
+        out = _parse_atomic_facts("Numbered list of facts:\n1. Fact A.")
+        assert out == ["Fact A."]
+
+    def test_empty_input_returns_empty(self):
+        assert _parse_atomic_facts("") == []
+        assert _parse_atomic_facts("\n\n\n") == []
+
+
+# =============================================================================
+# _composite (weight-sum / monotonicity) and _decide (decision tree)
+# =============================================================================
+
+def _blank_verifier(cfg: CAEMConfig | None = None) -> UnifiedVerifier:
+    """Construct a verifier skipping the __init__ forward-device probe."""
+    cfg = cfg or CAEMConfig()
+    v = UnifiedVerifier.__new__(UnifiedVerifier)
+    v.model = MagicMock()
+    v.tokenizer = _FakeTokenizer()
+    v.sbert_encoder = MagicMock()
+    v.config = cfg
+    v.reranker = None
+    v.passage_retriever = None
+    v.enable_atomic = True
+    v.device = "cpu"
+    v.nli = _NLIEnsemble([], device="cpu")
+    v.nli_model = None
+    v.nli_tokenizer = None
+    return v
+
+
+class TestComposite:
+    def test_weights_sum_to_one_by_default(self):
         cfg = CAEMConfig()
-        assert cfg.u_stored_weight_nli > cfg.u_stored_weight_sc
-        assert cfg.u_stored_weight_sc  > cfg.u_stored_weight_se
+        w_sum = (
+            cfg.u_stored_weight_pground_mean
+            + cfg.u_stored_weight_pground_atomic
+            + cfg.u_stored_weight_sc
+            + cfg.u_stored_weight_se
+            + cfg.u_stored_weight_uinternal
+            + cfg.u_stored_weight_nli
+        )
+        assert w_sum == pytest.approx(1.0, abs=1e-6)
 
-    def test_weight_sum_is_one(self):
-        cfg = CAEMConfig()
-        total = (cfg.u_stored_weight_nli + cfg.u_stored_weight_sc
-                 + cfg.u_stored_weight_se)
-        assert math.isclose(total, 1.0, abs_tol=1e-6)
+    def test_uniform_inputs_pass_through(self):
+        v = _blank_verifier()
+        u = v._composite(p_ground_mean=1.0, p_ground_atomic=1.0,
+                         s_avg=1.0, h_norm=0.0,
+                         u_internal=1.0, p_entail=1.0)
+        assert u == pytest.approx(1.0)
+
+    def test_zero_inputs_land_at_zero(self):
+        v = _blank_verifier()
+        u = v._composite(p_ground_mean=0.0, p_ground_atomic=0.0,
+                         s_avg=0.0, h_norm=1.0,
+                         u_internal=0.0, p_entail=0.0)
+        assert u == pytest.approx(0.0, abs=1e-6)
+
+    def test_monotonic_in_each_signal(self):
+        v = _blank_verifier()
+        base = dict(p_ground_mean=0.5, p_ground_atomic=0.5,
+                    s_avg=0.5, h_norm=0.5,
+                    u_internal=0.5, p_entail=0.5)
+        u_base = v._composite(**base)
+        for k in ("p_ground_mean", "p_ground_atomic", "s_avg",
+                  "u_internal", "p_entail"):
+            higher = dict(base); higher[k] = 0.9
+            assert v._composite(**higher) > u_base, (
+                f"increasing {k} must raise u_stored"
+            )
+        higher_h = dict(base); higher_h["h_norm"] = 0.9
+        assert v._composite(**higher_h) < u_base
 
 
-# -----------------------------------------------------------------------------
-# should_store() gate
-# -----------------------------------------------------------------------------
+class TestDecide:
+    @pytest.fixture
+    def cfg(self) -> CAEMConfig:
+        c = CAEMConfig()
+        c.store_threshold = 0.65
+        c.defer_threshold = 0.45
+        c.abstain_pground_ceiling = 0.20
+        c.contradiction_veto_threshold = 0.30
+        return c
 
-class TestShouldStore:
-    def test_above_threshold_stores(self):
-        v = make_verifier()
-        sc = StoredConfidence(p_entail=0.9, s_avg=0.9, h_norm=0.1, u_stored=0.80)
-        assert v.should_store(sc) is True
+    def test_contradiction_veto_overrides_everything(self, cfg):
+        v = _blank_verifier(cfg)
+        d, _ = v._decide(u_stored=0.95, p_contra=0.80, p_ground_max=0.90)
+        assert d == "DISCARD"
 
-    def test_below_threshold_discards(self):
-        v = make_verifier()
-        sc = StoredConfidence(p_entail=0.3, s_avg=0.2, h_norm=0.9, u_stored=0.20)
-        assert v.should_store(sc) is False
+    def test_store_band(self, cfg):
+        v = _blank_verifier(cfg)
+        d, abstained = v._decide(u_stored=0.80, p_contra=0.05, p_ground_max=0.50)
+        assert d == "STORE" and abstained is False
 
-    def test_at_exact_threshold_stores(self):
-        """u_stored == retroverify_prune_threshold -> should store (≥)."""
-        cfg = CAEMConfig()
-        v = make_verifier(config=cfg)
-        sc = StoredConfidence(p_entail=0.5, s_avg=0.5, h_norm=0.5,
-                              u_stored=cfg.retroverify_prune_threshold)
-        assert v.should_store(sc) is True
+    def test_deferred_band(self, cfg):
+        v = _blank_verifier(cfg)
+        d, abstained = v._decide(u_stored=0.50, p_contra=0.05, p_ground_max=0.50)
+        assert d == "DEFERRED" and abstained is False
 
-    def test_default_threshold_is_half(self):
-        """Default retroverify_prune_threshold = 0.50."""
-        assert CAEMConfig().retroverify_prune_threshold == pytest.approx(0.50)
+    def test_abstain_corner(self, cfg):
+        v = _blank_verifier(cfg)
+        d, abstained = v._decide(u_stored=0.10, p_contra=0.05, p_ground_max=0.10)
+        assert d == "ABSTAIN" and abstained is True
+
+    def test_discard_fallthrough(self, cfg):
+        v = _blank_verifier(cfg)
+        d, abstained = v._decide(u_stored=0.30, p_contra=0.05, p_ground_max=0.50)
+        assert d == "DISCARD" and abstained is False
+
+    def test_store_boundary_inclusive(self, cfg):
+        v = _blank_verifier(cfg)
+        d, _ = v._decide(u_stored=cfg.store_threshold,
+                         p_contra=0.05, p_ground_max=0.60)
+        assert d == "STORE"
+
+    def test_defer_boundary_inclusive(self, cfg):
+        v = _blank_verifier(cfg)
+        d, _ = v._decide(u_stored=cfg.defer_threshold,
+                         p_contra=0.05, p_ground_max=0.60)
+        assert d == "DEFERRED"
+
+
+# =============================================================================
+# _semantic_entropy_surface
+# =============================================================================
+
+class TestSemanticEntropySurface:
+    def test_identical_samples_zero_entropy(self):
+        v = _blank_verifier()
+        H = v._semantic_entropy_surface(["Paris.", "Paris.", "Paris."])
+        assert H == pytest.approx(0.0)
+
+    def test_all_distinct_samples_uniform_entropy(self):
+        v = _blank_verifier()
+        H = v._semantic_entropy_surface(["Paris.", "London.", "Berlin.", "Rome."])
+        assert H == pytest.approx(2.0, abs=1e-6)
+
+    def test_normalisation_strips_punctuation_and_case(self):
+        v = _blank_verifier()
+        H = v._semantic_entropy_surface(["Paris.", "paris", "PARIS!"])
+        assert H == pytest.approx(0.0)
+
+
+# =============================================================================
+# _score_s_avg / _score_p_ground / _score_p_contra fallback paths
+# =============================================================================
+
+class TestSignalFallbacks:
+    def test_s_avg_too_few_chains(self):
+        v = _blank_verifier()
+        assert v._score_s_avg([]) == 0.5
+        assert v._score_s_avg(["only one"]) == 0.5
+
+    def test_s_avg_two_identical_chains(self):
+        v = _blank_verifier()
+        fake_vec = np.array([[1.0, 0.0], [1.0, 0.0]], dtype=np.float32)
+        v.sbert_encoder = MagicMock()
+        v.sbert_encoder.encode.return_value = fake_vec
+        s = v._score_s_avg(["a", "b"])
+        assert s == pytest.approx(1.0, abs=1e-5)
+
+    def test_p_ground_neutral_with_no_passages(self):
+        v = _blank_verifier()
+        assert v._score_p_ground([], "answer") == (0.5, 0.5)
+
+    def test_p_contra_zero_with_no_passages(self):
+        v = _blank_verifier()
+        assert v._score_p_contra([], "answer") == 0.0
+
+    def test_p_ground_neutral_with_empty_nli(self):
+        v = _blank_verifier()
+        assert v._score_p_ground(["passage"], "answer") == (0.5, 0.5)
+
+    def test_atomic_disabled_returns_fallback(self):
+        v = _blank_verifier()
+        v.enable_atomic = False
+        facts, per_atom, p_atomic = v._score_atomic(
+            ["passage"], "answer", fallback=0.42,
+        )
+        assert facts == [] and per_atom == [] and p_atomic == 0.42
+
+
+# =============================================================================
+# verify() end-to-end with fully mocked dependencies
+# =============================================================================
+
+def _stub_verifier_signals(v, *, u_token, u_dropout,
+                           s_avg, h_norm, p_entail,
+                           p_ground_max, p_ground_mean,
+                           p_ground_atomic, p_contra,
+                           passages=None, facts=None, per_atom=None):
+    """Monkey-patch each signal routine to return a fixed value."""
+    v._compute_u_token   = MagicMock(return_value=u_token)
+    v._compute_u_dropout = MagicMock(return_value=u_dropout)
+    v._generate_m_chains = MagicMock(return_value=["chain a", "chain b", "chain c"])
+    v._score_s_avg       = MagicMock(return_value=s_avg)
+    v._score_p_entail    = MagicMock(return_value=p_entail)
+    v._compute_h_norm    = MagicMock(return_value=h_norm)
+    v._retrieve_and_rerank = MagicMock(return_value=passages or ["p1", "p2", "p3"])
+    v._score_p_ground    = MagicMock(return_value=(p_ground_max, p_ground_mean))
+    v._score_p_contra    = MagicMock(return_value=p_contra)
+    v._score_atomic      = MagicMock(return_value=(
+        facts or ["Fact A."], per_atom or [p_ground_atomic], p_ground_atomic,
+    ))
+    v._tokenize = MagicMock(return_value={"input_ids": torch.tensor([[1, 2, 3]])})
+
+
+class TestVerifyEndToEnd:
+    def test_happy_path_store(self):
+        v = _blank_verifier()
+        _stub_verifier_signals(
+            v,
+            u_token=0.80, u_dropout=0.10,
+            s_avg=0.85, h_norm=0.10, p_entail=0.80,
+            p_ground_max=0.85, p_ground_mean=0.80, p_ground_atomic=0.75,
+            p_contra=0.05,
+        )
+        out = v.verify("q", "a", input_ids=torch.tensor([[1, 2]]))
+        assert isinstance(out, UnifiedVerifierOutput)
+        assert out.decision == "STORE"
+        assert not out.early_exit_triggered
+        assert out.u_stored > v.config.store_threshold
+        assert out.u_token == pytest.approx(0.80)
+        assert out.p_ground_max == pytest.approx(0.85)
+        assert out.p_ground_atomic == pytest.approx(0.75)
+
+    def test_early_exit_confabulation_gate(self):
+        """u_internal >= 0.70 AND p_ground_max <= 0.20 must force DISCARD."""
+        v = _blank_verifier()
+        _stub_verifier_signals(
+            v,
+            u_token=0.90, u_dropout=0.05,
+            s_avg=0.70, h_norm=0.20, p_entail=0.80,
+            p_ground_max=0.10, p_ground_mean=0.05,
+            p_ground_atomic=0.05, p_contra=0.05,
+        )
+        out = v.verify("q", "a", input_ids=torch.tensor([[1, 2]]))
+        assert out.decision == "DISCARD"
+        assert out.early_exit_triggered is True
+        assert out.u_stored == pytest.approx(0.0)
+
+    def test_contradiction_veto_discards(self):
+        v = _blank_verifier()
+        _stub_verifier_signals(
+            v,
+            u_token=0.80, u_dropout=0.10,
+            s_avg=0.80, h_norm=0.15, p_entail=0.80,
+            p_ground_max=0.85, p_ground_mean=0.80, p_ground_atomic=0.75,
+            p_contra=0.90,
+        )
+        out = v.verify("q", "a", input_ids=torch.tensor([[1, 2]]))
+        assert out.decision == "DISCARD"
+        assert out.early_exit_triggered is False
+
+    def test_deferred_or_discard_mid_band(self):
+        v = _blank_verifier()
+        _stub_verifier_signals(
+            v,
+            u_token=0.60, u_dropout=0.30,
+            s_avg=0.55, h_norm=0.40, p_entail=0.55,
+            p_ground_max=0.50, p_ground_mean=0.45, p_ground_atomic=0.40,
+            p_contra=0.10,
+        )
+        out = v.verify("q", "a", input_ids=torch.tensor([[1, 2]]))
+        assert out.decision in {"DEFERRED", "DISCARD"}
+        assert out.early_exit_triggered is False
+
+    def test_abstain_corner(self):
+        v = _blank_verifier()
+        _stub_verifier_signals(
+            v,
+            u_token=0.20, u_dropout=0.80,
+            s_avg=0.20, h_norm=0.80, p_entail=0.10,
+            p_ground_max=0.10, p_ground_mean=0.10, p_ground_atomic=0.10,
+            p_contra=0.05,
+        )
+        out = v.verify("q", "a", input_ids=torch.tensor([[1, 2]]))
+        assert out.decision == "ABSTAIN"
+        assert out.abstained is True
+
+    def test_should_store_mirrors_decision(self):
+        v = _blank_verifier()
+        store_out = UnifiedVerifierOutput(
+            u_token=0.8, u_dropout=0.1, u_internal=0.85,
+            s_avg=0.8, h_norm=0.1, p_entail=0.8,
+            p_ground_max=0.8, p_ground_mean=0.8, p_ground_atomic=0.75,
+            p_contra=0.05, u_stored=0.8, decision="STORE",
+            early_exit_triggered=False, abstained=False,
+        )
+        discard_out = UnifiedVerifierOutput(
+            u_token=0.8, u_dropout=0.1, u_internal=0.85,
+            s_avg=0.8, h_norm=0.1, p_entail=0.8,
+            p_ground_max=0.8, p_ground_mean=0.8, p_ground_atomic=0.75,
+            p_contra=0.9, u_stored=0.0, decision="DISCARD",
+            early_exit_triggered=False, abstained=False,
+        )
+        assert v.should_store(store_out) is True
+        assert v.should_store(discard_out) is False
+
+    def test_precomputed_internal_signals_are_respected(self):
+        """Passing u_token / u_dropout to verify() must skip recomputation."""
+        v = _blank_verifier()
+        _stub_verifier_signals(
+            v,
+            u_token=0.99, u_dropout=0.01,
+            s_avg=0.80, h_norm=0.10, p_entail=0.80,
+            p_ground_max=0.85, p_ground_mean=0.80,
+            p_ground_atomic=0.75, p_contra=0.05,
+        )
+        out = v.verify(
+            "q", "a",
+            input_ids=torch.tensor([[1, 2]]),
+            u_token=0.30,
+            u_dropout=0.70,
+        )
+        assert out.u_token == pytest.approx(0.30)
+        assert out.u_dropout == pytest.approx(0.70)
+        v._compute_u_token.assert_not_called()  # type: ignore[attr-defined]
+        v._compute_u_dropout.assert_not_called()  # type: ignore[attr-defined]

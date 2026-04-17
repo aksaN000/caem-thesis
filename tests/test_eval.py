@@ -1,4 +1,4 @@
-﻿"""
+"""
 tests/test_eval.py
 ==================
 Unit tests for the eval/ package (metrics, benchmarks, harness).
@@ -13,37 +13,26 @@ Mock strategy
 
 Coverage
 --------
-metrics.py
-  - normalise: articles, punctuation, whitespace
-  - exact_match: match / no-match / empty
-  - any_match_em: matches any / matches none
-  - token_f1: perfect / partial / zero
-  - best_token_f1: picks the best F1
-  - fever_accuracy: matching / non-matching labels
-  - extract_fever_label: supports / refutes / not enough info / fallback
-  - hallucination_rate: all wrong+uncertain / mixed / empty
-  - routing_distribution: all tiers present / empty
-  - aggregate: shape and keys
-
-benchmarks.py
-  - make_synthetic_samples: hotpotqa / triviaqa / natural_questions /
-                            truthfulqa / fever / strategyqa / unknown
-  - load_benchmark: unknown name raises ValueError
-
-harness.py
-  - EvalHarness.run: returns EvalResult with correct keys
-  - EvalHarness._score: hotpotqa / fever / truthfulqa / strategyqa /
-                        triviaqa / natural_questions paths
-  - EvalHarness._run_one: error path (fail_on_error=False)
-  - EvalHarness.run saves JSON to output_dir
-  - EvalHarness.load_result reloads saved file
-  - EvalHarness.smoke_test completes without downloading data
-  - EvalHarness.run_all runs multiple benchmarks
-  - EvalHarness StrategyQA scoring path (yes/no EM)
-
-metrics.py (statistical)
-  - bootstrap_ci: returns (mean, lower, upper), lower ≤ mean ≤ upper
-  - mcnemar_test: identical systems -> p=1.0; different systems -> p<0.05
+Legacy helpers (Phase 4 harness):
+  - normalise, exact_match, any_match_em, token_f1, best_token_f1
+  - fever_accuracy, extract_fever_label, extract_strategyqa_label
+  - hallucination_rate, routing_distribution, aggregate
+  - bootstrap_ci, mcnemar_test
+Session 42 helpers (Ch. 5 seven-table suite):
+  - extract_cot_answer, rouge_l, extract_arc_label
+  - em_by_tier, mean_latency_by_tier
+  - confabulation_rate (ge / le directions)
+  - brier_score, auroc, reliability_bins
+  - decision_breakdown (legacy DEFER label)
+  - backward_transfer, forward_transfer
+  - ces_score (geometric mean with eps clamp)
+  - unsupported_correct_rate, ungrounded_assertion_rate
+Harness / benchmarks:
+  - make_synthetic_samples (all benchmarks)
+  - load_benchmark (unknown raises)
+  - EvalHarness.run / _score / _run_one / smoke_test / run_all
+  - JSON save + reload round-trip
+  - fail_on_error on/off paths
 """
 
 from __future__ import annotations
@@ -62,20 +51,34 @@ from eval.harness import EvalHarness
 from eval.metrics import (
     aggregate,
     any_match_em,
+    auroc,
+    backward_transfer,
     best_token_f1,
     bootstrap_ci,
+    brier_score,
+    ces_score,
+    confabulation_rate,
+    decision_breakdown,
+    em_by_tier,
     exact_match,
+    extract_arc_label,
+    extract_cot_answer,
     extract_fever_label,
     extract_strategyqa_label,
     fever_accuracy,
+    forward_transfer,
     hallucination_rate,
     mcnemar_test,
+    mean_latency_by_tier,
     normalise,
+    reliability_bins,
+    rouge_l,
     routing_distribution,
     token_f1,
+    ungrounded_assertion_rate,
+    unsupported_correct_rate,
 )
 from caem.pipeline import PipelineResult
-from caem.memory.entry import StoredConfidence
 
 
 # -----------------------------------------------------------------------------
@@ -90,14 +93,19 @@ def _make_pipeline_result(
     latency_ms: float = 120.0,
     escalated: bool = False,
 ) -> PipelineResult:
-    sc = StoredConfidence(p_entail=u_stored, s_avg=u_stored, h_norm=0.1, u_stored=u_stored)
+    """Build a PipelineResult for harness-path tests.
+
+    Session 42 removed the StoredConfidence projection; u_stored is now a
+    scalar directly on PipelineResult. verifier_output stays None here --
+    these harness tests only read result.u_stored.
+    """
     return PipelineResult(
         query="q",
         answer=answer,
         tier=tier,
         stored=stored,
         latency_ms=latency_ms,
-        stored_confidence=sc,
+        u_stored=u_stored,
         escalated=escalated,
     )
 
@@ -189,9 +197,6 @@ class TestTokenF1:
         assert token_f1("foo bar", "baz qux") == pytest.approx(0.0)
 
     def test_partial_overlap(self):
-        # pred: hello world foo; gold: hello world bar
-        # common: hello, world -> 2
-        # precision = 2/3; recall = 2/3; f1 = 2/3
         f1 = token_f1("hello world foo", "hello world bar")
         assert f1 == pytest.approx(2 / 3)
 
@@ -205,14 +210,12 @@ class TestTokenF1:
         assert token_f1("hello", "") == pytest.approx(0.0)
 
     def test_subset(self):
-        # pred is subset of gold: precision=1, recall=0.5 -> f1=2/3
         f1 = token_f1("hello", "hello world")
         assert f1 == pytest.approx(2 / 3)
 
 
 class TestBestTokenF1:
     def test_picks_best(self):
-        # gold1 = "foo"; gold2 = "hello world" (pred = "hello world")
         f1 = best_token_f1("hello world", ["foo", "hello world"])
         assert f1 == pytest.approx(1.0)
 
@@ -258,7 +261,6 @@ class TestExtractFeverLabel:
         assert extract_fever_label("I don't know anything.") == "not enough info"
 
     def test_nei_takes_priority_over_supports(self):
-        # "not enough info" should take priority
         assert extract_fever_label("There is not enough info to support this.") == "not enough info"
 
 
@@ -289,7 +291,6 @@ class TestHallucinationRate:
     def test_all_wrong_uncertain(self):
         em = [0.0, 0.0, 0.0]
         u = [0.3, 0.2, 0.1]
-        # Uncertain errors are Safe Failures, not confident confabulations.
         assert hallucination_rate(em, u) == pytest.approx(0.0)
 
     def test_all_correct(self):
@@ -299,14 +300,13 @@ class TestHallucinationRate:
 
     def test_mixed(self):
         em = [0.0, 1.0, 0.0, 1.0]
-        u = [0.3, 0.3, 0.8, 0.3]   # sample 0: safe failure; sample 2: confident confabulation
+        u = [0.3, 0.3, 0.8, 0.3]
         rate = hallucination_rate(em, u)
-        assert rate == pytest.approx(0.25)   # 1 out of 4 (sample 2)
+        assert rate == pytest.approx(0.25)
 
     def test_none_u_stored_treated_as_zero(self):
         em = [0.0]
         u = [None]
-        # u=None becomes u=0.0 (uncertain), so it's a safe failure
         assert hallucination_rate(em, u) == pytest.approx(0.0)
 
     def test_empty(self):
@@ -341,7 +341,7 @@ class TestRoutingDistribution:
 class TestAggregate:
     def test_keys_present(self):
         agg = aggregate(
-            benchmark="hotpotqa",
+            benchmark="natural_questions",
             em_scores=[1.0, 0.0],
             f1_scores=[1.0, 0.5],
             tiers=[1, 3],
@@ -355,17 +355,16 @@ class TestAggregate:
             assert key in agg, f"Missing key: {key}"
 
     def test_em_computed(self):
-        agg = aggregate("hotpotqa", [1.0, 0.0], [1.0, 0.0], [2, 2], [0.8, 0.3], [True, False], [100.0, 200.0])
+        agg = aggregate("natural_questions", [1.0, 0.0], [1.0, 0.0], [2, 2], [0.8, 0.3], [True, False], [100.0, 200.0])
         assert agg["em"] == pytest.approx(0.5)
 
     def test_empty_input(self):
-        agg = aggregate("hotpotqa", [], [], [], [], [], [])
+        agg = aggregate("natural_questions", [], [], [], [], [], [])
         assert agg["n"] == 0
 
     def test_storage_rate(self):
-        agg = aggregate("hotpotqa", [1.0, 1.0, 0.0], [1.0, 1.0, 0.0], [2, 2, 2],
+        agg = aggregate("natural_questions", [1.0, 1.0, 0.0], [1.0, 1.0, 0.0], [2, 2, 2],
                         [0.8, 0.8, 0.3], [True, True, False], [100.0, 100.0, 100.0])
-        # aggregate() rounds to 4 decimal places: round(2/3, 4) = 0.6667
         assert agg["storage_rate"] == pytest.approx(2 / 3, abs=1e-3)
 
 
@@ -374,14 +373,14 @@ class TestAggregate:
 # -----------------------------------------------------------------------------
 
 class TestMakeSyntheticSamples:
-    def test_hotpotqa_count(self):
-        s = make_synthetic_samples("hotpotqa", n=7)
+    def test_natural_questions_count(self):
+        s = make_synthetic_samples("natural_questions", n=7)
         assert len(s) == 7
 
-    def test_hotpotqa_schema(self):
-        s = make_synthetic_samples("hotpotqa", n=1)[0]
+    def test_natural_questions_schema(self):
+        s = make_synthetic_samples("natural_questions", n=1)[0]
         assert "question" in s and "answers" in s and "benchmark" in s
-        assert s["benchmark"] == "hotpotqa"
+        assert s["benchmark"] == "natural_questions"
 
     def test_truthfulqa_multiple_answers(self):
         s = make_synthetic_samples("truthfulqa", n=1)[0]
@@ -405,18 +404,15 @@ class TestMakeSyntheticSamples:
     def test_strategyqa_boolean_labels(self):
         samples = make_synthetic_samples("strategyqa", n=4)
         labels = {s["gold_label"] for s in samples}
-        # Alternating yes/no -- both must appear in 4 samples
         assert "yes" in labels
         assert "no" in labels
 
     def test_strategyqa_question_format(self):
         s = make_synthetic_samples("strategyqa", n=1)[0]
-        # Uses the constrained boolean prompt
         assert s["question"].startswith("Answer yes or no.")
 
     def test_fever_question_format(self):
         s = make_synthetic_samples("fever", n=1)[0]
-        # Uses the constrained label prompt -- no free-form prefix
         assert "supports, refutes, not enough info" in s["question"]
 
     def test_unknown_benchmark_raises(self):
@@ -436,16 +432,16 @@ class TestEvalHarness:
     def test_run_returns_eval_result(self):
         pipeline = _make_pipeline(answer="answer_0")
         harness = EvalHarness(pipeline)
-        samples = make_synthetic_samples("hotpotqa", n=3)
-        result = harness.run("hotpotqa", samples, cycle=0)
+        samples = make_synthetic_samples("natural_questions", n=3)
+        result = harness.run("natural_questions", samples, cycle=0)
         assert isinstance(result, dict)
         assert "em" in result
 
     def test_result_has_all_keys(self):
         pipeline = _make_pipeline()
         harness = EvalHarness(pipeline)
-        samples = make_synthetic_samples("hotpotqa", n=2)
-        r = harness.run("hotpotqa", samples, cycle=0)
+        samples = make_synthetic_samples("natural_questions", n=2)
+        r = harness.run("natural_questions", samples, cycle=0)
         for key in ["em", "f1", "n", "cycle", "tier1_frac", "tier2_frac", "tier3_frac",
                     "storage_rate", "hallucination_rate", "mean_latency_ms"]:
             assert key in r, f"Missing key: {key}"
@@ -453,34 +449,32 @@ class TestEvalHarness:
     def test_n_correct(self):
         pipeline = _make_pipeline()
         harness = EvalHarness(pipeline)
-        samples = make_synthetic_samples("hotpotqa", n=5)
-        r = harness.run("hotpotqa", samples, cycle=1)
+        samples = make_synthetic_samples("natural_questions", n=5)
+        r = harness.run("natural_questions", samples, cycle=1)
         assert r["n"] == 5
 
     def test_cycle_recorded(self):
         pipeline = _make_pipeline()
         harness = EvalHarness(pipeline)
-        samples = make_synthetic_samples("hotpotqa", n=2)
-        r = harness.run("hotpotqa", samples, cycle=2)
+        samples = make_synthetic_samples("natural_questions", n=2)
+        r = harness.run("natural_questions", samples, cycle=2)
         assert r["cycle"] == 2
 
     def test_perfect_em_when_answer_matches(self):
-        """Synthetic HotpotQA gold answer is 'answer_0'. Pipeline returns 'answer_0'."""
-        pipeline = _make_pipeline(answer="answer_0")
+        pipeline = _make_pipeline(answer="year_0")
         harness = EvalHarness(pipeline)
-        samples = make_synthetic_samples("hotpotqa", n=1)  # gold = "answer_0"
-        r = harness.run("hotpotqa", samples, cycle=0)
+        samples = make_synthetic_samples("natural_questions", n=1)
+        r = harness.run("natural_questions", samples, cycle=0)
         assert r["em"] == pytest.approx(1.0)
 
     def test_zero_em_when_answer_wrong(self):
         pipeline = _make_pipeline(answer="wrong answer")
         harness = EvalHarness(pipeline)
-        samples = make_synthetic_samples("hotpotqa", n=3)
-        r = harness.run("hotpotqa", samples, cycle=0)
+        samples = make_synthetic_samples("natural_questions", n=3)
+        r = harness.run("natural_questions", samples, cycle=0)
         assert r["em"] == pytest.approx(0.0)
 
     def test_fever_scoring_path(self):
-        """Fever samples: pipeline returns 'supports', gold may match."""
         pipeline = _make_pipeline(answer="supports")
         harness = EvalHarness(pipeline)
         samples = make_synthetic_samples("fever", n=3)
@@ -488,46 +482,34 @@ class TestEvalHarness:
         assert 0.0 <= r["em"] <= 1.0
 
     def test_truthfulqa_scoring_path(self):
-        pipeline = _make_pipeline(answer="yes_0")  # matches answers[0]
+        pipeline = _make_pipeline(answer="yes_0")
         harness = EvalHarness(pipeline)
         samples = make_synthetic_samples("truthfulqa", n=1)
         r = harness.run("truthfulqa", samples, cycle=0)
         assert r["em"] == pytest.approx(1.0)
 
     def test_strategyqa_scoring_path_correct(self):
-        """StrategyQA: pipeline returns 'yes', gold=yes -> EM=1.0."""
-        # Synthetic samples alternate yes/no; seed=0, first sample -> gold="yes"
         pipeline = _make_pipeline(answer="yes")
         harness = EvalHarness(pipeline)
-        samples = make_synthetic_samples("strategyqa", n=1)  # sample 0 -> gold="yes"
+        samples = make_synthetic_samples("strategyqa", n=1)
         r = harness.run("strategyqa", samples, cycle=0)
         assert r["em"] == pytest.approx(1.0)
 
     def test_strategyqa_scoring_path_wrong(self):
-        """StrategyQA: pipeline returns 'no', gold=yes -> EM=0.0."""
         pipeline = _make_pipeline(answer="no")
         harness = EvalHarness(pipeline)
-        samples = make_synthetic_samples("strategyqa", n=1)  # gold="yes"
+        samples = make_synthetic_samples("strategyqa", n=1)
         r = harness.run("strategyqa", samples, cycle=0)
         assert r["em"] == pytest.approx(0.0)
 
     def test_strategyqa_rationale_with_answer_marker_scores_correct(self):
-        """StrategyQA: rationale output with final label is parsed correctly."""
         pipeline = _make_pipeline(answer="Reasoning: X. Answer: yes")
         harness = EvalHarness(pipeline)
-        samples = make_synthetic_samples("strategyqa", n=1)  # gold="yes"
+        samples = make_synthetic_samples("strategyqa", n=1)
         r = harness.run("strategyqa", samples, cycle=0)
         assert r["em"] == pytest.approx(1.0)
 
     def test_triviaqa_scoring_path_matches_any_alias(self):
-        """TriviaQA: prediction matches second alias -> EM=1.0.
-
-        This specifically tests the any_match_em path. If the harness fell
-        through to the generic else-branch and only checked gold_answers[0],
-        this test would produce EM=0.0 instead of 1.0.
-        """
-        # Synthetic TriviaQA sample has answers=["answer_0", "alias_0", "alias_1"].
-        # Return "alias_0" (not the first answer) to force the any-match path.
         pipeline = _make_pipeline(answer="alias_0")
         harness = EvalHarness(pipeline)
         samples = make_synthetic_samples("triviaqa", n=1)
@@ -535,7 +517,6 @@ class TestEvalHarness:
         assert r["em"] == pytest.approx(1.0)
 
     def test_triviaqa_scoring_path_wrong_answer(self):
-        """TriviaQA: prediction matches no alias -> EM=0.0."""
         pipeline = _make_pipeline(answer="completely wrong")
         harness = EvalHarness(pipeline)
         samples = make_synthetic_samples("triviaqa", n=1)
@@ -543,8 +524,6 @@ class TestEvalHarness:
         assert r["em"] == pytest.approx(0.0)
 
     def test_natural_questions_scoring_path_correct(self):
-        """NQ: prediction matches gold answer -> EM=1.0."""
-        # Synthetic NQ sample has answers=["year_0"].
         pipeline = _make_pipeline(answer="year_0")
         harness = EvalHarness(pipeline)
         samples = make_synthetic_samples("natural_questions", n=1)
@@ -552,7 +531,6 @@ class TestEvalHarness:
         assert r["em"] == pytest.approx(1.0)
 
     def test_natural_questions_scoring_path_wrong(self):
-        """NQ: prediction does not match -> EM=0.0."""
         pipeline = _make_pipeline(answer="wrong answer")
         harness = EvalHarness(pipeline)
         samples = make_synthetic_samples("natural_questions", n=1)
@@ -563,43 +541,42 @@ class TestEvalHarness:
         with tempfile.TemporaryDirectory() as tmpdir:
             pipeline = _make_pipeline()
             harness = EvalHarness(pipeline, output_dir=tmpdir)
-            samples = make_synthetic_samples("hotpotqa", n=2)
-            harness.run("hotpotqa", samples, cycle=0)
-            fpath = Path(tmpdir) / "hotpotqa_cycle0.json"
+            samples = make_synthetic_samples("natural_questions", n=2)
+            harness.run("natural_questions", samples, cycle=0)
+            fpath = Path(tmpdir) / "natural_questions_cycle0.json"
             assert fpath.exists()
 
     def test_saved_json_loadable(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             pipeline = _make_pipeline()
             harness = EvalHarness(pipeline, output_dir=tmpdir)
-            samples = make_synthetic_samples("hotpotqa", n=2)
-            harness.run("hotpotqa", samples, cycle=1)
-            fpath = Path(tmpdir) / "hotpotqa_cycle1.json"
+            samples = make_synthetic_samples("natural_questions", n=2)
+            harness.run("natural_questions", samples, cycle=1)
+            fpath = Path(tmpdir) / "natural_questions_cycle1.json"
             data = EvalHarness.load_result(fpath)
             assert "meta" in data and "samples" in data
             assert data["meta"]["n"] == 2
 
     def test_error_in_pipeline_does_not_crash(self):
-        """fail_on_error=False: bad pipeline -> em=0, harness continues."""
         pipeline = MagicMock()
         pipeline.answer.side_effect = RuntimeError("model exploded")
         harness = EvalHarness(pipeline, fail_on_error=False)
-        samples = make_synthetic_samples("hotpotqa", n=3)
-        r = harness.run("hotpotqa", samples, cycle=0)
+        samples = make_synthetic_samples("natural_questions", n=3)
+        r = harness.run("natural_questions", samples, cycle=0)
         assert r["em"] == pytest.approx(0.0)
 
     def test_error_reraises_when_fail_on_error(self):
         pipeline = MagicMock()
         pipeline.answer.side_effect = RuntimeError("boom")
         harness = EvalHarness(pipeline, fail_on_error=True)
-        samples = make_synthetic_samples("hotpotqa", n=1)
+        samples = make_synthetic_samples("natural_questions", n=1)
         with pytest.raises(RuntimeError):
-            harness.run("hotpotqa", samples, cycle=0)
+            harness.run("natural_questions", samples, cycle=0)
 
-    def test_smoke_test_hotpotqa(self):
+    def test_smoke_test_natural_questions(self):
         pipeline = _make_pipeline()
         harness = EvalHarness(pipeline)
-        r = harness.smoke_test("hotpotqa", n=3)
+        r = harness.smoke_test("natural_questions", n=3)
         assert "em" in r
 
     def test_smoke_test_fever(self):
@@ -612,25 +589,23 @@ class TestEvalHarness:
         pipeline = _make_pipeline()
         harness = EvalHarness(pipeline)
         samples = {
-            "hotpotqa": make_synthetic_samples("hotpotqa", n=2),
+            "natural_questions": make_synthetic_samples("natural_questions", n=2),
             "fever": make_synthetic_samples("fever", n=2),
         }
         results = harness.run_all(samples, cycle=0)
-        assert "hotpotqa" in results
+        assert "natural_questions" in results
         assert "fever" in results
-        assert results["hotpotqa"]["benchmark"] == "hotpotqa"
+        assert results["natural_questions"]["benchmark"] == "natural_questions"
 
-    def test_none_stored_confidence_handled(self):
-        """Pipeline returns PipelineResult with stored_confidence=None."""
+    def test_none_u_stored_handled(self):
         pipeline = MagicMock()
         pipeline.answer.return_value = PipelineResult(
             query="q", answer="answer_0", tier=3,
-            stored_confidence=None, latency_ms=50.0,
+            u_stored=None, latency_ms=50.0,
         )
         harness = EvalHarness(pipeline)
-        samples = make_synthetic_samples("hotpotqa", n=1)
-        r = harness.run("hotpotqa", samples, cycle=0)
-        # mean_u_stored should be None (no valid u_stored values)
+        samples = make_synthetic_samples("natural_questions", n=1)
+        r = harness.run("natural_questions", samples, cycle=0)
         assert r["mean_u_stored"] is None or isinstance(r["mean_u_stored"], float)
 
 
@@ -651,7 +626,6 @@ class TestBootstrapCI:
         assert lo <= mean <= hi
 
     def test_perfect_scores_narrow_ci(self):
-        """All 1.0 -> mean=1.0, lower=1.0, upper=1.0."""
         mean, lo, hi = bootstrap_ci([1.0] * 20, n_bootstrap=200)
         assert mean == pytest.approx(1.0)
         assert lo == pytest.approx(1.0)
@@ -673,11 +647,9 @@ class TestBootstrapCI:
         assert r1 == r2
 
     def test_different_seeds_may_differ(self):
-        """Different seeds should usually produce slightly different CIs for mixed data."""
         scores = [float(i % 2) for i in range(40)]
         r1 = bootstrap_ci(scores, seed=1)
         r2 = bootstrap_ci(scores, seed=2)
-        # Not guaranteed to differ, but mean should always be the same
         assert r1[0] == pytest.approx(r2[0])
 
 
@@ -687,7 +659,6 @@ class TestBootstrapCI:
 
 class TestMcNemarTest:
     def test_identical_systems_p_is_one(self):
-        """No disagreements -> statistic=0, p=1.0."""
         a = [1.0, 0.0, 1.0, 1.0]
         b = [1.0, 0.0, 1.0, 1.0]
         stat, p = mcnemar_test(a, b)
@@ -695,7 +666,6 @@ class TestMcNemarTest:
         assert p == pytest.approx(1.0)
 
     def test_completely_different_systems(self):
-        """A always wrong, B always right -> large statistic, p≪1."""
         a = [0.0] * 20
         b = [1.0] * 20
         stat, p = mcnemar_test(a, b)
@@ -714,10 +684,382 @@ class TestMcNemarTest:
             mcnemar_test([1.0, 0.0], [1.0])
 
     def test_scipy_required(self):
-        """mcnemar_test raises ImportError if scipy is absent (mocked)."""
         import sys
         import unittest.mock as mock
-        # Temporarily hide scipy
         with mock.patch.dict(sys.modules, {"scipy.stats": None, "scipy": None}):
             with pytest.raises((ImportError, Exception)):
                 mcnemar_test([1.0, 0.0], [0.0, 1.0])
+
+
+# =============================================================================
+# Session 42 metric helpers (Ch. 5 seven-table / figure suite)
+# =============================================================================
+#
+# The fourteen helpers below back Tables 5.1-5.7 and Figures 5.1-5.7.
+# They are pure-Python, numerically deterministic, and must be covered by
+# unit tests so that the thesis's headline CES number, calibration panel,
+# purity counts, grounding rates, and BWT/FWT scores cannot silently drift.
+# =============================================================================
+
+
+class TestExtractCotAnswer:
+    def test_answer_marker_is_taken(self):
+        assert extract_cot_answer("Reasoning: whales are mammals. Answer: yes") == "yes"
+
+    def test_final_answer_marker_wins_over_earlier(self):
+        text = "Answer: maybe. Wait, reconsider. Answer: no"
+        assert extract_cot_answer(text) == "no"
+
+    def test_no_marker_returns_full_text_trimmed(self):
+        assert extract_cot_answer("  a plain answer  ") == "a plain answer"
+
+    def test_empty_input(self):
+        assert extract_cot_answer("") == ""
+
+
+class TestRougeL:
+    def test_perfect_match_is_one(self):
+        assert rouge_l("hello world foo", ["hello world foo"]) == pytest.approx(1.0)
+
+    def test_empty_pred(self):
+        assert rouge_l("", ["anything"]) == pytest.approx(0.0)
+
+    def test_no_overlap_is_zero(self):
+        assert rouge_l("abc", ["xyz"]) == pytest.approx(0.0)
+
+    def test_picks_best_gold(self):
+        r = rouge_l("hello world", ["foo bar", "hello world"])
+        assert r == pytest.approx(1.0)
+
+    def test_bounded_in_unit_interval(self):
+        r = rouge_l("hello there world", ["hello world foo"])
+        assert 0.0 <= r <= 1.0
+
+
+class TestExtractArcLabel:
+    def test_letter_answer_marker(self):
+        assert extract_arc_label("Answer: B") == "B"
+
+    def test_bare_letter(self):
+        assert extract_arc_label("A") == "A"
+
+    def test_lowercase_is_uppercased(self):
+        assert extract_arc_label("c") == "C"
+
+    def test_fallback_to_empty_when_no_letter(self):
+        assert extract_arc_label("no idea") == ""
+
+
+# ---------------------------------------------------------------------------
+# Per-tier slicers (Table 5.1)
+# ---------------------------------------------------------------------------
+
+class TestEmByTier:
+    def test_all_three_tiers_present(self):
+        em = [1.0, 0.0, 1.0, 1.0, 0.0]
+        tiers = [1, 2, 1, 3, 2]
+        out = em_by_tier(em, tiers)
+        assert out["tier1"] == (pytest.approx(1.0), 2)
+        assert out["tier2"] == (pytest.approx(0.0), 2)
+        assert out["tier3"] == (pytest.approx(1.0), 1)
+
+    def test_missing_tier_returns_zero_zero(self):
+        out = em_by_tier([1.0, 0.0], [2, 2])
+        assert out["tier1"] == (0.0, 0)
+        assert out["tier3"] == (0.0, 0)
+        assert out["tier2"] == (pytest.approx(0.5), 2)
+
+    def test_empty_input(self):
+        out = em_by_tier([], [])
+        for k in ("tier1", "tier2", "tier3"):
+            assert out[k] == (0.0, 0)
+
+    def test_mismatched_lengths_raise(self):
+        with pytest.raises(AssertionError):
+            em_by_tier([1.0], [1, 2])
+
+
+class TestMeanLatencyByTier:
+    def test_per_tier_means(self):
+        lat = [100.0, 200.0, 500.0, 50.0]
+        tiers = [1, 2, 3, 1]
+        out = mean_latency_by_tier(lat, tiers)
+        assert out["tier1"] == pytest.approx(75.0)
+        assert out["tier2"] == pytest.approx(200.0)
+        assert out["tier3"] == pytest.approx(500.0)
+
+    def test_missing_tier_is_zero(self):
+        out = mean_latency_by_tier([100.0, 100.0], [2, 2])
+        assert out["tier1"] == 0.0
+        assert out["tier3"] == 0.0
+
+    def test_empty_input(self):
+        out = mean_latency_by_tier([], [])
+        assert out == {"tier1": 0.0, "tier2": 0.0, "tier3": 0.0}
+
+
+# ---------------------------------------------------------------------------
+# Confident-error / confabulation rates (Table 5.5)
+# ---------------------------------------------------------------------------
+
+class TestConfabulationRate:
+    def test_wrong_and_confident_counted_ge(self):
+        em = [0.0, 0.0, 1.0, 1.0]
+        sig = [0.9, 0.1, 0.9, 0.9]
+        assert confabulation_rate(em, sig, threshold=0.5) == pytest.approx(0.25)
+
+    def test_direction_le_inverts_criterion(self):
+        em = [0.0, 0.0, 1.0]
+        sig = [0.1, 0.9, 0.1]
+        assert confabulation_rate(em, sig, threshold=0.2, direction="le") == pytest.approx(1 / 3)
+
+    def test_all_correct_returns_zero(self):
+        assert confabulation_rate([1.0, 1.0], [0.9, 0.9], threshold=0.5) == 0.0
+
+    def test_empty_input(self):
+        assert confabulation_rate([], [], threshold=0.5) == 0.0
+
+    def test_invalid_direction_asserts(self):
+        with pytest.raises(AssertionError):
+            confabulation_rate([1.0], [0.5], threshold=0.5, direction="lt")
+
+
+# ---------------------------------------------------------------------------
+# Calibration panel (Table 5.2 / Figure 5.2)
+# ---------------------------------------------------------------------------
+
+class TestBrierScore:
+    def test_perfect_calibration_is_zero(self):
+        assert brier_score([1.0, 0.0, 1.0], [1.0, 0.0, 1.0]) == pytest.approx(0.0)
+
+    def test_worst_calibration_is_one(self):
+        assert brier_score([1.0, 0.0], [0.0, 1.0]) == pytest.approx(1.0)
+
+    def test_uniform_half_on_mixed_labels(self):
+        assert brier_score([0.5, 0.5], [0.0, 1.0]) == pytest.approx(0.25)
+
+    def test_empty_input(self):
+        assert brier_score([], []) == 0.0
+
+
+class TestAuroc:
+    def test_perfect_ranking(self):
+        conf = [0.1, 0.2, 0.8, 0.9]
+        lab = [0.0, 0.0, 1.0, 1.0]
+        assert auroc(conf, lab) == pytest.approx(1.0)
+
+    def test_worst_ranking(self):
+        conf = [0.9, 0.8, 0.2, 0.1]
+        lab = [0.0, 0.0, 1.0, 1.0]
+        assert auroc(conf, lab) == pytest.approx(0.0)
+
+    def test_single_class_returns_half(self):
+        assert auroc([0.1, 0.9], [1.0, 1.0]) == pytest.approx(0.5)
+
+    def test_empty_returns_half(self):
+        assert auroc([], []) == pytest.approx(0.5)
+
+    def test_ties_counted_at_half_weight(self):
+        conf = [0.5, 0.5]
+        lab = [0.0, 1.0]
+        assert auroc(conf, lab) == pytest.approx(0.5)
+
+
+class TestReliabilityBins:
+    def test_returns_n_bins_rows(self):
+        out = reliability_bins([0.1, 0.5, 0.9], [0.0, 1.0, 1.0], n_bins=5)
+        assert len(out) == 5
+
+    def test_empty_bins_have_midpoint_and_zero_acc(self):
+        out = reliability_bins([0.05], [1.0], n_bins=2)
+        mc0, ma0, n0 = out[0]
+        mc1, ma1, n1 = out[1]
+        assert n0 == 1
+        assert n1 == 0
+        assert mc1 == pytest.approx(0.75)
+        assert ma1 == 0.0
+
+    def test_perfect_calibration_means(self):
+        conf = [0.9, 0.9, 0.9]
+        lab = [1.0, 1.0, 1.0]
+        out = reliability_bins(conf, lab, n_bins=10)
+        mc, ma, n = out[9]
+        assert n == 3
+        assert mc == pytest.approx(0.9)
+        assert ma == pytest.approx(1.0)
+
+    def test_empty_input_all_zero_buckets(self):
+        out = reliability_bins([], [], n_bins=4)
+        assert len(out) == 4
+        for i, (mc, ma, n) in enumerate(out):
+            assert n == 0
+            assert ma == 0.0
+            assert mc == pytest.approx((i + 0.5) * 0.25)
+
+
+# ---------------------------------------------------------------------------
+# Decision breakdown (Table 5.5 purity)
+# ---------------------------------------------------------------------------
+
+class TestDecisionBreakdown:
+    def test_counts_and_fractions(self):
+        decisions = ["STORE", "STORE", "DEFER", "DISCARD", "ABSTAIN"]
+        out = decision_breakdown(decisions)
+        assert out["total"] == 5
+        assert out["counts"]["STORE"] == 2
+        assert out["counts"]["DEFER"] == 1
+        assert out["counts"]["DISCARD"] == 1
+        assert out["counts"]["ABSTAIN"] == 1
+        assert out["fractions"]["STORE"] == pytest.approx(0.4)
+
+    def test_unknown_decisions_are_ignored(self):
+        # decision_breakdown uses the legacy 'DEFER' label (not 'DEFERRED').
+        # Anything unrecognised is silently dropped. This matches the
+        # audit note in reporting.py's SESSION42_LABELS bypass.
+        out = decision_breakdown(["STORE", "DEFERRED", "GARBAGE"])
+        assert out["counts"]["STORE"] == 1
+        assert out["total"] == 3
+        assert sum(out["counts"].values()) == 1
+
+    def test_empty_input_has_zero_fractions(self):
+        out = decision_breakdown([])
+        assert out["total"] == 0
+        for k in ("STORE", "DEFER", "ABSTAIN", "DISCARD"):
+            assert out["counts"][k] == 0
+            assert out["fractions"][k] == 0.0
+
+
+# ---------------------------------------------------------------------------
+# Continual-learning transfer (Table 5.6)
+# ---------------------------------------------------------------------------
+
+class TestBackwardTransfer:
+    def test_positive_bwt_when_later_improves_earlier(self):
+        R = [
+            [0.5, 0.4, 0.3],
+            [0.6, 0.5, 0.4],
+            [0.7, 0.6, 0.5],
+        ]
+        # BWT = mean(R[2][0]-R[0][0], R[2][1]-R[1][1]) = mean(0.2, 0.1) = 0.15
+        assert backward_transfer(R) == pytest.approx(0.15)
+
+    def test_negative_bwt_is_forgetting(self):
+        R = [
+            [0.8, 0.1],
+            [0.5, 0.4],
+        ]
+        # BWT = R[1][0] - R[0][0] = -0.3
+        assert backward_transfer(R) == pytest.approx(-0.3)
+
+    def test_single_cycle_returns_zero(self):
+        assert backward_transfer([[0.5]]) == 0.0
+
+    def test_empty_matrix_returns_zero(self):
+        assert backward_transfer([]) == 0.0
+
+
+class TestForwardTransfer:
+    def test_positive_fwt_when_prev_cycle_helps_new(self):
+        R = [
+            [0.3, 0.2, 0.1],
+            [0.3, 0.5, 0.4],
+            [0.3, 0.5, 0.6],
+        ]
+        # FWT = mean(R[0][1]-bbar[1], R[1][2]-bbar[2])
+        #     = mean(0.2-0.2, 0.4-0.1) = mean(0.0, 0.3) = 0.15
+        assert forward_transfer(R) == pytest.approx(0.15)
+
+    def test_explicit_baseline_overrides_cycle_zero(self):
+        R = [
+            [0.5, 0.5, 0.5],
+            [0.5, 0.6, 0.5],
+            [0.5, 0.5, 0.7],
+        ]
+        bbar = [0.1, 0.1, 0.1]
+        # FWT = mean(R[0][1]-0.1, R[1][2]-0.1) = mean(0.4, 0.4) = 0.4
+        assert forward_transfer(R, baseline_em=bbar) == pytest.approx(0.4)
+
+    def test_single_cycle_returns_zero(self):
+        assert forward_transfer([[0.5, 0.6]]) == 0.0
+
+
+# ---------------------------------------------------------------------------
+# CES score (headline -- Table 5.1 / Figure 5.1)
+# ---------------------------------------------------------------------------
+
+class TestCesScore:
+    def test_all_uniform_returns_same_value(self):
+        assert ces_score(0.5, 0.5, 0.5, 0.5, 0.5) == pytest.approx(0.5)
+
+    def test_all_perfect_returns_one(self):
+        assert ces_score(1.0, 1.0, 1.0, 1.0, 1.0) == pytest.approx(1.0)
+
+    def test_one_zero_axis_is_clamped_not_fatal(self):
+        ces = ces_score(1.0, 1.0, 0.0, 1.0, 1.0)
+        # Geometric mean of [1,1,0.01,1,1]: (0.01)^(1/5)
+        assert ces > 0.0
+        assert ces == pytest.approx(0.01 ** (1 / 5))
+
+    def test_monotone_in_each_axis(self):
+        base = ces_score(0.5, 0.5, 0.5, 0.5, 0.5)
+        higher = ces_score(0.9, 0.5, 0.5, 0.5, 0.5)
+        assert higher > base
+
+    def test_bounded_between_eps_and_one(self):
+        low = ces_score(-5.0, -5.0, -5.0, -5.0, -5.0)
+        hi = ces_score(5.0, 5.0, 5.0, 5.0, 5.0)
+        assert 0.0 < low <= 1.0
+        assert 0.0 < hi <= 1.0
+
+    def test_custom_eps_respected(self):
+        ces = ces_score(1.0, 1.0, 0.0, 1.0, 1.0, eps=0.2)
+        assert ces == pytest.approx(0.2 ** (1 / 5))
+
+
+# ---------------------------------------------------------------------------
+# Grounding diagnostics (Table 5.4)
+# ---------------------------------------------------------------------------
+
+class TestUnsupportedCorrectRate:
+    def test_right_for_wrong_reason(self):
+        em = [1.0, 1.0, 1.0, 0.0]
+        grounds = [0.1, 0.9, 0.05, 0.9]
+        assert unsupported_correct_rate(em, grounds) == pytest.approx(2 / 3)
+
+    def test_no_correct_returns_zero(self):
+        assert unsupported_correct_rate([0.0, 0.0], [0.1, 0.1]) == 0.0
+
+    def test_all_grounded_correct_is_zero(self):
+        em = [1.0, 1.0]
+        grounds = [0.9, 0.9]
+        assert unsupported_correct_rate(em, grounds) == 0.0
+
+    def test_threshold_is_strict_less_than(self):
+        em = [1.0]
+        grounds = [0.30]
+        assert unsupported_correct_rate(em, grounds, ground_threshold=0.30) == 0.0
+
+    def test_empty_input(self):
+        assert unsupported_correct_rate([], []) == 0.0
+
+
+class TestUngroundedAssertionRate:
+    def test_high_confidence_and_low_ground_counted(self):
+        grounds = [0.1, 0.9, 0.1]
+        us = [0.9, 0.9, 0.1]
+        assert ungrounded_assertion_rate(grounds, us) == pytest.approx(1 / 3)
+
+    def test_empty_input(self):
+        assert ungrounded_assertion_rate([], []) == 0.0
+
+    def test_all_well_grounded(self):
+        assert ungrounded_assertion_rate([0.9, 0.9], [0.9, 0.9]) == 0.0
+
+    def test_thresholds_respected(self):
+        grounds = [0.4, 0.6]
+        us = [0.7, 0.7]
+        assert ungrounded_assertion_rate(grounds, us, g_thresh=0.5, u_thresh=0.5) == pytest.approx(0.5)
+
+    def test_mismatched_lengths_raise(self):
+        with pytest.raises(AssertionError):
+            ungrounded_assertion_rate([0.1], [0.9, 0.9])

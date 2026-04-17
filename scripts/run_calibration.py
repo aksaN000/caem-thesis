@@ -165,7 +165,7 @@ def fit_temperature_scalar(
         # Binary cross-entropy
         p = 1 / (1 + np.exp(-scaled))  # sigmoid
         p = np.clip(p, 1e-7, 1 - 1e-7)
-        return -np.mean(labels_arr * np.log(p) + (1 - labels_arr) * np.log(1 - p))
+        return float(-np.mean(labels_arr * np.log(p) + (1 - labels_arr) * np.log(1 - p)))
 
     result = minimize(nll_loss, x0=[0.0], method="L-BFGS-B",
                       bounds=[(-3.0, 3.0)], options={"maxiter": 500})
@@ -301,7 +301,7 @@ def collect_calibration_data(
     u_pre_logits: List[float] = []
     u_pre_labels: List[int] = []
     signal_matrix: List[List[float]] = []
-    signal_labels: List[int] = []  # labels *only* for Tier-2 samples (mirrors signal_matrix rows)
+    signal_labels: List[int] = []  # labels for verifier-scored samples (Tier-2/3); mirrors signal_matrix rows
 
     logger.info("Collecting calibration signals ...")
 
@@ -320,22 +320,31 @@ def collect_calibration_data(
                 u_pre_logits.append(u_pre)
                 u_pre_labels.append(int(em))
 
-                # Signal matrix -- only available for Tier 2 (post-generation conf)
-                # PostGenerationConfidence fields: u_token, u_dropout,
-                # u_consistency (NOT u_sc), u_entropy (NOT h_entropy_norm)
+                # Signal matrix -- sourced from UnifiedVerifierOutput (Stage 5).
+                # Session-42 merge: PostGenerationConfidenceEstimator was
+                # removed; _tier2 now always emits post_confidence=None.
+                # The four calibration signals now live on vout:
+                #   u_token       = vout.u_token
+                #   u_dropout     = vout.u_dropout
+                #   u_consistency = vout.s_avg          (mean pairwise sim across M chains)
+                #   u_entropy     = 1 - vout.h_norm     (complement of normalised semantic entropy)
+                # Tier-1 hits skip Stage 5 and therefore have vout=None; they
+                # are excluded from the signal matrix (correct: they carry no
+                # post-generation signals). Both Tier-2 and Tier-3 verified
+                # samples are included, which is a superset of the pre-fix
+                # Tier-2-only collection path.
                 # IMPORTANT: signal_labels must be co-indexed with signal_matrix.
-                # Appending here (not above) ensures len(signal_matrix) == len(signal_labels)
-                # even when Tier-1 / Tier-3 samples are present in the calibration set.
-                if result.post_confidence is not None:
-                    pc = result.post_confidence
+                # Appending here (not above) ensures length parity.
+                vout = getattr(result, "verifier_output", None)
+                if vout is not None:
                     signals = [
-                        getattr(pc, "u_token", 0.5),
-                        getattr(pc, "u_dropout", 0.5),
-                        getattr(pc, "u_consistency", 0.5),   # correct field name
-                        getattr(pc, "u_entropy", 0.5),       # correct field name (already 1-H)
+                        float(getattr(vout, "u_token", 0.5)),
+                        float(getattr(vout, "u_dropout", 0.5)),
+                        float(getattr(vout, "s_avg", 0.5)),
+                        float(1.0 - getattr(vout, "h_norm", 0.5)),
                     ]
                     signal_matrix.append(signals)
-                    signal_labels.append(int(em))  # label for this Tier-2 sample only
+                    signal_labels.append(int(em))
 
             except Exception as exc:
                 logger.debug("Calibration sample skipped: %s", exc)
@@ -433,8 +442,11 @@ def calibrate_pipeline(
     if signal_matrix:
         new_weights = fit_signal_weights(signal_matrix, signal_labels)
     else:
-        logger.warning("No Tier 2 samples found in calibration set -- "
-                       "signal weights not calibrated. Using equal weights (0.25 each).")
+        logger.warning(
+            "No verifier-scored samples found in calibration set "
+            "(vout was None for every query -- all Tier-1 hits?) -- "
+            "signal weights not calibrated. Using equal weights (0.25 each)."
+        )
         new_weights = [0.25, 0.25, 0.25, 0.25]
 
     # -- Update config in-place ---------------------------------------------- #
@@ -547,7 +559,6 @@ if __name__ == "__main__":
 
     import types
     ns = types.SimpleNamespace(
-        no_nli=False, no_rag=False,
         passage_index="data/passage_index",
     )
     pipeline = build_pipeline(config, ns, m)

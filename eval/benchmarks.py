@@ -11,7 +11,6 @@ Natural Questions  (Kwiatkowski et al. 2019) -- open-domain QA; EM/F1
 TruthfulQA         (Lin et al. 2022)     -- factual QA; ROUGE-L thresholded EM proxy
 StrategyQA         (Geva et al. 2021)    -- implicit multi-hop boolean QA; EM
 ARC-Challenge      (Clark et al. 2018)   -- multiple-choice science QA; label EM
-HotpotQA           (Yang et al. 2018)    -- optional legacy multi-hop QA loader
 
 Loading strategy
 ----------------
@@ -41,10 +40,9 @@ Each sample is a dict with:
   answers    : list[str]   -- acceptable answer strings (may have 1 entry)
   gold_label : str | None  -- FEVER label ("supports"/"refutes"/"not enough info")
   id         : str         -- original dataset ID for traceability
-    benchmark  : str         -- benchmark key such as
-                                                            "fever", "triviaqa", "natural_questions",
-                                                            "truthfulqa", "strategyqa", "arc_challenge",
-                                                            or "hotpotqa"
+  benchmark  : str         -- benchmark key such as
+                              "fever", "triviaqa", "natural_questions",
+                              "truthfulqa", "strategyqa", "arc_challenge"
 
 FEVER prompt design note
 ------------------------
@@ -70,69 +68,6 @@ logger = logging.getLogger(__name__)
 
 # Type alias
 BenchmarkSample = Dict[str, Any]
-
-
-# -----------------------------------------------------------------------------
-# HotpotQA
-# -----------------------------------------------------------------------------
-
-def load_hotpotqa(
-    split: str = "validation",
-    n: Optional[int] = None,
-    seed: int = 42,
-    difficulty: str = "all",
-) -> List[BenchmarkSample]:
-    """Load HotpotQA samples from HuggingFace datasets.
-
-    Parameters
-    ----------
-    split : str
-        "validation" (7405 samples) or "train" (90k samples).
-        We evaluate on validation to keep numbers comparable to baselines.
-    n : int or None
-        Number of samples to return. If None, return all. If n > available,
-        return all available samples (no error).
-    seed : int
-        Random seed for reproducible subsampling.
-    difficulty : str
-        "easy", "medium", "hard", or "all" (default).
-        HotpotQA provides a "level" field; filtering on it is useful for
-        ablation. "all" disables the filter.
-
-    Returns
-    -------
-    list of BenchmarkSample
-    """
-    try:
-        from datasets import load_dataset
-    except ImportError as e:
-        raise ImportError(
-            "HuggingFace `datasets` is required for HotpotQA loading. "
-            "Install with: pip install datasets"
-        ) from e
-
-    logger.info("Loading HotpotQA [%s] from HuggingFace...", split)
-    ds = load_dataset("hotpot_qa", "distractor", split=split)
-
-    samples: List[BenchmarkSample] = []
-    for row in cast(Any, ds):
-        row = cast(Dict[str, Any], row)
-        if difficulty != "all" and row.get("level", "").lower() != difficulty.lower():
-            continue
-        samples.append({
-            "question": row["question"],
-            "answers": [row["answer"]],   # HotpotQA has exactly one gold answer
-            "gold_label": None,
-            "id": row["id"],
-            "benchmark": "hotpotqa",
-        })
-
-    if n is not None and n < len(samples):
-        rng = random.Random(seed)
-        samples = rng.sample(samples, n)
-
-    logger.info("HotpotQA: %d samples loaded (%s split).", len(samples), split)
-    return samples
 
 
 # -----------------------------------------------------------------------------
@@ -552,8 +487,7 @@ def load_benchmark(
     ----------
     name : str
         One of: "fever", "triviaqa", "natural_questions" (training benchmarks)
-        or "truthfulqa", "strategyqa", "arc_challenge" (transfer eval benchmarks)
-        or "hotpotqa" (legacy, removed from main training loop).
+        or "truthfulqa", "strategyqa", "arc_challenge" (transfer eval benchmarks).
     n : int or None
     seed : int
     **kwargs -- passed to the specific loader
@@ -563,9 +497,7 @@ def load_benchmark(
     list of BenchmarkSample
     """
     name = name.lower().strip()
-    if name == "hotpotqa":
-        return load_hotpotqa(n=n, seed=seed, **kwargs)
-    elif name == "truthfulqa":
+    if name == "truthfulqa":
         return load_truthfulqa(n=n, seed=seed, **kwargs)
     elif name == "fever":
         return load_fever(n=n, seed=seed, **kwargs)
@@ -600,7 +532,7 @@ def make_synthetic_samples(
     ----------
     benchmark : str
         One of: "fever", "triviaqa", "natural_questions", "truthfulqa",
-        "strategyqa", "arc_challenge", or "hotpotqa" (legacy).
+        "strategyqa", or "arc_challenge".
     n : int -- number of samples to generate
     seed : int
 
@@ -611,17 +543,7 @@ def make_synthetic_samples(
     rng = random.Random(seed)
     samples = []
 
-    if benchmark == "hotpotqa":
-        for i in range(n):
-            samples.append({
-                "question": f"What connects entity_{i} and entity_{i+1}?",
-                "answers": [f"answer_{i}"],
-                "gold_label": None,
-                "id": f"hotpot_synth_{i}",
-                "benchmark": "hotpotqa",
-            })
-
-    elif benchmark == "truthfulqa":
+    if benchmark == "truthfulqa":
         for i in range(n):
             samples.append({
                 "question": f"Is claim_{i} factually correct?",

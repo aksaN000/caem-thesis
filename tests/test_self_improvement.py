@@ -64,9 +64,8 @@ def make_entry(question: str = "Q?", answer: str = "A", u_stored: float = 0.80) 
         storage_cycle=1,
         timestamp=0.0,
         u_stored=u_stored,
-        nli_score=0.9,
-        sc_score=0.8,
-        se_score=0.7,
+        # Session 42: nine-signal layout -- defaults used for everything
+        # except the composite u_stored, which Stage-8 filtering actually reads.
         retrieval_count=0,
         success_rate=0.0,
         retroverified=False,

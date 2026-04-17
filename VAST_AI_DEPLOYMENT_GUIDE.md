@@ -119,7 +119,7 @@ This is now applied automatically — you don't need to change anything.
 1. Go to [https://vast.ai](https://vast.ai) and create an account.
 2. In the top-right menu, go to **Billing**.
 3. Click **Add Credit** → choose **Stripe** (Visa/Mastercard, USD international).
-4. Load **$25–35**. Full run on RTX 4090: ~$8–10 total. On A100 SXM 80GB: ~$20–25 total.
+4. Load **$50–75** for the initial Phase 1 main-run + screening pass. The full Phase 1 envelope (main run + screening + confirmatory sweep + aggregation) fits in ~$200 on an RTX 4090 — see Part 10 for the full two-phase cost table.
 
 ---
 
@@ -287,9 +287,151 @@ python scripts/run_experiment.py \
 
 ---
 
+## Part 6.5: External Baseline Runs (B1–B7)
+
+> **Run order:** Baselines run **after** the main CAEM 10-cycle experiment (Part 6) and **before** the ablation study (Part 7, Step 3). They populate the Chapter 5 headline comparison table and are independent of each other, so they can be run in parallel if multiple Vast.ai instances are available, or sequentially on a single instance.
+
+The baseline panel has eight entries (B1–B8) plus one optional ceiling (STaR). B8 Self-RAG is citation-only and not run numerically (see `chapter_5.tex` §5.1). The remaining seven are all launched from the same machine as the main run.
+
+### Prerequisite — DPR passage index
+
+B3, B4, and B5 all require the Wikipedia DPR passage index. If the main CAEM run already built it, reuse that path (`data/passage_index` or whatever was passed to `--passage_index` in Part 6). Otherwise build it once:
+
+```bash
+python -m scripts.build_passage_index \
+    --output_dir data/passage_index
+```
+
+### Step 1 — Inference-only baselines (B1–B5), single script
+
+`scripts/run_baseline.py` handles all five inference baselines via a `--baseline` flag. Outputs land under `outputs/baselines/<name>/<benchmark>_cycle0.json`, schema-compatible with the main run's eval JSONs so `eval/reporting.py` consumes them unchanged.
+
+```bash
+# --- B1 Zero-shot Flan-T5-Large (floor) — ~15 min on RTX 4090, n=500 ---
+python -m scripts.run_baseline \
+    --baseline zero_shot \
+    --benchmarks fever triviaqa natural_questions truthfulqa strategyqa arc_challenge \
+    --n_questions 500 \
+    --output_dir outputs/baselines \
+    2>&1 | tee outputs/baselines/B1_zero_shot.log
+
+# --- B2 Chain-of-Thought — ~20 min, n=500 ---
+python -m scripts.run_baseline \
+    --baseline cot \
+    --benchmarks fever triviaqa natural_questions truthfulqa strategyqa arc_challenge \
+    --n_questions 500 \
+    --output_dir outputs/baselines \
+    2>&1 | tee outputs/baselines/B2_cot.log
+
+# --- B3 DPR-RAG — ~45 min, n=500 (retrieval dominates wall-clock) ---
+python -m scripts.run_baseline \
+    --baseline rag \
+    --benchmarks fever triviaqa natural_questions truthfulqa strategyqa arc_challenge \
+    --n_questions 500 \
+    --passage_index data/passage_index \
+    --output_dir outputs/baselines \
+    2>&1 | tee outputs/baselines/B3_rag.log
+
+# --- B4 CoT + DPR-RAG — ~50 min, n=500 ---
+python -m scripts.run_baseline \
+    --baseline cot_rag \
+    --benchmarks fever triviaqa natural_questions truthfulqa strategyqa arc_challenge \
+    --n_questions 500 \
+    --passage_index data/passage_index \
+    --output_dir outputs/baselines \
+    2>&1 | tee outputs/baselines/B4_cot_rag.log
+
+# --- B5 FLARE — ~90 min, n=500 (active retrieval is slow) ---
+python -m scripts.run_baseline \
+    --baseline flare \
+    --benchmarks fever triviaqa natural_questions truthfulqa strategyqa arc_challenge \
+    --n_questions 500 \
+    --passage_index data/passage_index \
+    --flare_theta 0.4 \
+    --flare_look_ahead 64 \
+    --output_dir outputs/baselines \
+    2>&1 | tee outputs/baselines/B5_flare.log
+```
+
+**Total wall-clock for B1–B5 on a single RTX 4090:** approximately 3.5–4 hours.
+
+### Step 2 — Training baselines (B6, B7), shared script
+
+`scripts/run_simple_ft.py` handles both B6 Vanilla FT and B7 EWC-only FT through flags; the only difference is whether `--use_l2_anchor` and `--use_mmlu_guard` are set. Both use ten cycles matching the main CAEM run.
+
+```bash
+# --- B6 Vanilla FT — ~6 h on RTX 4090, 10 cycles ---
+# Neither the L2 anchor nor the MMLU guard is applied. Every selected
+# episode is treated as a clean label. This baseline is expected to
+# drift on MMLU; that drift is the measurement.
+python -m scripts.run_simple_ft \
+    --baseline_name vanilla_ft \
+    --num_cycles 10 \
+    --output_dir outputs/baselines/vanilla_ft \
+    --passage_index data/passage_index \
+    --benchmarks fever triviaqa natural_questions truthfulqa strategyqa arc_challenge \
+    --n_questions 500 \
+    2>&1 | tee outputs/baselines/B6_vanilla_ft.log
+
+# --- B7 EWC-only FT — ~6 h on RTX 4090, 10 cycles ---
+# L2 anchor (lambda = 0.01) and MMLU guard (rho_min = 0.93) on, but
+# verifier, nine-signal composite, memory, and tier routing all off.
+python -m scripts.run_simple_ft \
+    --baseline_name ewc_only_ft \
+    --use_l2_anchor \
+    --use_mmlu_guard \
+    --num_cycles 10 \
+    --output_dir outputs/baselines/ewc_only_ft \
+    --passage_index data/passage_index \
+    --benchmarks fever triviaqa natural_questions truthfulqa strategyqa arc_challenge \
+    --n_questions 500 \
+    2>&1 | tee outputs/baselines/B7_ewc_only_ft.log
+```
+
+**Total wall-clock for B6+B7 on a single RTX 4090:** approximately 12 hours (sequential). Can be run on two instances in parallel if budget permits.
+
+### Step 2B — Optional STaR ceiling run (only if Phase 1 is under envelope)
+
+STaR (Zelikman et al. 2022) is cited in Chapter 2 §2.2 and Chapter 5 §5.1 as an aspirational ceiling for pure iterative-refinement without verification. A numerical row for STaR is worth the extra ~$3 of rental **only if** Steps B1–B7 plus the full CAEM run came in under the USD 200 Phase 1 envelope. If the budget is already stretched, skip this step and leave STaR as a citation-only ceiling.
+
+```bash
+# --- Optional: STaR ceiling — ~7–8 h on RTX 4090, 10 cycles ---
+# Reuses scripts/run_simple_ft.py with --use_rationalisation:
+#   per-cycle forward-filter + back-rationalise pass replaces the
+#   training targets with (rationale + answer) strings before the
+#   3-epoch fine-tune. No L2 anchor, no MMLU guard — the point of
+#   STaR is the rationalisation delta over B6, not retention.
+python -m scripts.run_simple_ft \
+    --baseline_name star \
+    --use_rationalisation \
+    --num_cycles 10 \
+    --passage_index data/passage_index \
+    --benchmarks fever triviaqa natural_questions truthfulqa strategyqa arc_challenge \
+    --n_questions 500 \
+    --output_dir outputs/baselines/star \
+    2>&1 | tee outputs/baselines/STaR_ceiling.log
+```
+
+Sanity check: `outputs/baselines/star/training_log.jsonl` should show `"use_rationalisation": true` on every cycle row, and per-cycle in-domain EM should be monotonically non-decreasing. If EM regresses, the rationalisation pass is producing low-quality rationales — record the finding in `caem-implementation-log.md` and cite the known "STaR-on-factual-QA" mismatch caveat in the Ch2 §2.2 positioning paragraph.
+
+### Step 3 — Sanity check
+
+After each baseline finishes, confirm the per-benchmark JSONs exist and the aggregate summary line is sensible:
+
+```bash
+ls outputs/baselines/*/
+for f in outputs/baselines/*/*.json; do
+  python -c "import json,sys; d=json.load(open(sys.argv[1])); print(sys.argv[1], 'EM=', d.get('aggregate',{}).get('em'), 'F1=', d.get('aggregate',{}).get('f1'))" "$f"
+done
+```
+
+Expected floor: B1 zero-shot should land near published Flan-T5-Large numbers (FEVER ~55–60% EM, TriviaQA ~40–45%). Anything dramatically below that indicates a loader or prompt bug; investigate before moving on.
+
+---
+
 ## Part 7: Post-Experiment Scripts
 
-> **Note on automation:** `run_experiment.py` (Part 6) is fully automated — one command runs Cycle 0 through Cycle 10 without human intervention. Everything in Part 7 below must be run **manually after** the main experiment completes.
+> **Note on automation:** `run_experiment.py` (Part 6) is fully automated — one command runs Cycle 0 through Cycle 10 without human intervention. Part 6.5 (external baselines B1–B7) is also scripted but must be launched per baseline. Everything in Part 7 below must be run **manually after** the main experiment and the baselines complete.
 
 ### Step 1 — Fill published baselines (REQUIRED before ablation)
 
@@ -314,16 +456,87 @@ python scripts/run_purity_validation.py \
     --output_dir outputs/purity_validation
 ```
 
-### Step 3 — Ablation study (~2–3 hours, needs separate GPU time)
+### Step 3 — Ablation study (two-phase protocol — see Part 10 for cost breakdown)
+
+The ablation study uses the **named 16-variant registry** defined in
+`caem/ablation/variants.py` and the cyclic driver
+`scripts/run_cyclic_ablation.py`. The legacy `run_ablation.py` +
+`run_pub0405_variants.py` scripts have been retired — they combined
+inference-time and training-time variants under one label, which
+conflates the mechanism's effect with the counterfactual confound of
+running an ablated mechanism on weights shaped by that mechanism in
+prior cycles.
+
+**Phase 1 screening pass** (3 cycles, n=1500, seed=42, entire
+16-variant registry):
+
 ```bash
-python scripts/run_ablation.py \
-    --caem_results outputs/full_run/all_cycle_results.json \
-    --cycle3_checkpoint outputs/full_run/cycle_3 \
-    --output_dir outputs/ablation_results \
-    --published_baselines_json published_baselines.template.json
+# Loop over all 16 variants — each rerun is independent
+for v in full no_self_improvement no_tier1 no_retrieval no_verification \
+         no_nli no_selfcons no_entropy no_routing no_cold_start \
+         no_abort_guard no_l2_anchor no_retroverify no_memory_prune \
+         no_mcdropout lower_u_threshold; do
+  python scripts/run_cyclic_ablation.py \
+      --variant "$v" \
+      --seed 42 \
+      --screening_mode \
+      --passage_index data/passage_index \
+      --cold_start_memory outputs/cold_start_memory/memory_store \
+      --output_dir outputs/ablation \
+      2>&1 | tee outputs/ablation/"$v"_screening.log
+done
 ```
 
-> **AB3/AB4/PUB-04/PUB-05 variants** each require separate training runs (they cannot be derived from the main 10-cycle checkpoints). If you want the full ablation table, run `run_pub0405_variants.py` first — see NEXT_SESSION_PLAN.md Phase F for the exact commands.
+Screening is a methodological instrument to rank variants — its rows
+do NOT enter the Chapter 5 ablation table.
+
+**Phase 1 confirmatory pass** (10 cycles, n=5000, seed=42, reference
+run + top-N variants by $\Delta$CES from screening):
+
+```bash
+# Example — replace the variant list with screening-selected top candidates
+for v in full no_self_improvement no_verification no_retroverify no_l2_anchor no_cold_start; do
+  python scripts/run_cyclic_ablation.py \
+      --variant "$v" \
+      --seed 42 \
+      --passage_index data/passage_index \
+      --cold_start_memory outputs/cold_start_memory/memory_store \
+      --output_dir outputs/ablation \
+      2>&1 | tee outputs/ablation/"$v"_confirmatory.log
+done
+```
+
+**Phase 2 multi-seed upgrade** (post-funding — same confirmatory
+invocations with `--seed 123` then `--seed 456`; no other changes
+required):
+
+```bash
+for seed in 123 456; do
+  for v in full no_self_improvement no_tier1 no_retrieval no_verification \
+           no_nli no_selfcons no_entropy no_routing no_cold_start \
+           no_abort_guard no_l2_anchor no_retroverify no_memory_prune \
+           no_mcdropout lower_u_threshold; do
+    python scripts/run_cyclic_ablation.py \
+        --variant "$v" --seed "$seed" \
+        --passage_index data/passage_index \
+        --cold_start_memory outputs/cold_start_memory/memory_store \
+        --output_dir outputs/ablation
+  done
+done
+```
+
+**Aggregate across all discovered seeds** (auto-switches
+point-estimate → mean$\pm$std once ≥2 seeds exist):
+
+```bash
+python scripts/aggregate_ablation.py \
+    --output_dir outputs/ablation
+```
+
+Output files (written to `outputs/ablation/`):
+- `ablation_table.csv` — per-variant CES axes at the final cycle.
+- `ablation_per_cycle.csv` — per-variant CES axes traced across every cycle.
+- `ablation_aggregate_manifest.json` — variants × seeds manifest, for reproducibility.
 
 ---
 
@@ -336,7 +549,8 @@ Key output files:
 | `outputs/full_run/experiment_summary.csv` | Ch5 Table 5.2 (includes `mmlu_retention_pct` column) |
 | `outputs/full_run/all_cycle_results.json` | Full per-cycle per-benchmark results |
 | `outputs/full_run/retroverify_cycle*.json` | Per-cycle forgetting scores + MMLU retention |
-| `outputs/ablation_results/ablation_summary.json` | Ch5 Table 5.5 |
+| `outputs/ablation/ablation_table.csv` | Ch5 §5.5 Ablation table (Phase 1 point estimates / Phase 2 mean±std) |
+| `outputs/ablation/ablation_per_cycle.csv` | Ch5 per-cycle $\Delta$CES trace figures |
 | `outputs/purity_validation/theory_validation.json` | Ch5 §5.3 Theory tables |
 | `outputs/full_run/calibration/calibrated_config.json` | Ch5 §5.1 Calibration results |
 
@@ -397,27 +611,79 @@ Your usage is billed against your subscription quota, exactly like using Claude 
 
 ## Part 10: Cost and Time Estimates
 
-### RTX 5090 (~$1.00/hr) — your hardware, recommended
+The thesis uses a **two-phase ablation protocol** (see Chapter~5 §5.5
+``Ablation Methodology''). Phase~1 is self-funded and runs a screening
+pass + confirmatory pass on a single seed (42). Phase~2 is a
+post-funding upgrade that re-runs the confirmatory pass on two
+additional seeds (123, 456) so the main ablation table can report
+mean$\pm$std.
 
-| Phase | Time | Cost |
-|---|---|---|
-| Environment setup | ~10 min | ~$0.15 |
-| Passage index build (21M passages, upload or build) | ~1.5–2 h | ~$1.50–2.00 |
-| Cold-start seeding (if not pre-seeded) | ~20 min | ~$0.30 |
-| Full 10-cycle experiment (n=5000, batch=32, bf16) | ~10–12 h | ~$10–12 |
-| Ablation study (sequential after main run) | ~1.5–2 h | ~$1.50–2.00 |
-| Purity validation | ~20 min | ~$0.35 |
-| **Total (1× RTX 5090)** | **~14–17 h** | **~$14–17** |
+### GPU tier reference (Vast.ai market rates, April 2026)
 
-### RTX 4090 (~$0.40/hr) — cheapest option if 5090 unavailable
+| GPU | VRAM | batch_size | Precision | Hourly price (approx) |
+|---|---|---|---|---|
+| RTX 4090 | 24 GB | 16 | fp16 | ~$0.35–0.55 |
+| RTX 5090 | 32 GB | 32 | bf16 | ~$0.80–1.30 |
+| A100 PCIe 40 GB | 40 GB | 32 | bf16 | ~$1.00–1.50 |
+| A100 SXM 80 GB | 80 GB | 32 | bf16 | ~$1.80–2.80 (Phase 2 recommended) |
+| H100 80 GB | 80 GB | 32 | bf16 | ~$2.20–2.80 (Phase 2 fast track) |
 
-| Phase | Time | Cost |
-|---|---|---|
-| Environment setup | ~10 min | ~$0.07 |
-| Passage index build (21M passages) | ~2–3 h | ~$0.80–1.20 |
-| Full 10-cycle experiment (batch=16, fp16) | ~16–18 h | ~$6.50–7.50 |
-| Ablation + validation | ~3 h | ~$1.20 |
-| **Total** | **~22–25 h** | **~$9–10** |
+### Phase 1 — self-funded (~USD 200 total, single seed)
+
+Screening + confirmatory on seed 42 only. This is the tier you can run
+immediately; results enter Chapter 5 as point estimates with a
+single-seed limitation disclosure.
+
+| Step | Command entry point | Time | GPU | Cost |
+|---|---|---|---|---|
+| Environment setup + HF cache pre-pull | `pip install …` + `huggingface_hub.snapshot_download` | ~20 min | 4090 | ~$0.15 |
+| Passage index build (21M, one-time) | `scripts/build_passage_index.py --max_passages 21000000` | ~2–3 h | 4090 | ~$1.00–1.60 |
+| Cold-start seeding | `scripts/run_cold_start.py` | ~20 min | 4090 | ~$0.15 |
+| **Main 10-cycle run** (n=5000, seed=42) | `scripts/run_experiment.py` | ~16–18 h | 4090 | ~$6.50–9.50 |
+| **Screening sweep** — 16 variants × 3 cycles × n=1500 × seed=42 | `scripts/run_cyclic_ablation.py --screening_mode` for each variant | ~14–20 h total (batched sequentially) | 4090 | ~$6–11 |
+| **Confirmatory sweep** — top ~5 variants × 10 cycles × n=5000 × seed=42 | `scripts/run_cyclic_ablation.py` (no `--screening_mode`) | ~50–60 h total | 4090 | ~$20–33 |
+| Purity validation + ablation aggregation | `run_purity_validation.py` + `aggregate_ablation.py` | ~45 min | 4090 | ~$0.30 |
+| **Phase 1 total (RTX 4090, single seed)** | | **~85–105 h compute** | | **~$35–55** |
+| Phase 1 total on **A100 SXM 80 GB** (faster wall-clock, higher hourly rate) | | ~55–65 h compute | | **~$100–160** |
+| Phase 1 conservative budget (buffer for retries, idle minutes between steps, and rounding) | | | | **~$200** |
+
+**Phase 1 recommendation:** rent an **RTX 4090** instance. It has
+enough VRAM for Flan-T5-Large fine-tuning, is the cheapest reliable
+vast.ai tier, and keeps the Phase 1 bill comfortably below USD 200
+with buffer for retries. Upgrade to A100 SXM 80 GB only if you need
+wall-clock speed and can absorb the ~2–3× cost multiplier.
+
+### Phase 2 — post-funding upgrade (+USD 700, seeds 123 and 456)
+
+Phase 2 re-runs the confirmatory sweep on two additional seeds so the
+ablation table reports mean$\pm$std rather than point estimates. Drop
+the screening pass entirely (Phase 1 already ranked the variants) and
+run all **14 cyclic variants + reference** across both new seeds.
+
+| Step | Command entry point | Per-seed time | GPU | Per-seed cost |
+|---|---|---|---|---|
+| Confirmatory sweep — 15 variants × 10 cycles × n=5000 × seed=123 | `scripts/run_cyclic_ablation.py --seed 123` per variant | ~150–180 h | 4090 | ~$65–90 |
+| Same, seed=456 | `scripts/run_cyclic_ablation.py --seed 456` per variant | ~150–180 h | 4090 | ~$65–90 |
+| Aggregation (auto-detects multi-seed layout) | `scripts/aggregate_ablation.py` | ~5 min | 4090 | — |
+| **Phase 2 total on RTX 4090** | | ~300–360 h | | **~$130–180** |
+| **Phase 2 total on A100 SXM 80 GB** (recommended once funded) | | ~180–220 h | | **~$400–620** |
+| Phase 2 conservative budget (A100 tier + retry headroom + Phase 2 also re-running main run across 3 seeds if desired) | | | | **~$700** |
+| **Phase 1 + Phase 2 combined ceiling** | | | | **~$900–950** |
+
+> **BDT note:** USD 930 is roughly 1,10,000 BDT at April-2026 rates.
+> Phase 1 alone (~USD 200) is approximately 23,000–24,000 BDT, which
+> is the intended self-funded envelope.
+
+### Code-level upgrade path
+
+Moving from Phase 1 to Phase 2 requires **no code changes**. The output
+layout (`outputs/ablation/<variant>/seed_<N>/`) and the aggregator
+(`scripts/aggregate_ablation.py`) are already multi-seed aware: when a
+single seed exists the aggregator prints point estimates; when two or
+more seeds exist it automatically switches to mean$\pm$std with
+independent-seed std propagation on $\Delta$CES. The only operational
+change is adding `--seed 123` and `--seed 456` to your ablation
+invocations.
 
 ---
 

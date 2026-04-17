@@ -1,0 +1,878 @@
+% ============================================================
+% Chapter 5 -- Results and Analysis
+% ============================================================
+% Writing-suggestions entries applied: C5-01 (calib/purity split),
+%   C5-MMLU-01 (dual forgetting instruments), C5-12 (existing McNemar +
+%   bootstrap helpers), GEN-12 (significance required), GEN-03
+%   (projected post-calibration weights).
+%
+% Phase 4m.2: This is the first committed content for Chapter 5 --
+% the evaluation-protocol preface for Section~5.1 that defines the
+% seven metric tables (5.1 Headline, 5.2 Calibration, 5.3 Hallucination
+% Decomposition, 5.4 Grounding, 5.5 Data Purity, 5.6 Continual
+% Learning, 5.7 Statistical Significance) before any result is
+% reported. Subsequent sections (§§5.2--5.9) are populated from live
+% experiment outputs and are not drafted in this phase.
+%
+% Note: citation keys lopezpaz2017gradient (Lopez-Paz \& Ranzato 2017,
+% NeurIPS, ``Gradient Episodic Memory for Continual Learning''),
+% brier1950verification (Brier 1950, Monthly Weather Review), and
+% mcnemar1947note (McNemar 1947, Psychometrika) are now present in
+% bibliography/references.bib alongside the 2026-04-17 Ch~2 benchmark
+% additions (joshi-etal-2017-triviaqa, kwiatkowski-etal-2019-natural,
+% li-etal-2023-halueval, clark2018think, hendrycks2021measuring).
+% ============================================================
+
+% ---------------------------------------------------------------
+\section{Experimental Setup}
+\label{sec:exp-setup}
+% ---------------------------------------------------------------
+
+\Cref{sec:exp-setup} defines the evaluation protocol used across the
+remainder of this chapter: the seven benchmarks \caem{} is evaluated on,
+the metric suite applied to each benchmark at each cycle, and the eight
+external baselines against which \caem{} is compared (B1--B8), plus an
+optional STaR ceiling reference reported when compute permits. The
+metric suite is deliberately broader than prior single-number
+evaluations of hallucination systems: a single exact-match score cannot
+disentangle accuracy from calibration, grounding, confabulation, or
+forgetting, and a thesis claiming an \emph{architectural} intervention
+must demonstrate behaviour on each of these axes separately before any
+aggregate claim is accepted.
+
+% ---------------------------------------------------------------
+\subsection{Benchmarks}
+\label{sec:benchmarks}
+% ---------------------------------------------------------------
+
+\caem{} is evaluated on seven factual-QA benchmarks spanning three
+in-domain training benchmarks (FEVER~\cite{thorne-etal-2018-fever},
+TriviaQA~\cite{joshi-etal-2017-triviaqa}, and Natural
+Questions~\cite{kwiatkowski-etal-2019-natural}) and four out-of-domain
+transfer benchmarks
+(HaluEval~\cite{li-etal-2023-halueval},
+TruthfulQA~\cite{lin-etal-2022-truthfulqa},
+StrategyQA~\cite{10.1162/tacl_a_00370},
+and ARC-Challenge~\cite{clark2018think}),
+with MMLU~\cite{hendrycks2021measuring} held out as the out-of-distribution
+retention control for the forgetting-tolerance guard.
+HaluEval is included specifically to test the confident-error axis
+of \caem{}'s claim: the benchmark carries per-sample hallucination
+labels, so the stored-set correctness rate can be cross-checked
+against an external hallucination judgement rather than relying
+purely on EM.
+This split cleanly separates the in-domain contribution of each
+architectural mechanism from its zero-shot transfer effect; the
+ablation study in~\cref{sec:ablation} exploits this separation.
+Benchmark selection rationale and dataset statistics are given in
+\cref{tab:benchmark-overview}.
+
+\begin{table}[t]
+\centering
+\caption{Benchmark panel overview. Split source, sample count per
+cycle, answer format, and metric used for each of the seven
+factual-QA benchmarks plus the MMLU retention control.}
+\label{tab:benchmark-overview}
+\begin{tabular}{lllll}
+\toprule
+Benchmark & Split & $N$ & Answer format & Primary metric \\
+\midrule
+FEVER               & paper\_dev & 500 & 3-way label    & Label accuracy \\
+TriviaQA            & validation & 500 & Free-form      & EM / F1 \\
+Natural Questions   & validation & 500 & Span           & EM / F1 \\
+HaluEval            & QA split   & 500 & Binary         & Hallucination F1 \\
+TruthfulQA          & generation & 500 & Free-form      & ROUGE-L $\ge 0.15$ \\
+StrategyQA          & dev        & 500 & Binary         & Label accuracy \\
+ARC-Challenge       & test       & 500 & 4-way MCQ      & Label accuracy \\
+MMLU (retention)    & 57 subjects& 200 & 4-way MCQ      & Retention ratio $\rho$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% ---------------------------------------------------------------
+\subsection{Metrics}
+\label{sec:metrics}
+% ---------------------------------------------------------------
+
+Every cycle of every benchmark produces a per-sample record containing
+the generated answer, the reasoning chain, the routing tier, wall-clock
+latency, and the full set of verification signals emitted by the
+\textsc{UnifiedVerifier} at Stage~5. The metrics below are computed
+from these per-sample records and are reported in seven dedicated
+tables (Tables~\ref{tab:headline}--\ref{tab:sig-test}). We organise the
+suite into seven categories, each answering a distinct evaluation
+question.
+
+\paragraph{Accuracy and latency (Table~\ref{tab:headline}).}
+Primary correctness is reported with exact match (EM) and token-level
+F1 on free-form answers (TriviaQA, NQ), label accuracy on classification
+benchmarks (FEVER three-way, ARC-Challenge four-way,
+StrategyQA binary), and ROUGE-L$\geq 0.15$ on TruthfulQA following
+Lin et al.~\cite{lin-etal-2022-truthfulqa}.
+Because \caem{}'s architectural value lies in its routing selectivity,
+each benchmark's EM is also reported
+\emph{stratified by routing tier} -- $\mathrm{EM}_{T_1},
+\mathrm{EM}_{T_2}, \mathrm{EM}_{T_3}$ -- so that a rise in Tier~1
+fraction (memory hits) across cycles can be read alongside per-tier
+correctness rather than being averaged away.
+Wall-clock latency is reported per tier for the same reason: Tier~1
+skips full decoding, so the efficiency claim reduces to ``Tier~1
+latency is substantially below Tier~2 and Tier~3 latency, and Tier~1
+share grows across cycles.'' Both quantities are computed via
+\texttt{em\_by\_tier} and \texttt{mean\_latency\_by\_tier} in
+\texttt{eval/metrics.py}.
+
+\paragraph{Calibration (Table~\ref{tab:calibration}).}
+Calibration is quantified with three complementary metrics computed on
+the pooled stream of $(\ustored, \mathrm{correct})$ pairs from every
+stored episode across all seven benchmarks at each cycle.
+The \emph{Expected Calibration Error} (ECE; Guo et
+al.~\cite{pmlr-v70-guo17a}) measures average absolute gap between
+confidence and accuracy over $M=10$ equal-width bins.
+The Brier score~\cite{brier1950verification}
+complements ECE: it is a proper scoring rule that penalises both
+miscalibration and low resolution, and it does not require bin
+aggregation -- a system that is badly calibrated in ways that
+counter-balance inside bins will still receive a poor Brier score
+even as ECE remains low.
+The \emph{area under the ROC curve} (AUROC) treats $\ustored$ as a
+predictor of correctness and measures rank discrimination independent
+of scale; a high AUROC with poor ECE indicates that the confidence
+signal is useful for routing even before calibration.
+Bin-wise \emph{reliability diagrams} (Figure~\ref{fig:reliability})
+ground these scalars visually using the 10-bin decomposition returned
+by \texttt{reliability\_bins}.
+
+\paragraph{Hallucination decomposition (Table~\ref{tab:halluc}).}
+A single hallucination-rate scalar conflates distinct failure modes,
+so we report three rates side by side.
+The \emph{stored-hallucination rate} is the fraction of stored
+episodes that have $\mathrm{EM}=0$ and
+$\ustored \geq 0.50$ -- i.e., stored-with-confidence errors, which is
+the quantity the data purity theorem bounds.
+The \emph{internal-confidence confabulation rate} is the fraction
+with $\mathrm{EM}=0$ and $u_\text{internal} \geq 0.70$,
+capturing over-confident generation regardless of whether the episode
+was stored; this follows the hidden-state-based notion of confabulation
+used by Farquhar et al.~\cite{farquhar2024semantic}.
+The \emph{semantic-entropy confabulation rate} applies the same
+threshold on $(1 - h_{\text{norm}})$, where $h_{\text{norm}}$ is the
+normalised semantic entropy of \caem{}'s $K=10$ answer cluster, serving
+as a direct Farquhar replication on \caem{}'s own samples.
+Reporting all three prevents the case where reducing one form of
+hallucination silently inflates another. All variants are computed
+by the generic helper \texttt{confabulation\_rate} with different
+(signal, threshold) pairs.
+
+\paragraph{Grounding (Table~\ref{tab:grounding}).}
+Two grounding diagnostics isolate the retrieval pathway.
+\emph{Unsupported-correct rate} is the fraction of
+$\mathrm{EM}=1$ samples with $p_{\text{ground,max}} < 0.30$ -- correct
+answers that retrieval evidence did not support.
+\emph{Ungrounded-assertion rate} is the fraction of all samples with
+$p_{\text{ground,max}} \leq 0.30$ and $\ustored \geq 0.50$ -- the
+evaluation-side mirror of the Stage~5 early-exit confabulation gate
+($u_\text{internal} \geq 0.70$ and
+$p_{\text{ground,max}} \leq 0.20$) generalised so the same definition
+serves both the online gate in~\cref{sec:system-overview} and
+this offline diagnostic. The first quantifies parametric-memory
+reliance; the second quantifies confidently-unsupported output
+regardless of correctness.
+
+\paragraph{Data purity (Table~\ref{tab:purity}).}
+The verifier-decision breakdown -- counts and fractions of
+\textsc{STORE}, \textsc{DEFER}, \textsc{ABSTAIN}, and
+\textsc{DISCARD} decisions per cycle -- is reported alongside the
+empirical verifier true-positive rate $\alpha$, the base generation
+accuracy $p$, the theorem's predicted post-storage purity
+$P_\text{theory} = p\alpha / (p\alpha + (1-p)(1-\alpha))$, and the
+measured purity $P_\text{obs}$. This table is the empirical
+instantiation of the purity theorem from~\cref{sec:purity-theorem};
+all five quantities are computed from the same purity-validation split
+defined in~\cref{sec:benchmarks}. The \textsc{STORE} denominator is
+obtained from \texttt{decision\_breakdown}.
+
+\paragraph{Continual learning (Table~\ref{tab:continual}).}
+Forgetting is reported with two instruments, following the dual-metric
+design in~\cref{sec:self-improvement}. \emph{MMLU retention} is the
+ratio of Cycle-$n$ MMLU accuracy (200 questions, shuffled seed~42
+across the 57 subjects) to the Cycle-$0$ pristine-model baseline; it
+is domain-neutral and never trained on, and is the headline forgetting
+metric. In addition, we report \emph{backward transfer} and
+\emph{forward transfer} following the gradient-episodic-memory
+convention of Lopez-Paz and
+Ranzato~\cite{lopezpaz2017gradient}.
+Backward transfer averages $R_{T,i} - R_{i,i}$ over earlier
+benchmarks $i$; positive values indicate that later cycles improved
+earlier benchmarks, and negative values indicate catastrophic
+forgetting. Forward transfer averages $R_{i-1,i} - \bar b_i$ relative
+to the Cycle-$0$ baseline and measures whether learning on earlier
+cycles helps benchmarks not yet reached.
+Reporting both in addition to MMLU retention answers
+the per-benchmark-per-cycle drift question that MMLU retention (being
+a single scalar) cannot address.
+
+\paragraph{Unified efficacy (CAEM Efficacy Score).}
+Because a reviewer must read the seven tables above quickly, we report
+a single composite scalar -- the \emph{\caem{} Efficacy Score} (CES) --
+as the geometric mean of five orthogonal axes:
+\[
+\mathrm{CES} = \bigl(\mathrm{ACC} \cdot \mathrm{EPI} \cdot \mathrm{RET}
+                    \cdot \mathrm{CAL} \cdot \mathrm{VER}\bigr)^{1/5},
+\]
+with $\mathrm{ACC}$ the mean EM across all seven benchmarks,
+$\mathrm{EPI} = 1 - \text{(pooled confident-error rate)}$,
+$\mathrm{RET} = \min(\text{MMLU retention ratio},\,1)$,
+$\mathrm{CAL} = 1 - 2\min(\mathrm{ECE},\,0.5)$,
+and $\mathrm{VER} = \max(2\beta - 1,\,0)$ where $\beta$ is the
+verifier's balanced accuracy on labelled validation data. Each
+component is clamped to $[0.01, 1]$ so that a transient failure on
+one axis does not zero the score, but the geometric form ensures
+that a genuine collapse on any axis (for instance, catastrophic
+forgetting destroying $\mathrm{RET}$) pulls CES down rather than
+being averaged away. CES is a thesis-introduced aggregate used
+\emph{only} as a visualisation and headline scalar; the seven
+component tables remain the authoritative quantitative record, and
+CES is always reported with all five constituent values.
+
+\paragraph{Statistical significance (Table~\ref{tab:sig-test}).}
+All accuracy comparisons between \caem{} and baselines are tested
+for significance using McNemar's
+test~\cite{mcnemar1947note} with the Edwards continuity correction,
+applied to paired per-question correct/incorrect outcomes. Non-parametric
+$95\%$ confidence intervals for EM are computed by bootstrap resampling
+with $B = 1000$ resamples. Both computations use the existing
+\texttt{mcnemar\_test} and \texttt{bootstrap\_ci} helpers in
+\texttt{eval/metrics.py}, which were written and tested before the
+experiment phase.
+
+Because \caem{} is compared against eight baselines across seven
+benchmarks, the raw test count is $8 \times 7 = 56$ pairwise McNemar
+tests per cycle, and a naive $p < 0.05$ threshold would inflate the
+family-wise error rate to approximately $1 - 0.95^{56} \approx 0.94$.
+We therefore apply the Holm--Bonferroni step-down
+correction~\cite{holm1979simple} within each benchmark family: the
+seven per-benchmark \caem{}-vs-baseline $p$-values are sorted in
+ascending order, and the $k$-th smallest is compared against
+$0.05 / (m - k + 1)$ where $m = 8$ is the number of baselines. This
+is uniformly more powerful than plain Bonferroni while preserving the
+family-wise error rate at $\alpha_{\text{fam}} = 0.05$, and is the
+accepted correction for structured pairwise-comparison panels of
+this size. A result is marked ``significant'' in
+Table~\ref{tab:sig-test} only when it survives this step-down
+correction; results that are directionally positive but fail the
+correction are reported with both the raw and corrected $p$-values
+so the reader can distinguish a suggestive trend from a confirmed
+effect.
+
+We separately require a minimum practical-significance effect size of
+$\Delta \mathrm{EM} \geq 0.02$ (absolute, two percentage points on a
+$500$-sample benchmark). McNemar's statistical test has high power at
+this sample size and will flag effects as small as $\Delta \approx 0.01$
+as significant, but differences below two points are within the cycle-
+to-cycle variation \caem{} itself exhibits on a held-out seed, so we
+do not claim architectural advantage below that threshold even when
+the test is significant. Table~\ref{tab:sig-test} therefore reports
+two markers: $\dagger$ for Holm-corrected $p < 0.05$, and $\star$ for
+the conjunction of Holm-corrected $p < 0.05$ \emph{and}
+$\Delta \mathrm{EM} \geq 0.02$. The thesis's architectural claims are
+licensed only by the $\star$ marker; the $\dagger$ marker identifies
+directionally positive effects whose magnitude is too small for the
+claim to be practically meaningful, even though the underlying
+comparison is statistically sound.
+
+Where \caem{} loses a comparison (a baseline's EM exceeds \caem{}'s on
+some benchmark), we apply the same two-stage rule in reverse: a
+baseline is reported as strictly superior to \caem{} on a benchmark
+only if $\Delta \mathrm{EM} \leq -0.02$ with Holm-corrected
+$p < 0.05$. This symmetric framing prevents the write-up from silently
+suppressing the baseline-wins case, which is a common failure mode
+in architectural evaluations and one that the ablation
+discussion~(\S\ref{sec:ablation-results}) treats as legitimate
+evidence rather than as noise to be explained away.
+
+\paragraph{Summary.}
+The seven metric categories above answer seven distinct evaluation
+questions: \emph{Is \caem{} more accurate and faster than its
+baselines?} (Table~\ref{tab:headline});
+\emph{Are \caem{}'s confidence signals well-calibrated?}
+(Table~\ref{tab:calibration});
+\emph{Has \caem{} reduced confident errors across every hallucination
+sub-type?} (Table~\ref{tab:halluc});
+\emph{Is \caem{}'s retrieval pathway earning its slot?}
+(Table~\ref{tab:grounding});
+\emph{Does the purity theorem's prediction match measurement?}
+(Table~\ref{tab:purity});
+\emph{Does self-improvement proceed without catastrophic forgetting
+in any direction?} (Table~\ref{tab:continual});
+\emph{Are the claimed improvements statistically significant?}
+(Table~\ref{tab:sig-test}).
+CES provides the single-scalar visualisation of these axes.
+The remainder of this chapter populates each table in turn.
+
+% ---------------------------------------------------------------
+\subsection{Baselines}
+\label{sec:baselines}
+% ---------------------------------------------------------------
+
+\caem{} is compared against eight external baselines spanning the
+three families of prior systems identified in
+\cref{sec:external-baselines}: prompt-level reasoning, retrieval
+augmentation, and training-time self-improvement. All eight share the
+\mbox{Flan-T5-Large} (780M) backbone wherever a backbone swap would not
+invalidate the method, and all eight are run on the same seven-benchmark
+factual-QA panel with the same 500-sample draw per benchmark, so any
+difference in score isolates the contribution of the architectural
+component that distinguishes the baseline from \caem{}.
+
+\begin{description}
+  \item[B1 --- Zero-shot Flan-T5-Large.]
+  The same 780M-parameter backbone \caem{} fine-tunes, invoked with no
+  CoT prefix, no retrieval, and no verification. This is the empirical
+  floor: any gain \caem{} reports must exceed this score, otherwise the
+  gain is attributable to model capacity alone.
+
+  \item[B2 --- Chain-of-Thought.]
+  Flan-T5-Large with the ``Let's think step by step'' prefix
+  \cite{wei2022chain}, no retrieval, no verification. Isolates the
+  contribution of intermediate reasoning on the same backbone.
+
+  \item[B3 --- DPR-RAG.]
+  Dense Passage Retrieval \cite{karpukhin-etal-2020-dense} with
+  $k=5$ Wikipedia passages concatenated into a 384-token context and
+  generated from the same Flan-T5-Large backbone
+  \cite{NEURIPS2020_6b493230}. Isolates the contribution of external
+  grounding without any verification or memory.
+
+  \item[B4 --- CoT + DPR-RAG.]
+  B3 with the CoT prefix prepended. Isolates the contribution of
+  reasoning over retrieved evidence.
+
+  \item[B5 --- FLARE.]
+  Active retrieval-augmented generation \cite{jiang-etal-2023-active}
+  with confidence floor $\theta = 0.4$ and a 64-token look-ahead
+  window, using the same DPR index as B3 and B4. Isolates the
+  contribution of confidence-gated retrieval, which is the closest
+  prior mechanism to \caem{}'s tier routing; the B5-versus-\caem{}
+  gap measures whether three tiers and the nine-signal composite
+  meaningfully improve on a single-tier confidence gate.
+
+  \item[B6 --- Vanilla fine-tuning.]
+  Flan-T5-Large trained for the same ten cycles as \caem{} on the
+  verified episode pool, but without the $L_2$ anchor, without the
+  MMLU retention guard, and without the episodic memory or the
+  verifier at inference time, so every selected episode is treated as
+  a clean label. Isolates the contribution of \caem{}'s
+  retention-protection machinery.
+
+  \item[B7 --- EWC-only fine-tuning.]
+  B6 with the $L_2$ anchor and the MMLU retention guard added
+  \cite{doi:10.1073/pnas.1611835114} but with the verifier, the
+  nine-signal composite, the memory, and the routing all still
+  stripped. Isolates the contribution of the
+  verification-and-memory machinery once retention machinery is held
+  equal.
+
+  \item[B8 --- Self-RAG (citation-only).]
+  Asai et al.~\cite{asai2024selfrag} is the most ambitious
+  retrieve-and-critique pipeline in the prior literature but its
+  critic tokens are tied to a LLaMA-family backbone. Re-targeting
+  them to Flan-T5-Large would change enough of the system that the
+  resulting number would measure backbone and prompt-engineering
+  differences more than architectural differences, so Self-RAG is
+  included as a positioning reference rather than as a replicated
+  numerical baseline.
+\end{description}
+
+Optional ceiling reference: \textbf{STaR}
+\cite{NEURIPS2022_639a9a17}, the pure iterative-refinement scheme
+reviewed in \cref{sec:external-baselines}, is reported separately where
+compute permits, and serves as an aspirational upper bound for what a
+verification-free bootstrap can reach on the same backbone.
+
+Each baseline lacks exactly one of \caem{}'s architectural components;
+the pairwise comparisons in \cref{sec:main-results} isolate the
+contribution of that component. Implementation details, shared backbone
+model, and compute budget are given in~\cref{sec:impl-details}.
+
+% ---------------------------------------------------------------
+\subsection{Implementation Details}
+\label{sec:impl-details}
+% ---------------------------------------------------------------
+
+All results in this chapter are produced by a single implementation
+run against a pinned set of dependencies and a fixed hardware
+envelope. This subsection records the substrate so that any number
+reported in \S\ref{sec:main-results}--\S\ref{sec:ablation-results} is
+traceable to a specific model checkpoint, GPU, configuration file,
+and random seed.
+
+\paragraph{Backbone and supporting models.}
+The generator is Flan-T5-Large~(\cite{JMLR:v25:23-0870}, $780$M
+parameters), loaded at \texttt{bfloat16} precision. Sentence-level
+embeddings for episodic memory keys, retrieval similarity, and
+semantic-entropy clustering are produced by the frozen
+\texttt{all-mpnet-base-v2} sentence
+encoder~(\cite{reimers-gurevych-2019-sentence}, $110$M parameters,
+$768$-dim output). NLI entailment and contradiction probabilities
+feeding the verifier's nine-signal composite are produced by the
+frozen \texttt{roberta-large-mnli} cross-encoder~(\cite{liu2019roberta},
+$355$M parameters). The same three checkpoints are used by every
+\caem{} variant and by every retrieval-family baseline (B3 DPR-RAG,
+B4 CoT+RAG, B5 FLARE); backbone identity is held constant across the
+comparison panel so that score differences isolate architectural
+contributions rather than capacity differences.
+
+\paragraph{Hardware.}
+Cycle-level training and evaluation run on a single NVIDIA
+RTX~4090 ($24$~GB VRAM) rented through Vast.ai, paired with a
+Ryzen-class host CPU and $64$~GB of system RAM. The L$_2$ anchor
+$\theta_{\text{prev}}$ co-resides on GPU with the training parameters
+so that the anchor penalty can be computed without host-device
+transfers each step, which doubles the effective weight footprint
+during a cycle and motivates the \texttt{bfloat16} precision choice.
+The episodic-memory FAISS index stays on GPU for vector search and
+spills to CPU only for periodic save; the Wikipedia DPR passage index
+($21$M vectors) is held on CPU throughout because its size exceeds
+what can be co-resident with the generator on a single $24$~GB card.
+
+\paragraph{Cycle structure and sample budgets.}
+\caem{} is trained for $N = 10$ self-improvement cycles following the
+schedule in \S\ref{sec:self-improvement}. At every cycle the
+generator is evaluated on the full seven-benchmark panel with
+$n_{\text{eval}} = 500$ questions per benchmark drawn under the
+fixed split assignments documented in Table~\ref{tab:benchmark-overview}.
+Four additional disjoint sample splits support the per-cycle
+diagnostics: $n_{\text{cal}} = 500$ for temperature calibration and
+reliability-diagram fitting, $n_{\text{purity}} = 500$ for the
+verifier-balanced-accuracy estimate and the
+$\lvert P_{\text{theory}} - P_{\text{obs}} \rvert$ comparison that
+populates Table~\ref{tab:purity}, $n_{\text{MMLU}} = 200$ shuffled
+across the 57 MMLU subjects for the retention guard, and
+$n_{\text{screen}} = 1\,500$ for the Phase~1 screening sweep that
+ranks the sixteen training-time ablation variants before the
+confirmatory panel. All five splits are non-overlapping within a
+benchmark and the split assignment is fixed across cycles and across
+all ablation variants.
+
+\paragraph{Cold-start memory.}
+Cycle~$0$ begins with a pre-populated episodic store of $447$
+verified episodes drawn from an 80/20 stratification of the three
+in-domain training benchmarks (FEVER, TriviaQA, Natural Questions)
+under the same Stage~5 verifier used online, seeded with the pristine
+Flan-T5-Large backbone. This is documented in detail in the
+cold-start section of \S\ref{sec:self-improvement}; the role of the
+$447$ episodes is to give Tier~1 retrieval a non-empty index on the
+very first query of Cycle~$0$ so that the routing decision can be
+exercised from the first sample rather than starting with an
+inevitable Tier~2/Tier~3 fallback.
+
+\paragraph{Reproducibility.}
+Every cycle run is controlled by a single configuration dataclass
+(\texttt{caem.config.CAEMConfig}) that records every numeric constant
+in the system; each constant carries a literature~[LIT], design~[DES],
+or calibration~[CAL] tag per~\S\ref{sec:implementation}, and the
+dataclass asserts at load that no field is missing. Random seeds are
+pinned at three levels: Python's \texttt{random} (\texttt{seed=42}),
+NumPy (\texttt{np.random.seed(42)}), and PyTorch
+(\texttt{torch.manual\_seed(42)}, \texttt{torch.cuda.manual\_seed\_all(42)}),
+with \texttt{torch.backends.cudnn.deterministic = True} for
+convolutional kernels. Benchmark splits are materialised once to
+disk with a frozen sample ordering so that re-running Cycle-$n$ months
+later under the same seed produces the same per-sample records. The
+framework versions that any reported number is bound to are Python
+$3.10$, PyTorch $2.1$, HuggingFace Transformers $4.36$, Datasets
+$2.16$, sentence-transformers $2.3$, and \texttt{faiss-cpu} $1.7$.
+
+\paragraph{Compute budget summary.}
+One complete \caem{} run (Cycles~$0$--$10$ across the seven benchmarks
+plus MMLU retention, plus calibration and purity diagnostics) occupies
+approximately $18$ GPU-hours on the RTX~4090 envelope. The external
+baseline panel (\S\ref{sec:baselines}, B1--B7) adds approximately
+$16$ GPU-hours sequentially ($\sim 3.5$ hours for the five inference
+baselines B1--B5 combined, $\sim 12$ hours for the two training
+baselines B6--B7 combined, each of which runs for the same $10$
+cycles as \caem{}). The optional STaR ceiling reference adds a further
+$\sim 8$ GPU-hours when compute permits; Self-RAG is included as a
+positioning reference rather than a replicated numerical baseline
+(\S\ref{sec:baselines}, B8) and contributes no GPU time. The Phase~1
+screening sweep over the sixteen training-time variants at three
+cycles and $n_{\text{screen}} = 1\,500$ occupies a further $\sim 24$
+GPU-hours before the confirmatory panel narrows to the subset that
+earns full $10$-cycle runs.
+
+% ---------------------------------------------------------------
+\section{Ablation Methodology}
+\label{sec:ablation}
+% ---------------------------------------------------------------
+
+This section describes the ablation protocol that populates the
+ablation table in \S\ref{sec:ablation-results}.
+
+\paragraph{Training-time versus inference-time variants.}
+\caem{} is a stateful system whose weights evolve across cycles.
+An ablation that merely disables a mechanism at inference --- while
+evaluating on weights that were already \emph{shaped} by that mechanism
+in previous cycles --- does not measure the mechanism's contribution;
+it measures a counterfactual confound. We therefore classify every
+ablation variant as either \emph{inference-time} (the mechanism can be
+flipped off without changing training history, so the reference-run
+weights may be reused) or \emph{training-time} (the mechanism alters
+storage admission, verification decisions, the self-improvement loss,
+or any other signal that feeds back into subsequent cycles, so the
+variant requires its own full cyclic rerun from the pristine baseline).
+Under strict application of this principle, only two variants are
+inference-time: the full system and
+\texttt{no\_self\_improvement}; all 14 remaining variants are
+training-time and obtain their own 10-cycle trajectory.
+
+\paragraph{Variant registry.}
+A named registry of 16 variants is defined in
+\texttt{caem/ablation/variants.py} and dispatched by
+\texttt{scripts/run\_cyclic\_ablation.py}. Each cyclic rerun writes its
+cycle-wise CES axes to
+\texttt{outputs/ablation/<variant>/seed\_<N>/ces\_axes\_per\_cycle.json},
+and \texttt{scripts/aggregate\_ablation.py} assembles the per-variant
+rows for the ablation table. Table~\ref{tab:ablation-registry}
+summarises the registry.
+
+\begin{center}
+\captionof{table}[Ablation Registry]{Sixteen named ablation variants.
+Training-time variants each receive their own cyclic rerun; inference-time
+variants reuse the reference-run weights.}
+\label{tab:ablation-registry}
+\renewcommand{\arraystretch}{1.2}
+\footnotesize
+\begin{tabular}{@{}p{4.2cm} p{1.8cm} p{8.2cm}@{}}
+\toprule
+\textbf{Variant} & \textbf{Class} & \textbf{What it disables / forces} \\
+\midrule
+\texttt{full} & inference & Reference run; no mechanism disabled. \\
+\texttt{no\_self\_improvement} & inference & Disable Stage~8 fine-tuning; freeze weights at $\theta_0$. \\
+\texttt{no\_tier1} & training & Force Tier~2/3 for every query; memory never serves answers. \\
+\texttt{no\_retrieval} & training & Disable Tier~3 RAG retrieval entirely. \\
+\texttt{no\_verification} & training & Accept every generation into memory regardless of $\ustored$. \\
+\texttt{no\_nli} & training & Drop the NLI entailment signal from $\ustored$. \\
+\texttt{no\_selfcons} & training & Drop the self-consistency signal from $\ustored$. \\
+\texttt{no\_entropy} & training & Drop the semantic-entropy signal from $\ustored$. \\
+\texttt{no\_routing} & training & Disable OR-condition safety veto; route purely on $u_{\text{pre}}$. \\
+\texttt{no\_cold\_start} & training & Begin Cycle~0 with empty memory (skip 447-episode seed). \\
+\texttt{no\_abort\_guard} & training & Disable $\rho < 0.93$ forgetting circuit-breaker. \\
+\texttt{no\_l2\_anchor} & training & Set $\lambda = 0$; fine-tune without L2 anchor toward $\theta_{\text{prev}}$. \\
+\texttt{no\_retroverify} & training & Skip end-of-cycle retroactive re-verification pass. \\
+\texttt{no\_memory\_prune} & training & Disable memory pruning; allow unbounded store growth. \\
+\texttt{no\_mcdropout} & training & Drop MC-Dropout signal from $u_{\text{pre}}$. \\
+\texttt{lower\_u\_threshold} & training & Replace $\ustored \geq 0.50$ admission with $\ustored \geq 0.30$. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\paragraph{Two-phase sweep protocol.}
+Running all 14 training-time variants at the confirmatory
+configuration ($n=5000$ SIL per cycle, 10 cycles, 3 seeds) exceeds the
+project's self-funded compute envelope. The study therefore uses a
+two-phase protocol.\footnote{The screening pass is a methodological
+instrument to allocate confirmatory budget to the highest-$\Delta$CES
+candidates; screening runs are not reported in the main ablation table.
+Variant selection is pre-registered in
+\texttt{caem-implementation-log.md} (Session~44) before the confirmatory
+pass begins.} Phase~1 (self-funded, approximately USD~200) executes a
+screening pass at $n=1500$ SIL for 3~cycles on a single seed (42) across
+the entire 16-variant registry, ranks variants by point-estimate
+$\Delta$CES, and then commits budget to the confirmatory pass at
+$n=5000$ SIL for 10~cycles on a single seed for the top candidates
+plus the reference run. Phase~2 (post-funding, approximately
++USD~700) re-runs the confirmatory pass for seeds 123 and 456 across
+every cyclic variant, enabling mean$\pm$std reporting and
+within-variant McNemar tests. Phase~1 results will be disclosed as
+point estimates with an explicit single-seed limitation paragraph in
+\S\ref{sec:ablation-results}; Phase~2 tables, once collected, will
+supersede them with variance-bearing reports.
+
+\paragraph{Metric reported.}
+Each variant row reports the five CES axes
+(ACC, EPI, RET, CAL, VER) and the geometric-mean scalar CES at the
+final cycle of its own trajectory, plus $\Delta\text{CES}$ relative to
+the reference run with independent-seeds standard-deviation propagation
+once Phase~2 data is available. The per-cycle CES trace is also plotted
+for the reference run and for the ablation variants whose $\Delta$CES
+pattern across cycles is diagnostic (typically
+\texttt{no\_self\_improvement}, \texttt{no\_verification}, and
+\texttt{no\_retroverify}).
+
+% ---------------------------------------------------------------
+\section{Main Results}
+\label{sec:main-results}
+% ---------------------------------------------------------------
+
+This section reports the seven metric-category tables introduced in
+\cref{sec:metrics}, together with the three empirical validations of
+the theoretical claims stated in~\cref{sec:theoretical-analysis}.
+Each table below carries a caption and label already referenced from
+the methodology paragraphs; numbers are populated from the
+confirmatory-pass outputs at Cycle~$N$ and are reported with 95\%
+confidence intervals where applicable.
+
+% ---- Placeholder scaffolds for the seven metric-category tables ----
+\begin{table}[t]
+\centering
+\caption{Headline accuracy and latency. Populated from
+\texttt{outputs/eval/\{bm\}\_cycle\{N\}.json} via
+\texttt{eval/reporting.build\_table\_headline}.}
+\label{tab:headline}
+\begin{tabular}{lrrrr}
+\toprule
+Benchmark & EM & $\mathrm{EM}_{T_1}$ & $\mathrm{EM}_{T_2}$ & $\mathrm{EM}_{T_3}$ \\
+\midrule
+\multicolumn{5}{c}{\emph{[To be populated from confirmatory-pass outputs.]}}\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[t]
+\centering
+\caption{Calibration: ECE, Brier score, and AUROC on pooled
+$(\ustored, \mathrm{correct})$ pairs per cycle. Populated from
+\texttt{eval/metrics.\{ece,brier,auroc\}}.}
+\label{tab:calibration}
+\begin{tabular}{lrrr}
+\toprule
+Cycle & ECE & Brier & AUROC \\
+\midrule
+\multicolumn{4}{c}{\emph{[To be populated from confirmatory-pass outputs.]}}\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[t]
+\centering
+\caption{Hallucination decomposition by sub-type
+(confabulation, ungrounded, contradiction).}
+\label{tab:halluc}
+\begin{tabular}{lrrr}
+\toprule
+Cycle & Confabulation & Ungrounded & Contradiction \\
+\midrule
+\multicolumn{4}{c}{\emph{[To be populated from confirmatory-pass outputs.]}}\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[t]
+\centering
+\caption{Routing-distribution audit. Fraction of queries dispatched
+to Tier~1, Tier~2, and Tier~3 per cycle, with the safety-override
+fraction reported separately. Populated from
+\texttt{outputs/eval/routing\_\{cycle\}.json}.}
+\label{tab:routing}
+\begin{tabular}{lrrrr}
+\toprule
+Cycle & Tier~1 & Tier~2 & Tier~3 & Override \\
+\midrule
+\multicolumn{5}{c}{\emph{[To be populated from confirmatory-pass outputs.]}}\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[t]
+\centering
+\caption{Verifier-signal attribution. Per-signal AUROC against
+per-query correctness, reported for each of the nine signals in
+the composite.}
+\label{tab:verifier-attrib}
+\begin{tabular}{lr}
+\toprule
+Signal & AUROC \\
+\midrule
+\multicolumn{2}{c}{\emph{[To be populated from confirmatory-pass outputs.]}}\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[t]
+\centering
+\caption{Episodic-memory growth and storage-outcome distribution by
+cycle (\textsc{Store} / \textsc{Deferred} / \textsc{Abstain} /
+\textsc{Discard}).}
+\label{tab:memory-growth}
+\begin{tabular}{lrrrrr}
+\toprule
+Cycle & $|\mathcal{M}|$ & Store & Deferred & Abstain & Discard \\
+\midrule
+\multicolumn{6}{c}{\emph{[To be populated from confirmatory-pass outputs.]}}\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[t]
+\centering
+\caption{CES composite and its five axes (ACC, EPI, RET, CAL, VER)
+per cycle, with 95\% paired-seed confidence intervals.}
+\label{tab:ces}
+\begin{tabular}{lrrrrrr}
+\toprule
+Cycle & CES & ACC & EPI & RET & CAL & VER \\
+\midrule
+\multicolumn{7}{c}{\emph{[To be populated from confirmatory-pass outputs.]}}\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[t]
+\centering
+\caption{Grounding diagnostics per cycle. Unsupported-correct rate and
+ungrounded-assertion rate, computed as defined in \cref{sec:metrics}.}
+\label{tab:grounding}
+\begin{tabular}{lrr}
+\toprule
+Cycle & Unsupported-correct (\%) & Ungrounded-assertion (\%) \\
+\midrule
+\multicolumn{3}{c}{\emph{[To be populated from confirmatory-pass outputs.]}}\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[t]
+\centering
+\caption{Continual-learning diagnostics: MMLU retention ratio,
+backward transfer (BWT), and forward transfer (FWT) per cycle.}
+\label{tab:continual}
+\begin{tabular}{lrrr}
+\toprule
+Cycle & MMLU retention $\rho$ & BWT & FWT \\
+\midrule
+\multicolumn{4}{c}{\emph{[To be populated from confirmatory-pass outputs.]}}\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[t]
+\centering
+\caption{Data-purity validation (\cref{thm:purity}). Per-cycle
+base accuracy $p$, verifier true-positive rate $\alpha$, theorem
+prediction $P_{\text{theory}} = p\alpha / (p\alpha + (1-p)(1-\alpha))$,
+and measured post-storage purity $P_{\text{obs}}$.}
+\label{tab:purity}
+\begin{tabular}{lrrrr}
+\toprule
+Cycle & $p$ & $\alpha$ & $P_{\text{theory}}$ & $P_{\text{obs}}$ \\
+\midrule
+\multicolumn{5}{c}{\emph{[To be populated from confirmatory-pass outputs.]}}\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[t]
+\centering
+\caption{Purity convergence trajectory (\cref{thm:convergence}).
+Per-cycle observed purity $P_c$, first-difference increment
+$\Delta P_c = P_c - P_{c-1}$, and the fitted envelope predicted by
+the theorem's upper bound $p_{c+1} \le P_c$.}
+\label{tab:purity-convergence}
+\begin{tabular}{lrrr}
+\toprule
+Cycle & $P_c$ & $\Delta P_c$ & Envelope bound \\
+\midrule
+\multicolumn{4}{c}{\emph{[To be populated from confirmatory-pass outputs.]}}\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[t]
+\centering
+\caption{Statistical significance of \caem{} versus each external
+baseline (B1--B7). Paired McNemar test with Edwards correction per
+benchmark, bootstrap-resampled 95\% CI for EM difference.}
+\label{tab:sig-test}
+\begin{tabular}{llrrr}
+\toprule
+Baseline & Benchmark & $\Delta$EM & McNemar $p$ & 95\% CI \\
+\midrule
+\multicolumn{5}{c}{\emph{[To be populated from confirmatory-pass outputs.]}}\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[t]
+\centering
+\fbox{\parbox{0.8\textwidth}{\centering\emph{[Reliability diagram
+placeholder. Ten equal-width bins of $\ustored$ on the $x$-axis;
+observed accuracy on the $y$-axis. Populated from the pooled
+$(\ustored,\mathrm{correct})$ stream at Cycle~$N$.]}\\[4pt]\vspace{4em}}}
+\caption{Reliability diagram on pooled $(\ustored, \mathrm{correct})$
+pairs at Cycle~$N$, with ten equal-width confidence bins. Departure
+from the $y=x$ identity line quantifies miscalibration; the ECE
+value in Table~\ref{tab:calibration} is its weighted $L_1$ norm.}
+\label{fig:reliability}
+\end{figure}
+
+\begin{figure}[t]
+\centering
+\fbox{\parbox{0.8\textwidth}{\centering\emph{[Purity trajectory
+placeholder. Cycle index on the $x$-axis; measured pool purity
+$P_c$ on the $y$-axis, with the theorem's predicted envelope
+overlaid. Populated from \texttt{outputs/purity\_validation/
+theory\_validation.json}.]}\\[4pt]\vspace{4em}}}
+\caption{Pool-purity trajectory across cycles $0,\ldots,N$.
+Solid line: measured $P_c$ from the purity-validation split; dashed
+line: envelope predicted by \cref{thm:monotonicity} and
+\cref{thm:convergence}.}
+\label{fig:purity-trajectory}
+\end{figure}
+
+\paragraph{Theoretical validations.} Three empirical checks close the
+chapter. First, the data-purity curve from~\cref{thm:purity} is plotted
+against the measured Cycle~$t$ pool-purity trace. Second, the
+monotonicity prediction of~\cref{thm:monotonicity} is checked by
+verifying that the measured trace is non-decreasing in the
+$\alpha > \tfrac{1}{2}$ regime. Third, the convergence claim
+of~\cref{thm:convergence} is checked by fitting the late-cycle
+increments $\Delta P_t$ against the predicted envelope.
+
+% ---------------------------------------------------------------
+\section{Ablation Results}
+\label{sec:ablation-results}
+% ---------------------------------------------------------------
+
+This section reports the sixteen-variant ablation table introduced
+in~\cref{sec:ablation}. For every variant the table records the CES
+composite, its five axes, the $\Delta$CES against the full-CAEM
+reference row, and the paired-seed significance test. Screening-pass
+variants whose $\Delta$CES crosses the significance band are rerun
+confirmatory and reported with the full five-axis decomposition;
+remaining variants are reported with CES and $\Delta$CES only. The
+table scaffold, metric columns, and row ordering are fixed in the
+ablation registry (Table~\ref{tab:ablation-registry}); Phase~2
+populates the numbers.
+
+\begin{table}[t]
+\centering
+\caption{Ablation results. CES and five-axis decomposition for each
+variant in the registry, with paired-seed $\Delta$CES against the
+full-CAEM reference row.}
+\label{tab:ablation-main}
+\begin{tabular}{lrrrrrrr}
+\toprule
+Variant & CES & ACC & EPI & RET & CAL & VER & $\Delta$CES \\
+\midrule
+\multicolumn{8}{c}{\emph{[To be populated from confirmatory-pass outputs.]}}\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% ---------------------------------------------------------------
+\section{Chapter Summary}
+\label{sec:ch5-summary}
+% ---------------------------------------------------------------
+
+Chapter~5 fixes the experimental protocol for the Phase~2 run: a
+seven-benchmark factual-QA panel with an MMLU retention control, the
+CES geometric-mean composite with its five validated axes, the eight
+external baselines (plus one optional STaR ceiling), and the
+sixteen-variant cyclic ablation registry. The seven metric-category
+tables (\cref{tab:headline,tab:calibration,tab:halluc,tab:routing,tab:verifier-attrib,tab:memory-growth,tab:ces})
+and the ablation table (\cref{tab:ablation-main}) are scaffolded
+above and populated by Phase~2; the three theoretical validations
+(\cref{thm:purity,thm:monotonicity,thm:convergence}) are checked
+against the same confirmatory-pass trace. The methodological claims
+of~\cref{ch:requirements,ch:methodology} are the objects under test.

@@ -1,18 +1,23 @@
-﻿"""
+"""
 caem/memory/entry.py
 ====================
 Data schemas for the CAEM episodic memory system.
 
-Three distinct confidence value types are defined here -- do NOT confuse them:
+Two distinct pre-verification confidence value types live here:
 
-  PreRoutingConfidence  -- computed in Stage 3, BEFORE routing, from 2 fast signals.
-  PostGenerationConfidence -- computed in Stage 4a, Tier 2 ONLY, from 4 signals.
-  StoredConfidence      -- derived from Stage 5 verification; stored with the episode.
+  PreRoutingConfidence     -- Stage 3, BEFORE routing, 2 fast signals.
+  PostGenerationConfidence -- Stage 4a, Tier 2 ONLY, 4 signals.
 
-The EpisodicEntry holds BOTH immutable content fields (never changed after storage,
-because the fine-tuning dataset is derived from them -- a moving target would break
-training) AND mutable quality metadata (updated across cycles by retroactive
-re-verification and retrieval feedback).
+Stage-5 verification output is ``UnifiedVerifierOutput`` (see
+``caem.verification.verifier``). EpisodicEntry stores a flattened
+copy of its nine signals -- plus p_contra, the decision string, and the
+early-exit flag -- directly on the entry; the Session-42 redesign removed
+the prior ``StoredConfidence`` projection dataclass.
+
+EpisodicEntry holds BOTH immutable content fields (never changed after
+storage, because the fine-tuning dataset is derived from them -- a moving
+target would break training) AND mutable quality metadata (updated across
+cycles by retroactive re-verification and retrieval feedback).
 
 See: pipeline-technical.md §Data Schemas and §EpisodicMemoryStore
 """
@@ -45,7 +50,9 @@ class EpisodicEntry:
     --------------
     Quality and usage metadata are updated across cycles by:
       - Retrieval feedback loop (u_stored, success_rate, retrieval_count)
-      - Retroactive re-verification (u_stored, nli_score, sc_score, se_score,
+      - Retroactive re-verification (u_stored plus all nine signals
+        u_token/u_dropout/u_internal/s_avg/h_norm/p_entail/p_ground_max/
+        p_ground_mean/p_ground_atomic, p_contra, decision, early_exit_triggered,
         retroverified) -- run once per improvement cycle on the full memory.
     """
 
@@ -69,22 +76,62 @@ class EpisodicEntry:
     timestamp: float = field(default_factory=time.time)
     """Unix timestamp at storage time (set automatically if not provided)."""
 
-    # -- Mutable quality metadata ------------------------------------------- #
+    # -- Mutable quality metadata (Session 42 nine-signal layout) ----------- #
     u_stored: float = 0.0
-    """Combined stored confidence ∈ [0, 1].
-    Initialised from Stage 5 verification output.
-    Formula (full): 0.50·p_entail + 0.30·s_avg + 0.20·(1 − h_norm).
+    """Combined stored confidence in [0, 1] (the composite prior).
+    Formula (Session 42, six-weight):
+        0.30*p_ground_mean + 0.15*p_ground_atomic
+        + 0.15*p_entail + 0.15*s_avg + 0.15*u_internal
+        + 0.10*(1 - h_norm)
     Updated by retrieval feedback and retroactive re-verification."""
 
-    nli_score: float = 0.0
-    """P(ENTAILMENT) from RoBERTa-Large-MNLI ∈ [0, 1]."""
+    # Internal calibration (3 signals) --------------------------------------- #
+    u_token: float = 0.0
+    """Mean token log-prob from generation in [0, 1] (higher = more confident)."""
 
-    sc_score: float = 0.0
-    """s_avg from self-consistency (average pairwise cosine sim) ∈ [0, 1]."""
+    u_dropout: float = 0.0
+    """MC-dropout variance across K=5 passes in [0, 1] (Gal & Ghahramani 2016)."""
 
-    se_score: float = 0.0
-    """1 − Ĥ from semantic entropy ∈ [0, 1] (higher = less uncertain)."""
+    u_internal: float = 0.0
+    """0.5*u_token + 0.5*(1 - u_dropout)  in [0, 1]."""
 
+    # Sample-set signals (3) ------------------------------------------------- #
+    s_avg: float = 0.0
+    """Mean unique-pair SBERT cosine sim across M=3 chains in [0, 1]
+    (Wang et al. 2022, self-consistency; i<j pair convention)."""
+
+    h_norm: float = 0.0
+    """Normalised semantic entropy H / log2(K) over K=10 samples in [0, 1]
+    (Farquhar et al. 2024). Higher = more disagreement. Stored raw; the
+    u_stored formula applies (1 - h_norm)."""
+
+    p_entail: float = 0.0
+    """Mean P(chain -> answer entailment) over M chains, ensemble-min across
+    NLI models in [0, 1]."""
+
+    # External grounding (4 signals) ----------------------------------------- #
+    p_ground_max: float = 0.0
+    """Top-1 reranked passage -> answer NLI entailment in [0, 1]."""
+
+    p_ground_mean: float = 0.0
+    """Mean entailment over top-3 reranked passages in [0, 1]."""
+
+    p_ground_atomic: float = 0.0
+    """Weakest-link atomic-fact entailment (min over atomic facts) in [0, 1]."""
+
+    p_contra: float = 0.0
+    """Max contradiction probability over top-3 passages in [0, 1].
+    Drives the DISCARD veto when >= contradiction_veto_threshold."""
+
+    # Decision record -------------------------------------------------------- #
+    decision: str = "STORE"
+    """Stage-5 decision: STORE / DEFERRED / ABSTAIN / DISCARD."""
+
+    early_exit_triggered: bool = False
+    """True iff the confabulation gate fired during verification
+    (u_internal >= 0.70 AND p_ground_max <= 0.20)."""
+
+    # Usage / feedback ------------------------------------------------------- #
     retrieval_count: int = 0
     """Total number of times this episode has been retrieved."""
 
@@ -132,7 +179,7 @@ class PreRoutingConfidence:
 
     u_pre: float
     """Combined pre-routing confidence.
-    Formula: 0.60·u_token + 0.40·(1 / (1 + c_conv)).
+    Formula: 0.60*u_token + 0.40*(1 / (1 + c_conv)).
     Weights are design choices from CAEMConfig."""
 
     def is_safe(self, safety_threshold: float = 0.60) -> bool:
@@ -171,43 +218,18 @@ class PostGenerationConfidence:
     M is fixed from Wang et al. (2022)."""
 
     u_entropy: float
-    """1 − H_semantic / log2(K) across K=10 samples at T=1.0.
+    """1 - H_semantic / log2(K) across K=10 samples at T=1.0.
     K and T are fixed from Farquhar et al. (2024)."""
 
     u_hat: float
     """Combined post-generation confidence.
     Formula uses weights from CAEMConfig.u_hat_weight_* (initially 0.25 each).
-    If u_hat ≥ CAEMConfig.u_hat_accept_threshold (0.60): accept -> verify.
+    If u_hat >= CAEMConfig.u_hat_accept_threshold (0.60): accept -> verify.
     Else: escalate to Tier 3."""
 
     def should_accept(self, threshold: float = 0.60) -> bool:
-        """True if û meets the acceptance threshold; False -> escalate to Tier 3."""
+        """True if u_hat meets the acceptance threshold; False -> escalate to Tier 3."""
         return self.u_hat >= threshold
-
-
-@dataclass
-class StoredConfidence:
-    """Stage 7: derived from Stage 5 verification output; stored with the episode.
-
-    IMPORTANT: û_stored is computed from VERIFICATION results, NOT from û (Stage 4a).
-    Tier 3 answers never produce a û value, yet they still need a stored confidence.
-    Verification (Stage 5) is the only pipeline stage shared by all three tiers.
-    """
-
-    p_entail: float
-    """P(ENTAILMENT) from RoBERTa-Large-MNLI ∈ [0, 1]."""
-
-    s_avg: float
-    """Self-consistency average pairwise similarity ∈ [0, 1]."""
-
-    h_norm: float
-    """Normalised semantic entropy Ĥ = H / log2(K) ∈ [0, 1]."""
-
-    u_stored: float
-    """Combined stored confidence.
-    Full formula: 0.50·p_entail + 0.30·s_avg + 0.20·(1 − h_norm).
-    FEVER only (NLI primary): u_stored = p_entail.
-    Weights are design choices (Category 2) from CAEMConfig."""
 
 
 # -----------------------------------------------------------------------------
@@ -222,11 +244,11 @@ class RoutingDecision:
     CAEM uses two SEPARATE mechanisms that do NOT interact mathematically:
       1. OR-condition: u_pre < safety_u_pre_min -> hard veto -> Tier 3.
          This fires BEFORE any formula runs.
-      2. Routing score: 0.70·s + 0.30·û_stored -> Tier 1 or Tier 2.
+      2. Routing score: 0.70*s + 0.30*u_stored -> Tier 1 or Tier 2.
          Only evaluated if the OR-condition did NOT fire.
 
     The separation is intentional: combining them into a single formula would
-    allow a high û_stored to arithmetically compensate for a dangerously low
+    allow a high u_stored to arithmetically compensate for a dangerously low
     u_pre. Memory quality and model readiness are mandatory, not tradeable.
     """
 
@@ -234,16 +256,16 @@ class RoutingDecision:
     """Tier dispatched to: 1 (direct retrieval), 2 (guided generation), 3 (RAG)."""
 
     similarity: float
-    """Cosine similarity between query embedding and best memory match (s ∈ [0, 1])."""
+    """Cosine similarity between query embedding and best memory match (s in [0, 1])."""
 
     u_stored_retrieved: float
-    """û_stored from the retrieved episode (0.0 if no episode retrieved)."""
+    """u_stored from the retrieved episode (0.0 if no episode retrieved)."""
 
     u_pre: float
     """Pre-routing confidence of the current query."""
 
     routing_score: float
-    """Combined score: 0.70·s + 0.30·û_stored. Only meaningful when tier ∈ {1, 2}."""
+    """Combined score: 0.70*s + 0.30*u_stored. Only meaningful when tier in {1, 2}."""
 
     safety_override: bool = False
     """True when the OR-condition (u_pre < threshold) forced Tier 3."""

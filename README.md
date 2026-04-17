@@ -63,7 +63,6 @@ caem/
   pipeline.py
   confidence/
     pre_routing.py
-    post_generation.py
   memory/
     entry.py
     encoder.py
@@ -88,14 +87,16 @@ scripts/
   seed_cold_start.py
   run_experiment.py
   run_purity_validation.py
-  run_ablation.py
   run_calibration.py
   hardware.py
+  run_ablation.py
+  run_cyclic_ablation.py
+  make_tables.py
+  make_figures.py
 
 tests/
   test_episodic_memory.py
   test_pre_routing.py
-  test_post_generation.py
   test_router.py
   test_verifier.py
   test_rag.py
@@ -219,7 +220,10 @@ python scripts/run_experiment.py \
 
 ```bash
 python scripts/run_purity_validation.py --output_dir outputs/purity_validation
-python scripts/run_ablation.py --caem_results outputs/mini_experiment/all_cycle_results.json --cycle3_checkpoint outputs/mini_experiment/cycle_3 --output_dir outputs/ablation
+python scripts/run_ablation.py --cycle 10 --memory_store outputs/cycle_10/memory --model_checkpoint outputs/cycle_10/model
+python scripts/run_cyclic_ablation.py --base_output_dir outputs --ablation_variants no_verifier no_grounding --n_seeds 3
+python scripts/make_tables.py --output_dir outputs
+python scripts/make_figures.py --output_dir outputs
 ```
 
 ## Lab-Scale Run Plan

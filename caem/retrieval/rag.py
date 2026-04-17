@@ -45,7 +45,7 @@ Tier 3 is the most expensive path but the most robust -- it is used when
 the system is uncertain (low u_pre) or has no relevant memory.
 
 After Tier 3 generation the answer still passes through Stage 5
-(MultiLayerVerifier) and Stage 7 (storage decision) -- Tier 3 answers
+(UnifiedVerifier) and Stage 7 (storage decision) -- Tier 3 answers
 that verify well are stored so future similar queries hit Tier 1 or 2.
 """
 

@@ -19,6 +19,80 @@ Add new entries at the bottom of the relevant chapter section.
 
 ---
 
+## Session 44 Addendum — 2026-04-17 (Training-Time Ablation Framework + L2 Terminology Fix)
+
+Apply these notes across Chapters 3, 4, 5, and 6 in the next writing pass. This addendum supersedes parts of C5-09 and C5-14 (the AB1–AB7 numbering is replaced by named variants; see the per-item status updates below).
+
+### S44-01 — Ablation variant catalogue is now 16 named variants, not 7 ABx rows
+
+| Field | Updated value |
+|---|---|
+| Registry source | `caem/ablation/variants.py::VARIANT_REGISTRY` (16 entries) |
+| Reference anchor | `full` (CES reproduces Chapter 5 Table 5.1) |
+| Inference-only | `full`, `no_self_improvement` (2 variants) |
+| Training-time (cyclic) | 14 variants; each re-runs the SIL loop under its own config |
+| Mechanism groups | verification, calibration, safety_gate, self_improvement, routing, retrieval |
+
+**Required text (Chapter 5 §5.5 setup paragraph):**
+
+> *"Ablation variants are catalogued in* `caem/ablation/variants.py` *as 16 named entries grouped by the mechanism they lesion: verification gate (5), calibration (3), safety gate (1), self-improvement (2), routing + retrieval (4), and a sensitivity-sweep companion (1). The* `full` *variant is the reference anchor — reported CES for* `full` *reproduces Table 5.1 within floating-point noise, which validates the ablation harness. Exactly two variants are inference-only:* `full` *(reuses the main-experiment Cycle-10 weights and memory) and* `no_self_improvement` *(never fine-tunes by construction; Cycle-0 evaluation only). The remaining 14 variants are training-time — each runs its own independent self-improvement loop under the variant's configuration, producing a separate memory store and fine-tuned checkpoint per variant. This avoids the counterfactual confound of evaluating a mechanism-disabled at Cycle N against weights that were shaped by that mechanism in Cycles 1 through N−1."*
+
+### S44-02 — Counterfactual-confound disclosure (why 14 variants are cyclic)
+
+**Required text (Chapter 3 §3.x Methodology constraints OR Chapter 5 §5.5 setup paragraph — both are fine; pick one):**
+
+> *"A naïve ablation protocol evaluates a mechanism-disabled configuration against the full-system Cycle-N weights. When the disabled mechanism is one that shapes what gets stored in episodic memory — for example, the verifier, the storage gate, the contradiction veto, or the Tier-1 shortcut — the Cycle-N weights have already been fine-tuned on a training set curated by that mechanism across Cycles 1 through N−1. Disabling the mechanism at evaluation time only removes its diminishing final-cycle contribution. To avoid this confound, every variant whose configuration changes what gets stored or what the SIL pool contains is re-run as an independent self-improvement loop — separate memory store, separate fine-tuned checkpoint, separate per-cycle evaluation. Only two variants are confound-free at inference:* `full` *(the reference anchor) and* `no_self_improvement` *(which never trains by construction)."*
+
+### S44-03 — Two-phase sweep protocol (screening + confirmatory)
+
+Phase-1 self-funded runs use a cheap screening step to select which lesions get confirmatory attention. Phase-2 funded runs drop the screening step and run all 14 cyclic variants at the full horizon with multiple seeds.
+
+**Required methodology disclosure (Chapter 5 §5.5 setup — mandatory for Phase-1 thesis submission):**
+
+> *"The ablation sweep uses a two-phase protocol. Phase 1 runs a cheap screening step (3 cycles × 1500 self-improvement-loop samples, seed 42) across all 14 cyclic variants and uses the resulting per-variant CES ranking to select the top three most-load-bearing lesions. Phase 1 then runs confirmatory evaluations (10 cycles × 5000 SIL samples, seed 42) on the top three lesions plus the* `full` *reference and* `no_self_improvement` *baseline. Reported CES deltas in Table 5.2 come exclusively from the confirmatory runs; screening outputs do not enter the reported table. Phase 2, executed post-submission when additional compute is available, drops the screening step and re-runs all 14 cyclic variants at the full 10-cycle × 5000-SIL horizon with three independent random seeds {42, 123, 456}, reporting CES as mean ± standard deviation per variant. At time of submission, Phase 2 results are unavailable and all ablation-table rows are single-seed point estimates; this is disclosed in §5.10 Limitations."*
+
+**Required limitation text (Chapter 5 §5.10 OR Chapter 6 §6.2):**
+
+> *"Ablation CES values are reported from a single seed (42) due to compute constraints during thesis-phase experiments. Seed variance for the full ablation panel is deferred to an immediate post-submission follow-up (three-seed re-run protocol already scaffolded in* `scripts/run_cyclic_ablation.py` *via the* `--seed` *flag; aggregation auto-switches to mean ± std once ≥2 seeds are present)."*
+
+### S44-04 — L2 anchoring terminology (NOT EWC)
+
+Multiple places in the thesis plan and earlier drafts refer to "EWC regularisation". The implementation is strict L2 anchoring toward the previous cycle's weights, with no Fisher information matrix. Fix across Chapters 3, 4, 5, 6 as follows.
+
+**Wherever "EWC" appears unqualified, replace with:**
+
+> *"L2 anchoring toward θ_prev (a Fisher-uniform approximation of EWC; see* `caem/training/self_improvement.py` *lines 27–41 for the formal rationale). Full Fisher-weighted EWC is deferred as future work."*
+
+**Equation form to prefer in §4.7:**
+
+> L(θ) = L_task(θ) + (λ/2) ||θ − θ_prev||²
+
+**Do NOT write:** "EWC prevents catastrophic forgetting..." or "Fisher information weights each parameter..." — both are false for the implemented system.
+
+### S44-05 — Status updates to existing C5-entries
+
+| Entry | New status note |
+|---|---|
+| C5-09 | **S44 UPDATE:** The AB1–AB7 numbering is retired. Use the 16-variant registry in `caem/ablation/variants.py`. The "reasoning-chain supervision" and "retroactive re-verification" claims are still most directly defended by `no_retroverify` (was AB4) — part of the cyclic sweep. |
+| C5-14 | **S44 UPDATE:** The training-time vs inference-time framing is now operationalised. Under the counterfactual-confound audit, only `full` and `no_self_improvement` remain inference-only; `no_tier1` was reclassified from inference-only to cyclic in Session 44. |
+
+### S44-06 — Chapter 4 §4.8 Calibration: add a short subsection introducing CES axes
+
+The CES axes (ACC, EPI, RET, CAL, VER) are used throughout Chapters 5 and 6 but are introduced only in passing. Add one paragraph under §4.8 or as a dedicated §4.8.5:
+
+> *"The CAEM Efficacy Score (CES) is the geometric mean of five axes computed per cycle: ACC (mean exact-match across the evaluation suite), EPI (one minus hallucination rate at u_stored ≥ 0.50), RET (MMLU retention ratio against the pristine-model baseline, clamped to 1.0), CAL (one minus twice the expected calibration error, capped at 0.5 before clamping), and VER (verifier balanced accuracy, using a 0.5 placeholder until STORE/DISCARD labels are collected). The geometric mean is used rather than the arithmetic mean so that a failure on any single axis visibly deflates CES — this prevents a variant from compensating for a catastrophic drop on one axis with a modest gain on another. A small ε=0.01 clamp prevents any zero-axis input from collapsing the entire score to zero. The exact implementation is* `eval.metrics.ces_score` *with axis composition defined in* `eval.reporting.build_table_cycle` *and* `caem.ablation.scoring.ces_axes_from_cycle`.*"*
+
+### S44-07 — Cross-chapter consistency check after experiments run
+
+Before submission, grep the .tex files for these substrings and verify they match Session 44's framing:
+
+- `EWC` (bare, not in a citation) → should be `L2 anchoring (Fisher-uniform approximation of EWC)`
+- `AB1`, `AB2`, ..., `AB7` → replace with named variants from the registry
+- `inference-time ablation` without surrounding caveat → ensure the surrounding paragraph lists the exact two variants that qualify (`full`, `no_self_improvement`)
+- `3 seeds` or `multi-seed` in §5.5 body text → ensure the Phase-1 limitation disclosure is present (S44-03) if the submission uses single-seed numbers
+
+---
+
 ## Session 32 Addendum — 2026-04-11 (Plan-Compliance Guardrails)
 
 Apply these notes while drafting Chapter 5 methodology/setup to stay aligned with current code.
