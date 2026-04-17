@@ -101,7 +101,10 @@ class CycleResult:
     n_general_used:     int
     epochs_completed:   int
     final_train_loss:   float
-    forgetting_score:   float   # post/pre MMLU retention ratio (abort guard + RET axis)
+    mmlu_retention_ratio: float   # post/pre MMLU retention ratio (abort guard + RET axis).
+                                  # Named `forgetting_score` historically when the abort guard used
+                                  # an in-distribution TriviaQA probe (see `_forgetting_score`,
+                                  # DEPRECATED); renamed to reflect the current MMLU-based probe.
     aborted:            bool    # True if forgetting check failed and weights were restored
     checkpoint_path:    str
     mmlu_retention:     float = 0.0  # MMLU 4-choice accuracy post-fine-tune (same value as drives abort)
@@ -302,7 +305,7 @@ class SelfImprovementLoop:
             logger.warning("Cycle %d: no episodes meet quality threshold -- skipping.", cycle_num)
             return CycleResult(
                 cycle_num=cycle_num, n_episodes_used=0, n_general_used=0,
-                epochs_completed=0, final_train_loss=0.0, forgetting_score=1.0,
+                epochs_completed=0, final_train_loss=0.0, mmlu_retention_ratio=1.0,
                 aborted=False,
                 checkpoint_path=str(self.output_dir / f"cycle_{cycle_num}"),
                 mmlu_retention=float("nan"),
@@ -378,9 +381,9 @@ class SelfImprovementLoop:
                 ("%.4f" % post_mmlu) if not __import__("math").isnan(post_mmlu) else "N/A",
             )
 
-        # forgetting_score reports the relative MMLU retention ratio; it is the
+        # mmlu_retention_ratio reports the relative MMLU retention ratio; it is the
         # interpretable "fraction of MMLU capability retained after cycle k".
-        forgetting_score = retention_ratio
+        mmlu_retention_ratio = retention_ratio
 
         # mmlu_retention reports the absolute post-fine-tune MMLU accuracy;
         # this is the value consumed by Chapter 5's RET axis.
@@ -398,7 +401,7 @@ class SelfImprovementLoop:
 
         # Step 7: save checkpoint
         ckpt_path = self._save_checkpoint(cycle_num, seed, epochs_done, final_loss,
-                                           forgetting_score, aborted, theta_prev if aborted else None)
+                                           mmlu_retention_ratio, aborted, theta_prev if aborted else None)
 
         # Step 8: retroactive re-verification (Phase 5d).
         # Skipped when the cycle was aborted (the restored weights are the
@@ -483,7 +486,7 @@ class SelfImprovementLoop:
             n_general_used=n_general_used,
             epochs_completed=epochs_done,
             final_train_loss=final_loss,
-            forgetting_score=forgetting_score,
+            mmlu_retention_ratio=mmlu_retention_ratio,
             aborted=aborted,
             checkpoint_path=ckpt_path,
             mmlu_retention=mmlu_retention,
@@ -1034,7 +1037,7 @@ class SelfImprovementLoop:
         seed: int,
         epochs_done: int,
         final_loss: float,
-        forgetting_score: float,
+        mmlu_retention_ratio: float,
         aborted: bool,
         theta_prev: Optional[List[torch.Tensor]],
     ) -> str:
@@ -1048,7 +1051,7 @@ class SelfImprovementLoop:
                               weights correctly reflect what the next cycle
                               will pick up.
           * ``meta.pkl``   -- picklable dict with cycle_num, seed,
-                              epochs_done, final_loss, forgetting_score,
+                              epochs_done, final_loss, mmlu_retention_ratio,
                               aborted flag, and the checkpoint timestamp.
                               ``load_checkpoint`` reads this dict back and
                               separately restores weights from model.pt.
@@ -1078,7 +1081,7 @@ class SelfImprovementLoop:
             "seed": seed,
             "epochs_done": epochs_done,
             "final_loss": float(final_loss),
-            "forgetting_score": float(forgetting_score),
+            "mmlu_retention_ratio": float(mmlu_retention_ratio),
             "aborted": bool(aborted),
             "timestamp": time.time(),
             # theta_prev is NOT pickled -- it is a list of CUDA tensors that

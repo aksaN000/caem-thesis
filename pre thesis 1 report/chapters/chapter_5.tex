@@ -277,15 +277,18 @@ with $B = 1000$ resamples. Both computations use the existing
 \texttt{eval/metrics.py}, which were written and tested before the
 experiment phase.
 
-Because \caem{} is compared against eight baselines across seven
-benchmarks, the raw test count is $8 \times 7 = 56$ pairwise McNemar
-tests per cycle, and a naive $p < 0.05$ threshold would inflate the
-family-wise error rate to approximately $1 - 0.95^{56} \approx 0.94$.
-We therefore apply the Holm--Bonferroni step-down
-correction~\cite{holm1979simple} within each benchmark family: the
-seven per-benchmark \caem{}-vs-baseline $p$-values are sorted in
-ascending order, and the $k$-th smallest is compared against
-$0.05 / (m - k + 1)$ where $m = 8$ is the number of baselines. This
+Because \caem{} is compared against eight baselines across the
+six factual-QA benchmarks (MMLU is a retention control, not a
+baseline-comparison target), the raw test count is
+$8 \times 6 = 48$ pairwise McNemar tests per cycle, and a naive
+$p < 0.05$ threshold would inflate the family-wise error rate to
+approximately $1 - 0.95^{48} \approx 0.91$. We therefore apply the
+Holm--Bonferroni step-down correction~\cite{holm1979simple} within
+each benchmark family: the eight per-baseline \caem{}-vs-baseline
+$p$-values within a benchmark are sorted in ascending order, and
+the $k$-th smallest is compared against $0.05 / (m - k + 1)$ where
+$m = 8$ is the number of baselines (and hence the number of tests
+within each benchmark family). This
 is uniformly more powerful than plain Bonferroni while preserving the
 family-wise error rate at $\alpha_{\text{fam}} = 0.05$, and is the
 accepted correction for structured pairwise-comparison panels of
@@ -630,32 +633,46 @@ rows for the ablation table. Table~\ref{tab:ablation-registry}
 summarises the registry.
 
 \begin{center}
-\captionof{table}[Ablation Registry]{Sixteen named ablation variants.
-Training-time variants each receive their own cyclic rerun; inference-time
-variants reuse the reference-run weights.}
+\captionof{table}[Ablation Registry]{Sixteen named ablation variants,
+grouped by mechanism family. Training-time variants each receive their
+own cyclic rerun; inference-time variants reuse the reference-run weights.
+Names and groupings mirror \texttt{caem/ablation/variants.py} exactly.}
 \label{tab:ablation-registry}
 \renewcommand{\arraystretch}{1.2}
 \footnotesize
-\begin{tabular}{@{}p{4.2cm} p{1.8cm} p{8.2cm}@{}}
+\begin{tabular}{@{}p{4.4cm} p{1.6cm} p{8.2cm}@{}}
 \toprule
 \textbf{Variant} & \textbf{Class} & \textbf{What it disables / forces} \\
 \midrule
+\multicolumn{3}{@{}l}{\textit{Reference}}\\
 \texttt{full} & inference & Reference run; no mechanism disabled. \\
-\texttt{no\_self\_improvement} & inference & Disable Stage~8 fine-tuning; freeze weights at $\theta_0$. \\
-\texttt{no\_tier1} & training & Force Tier~2/3 for every query; memory never serves answers. \\
-\texttt{no\_retrieval} & training & Disable Tier~3 RAG retrieval entirely. \\
-\texttt{no\_verification} & training & Accept every generation into memory regardless of $\ustored$. \\
-\texttt{no\_nli} & training & Drop the NLI entailment signal from $\ustored$. \\
-\texttt{no\_selfcons} & training & Drop the self-consistency signal from $\ustored$. \\
-\texttt{no\_entropy} & training & Drop the semantic-entropy signal from $\ustored$. \\
-\texttt{no\_routing} & training & Disable OR-condition safety veto; route purely on $u_{\text{pre}}$. \\
-\texttt{no\_cold\_start} & training & Begin Cycle~0 with empty memory (skip 447-episode seed). \\
-\texttt{no\_abort\_guard} & training & Disable $\rho < 0.93$ forgetting circuit-breaker. \\
-\texttt{no\_l2\_anchor} & training & Set $\lambda = 0$; fine-tune without L2 anchor toward $\theta_{\text{prev}}$. \\
+\midrule
+\multicolumn{3}{@{}l}{\textit{Verification / gating}}\\
+\texttt{no\_verifier} & training & Bypass UnifiedVerifier; store every Tier-2/3 generation. \\
+\texttt{no\_grounding} & training & Zero both external-grounding weights ($p_{\text{ground,mean}}$, $p_{\text{ground,atomic}}$) and the NLI-entailment weight in $\ustored$; renormalise the surviving three signals. \\
+\texttt{no\_contradiction\_veto} & training & Neutralise $p_{\text{contra}}$ veto; contradicting episodes may still reach STORE. \\
+\texttt{no\_store\_gate} & training & Disable $\tau_{\text{store}}$/$\tau_{\text{defer}}$ admission thresholds; every generation enters the pool. \\
+\texttt{aggressive\_store} & training & Raise $\tau_{\text{store}}$ to $0.85$ and $\tau_{\text{defer}}$ to $0.75$ (sensitivity-sweep companion to \texttt{no\_store\_gate}). \\
+\midrule
+\multicolumn{3}{@{}l}{\textit{Calibration / signal mix}}\\
+\texttt{no\_internal\_calibration} & training & Zero $u_{\text{internal}}$ (token-probability + MC-Dropout) weight in $\ustored$; rescale the remaining signals. \\
+\texttt{no\_semantic\_entropy} & training & Drop Farquhar-2024 semantic-entropy signal from $\ustored$. \\
+\texttt{equal\_signal\_weights} & training & Flatten the six composite weights (default $0.30/0.15/0.15/0.15/0.15/0.10$) to $1/6$ each. \\
+\midrule
+\multicolumn{3}{@{}l}{\textit{Safety gate}}\\
+\texttt{no\_early\_exit} & training & Defuse the $u_{\text{internal}}{\ge}0.70 \wedge p_{\text{ground,max}}{\le}0.20$ confabulation gate. \\
+\midrule
+\multicolumn{3}{@{}l}{\textit{Self-improvement}}\\
+\texttt{no\_self\_improvement} & inference & Skip Stage~8 fine-tuning entirely; report Cycle-0 evaluation only. \\
 \texttt{no\_retroverify} & training & Skip end-of-cycle retroactive re-verification pass. \\
-\texttt{no\_memory\_prune} & training & Disable memory pruning; allow unbounded store growth. \\
-\texttt{no\_mcdropout} & training & Drop MC-Dropout signal from $u_{\text{pre}}$. \\
-\texttt{lower\_u\_threshold} & training & Replace $\ustored \geq 0.50$ admission with $\ustored \geq 0.30$. \\
+\midrule
+\multicolumn{3}{@{}l}{\textit{Routing}}\\
+\texttt{no\_tier1} & training & Force every query through Stage~4+ (memory never serves answers). \\
+\midrule
+\multicolumn{3}{@{}l}{\textit{Retrieval / memory}}\\
+\texttt{no\_tier3\_rag} & training & Disable Tier-3 Wikipedia RAG; Tier-3 falls back to zero-shot generation. \\
+\texttt{no\_novelty\_filter} & training & Permit duplicate episodes by relaxing the $0.95$ cosine-novelty threshold. \\
+\texttt{no\_recency\_decay} & training & Pure importance-based pruning; zero recency weight in the Value score. \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -690,7 +707,7 @@ the reference run with independent-seeds standard-deviation propagation
 once Phase~2 data is available. The per-cycle CES trace is also plotted
 for the reference run and for the ablation variants whose $\Delta$CES
 pattern across cycles is diagnostic (typically
-\texttt{no\_self\_improvement}, \texttt{no\_verification}, and
+\texttt{no\_self\_improvement}, \texttt{no\_verifier}, and
 \texttt{no\_retroverify}).
 
 \subsubsection*{Expected effects and falsifiable predictions}
@@ -707,16 +724,15 @@ threshold sensitivity) and are stated at the level of
 $\Delta\text{CES}$ bands ($<0.01$ = negligible, $0.01$--$0.05$ =
 moderate, $>0.05$ = large) and primary axis attribution.
 
-\paragraph{Self-improvement machinery
-(\texttt{no\_self\_improvement}, \texttt{no\_retroverify},
-\texttt{no\_l2\_anchor}, \texttt{no\_abort\_guard}).}
-\texttt{no\_self\_improvement} freezes weights at $\theta_0$ and is
-the strictest test of the self-improvement loop's cumulative
-contribution; we predict a large negative $\Delta\text{CES}$ (at least
-$-0.05$) driven primarily by the ACC axis, with the per-cycle CES
-trace flat after Cycle~$0$ rather than rising, because every later
-cycle's improvement in the reference run is by construction
-attributable to training. Falsification condition: if
+\paragraph{Self-improvement
+(\texttt{no\_self\_improvement}, \texttt{no\_retroverify}).}
+\texttt{no\_self\_improvement} skips Stage~8 fine-tuning entirely and
+reports only the Cycle-0 evaluation; it is the strictest test of the
+self-improvement loop's cumulative contribution. We predict a large
+negative $\Delta\text{CES}$ (at least $-0.05$) driven primarily by the
+ACC axis, with the per-cycle CES trace flat rather than rising,
+because every later cycle's improvement in the reference run is by
+construction attributable to training. Falsification condition: if
 \texttt{no\_self\_improvement} matches the reference CES within
 $0.01$, the reference trajectory's rise is not coming from
 fine-tuning and the thesis's central engineering claim fails.
@@ -726,100 +742,138 @@ $\Delta\text{CES}$ ($-0.02$ to $-0.04$) driven by EPI and VER (the
 verifier balanced accuracy $\alpha$ stops improving across cycles
 because the re-verification signal no longer folds back into the
 pool), with the purity trajectory in Figure~\ref{fig:purity-trajectory}
-exhibiting a visibly shallower slope than the reference.
-\texttt{no\_l2\_anchor} (setting $\lambda = 0$) should produce a
-moderate negative RET axis effect ($-0.03$ to $-0.06$) as the MMLU
-retention ratio drifts downward cycle-over-cycle without the anchor
-pulling weights back toward $\theta_{\text{prev}}$; ACC on the
-in-domain training benchmarks may be neutral or slightly positive
-(unconstrained weights can fit the training pool harder), which is
-precisely why the CES composite's multiplicative structure matters.
-\texttt{no\_abort\_guard} disables the $\rho < 0.93$ forgetting
-circuit-breaker and should produce a catastrophic RET-axis collapse
-($-0.10$ or worse) on a minority of seeds where the training pool
-happens to carry a distribution shift, with the guard's absence being
-the only thing separating a recoverable cycle from an unrecoverable
-one. Because this effect is rare in expectation, a single-seed
-Phase~1 run may under-detect it; Phase~2's independent-seeds report
-is the correct place to confirm this prediction.
+exhibiting a visibly shallower slope than the reference. The
+$L_2$-anchor strength $\lambda$ and the $\rho_{\min}$ forgetting
+circuit-breaker are held at their design values across every cyclic
+variant; the post-hoc threshold-sensitivity sweep
+(Table~\ref{tab:threshold-sensitivity}) is the instrument that
+probes their individual contributions, not a separate ablation row.
 
-\paragraph{Memory and routing
-(\texttt{no\_tier1}, \texttt{no\_retrieval}, \texttt{no\_routing},
-\texttt{no\_cold\_start}, \texttt{no\_memory\_prune}).}
-\texttt{no\_tier1} forces every query through Tier~2 or Tier~3 and
-should produce a moderate negative $\Delta\text{CES}$ ($-0.02$ to
-$-0.04$) driven jointly by ACC (memory-answerable queries now route
-to noisier tiers) and latency (not a CES axis but reported in
+\paragraph{Verification and gating
+(\texttt{no\_verifier}, \texttt{no\_grounding},
+\texttt{no\_contradiction\_veto}, \texttt{no\_store\_gate},
+\texttt{aggressive\_store}).}
+\texttt{no\_verifier} bypasses the UnifiedVerifier and admits every
+Tier-2/3 generation directly into the memory pool; it is the hardest
+test of the verifier's pool-purification role. We predict a large
+negative $\Delta\text{CES}$ ($-0.06$ or worse) with the EPI and VER
+axes collapsing and the $P_{\text{obs}}$ column in
+Table~\ref{tab:purity} falling toward $p$ rather than rising above it;
+this is the direct empirical mirror of Theorem~\ref{thm:purity}'s
+prediction that purification requires $\alpha > \tfrac{1}{2}$ and
+that a chance-equivalent verifier contributes no purification.
+\texttt{no\_grounding} zeroes the three external-grounding weights in
+$\ustored$ (the two Wikipedia $p_{\text{ground}}$ signals and the
+NLI entailment probability) and renormalises the surviving three
+signals; we expect a moderate negative $\Delta\text{CES}$ ($-0.03$ to
+$-0.05$) concentrated on EPI and VER on the retrieval-dependent
+benchmarks (TriviaQA, Natural Questions), with a smaller effect on
+benchmarks answerable from parametric memory. If the $\Delta\text{CES}$
+band exceeds the $-0.05$ floor, the grounding-family signals are
+dominating the composite more than the $0.30 + 0.15 + 0.15 = 0.60$
+weight share would suggest and the calibration design should be
+revisited. \texttt{no\_contradiction\_veto} neutralises the
+$p_{\text{contra}}$ veto so that contradicting generations may still
+reach STORE. We predict a moderate negative EPI effect ($-0.02$ to
+$-0.04$) concentrated on the contradiction sub-type row of
+Table~\ref{tab:halluc}; the pooled confident-error rate should rise
+visibly, and the contradiction-specific row should rise more sharply
+than the confabulation or ungrounded rows. \texttt{no\_store\_gate}
+drops both $\tau_{\text{store}}$ and $\tau_{\text{defer}}$ to zero,
+admitting every generation to the pool regardless of $\ustored$; we
+predict a large negative $\Delta\text{CES}$ ($-0.05$ or worse) with
+a visible collapse of $P_{\text{obs}}$ toward $p$ that is diagnostic
+of the storage-gate contribution separate from the verifier's.
+\texttt{aggressive\_store} is the opposite-direction companion: it
+raises $\tau_{\text{store}}$ to $0.85$ and $\tau_{\text{defer}}$ to
+$0.75$, admitting roughly a quarter of the default pool per cycle. We
+expect a small negative $\Delta\text{CES}$ ($-0.01$ to $-0.03$) with
+ACC falling because the training pool is too small to cover the
+distribution, but $P_{\text{obs}}$ rising because the surviving
+episodes are more tightly verified; a positive
+$\Delta\text{CES}$ here would mean the default
+$\tau_{\text{store}} = 0.65$ is admitting noise and should be
+revisited.
+
+\paragraph{Calibration and signal mix
+(\texttt{no\_internal\_calibration}, \texttt{no\_semantic\_entropy},
+\texttt{equal\_signal\_weights}).}
+\texttt{no\_internal\_calibration} zeroes the $u_{\text{internal}}$
+weight (token probability + MC Dropout) in $\ustored$ and rescales the
+surviving five signals; we predict a small-to-moderate negative
+$\Delta\text{CES}$ ($-0.01$ to $-0.03$) driven primarily by CAL, with
+the reliability diagram at Cycle~$N$ showing a visibly wider departure
+from the $y=x$ line in the high-confidence tail where internal-calibration
+disagreement is most informative. \texttt{no\_semantic\_entropy} drops
+the Farquhar-2024 signal from the composite; we predict a similar band
+($-0.01$ to $-0.03$) with the confabulation sub-type row in
+Table~\ref{tab:halluc} rising sharply, because semantic entropy is the
+dominant detector of confabulations in the literature. If
+\texttt{no\_semantic\_entropy} shows a \emph{smaller} effect than
+\texttt{no\_internal\_calibration}, the $0.10$ default weight assigned
+to semantic entropy is too low and the composite should be rebalanced.
+\texttt{equal\_signal\_weights} flattens the six-signal composite from
+the default $0.30/0.15/0.15/0.15/0.15/0.10$ to uniform $1/6$ each; we
+predict a neutral-to-slightly-negative $\Delta\text{CES}$ ($0$ to
+$-0.02$) because the default weights already lie near the mean of the
+admissible simplex, but the VER axis should drop more visibly than the
+CES headline would suggest. A large positive $\Delta\text{CES}$ under
+uniform weights would mean the designed weighting is actively harmful,
+which is the falsification path for Chapter~4's weight-calibration
+narrative.
+
+\paragraph{Safety gate (\texttt{no\_early\_exit}).}
+\texttt{no\_early\_exit} defuses the confabulation gate
+($u_{\text{internal}} \geq 0.70 \wedge p_{\text{ground,max}} \leq 0.20
+\rightarrow \textsc{Discard}$) so that confabulations reach the
+four-outcome decision tree and may enter the deferred buffer or the
+store. We predict a moderate negative EPI-axis effect ($-0.02$ to
+$-0.04$) concentrated on the confabulation sub-type row of
+Table~\ref{tab:halluc}, with a visibly flatter purity trajectory in
+early cycles where the early-exit gate is most active. The
+confabulation-rate column is the primary diagnostic here; the
+aggregate CES delta will understate the gate's importance because
+many confabulations that slip past the early-exit gate are still
+caught downstream by the $u_{\text{stored}}$ composite.
+
+\paragraph{Routing (\texttt{no\_tier1}).}
+\texttt{no\_tier1} forces every query through Stage~4+ (no Tier-1
+shortcut) by raising the Tier-1 combined-score threshold above $1.0$;
+we predict a moderate negative $\Delta\text{CES}$ ($-0.02$ to $-0.04$)
+driven jointly by ACC (memory-answerable queries now route to noisier
+tiers) and latency (not a CES axis but reported in
 Table~\ref{tab:headline}); the effect should grow over cycles as the
-reference memory accumulates more hits. \texttt{no\_retrieval}
-disables Tier~3 RAG entirely and should produce a large negative EPI
-and grounding-axis effect on benchmarks that rely on out-of-parametric
-knowledge (primarily TriviaQA and Natural Questions), with a
-smaller effect on benchmarks that are answerable from the base
-model's own parametric memory (FEVER label accuracy, StrategyQA).
-The unsupported-correct rate in Table~\ref{tab:grounding} should
-\emph{rise} under \texttt{no\_retrieval}, not fall, because the
-remaining correct answers are now entirely parametric and carry no
-retrieval support by definition. \texttt{no\_routing} disables the
-OR-condition safety veto and routes purely on the pre-confidence
-$u_{\text{pre}}$; we predict a moderate negative EPI and VER effect
-($-0.02$ to $-0.04$) concentrated on confident-but-wrong cases, with
-the pooled confident-error rate in Table~\ref{tab:halluc} rising
-visibly. \texttt{no\_cold\_start} begins Cycle~0 with an empty memory
-and should produce a moderate negative $\Delta\text{CES}$ at Cycles~0
-and~1 that narrows substantially by Cycle~10 as the memory populates
-organically; the primary diagnostic is the per-cycle CES trace rather
-than the final-cycle scalar, and the cycle at which the variant
-catches up to the reference run measures the cold-start's marginal
-value. \texttt{no\_memory\_prune} should produce a small positive or
-neutral $\Delta\text{CES}$ on the benchmark panel combined with an
-unbounded memory size growth and a rising retrieval latency; this is
-the ablation whose primary cost is system-level rather than
-accuracy-level, and its ``result'' is the memory-growth curve in
-Table~\ref{tab:memory-growth} rather than a CES delta.
+reference memory accumulates more high-$\ustored$ hits. The routing
+distribution row in Table~\ref{tab:routing} is the primary diagnostic:
+the reference-run Tier-1 fraction rising from $\sim 10$--$20\%$ at
+Cycle~0 to $\sim 35$--$55\%$ at Cycle~$N$ should all shift to Tier-2/3
+under \texttt{no\_tier1}.
 
-\paragraph{Verification signals
-(\texttt{no\_verification}, \texttt{no\_nli}, \texttt{no\_selfcons},
-\texttt{no\_entropy}, \texttt{no\_mcdropout}).}
-\texttt{no\_verification} accepts every generation into memory
-regardless of $u_{\text{stored}}$ and is the hardest test of the
-verifier's pool-purification role. We predict a large negative
-$\Delta\text{CES}$ ($-0.06$ or worse) with the EPI and VER axes
-collapsing and the $P_{\text{obs}}$ column in
-Table~\ref{tab:purity} falling toward $p$ rather than rising above
-it; this is the direct empirical mirror of
-Theorem~\ref{thm:purity}'s prediction that purification requires
-$\alpha > \tfrac{1}{2}$ and that a chance-equivalent verifier
-contributes no purification. \texttt{no\_nli}, \texttt{no\_selfcons},
-\texttt{no\_entropy}, and \texttt{no\_mcdropout} each drop a single
-signal from the nine-signal composite; the verifier balanced
-accuracy $\alpha$ drops in proportion to each signal's marginal
-information contribution, and the resulting $\Delta\text{CES}$ band
-should be $-0.01$ to $-0.03$ per signal. We expect \texttt{no\_nli}
-and \texttt{no\_entropy} to have the largest individual effects
-because NLI is the dominant grounding-check signal and semantic
-entropy is the Farquhar-style hallucination detector the literature
-claims is the highest single-signal predictor; if \texttt{no\_mcdropout}
-shows a larger $\Delta\text{CES}$ than either, the $K = 5$ dropout
-budget may be doing more work than the literature suggests for
-Flan-T5-scale models, which would be a finding worth reporting
-rather than hiding.
-
-\paragraph{Threshold sensitivity (\texttt{lower\_u\_threshold}).}
-\texttt{lower\_u\_threshold} replaces the $u_{\text{stored}} \geq 0.50$
-admission cut with $u_{\text{stored}} \geq 0.30$, admitting roughly
-twice as many episodes per cycle into the training pool. The expected
-effect is a trade: ACC may rise slightly at early cycles (the
-training pool is larger and covers more of the distribution), but EPI
-falls because a lower threshold admits more confident-but-wrong
-episodes, and RET may degrade because the training pool now contains
-more near-miss labels. The multiplicative CES composite should trend
-negative ($-0.01$ to $-0.03$) despite the ACC-axis ambiguity, which
-is the precise motivation for having set the default threshold at
-$0.50$ rather than at a lower value; if \texttt{lower\_u\_threshold}
-instead produces a \emph{positive} $\Delta\text{CES}$, the default
-threshold is miscalibrated and the Chapter~6 revision agenda should
-revisit it.
+\paragraph{Retrieval and memory
+(\texttt{no\_tier3\_rag}, \texttt{no\_novelty\_filter},
+\texttt{no\_recency\_decay}).}
+\texttt{no\_tier3\_rag} disables Tier-3 Wikipedia RAG and falls back
+to zero-shot generation on queries that would have used retrieval;
+we predict a large negative EPI and grounding-axis effect on
+benchmarks that rely on out-of-parametric knowledge (primarily
+TriviaQA and Natural Questions), with a smaller effect on benchmarks
+answerable from the base model's parametric memory (FEVER,
+StrategyQA, ARC-C). The unsupported-correct rate in
+Table~\ref{tab:grounding} should \emph{rise}, not fall, because the
+remaining correct answers are entirely parametric and carry no
+retrieval support by definition. \texttt{no\_novelty\_filter} permits
+duplicate episodes by relaxing the $0.95$ cosine-novelty threshold; we
+predict a small positive or neutral $\Delta\text{CES}$ on the
+benchmark panel combined with rising memory size and rising retrieval
+latency. The memory-growth curve in Table~\ref{tab:memory-growth} is
+the primary cost-side diagnostic; this is an ablation whose headline
+``result'' is the growth trajectory rather than a CES delta.
+\texttt{no\_recency\_decay} zeroes the recency term in the Value score
+so that pruning becomes pure importance ranking; we predict a small
+negative $\Delta\text{CES}$ ($-0.01$ to $-0.02$) with the effect
+concentrated on benchmarks whose answer distribution drifts across
+cycles, because without the recency term old-and-important episodes
+crowd out newer-and-also-important ones.
 
 \paragraph{Interpreting the full ablation pattern.}
 The above predictions are deliberately specific about sign, axis, and
@@ -828,13 +882,13 @@ against them rather than narrated around them. Three macro outcomes
 are the diagnostic cases. If most predictions land within their
 bands, the hypothesis register is confirmed and the CES composite is
 reading the system in the way its design intended. If a minority of
-predictions are inverted (for instance, \texttt{no\_retrieval}
+predictions are inverted (for instance, \texttt{no\_tier3\_rag}
 showing a small rather than large EPI drop on a benchmark where we
 predicted large), the specific mechanism's contribution is
 over-stated in the thesis and the Chapter~6 limitations paragraph
 should call out the correction explicitly. If the reference
 trajectory collapses under \texttt{no\_self\_improvement} or
-\texttt{no\_verification} by less than $0.05$ in $\Delta\text{CES}$,
+\texttt{no\_verifier} by less than $0.05$ in $\Delta\text{CES}$,
 the thesis's central engineering claim requires substantial
 revision; this is the high-stakes falsification path, and its
 outcome fixes what the viva defence needs to anticipate.

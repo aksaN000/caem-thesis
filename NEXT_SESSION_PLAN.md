@@ -56,6 +56,7 @@ run).
 | 1 | Pre-flight on local PC                             | 5 min  | $0 |
 | 2 | Rent + connect RTX 4090                             | 10 min | ~$0.07 |
 | 3 | Remote environment setup + HF model cache            | 15 min | ~$0.10 |
+| 3B| Pytest unit-test gate (mandatory)                    | 2 min  | ~$0.02 |
 | 4 | Build passage index                                  | 2–3 h  | ~$1 |
 | 5 | Smoke test (1 cycle, n=50)                           | 20 min | ~$0.14 |
 | 6 | Cold-start memory seeding                            | 15 min | ~$0.10 |
@@ -245,6 +246,41 @@ PY
 
 ---
 
+## Step 3B — Pytest unit-test gate (mandatory before Step 4)
+
+**[WHY]** Static AST validation and cross-file grep on local PC (Session
+72) caught two real corruption bugs (truncated `run_experiment.py` tail,
+UTF-8 BOM in the test file) and confirmed the `forgetting_score` →
+`mmlu_retention_ratio` field rename is consistent across four files. But
+the local PC cannot install torch, so runtime-gated code paths were not
+exercised. A ~2-minute pytest pass on Vast closes that gap *before* the
+2–3 h passage-index build and before any paid-GPU pipeline runs. If it
+fails, you have lost <$0.05 instead of the $1 for the passage index or
+the $0.14 for the smoke test.
+
+**3B.1 [ACTION]** Install pytest (not in the main requirements):
+
+```bash
+pip install pytest --quiet
+```
+
+**3B.2 [ACTION]** Run the self-improvement test module:
+
+```bash
+cd ~/caem
+python -m pytest tests/test_self_improvement.py -x --tb=short 2>&1 | tee tests_self_improvement.log
+```
+
+**[VERIFY]** All tests pass. The final line should read something like
+`N passed in X.XXs`. Any failure — especially `AttributeError:
+'CycleResult' object has no attribute 'forgetting_score'` — means a
+call-site was missed in the rename and must be fixed before proceeding.
+
+**[CHECKPOINT 3B]** Module-level invariants hold on the real
+torch/transformers stack.
+
+---
+
 ## Step 4 — Build the passage index
 
 **[WHY]** Tier-3 RAG and the B3/B4/B5 baselines need a preprocessed
@@ -426,19 +462,30 @@ later (see **Step 7S.2**).
 
 ---
 
-## Step 7S — Split strategy: two-cycle validation run, resume later
+## Step 7S — (OPTIONAL, skip by default) Split-session / 2-cycle validation run
 
-**[WHY]** Useful when (a) you want a low-cost empirical sanity check
-on an expensive GPU (e.g., 2 cycles on an RTX 5090 at ~$0.59/hr to
-confirm the full pipeline lands the headline numbers before
-committing to 16–18 h) or (b) wall-clock budget is split across
-multiple rental sessions. The `scripts/run_experiment.py` resume path
-(Session-82 fix) makes this seamless: memory store, deferred buffer,
-fine-tuned weights, and calibration T are all persisted per cycle and
-reloaded on `--resume_from_cycle`.
+**[DEFAULT: SKIP.]** Go straight from Step 5 smoke-test pass to the
+Step 7 main run. Step 3B pytest + Step 5 smoke test are sufficient
+validation before the 16–18 h, ~$7 headline run on a 4090.
 
-Skip Step 7S entirely and follow Step 7 as-is for the normal
-single-session headline run.
+**[USE 7S ONLY IF one of the following holds]:**
+
+1. *Budget hedge on an expensive GPU.* Renting an RTX 5090 at
+   ~$0.59/hr or an A100 SXM at ~$1.20/hr, where the full run is
+   >$12 and spending $4–5 up front on a 2-cycle n=5000 validation
+   catches silent numerical failures (degenerate fine-tuned weights,
+   flat calibration, retention-floor violation) that the n=50 smoke
+   test cannot see.
+2. *Session-split insurance.* Your rental window is capped below
+   ~10 h (e.g., spot-price interruption risk, hard Vast budget
+   ceiling), so you need to run Cycles 0–2 in session one, ship the
+   checkpoints home, then resume from Cycle 2 in session two. The
+   `scripts/run_experiment.py` resume path (Session-81 fix) makes
+   this seamless: memory store, deferred buffer, fine-tuned
+   weights, and calibration `T` are all persisted per cycle and
+   reloaded on `--resume_from_cycle`.
+
+If neither condition holds, skip 7S entirely and follow Step 7 as-is.
 
 **7S.1 [ACTION]** Launch a partial run with `--num_cycles 2` (session
 one):

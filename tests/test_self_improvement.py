@@ -1,4 +1,4 @@
-﻿"""
+"""
 tests/test_self_improvement.py
 ================================
 Unit tests for SelfImprovementLoop (Stage 8) and QADataset.
@@ -152,11 +152,11 @@ class TestDataclasses:
         r = CycleResult(
             cycle_num=1, n_episodes_used=50, n_general_used=5,
             epochs_completed=3, final_train_loss=0.42,
-            forgetting_score=0.96, aborted=False, checkpoint_path="/tmp/c1",
+            mmlu_retention_ratio=0.96, aborted=False, checkpoint_path="/tmp/c1",
         )
         assert r.cycle_num == 1
         assert r.aborted is False
-        assert r.forgetting_score == pytest.approx(0.96)
+        assert r.mmlu_retention_ratio == pytest.approx(0.96)
 
 
 # -----------------------------------------------------------------------------
@@ -451,7 +451,7 @@ class TestRunCycle:
         with patch.object(loop, "_mmlu_score", side_effect=[0.14, 0.10]):
             result = loop.run_cycle(1, store, make_general_data(10))
         assert result.aborted is True
-        assert result.forgetting_score == pytest.approx(0.10 / 0.14, abs=1e-6)
+        assert result.mmlu_retention_ratio == pytest.approx(0.10 / 0.14, abs=1e-6)
 
     def test_not_aborted_when_forgetting_passes(self):
         cfg = CAEMConfig()
@@ -463,7 +463,7 @@ class TestRunCycle:
         with patch.object(loop, "_mmlu_score", side_effect=[0.14, 0.14]):
             result = loop.run_cycle(1, store, make_general_data(10))
         assert result.aborted is False
-        assert result.forgetting_score == pytest.approx(1.0)
+        assert result.mmlu_retention_ratio == pytest.approx(1.0)
 
     def test_checkpoint_created(self):
         """run_cycle must create a checkpoint directory."""

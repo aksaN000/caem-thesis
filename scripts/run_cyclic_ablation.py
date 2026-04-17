@@ -546,7 +546,7 @@ def run_cyclic_ablation(ns: argparse.Namespace) -> None:
                         "Cycle %d ABORTED (retention %.3f < %.3f). "
                         "Weights restored; eval still runs on the restored model.",
                         cycle_num,
-                        cycle_result.forgetting_score,
+                        cycle_result.mmlu_retention_ratio,
                         config.forgetting_tolerance,
                     )
                     aborted = True
@@ -555,7 +555,7 @@ def run_cyclic_ablation(ns: argparse.Namespace) -> None:
                         "Fine-tune: %d ep | retention=%.3f | loss=%.4f "
                         "| retro: %d updated / %d pruned",
                         cycle_result.n_episodes_used,
-                        cycle_result.forgetting_score,
+                        cycle_result.mmlu_retention_ratio,
                         cycle_result.final_train_loss,
                         cycle_result.n_retroverified,
                         cycle_result.n_retropruned,
@@ -580,7 +580,7 @@ def run_cyclic_ablation(ns: argparse.Namespace) -> None:
                     "fine_tune": {
                         "n_episodes_used": cycle_result.n_episodes_used,
                         "n_general_used": cycle_result.n_general_used,
-                        "forgetting_score": cycle_result.forgetting_score,
+                        "mmlu_retention_ratio": cycle_result.mmlu_retention_ratio,
                         "aborted": cycle_result.aborted,
                         "final_train_loss": cycle_result.final_train_loss,
                         "mmlu_retention": mmlu_ser,

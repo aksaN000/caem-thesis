@@ -40,7 +40,7 @@ S(q) \;=\; \alpha \cdot \mathrm{sim}(q, e^{\ast}) \;+\; (1 - \alpha) \cdot u_{\t
 \qquad \alpha = 0.70,
 \label{eq:route-score}
 \end{equation}
-where $e^{\ast}$ is the nearest memory entry and $\mathrm{sim}$ denotes cosine similarity in the sentence embedding space. The query routes to Tier 1 when $S(q) \geq 0.90$, to Tier 2 when $\mathrm{sim}(q, e^{\ast}) \geq 0.75$ and Tier 1 has not been taken, and to Tier 3 otherwise. Layered on top of the combined score, and evaluated before it, is a safety override: whenever $\upre$ falls below a minimum floor of $0.60$, the query shall be forced to Tier 3 irrespective of what was retrieved, so that queries for which the base model has already signalled low confidence are never permitted to bypass external grounding.
+where $e^{\ast}$ is the nearest memory entry and $\mathrm{sim}$ denotes cosine similarity in the sentence embedding space. The query routes to Tier 1 when $S(q) \geq 0.90$, to Tier 2 when $\mathrm{sim}(q, e^{\ast}) \geq 0.75$ and Tier 1 has not been taken, and to Tier 3 otherwise. The three thresholds $(\alpha, \tau_1, \tau_{\text{sim}}) = (0.70, 0.90, 0.75)$ follow the dispatch principle that the combined-score gate must require both a close memory match and a high stored-quality score (hence a tight $\tau_1 = 0.90$ set above the $\tau_{\text{store}} = 0.65$ admission bar), while the similarity-only Tier 2 path admits retrievals whose memory match is strong but whose stored quality is intermediate; $\alpha = 0.70$ weights similarity above stored quality in the combined score because embedding similarity is the primary signal that a memory hit is topically relevant, and a weaker retrieval whose stored quality happens to be high would not warrant the Tier 1 fast path. The specific values are first-order estimates set from calibration-split pilots in Chapter~4 §Implementation and probed by the threshold-sensitivity sweep in Chapter~5. Layered on top of the combined score, and evaluated before it, is a safety override: whenever $\upre$ falls below a minimum floor of $0.60$, the query shall be forced to Tier 3 irrespective of what was retrieved, so that queries for which the base model has already signalled low confidence are never permitted to bypass external grounding.
 
 \subsection{FR3: Multi-Signal Post-Hoc Verification}
 \label{sec:fr3}
@@ -231,7 +231,7 @@ Sixteen ablation variants constitute the study. One is the reference. One, \emph
 \midrule
 Reference                          & Full pipeline; no mutation.                                             & ---  \\
 No verification                    & Store every Tier 2 and Tier 3 generation without verification.          & yes  \\
-No grounding                       & Zero the four external grounding weights and renormalise.               & yes  \\
+No grounding                       & Zero the three external grounding weights ($p_{\text{ground,mean}}$, $p_{\text{ground,atomic}}$, $p_{\text{entail}}$) and renormalise.               & yes  \\
 No contradiction veto              & Neutralise the $p_{\text{contra}}$ veto.                                & yes  \\
 No store gate                      & Remove the composite store threshold.                                   & yes  \\
 No internal calibration            & Zero the $u_{\text{internal}}$ weight and renormalise.                  & yes  \\
