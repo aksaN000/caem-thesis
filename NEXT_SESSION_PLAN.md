@@ -1,6 +1,6 @@
 # CAEM — Next Session Plan (Vast.ai Runbook)
 
-**Updated: 2026-04-17 | Phase 1 (Self-Funded) Line-by-Line Execution Plan**
+**Updated: 2026-04-18 | Phase 1 (Self-Funded) Line-by-Line Execution Plan**
 
 This document is a **step-by-step runbook**. Read each numbered action,
 execute it, verify the expected output, then move to the next. Do not
@@ -36,8 +36,9 @@ Addendum and Chapter 3 §3.5.
 - Budget: ~USD 200 self-funded envelope for Phase 1, single seed = 42.
   Phase 2 (+USD 700, seeds 123 and 456) re-runs the same confirmatory
   commands with no code changes.
-- Target GPU: **RTX 4090** on Vast.ai (~$0.40/hr). Upgrade to A100 SXM
-  80 GB only if wall-clock matters more than cost.
+- Target GPU: **RTX 4090** on Vast.ai (~$0.40/hr). RTX 5090 is
+  acceptable at ~$0.59/hr when a 4090 is not available. Upgrade to
+  A100 SXM 80 GB only if wall-clock matters more than cost.
 - Per-cycle recalibration (conservative default: `T` refit only,
   weights frozen) is **automatic** inside `run_experiment.py`. No
   extra CLI step; see the note in Step 6.
@@ -411,7 +412,156 @@ ls outputs/full_run/ | grep ^cycle_   # last N shown
 python -m scripts.run_experiment --resume_from_cycle <N+1> ...(same args as 7.1)
 ```
 
+7.7 **[NOTE — resume checkpoint completeness]** Each cycle N writes
+four resume-critical artifacts: `memory_store_cycle_N.{faiss,meta}`
+(episodic memory), `deferred_buffer_cycle_N.pkl` (deferred-decision
+holds), `calibration/calibrated_config_cycle{N}.json` (per-cycle T),
+and a model checkpoint under `model_checkpoint_cycle_N/`. The
+`--resume_from_cycle N+1` path reloads all four so the next cycle
+starts at the exact state the previous one ended at. Re-verify that
+all four exist before destroying any instance intended to be resumed
+later (see **Step 7S.2**).
+
 **[CHECKPOINT 7]** Headline CAEM result produced.
+
+---
+
+## Step 7S — Split strategy: two-cycle validation run, resume later
+
+**[WHY]** Useful when (a) you want a low-cost empirical sanity check
+on an expensive GPU (e.g., 2 cycles on an RTX 5090 at ~$0.59/hr to
+confirm the full pipeline lands the headline numbers before
+committing to 16–18 h) or (b) wall-clock budget is split across
+multiple rental sessions. The `scripts/run_experiment.py` resume path
+(Session-82 fix) makes this seamless: memory store, deferred buffer,
+fine-tuned weights, and calibration T are all persisted per cycle and
+reloaded on `--resume_from_cycle`.
+
+Skip Step 7S entirely and follow Step 7 as-is for the normal
+single-session headline run.
+
+**7S.1 [ACTION]** Launch a partial run with `--num_cycles 2` (session
+one):
+
+```bash
+tmux new-session -s main
+python -m scripts.run_experiment \
+    --output_dir outputs/full_run \
+    --num_cycles 2 \
+    --n_questions 5000 \
+    --benchmarks fever triviaqa natural_questions truthfulqa strategyqa arc_challenge \
+    --passage_index data/passage_index \
+    --cold_start_memory outputs/cold_start_memory/memory_store \
+    2>&1 | tee outputs/full_run/run.log
+```
+
+**7S.2 [VERIFY — before destroying the instance]** After Cycle 2
+completes, confirm every resume-critical file exists:
+
+```bash
+ls -la outputs/full_run/memory_store_cycle_2.faiss \
+       outputs/full_run/memory_store_cycle_2.meta \
+       outputs/full_run/deferred_buffer_cycle_2.pkl \
+       outputs/full_run/retroverify_cycle1.json \
+       outputs/full_run/retroverify_cycle2.json \
+       outputs/full_run/calibration/calibrated_config_cycle2.json
+ls outputs/full_run/ | grep model_checkpoint_cycle_2 || echo "MISSING MODEL CKPT"
+```
+
+If any file is missing or zero-sized, **do not destroy** — inspect
+`tail -200 outputs/full_run/run.log` for the cycle-2 write errors and
+fix first. Destroying with an incomplete checkpoint set means rerunning
+cycles 1–2 from scratch in session two.
+
+**7S.3 [ACTION]** Download all resume-critical artifacts to local:
+
+```bash
+# From your local PC — Windows PowerShell / WSL / git-bash all work
+mkdir -p "C:\Users\aksan\Documents\for cowork caem\outputs_from_vast\partial_2cycle"
+scp -r -P <PORT> root@<IP>:~/caem/outputs/full_run \
+    "C:\Users\aksan\Documents\for cowork caem\outputs_from_vast\partial_2cycle\"
+scp -r -P <PORT> root@<IP>:~/caem/outputs/cold_start_memory \
+    "C:\Users\aksan\Documents\for cowork caem\outputs_from_vast\partial_2cycle\"
+scp -r -P <PORT> root@<IP>:~/caem/data/passage_index \
+    "C:\Users\aksan\Documents\for cowork caem\outputs_from_vast\partial_2cycle\"
+```
+
+The passage index is the large one (~15–17 GB). Budget ~30–60 min
+depending on your connection. If your home link is slow, consider
+`gdrive` or `rclone` uploading to Google Drive from the instance
+instead of direct scp.
+
+**7S.4 [ACTION]** Destroy the instance — do **not** Stop:
+
+Browser: Vast.ai instance card → **Destroy**.
+
+**[WHY Destroy over Stop]** Stop keeps the disk (~$0.10–0.20/hr
+storage rate still billed) and interruptible instances can be evicted
+at any time, potentially losing work. Destroy ends all billing and
+wipes the disk; since we already downloaded everything in 7S.3,
+Destroy is strictly cheaper and carries no data-loss risk.
+
+**7S.5 [ACTION — session two, on a new instance]** Rent a new
+instance (repeat Steps 2 and 3: rent → SSH → clone repo → install
+deps → HF-cache). Re-upload the preserved artifacts and launch the
+resumed run:
+
+```bash
+# Step 1: re-upload (from local PC)
+scp -r -P <NEW_PORT> "C:\Users\aksan\Documents\for cowork caem\outputs_from_vast\partial_2cycle\full_run" \
+    root@<NEW_IP>:~/caem/outputs/
+scp -r -P <NEW_PORT> "C:\Users\aksan\Documents\for cowork caem\outputs_from_vast\partial_2cycle\cold_start_memory" \
+    root@<NEW_IP>:~/caem/outputs/
+scp -r -P <NEW_PORT> "C:\Users\aksan\Documents\for cowork caem\outputs_from_vast\partial_2cycle\passage_index" \
+    root@<NEW_IP>:~/caem/data/
+
+# Step 2: resume (on the new instance)
+tmux new-session -s main
+python -m scripts.run_experiment \
+    --output_dir outputs/full_run \
+    --num_cycles 10 \
+    --resume_from_cycle 3 \
+    --n_questions 5000 \
+    --benchmarks fever triviaqa natural_questions truthfulqa strategyqa arc_challenge \
+    --passage_index data/passage_index \
+    --cold_start_memory outputs/cold_start_memory/memory_store \
+    2>&1 | tee -a outputs/full_run/run.log
+```
+
+**7S.6 [VERIFY — resume log lines]** The first ~30 seconds of the
+resumed log must contain all four of:
+
+```
+Restored memory store from Cycle 2: <N> episodes
+Restored fine-tuned model weights from Cycle 2.
+Restored deferred buffer from Cycle 2: <M> entries.
+Restored calibration T = <X.XXXX> from calibrated_config_cycle2.json
+```
+
+If any line is missing, the corresponding checkpoint did not upload
+correctly — abort the run (`Ctrl+C`, then `tmux kill-session -t main`),
+re-upload the missing artifact, and relaunch 7S.5 Step 2.
+
+**[IF `Restored deferred buffer` warns "starting with empty buffer"]**
+The `deferred_buffer_cycle_2.pkl` snapshot is absent or corrupt.
+Acceptable: the buffer is small signal, not catastrophic to lose.
+Proceed, but note it in the run log so the Chapter 5 analysis
+acknowledges the gap.
+
+**[IF `Restored calibration T` warns "keeping default T=1.0"]** The
+`calibrated_config_cycle2.json` is absent. The next cycle-boundary
+recalibration will overwrite T to the correct value, so at most one
+cycle (cycle 3) runs with a slightly stale T. Proceed.
+
+**7S.7 [NOTE]** The resumed run skips Cycle 0 (baseline eval + initial
+calibration + cold-start seeding) because those are one-time. Total
+Phase-1 cost for the split run is (session-one cost) + (session-two
+cost for cycles 3–10, ~12–14 h on 4090 ≈ $5) + (one-time re-upload
+overhead, ~$0.30 idle on 5090 or $0.20 on 4090). Typically adds only
+$0.50–1.00 vs the single-session run.
+
+**[CHECKPOINT 7S]** Split-strategy run produces identical
+`experiment_summary.csv` to the single-session Step 7 run.
 
 ---
 

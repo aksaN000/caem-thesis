@@ -281,6 +281,14 @@ class CAEMConfig:
     # Benchmark list is passed via CLI --benchmarks; the 3/3 split is
     # enforced at training-time in _collect_episodes and at scoring time
     # in pooled_ce(), not here.
+    # num_cycles: the pre-registered CAEM experiment runs for TEN cycles
+    # (see Ch1 §Scope, Ch1 §Constrained Self-Improvement Loop, Ch3 §FR3,
+    # and Ch5). Ten cycles gives the episodic memory enough horizon to
+    # approach equilibrium under the MMLU retention guard, consistent with
+    # the 7-10 cycle horizons typical of continual-learning equilibrium
+    # studies. This is the default used by VAST_AI_DEPLOYMENT_GUIDE and
+    # NEXT_SESSION_PLAN; --num-cycles may be lowered (e.g. --num-cycles 3)
+    # for smoke-tests or short-horizon debug runs.
     num_cycles: int = 10
     calibration_set_size: int = 500
     purity_validation_set_size: int = 500

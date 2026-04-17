@@ -836,6 +836,15 @@ def run_experiment(ns: argparse.Namespace) -> None:
         # Save baseline memory store checkpoint
         pipeline.memory_store.save(str(output_dir / "memory_store_cycle_0"))
 
+        # Save deferred buffer checkpoint (empty at cycle 0, but the file's
+        # presence lets --resume_from_cycle N discover the buffer path).
+        try:
+            pipeline.deferred_buffer.save(
+                str(output_dir / "deferred_buffer_cycle_0.pkl")
+            )
+        except Exception as exc:
+            logger.warning("Failed to save deferred buffer at cycle 0 (%s).", exc)
+
         # Measure pristine-model MMLU *before* any fine-tuning. This is the
         # denominator for the retention ratio in later cycles. Persisted to
         # disk so resume paths can recover it without remeasuring.
@@ -939,7 +948,84 @@ def run_experiment(ns: argparse.Namespace) -> None:
         if prev_cycle > 0:
             sil.load_checkpoint(prev_cycle)
             logger.info("Restored fine-tuned model weights from Cycle %d.", prev_cycle)
-            
+
+        # Reload deferred buffer if its snapshot exists. Older runs (pre the
+        # deferred-buffer persistence fix) won't have this file; in that case
+        # we start the next cycle with an empty buffer and log the gap so the
+        # operator knows any pre-existing deferred signal is not recovered.
+        deferred_path = output_dir / f"deferred_buffer_cycle_{prev_cycle}.pkl"
+        if deferred_path.exists():
+            try:
+                pipeline.deferred_buffer.load(str(deferred_path))
+                logger.info(
+                    "Restored deferred buffer from Cycle %d: %d entries.",
+                    prev_cycle, pipeline.deferred_buffer.size,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Failed to load deferred buffer snapshot %s (%s). "
+                    "Continuing with an empty deferred buffer.",
+                    deferred_path, exc,
+                )
+        else:
+            logger.warning(
+                "No deferred buffer snapshot at %s (older run?). "
+                "Starting Cycle %d with an empty deferred buffer; any "
+                "cycle-%d deferred entries will not be reconsidered.",
+                deferred_path, ns.resume_from_cycle, prev_cycle,
+            )
+
+        # Reload calibration temperature T so the resumed run does not revert
+        # to the default T=1.0 for one cycle before the next per-cycle
+        # recalibration overwrites it. Preference order:
+        #   1. Previous cycle's per-cycle re-fit (calibrated_config_cycle{N}.json)
+        #   2. Cycle-0 initial fit (calibrated_config.json)
+        #   3. Default (keep config.temperature_scalar as-is, log a warning)
+        calib_dir = output_dir / "calibration"
+        per_cycle_calib = calib_dir / f"calibrated_config_cycle{prev_cycle}.json"
+        initial_calib = calib_dir / "calibrated_config.json"
+        calib_src = None
+        if per_cycle_calib.exists():
+            calib_src = per_cycle_calib
+        elif initial_calib.exists():
+            calib_src = initial_calib
+        if calib_src is not None:
+            try:
+                with open(calib_src, "r", encoding="utf-8") as f:
+                    calib_data = json.load(f)
+                # Two shapes are possible here:
+                #   calibrated_config.json (cycle-0 initial fit) stores the
+                #     value under "temperature_scalar".
+                #   calibrated_config_cycle{N}.json (per-cycle re-fit) stores
+                #     it under "temperature_after".
+                # Try the per-cycle key first; fall back to the initial key.
+                if "temperature_after" in calib_data:
+                    T_reloaded = float(calib_data["temperature_after"])
+                elif "temperature_scalar" in calib_data:
+                    T_reloaded = float(calib_data["temperature_scalar"])
+                else:
+                    raise KeyError(
+                        "Neither 'temperature_after' nor 'temperature_scalar' "
+                        "found in calibration snapshot."
+                    )
+                config.temperature_scalar = T_reloaded
+                logger.info(
+                    "Restored calibration T = %.4f from %s",
+                    T_reloaded, calib_src.name,
+                )
+            except (json.JSONDecodeError, KeyError, ValueError) as exc:
+                logger.warning(
+                    "Failed to parse %s (%s); keeping T = %.4f.",
+                    calib_src, exc, config.temperature_scalar,
+                )
+        else:
+            logger.warning(
+                "No calibration snapshot found in %s; keeping default "
+                "T = %.4f. The next cycle-boundary recalibration will "
+                "overwrite this.",
+                calib_dir, config.temperature_scalar,
+            )
+
         pipeline.current_cycle = prev_cycle
 
     # -- CYCLES 1..N --------------------------------------------------------- #
@@ -1038,6 +1124,20 @@ def run_experiment(ns: argparse.Namespace) -> None:
         
         # Step 6: Save memory checkpoint for resuming
         pipeline.memory_store.save(str(output_dir / f"memory_store_cycle_{cycle_num}"))
+
+        # Step 6b: Save deferred buffer checkpoint so --resume_from_cycle
+        # picks up any held-but-not-yet-promoted entries rather than starting
+        # the next cycle with an empty buffer (which would silently discard
+        # the current cycle's deferred signal).
+        try:
+            pipeline.deferred_buffer.save(
+                str(output_dir / f"deferred_buffer_cycle_{cycle_num}.pkl")
+            )
+        except Exception as exc:
+            logger.warning(
+                "Failed to save deferred buffer at cycle %d (%s).",
+                cycle_num, exc,
+            )
 
         # Step 7: Per-cycle recalibration (Conservative default: temperature
         # only; no-op if both calibration flags are False). Runs after

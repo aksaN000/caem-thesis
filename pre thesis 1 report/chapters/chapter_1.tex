@@ -8,7 +8,7 @@ The fundamental challenge expands beyond accuracy benchmarks. Current LLMs opera
 
 All these limitations have significant practical consequences. For example, in educational sectors, students may learn incorrect information presented confidently. In healthcare sectors, hallucinated medical information can lead to harmful decisions. In enterprise knowledge management, fake citations and sources can hamper trust. The stateless nature also causes the repetition of inefficient-expensive generation for similar queries rather than using past verified reasonings.
 
-This research addresses these fundamental limitations through CAEM (Confidence-Aware Episodic Memory with Self-Improvement), a system that targets a substantial reduction in the specific subclass of confident \textit{factuality} hallucinations that matter for knowledge-intensive question answering (confabulations in the sense of \citet{farquhar2024semantic}, ungrounded factual claims, and claims that contradict retrieved evidence), through three architectural commitments. First, a \textit{verified episodic memory} that admits a reasoning chain only after a nine-signal post-generation verifier has passed it through a four-outcome decision (store, defer, abstain, or discard), so that stored knowledge is distinguished from marginal or uncertain output rather than collapsed into a single binary gate. Second, a \textit{confidence-aware three-tier router} that combines stored-answer quality with query-to-memory similarity and overlays an independent safety override driven by a pre-routing uncertainty estimate, so that forced grounding is available before generation has started rather than only after it has failed. Third, a \textit{constrained self-improvement loop} that fine-tunes on the high-quality training pool under an $L_2$ anchor regulariser and aborts with a weight rollback if an out-of-distribution retention probe drops below a fixed ratio, so that accumulation across cycles is compounding rather than drifting. The pre-registered quantitative target is a relative reduction of at least 40\% in the pooled confident-error rate against a zero-shot Flan-T5-Large baseline on a multi-benchmark factual-QA panel, using the diagnostic defined in Chapter~\ref{ch:requirements} and reported cycle-by-cycle in Chapter~5.
+This research addresses these fundamental limitations through CAEM (Confidence-Aware Episodic Memory with Self-Improvement), a system that targets a substantial reduction in the specific subclass of confident \textit{factuality} hallucinations that matter for knowledge-intensive question answering (confabulations in the sense of \citet{farquhar2024semantic}, ungrounded factual claims, and claims that contradict retrieved evidence), through three architectural commitments. First, a \textit{verified episodic memory} that admits a reasoning chain only after a post-generation verifier, organised into three complementary families whose weighted composite aggregates six of nine signals and is augmented by a separately-consumed contradiction veto, has passed it through a four-outcome decision (store, defer, abstain, or discard), so that stored knowledge is distinguished from marginal or uncertain output rather than collapsed into a single binary gate. Second, a \textit{confidence-aware three-tier router} that combines stored-answer quality with query-to-memory similarity and overlays an independent safety override driven by a pre-routing uncertainty estimate, so that forced grounding is available before generation has started rather than only after it has failed. Third, a \textit{constrained self-improvement loop} that fine-tunes on the high-quality training pool under an $L_2$ anchor regulariser and aborts with a weight rollback if an out-of-distribution retention probe drops below a fixed ratio, so that accumulation across cycles is compounding rather than drifting. The pre-registered quantitative target is a relative reduction of at least 40\% in the pooled confident-error rate against a zero-shot Flan-T5-Large baseline on a multi-benchmark factual-QA panel, using the diagnostic defined in Chapter~\ref{ch:requirements} and reported cycle-by-cycle in Chapter~5.
 
 \section{Rationale of the Study or Motivation}
 
@@ -22,7 +22,7 @@ This research is significant for both theoretical and practical reasons. Theoret
 
 Practically, a reduction of at least 40\% in the confident-error rate of a 780M-parameter model (the pre-registered target; see Chapter~5) would make language models much more useful without hampering their overall abilities. This would allow educational systems to safely learn and remember specific institutional knowledge. Also, it would help businesses gradually build reliable domain expertise through verified interactions. In healthcare and law domains, it would preserve language understanding while maintaining strict accuracy standards. Additionally, using memory to reuse past answers would significantly lower computation costs, making AI systems more affordable and sustainable. The pre-registered target of at least a 40\% relative reduction, and the reduction actually achieved by CAEM, are reported in Chapter~5 relative to a zero-shot Flan-T5-Large baseline under the confident-error-rate diagnostic defined in Chapter~\ref{ch:requirements}.
 
-The undergraduate thesis scope is appropriate because the main ideas can be tested using well-known models like \textit{Flan-T5-Large}, a factual-QA benchmark panel (\textit{FEVER, TriviaQA, Natural Questions, TruthfulQA, StrategyQA,} and \textit{ARC-Challenge}) with \textit{MMLU} as an out-of-distribution retention control, and manageable computational resources compatible with a single RTX 4090 (24\,GB VRAM). Three self-improvement cycles are sufficient to evaluate whether the memory accumulates under the retention guard without requiring the 7--10 cycles that a long-horizon equilibrium study would need. A 12-month timeline is enough to properly evaluate the system while focusing only on factual and knowledge-based tasks, where correctness can be clearly checked, and excluding creative tasks that are harder to evaluate objectively.
+The undergraduate thesis scope is appropriate because the main ideas can be tested using well-known models like \textit{Flan-T5-Large}, a factual-QA benchmark panel (\textit{FEVER, TriviaQA, Natural Questions, TruthfulQA, StrategyQA,} and \textit{ARC-Challenge}) with \textit{MMLU} as an out-of-distribution retention control, and manageable computational resources compatible with a single RTX 4090 (24\,GB VRAM). A ten-cycle self-improvement trajectory is used so that the memory has enough time to approach equilibrium under the retention guard, in line with the 7--10 cycle horizons typical of continual-learning equilibrium studies. A 12-month timeline is enough to properly evaluate the system while focusing only on factual and knowledge-based tasks, where correctness can be clearly checked, and excluding creative tasks that are harder to evaluate objectively.
 
 \section{Problem Statement}
 
@@ -49,7 +49,7 @@ The primary objective of this research is to develop and evaluate CAEM (Confiden
 
     \item \textbf{Implement Three-Tier Adaptive Routing with an Independent Safety Override:} Design a routing rule that combines query-to-memory similarity with the stored-answer quality of the nearest neighbour into a weighted combined score and dispatches to Tier~1 (retrieve), Tier~2 (zero-shot generate), or Tier~3 (retrieval-augmented generate) based on three thresholds. Overlay an independent safety override: if the pre-routing confidence falls below a fixed floor, force Tier~3 regardless of the combined score, so that forced grounding is available before generation has started and is not entangled with the quality of memory the query happens to land near.
 
-    \item \textbf{Implement a Nine-Signal Post-Generation Verifier Organised into Three Complementary Families:} Combine three internal-calibration signals (token-probability aggregate on the generated answer, MC-dropout plurality, and a fused internal scalar), three sample-set signals (average pairwise similarity across sampled chains, chain-to-answer entailment, and normalised semantic entropy following Farquhar et~al.~\cite{farquhar2024semantic}), and two external-grounding signals (max-match and mean-match entailment against retrieved evidence) into a single weighted composite score. A ninth signal, an ensemble-max contradiction probability, is consumed separately as a hard veto on the storage decision rather than as a weighted composite input, so that any output that retrieval evidence actively refutes is rejected regardless of how well it scored on the composite. Gate the composite additionally with a confabulation early-exit rule, and augment the grounding score with a weakest-link atomic-fact decomposition to catch partially-unsupported answers.
+    \item \textbf{Implement a Nine-Signal Post-Generation Verifier Organised into Three Complementary Families:} Combine three internal-calibration signals (token-probability aggregate on the generated answer, MC-dropout plurality, and a fused internal scalar), three sample-set signals (average pairwise similarity across sampled chains, chain-to-answer entailment, and normalised semantic entropy following Farquhar et~al.~\cite{farquhar2024semantic}), and three external-grounding signals (max-match, mean-match, and weakest-link atomic-fact entailment against retrieved evidence) into a nine-signal record whose weighted composite $\ustored$ aggregates six of the nine. A separately-consumed ensemble-max contradiction probability acts as a hard veto on the storage decision rather than as a weighted composite input, so that any output that retrieval evidence actively refutes is rejected regardless of how well it scored on the composite. Gate the composite additionally with a confabulation early-exit rule that fires when a high internal-calibration signal coincides with a low max-match grounding score, so that internally-confident but externally-unsupported outputs are caught before storage.
 
     \item \textbf{Implement Retroactive Re-Verification and Deferred-Entry Reconsideration as Cycle-Boundary Memory Update Passes:} Because three of the nine verifier signals read the model's internal state directly, stored composites are model-relative snapshots that drift with every fine-tune. At each cycle boundary, re-score every stored episode under the updated model using an upward-only update rule that promotes entries whose composite has improved past a re-verification threshold and categorically prunes those that have fallen below it. Run a companion pass over the deferred buffer that promotes entries now above the store threshold, drops those that exceed the time-to-live, and requeues the rest. Both passes are abort-guarded and expose per-cycle counter diagnostics.
 
@@ -66,7 +66,7 @@ This section provides a high-level overview of the CAEM system architecture. Cha
 
 \subsection{System Architecture Overview}
 
-CAEM organises a single query into an eight-stage pipeline that is traversed once per query and wrapped in a per-cycle update loop. Stage~1 produces a \textit{pre-routing confidence} $\upre$ from an encoder-only pass, fusing a short-prefix token-probability aggregate with an encoder convergence ratio. Stage~2 encodes the query with Sentence-BERT and searches a FAISS-indexed episodic memory for the nearest stored entry, returning a similarity score $s$ and the neighbour's stored-quality score $\ustored$. Stage~3 dispatches the query to one of three tiers using the combined routing score $\mathcal{S} = 0.70\,s + 0.30\,\ustored$, overlaid with an independent safety override that forces Tier~3 whenever $\upre$ falls below a fixed floor. Stage~4 executes the tier: Tier~1 serves the neighbour's stored answer directly; Tier~2 runs a zero-shot generation on the fine-tuned model; Tier~3 retrieves Wikipedia evidence and runs a retrieval-augmented generation. Stage~5 passes the tier output through a nine-signal verifier organised into three families (internal calibration, sample-set agreement, external grounding) to produce the composite $\ustored$. Stage~6 emits one of four outcomes (store, defer, abstain, or discard) from the composite, an ensemble-max contradiction probability, and a max-match grounding score; Stage~7 executes the implied memory and user-facing actions. Stage~8 runs at cycle boundaries: a retroactive re-verification pass refreshes stored composites under the updated model, a deferred-entry reconsideration pass sweeps the deferred buffer, a fine-tuning step accumulates weights under an $L_2$ anchor, and an MMLU retention probe aborts the cycle with a weight rollback if general capability has dropped below a fixed floor. Figure~\ref{fig:architecture} gives the high-level view; the full per-stage pipeline appears as Figure~4.1 in Chapter~\ref{ch:methodology}.
+CAEM organises a single query into an eight-stage pipeline that is traversed once per query and wrapped in a per-cycle update loop. Stage~1 produces a \textit{pre-routing confidence} $\upre$ from an encoder-only pass, fusing a short-prefix token-probability aggregate with an encoder convergence ratio. Stage~2 encodes the query with Sentence-BERT and searches a FAISS-indexed episodic memory for the nearest stored entry, returning a similarity score $s$ and the neighbour's stored-quality score $\ustored$. Stage~3 dispatches the query to one of three tiers using the combined routing score $\mathcal{S} = 0.70\,s + 0.30\,\ustored$, overlaid with an independent safety override that forces Tier~3 whenever $\upre$ falls below a fixed floor. Stage~4 executes the tier: Tier~1 serves the neighbour's stored answer directly; Tier~2 runs a zero-shot generation on the fine-tuned model; Tier~3 retrieves Wikipedia evidence and runs a retrieval-augmented generation. Stage~5 passes the tier output through a post-generation verifier whose nine signals are organised into three families (internal calibration, sample-set agreement, external grounding); a weighted composite $\ustored$ aggregates six of the nine, and a separately-consumed ensemble-max contradiction probability acts as a hard veto in Stage~6 rather than as a weighted input to $\ustored$. Stage~6 emits one of four outcomes (store, defer, abstain, or discard) from the composite, an ensemble-max contradiction probability, and a max-match grounding score; Stage~7 executes the implied memory and user-facing actions. Stage~8 runs at cycle boundaries: a retroactive re-verification pass refreshes stored composites under the updated model, a deferred-entry reconsideration pass sweeps the deferred buffer, a fine-tuning step accumulates weights under an $L_2$ anchor, and an MMLU retention probe aborts the cycle with a weight rollback if general capability has dropped below a fixed floor. Figure~\ref{fig:architecture} gives the high-level view; the full per-stage pipeline appears as Figure~4.1 in Chapter~\ref{ch:methodology}.
 
 \begin{figure}[p]
 \centering
@@ -105,16 +105,14 @@ CAEM organises a single query into an eight-stage pipeline that is traversed onc
     \scriptsize High $\mathcal{S}$
 };
 
-% Tier 2 - Generation with safety override (middle)
+% Tier 2 - Generation (middle)
+% The safety override is NOT a post-generation check; it is pre-routing
+% (Stage 1 u_pre evaluated before dispatch) and is drawn as a dashed
+% arrow from the input node directly to Tier 3 further down.
 \node[box=orange!60, right=1.8cm of route] (t2gen) {
     \textbf{TIER 2}\\
     \scriptsize Zero-shot\\
     \scriptsize Generate
-};
-\node[smallbox=orange!60, right=1.5cm of t2gen] (t2conf) {
-    4 SAFETY\\[0.1cm]
-    \tiny override\\
-    \tiny $\upre < \tau$?
 };
 
 % Tier 3 - RAG (bottom)
@@ -129,7 +127,7 @@ CAEM organises a single query into an eight-stage pipeline that is traversed onc
 \node[external, left=5.5cm of t3] (extkb) {External\\KB\\(Wiki)};
 
 % Verify and Output
-\node[box=red!60, right=2.5cm of t2conf] (verify) {5 VERIFY\\[0.05cm]\footnotesize 9 signals\\[-0.05cm]\footnotesize + 6 DECIDE\\[-0.05cm]\scriptsize Store/Defer/\\[-0.1cm]\scriptsize Abstain/Discard};
+\node[box=red!60, right=5cm of t2gen] (verify) {5 VERIFY\\[0.05cm]\footnotesize 8-sig composite\\[-0.05cm]\footnotesize + contra.\ veto\\[-0.05cm]\footnotesize + 6 DECIDE\\[-0.05cm]\scriptsize Store/Defer/\\[-0.1cm]\scriptsize Abstain/Discard};
 \node[box=green!60, right=1.8cm of verify] (output) {7 OUTPUT\\[0.15cm]\footnotesize Answer};
 
 % Bottom: Model
@@ -141,10 +139,12 @@ CAEM organises a single query into an eight-stage pipeline that is traversed onc
 \draw[darrow=green!70] (mem) -- node[above, font=\scriptsize, xshift=5mm, yshift=1mm, text=black] {sim score} (encode);
 \draw[arrow=teal!70] (encode) -- (route);
 
-% Routing based on similarity
-\draw[arrow=green!70] (route) -- node[right, font=\scriptsize, xshift=0.5mm, yshift=1mm, fill=white, inner sep=1pt, text=black] {$s{>}0.95$} (t1);
-\draw[arrow=orange!70] (route) -- node[right, font=\scriptsize, yshift=2mm, text=black] {$0.75{<}s{\leq}0.95$} (t2gen);
-\draw[arrow=red!70] (route) -- node[right, font=\scriptsize, xshift=0.5mm, yshift=-1mm, fill=white, inner sep=1pt, text=black] {$s{<}0.75$} (t3);
+% Routing based on the combined score S = 0.7 s + 0.3 u_stored.
+% Thresholds are shown symbolically here; numeric values are developed in
+% Chapter 4 (methodology).
+\draw[arrow=green!70] (route) -- node[right, font=\scriptsize, xshift=0.5mm, yshift=1mm, fill=white, inner sep=1pt, text=black] {$\mathcal{S}{>}\tau_1$} (t1);
+\draw[arrow=orange!70] (route) -- node[right, font=\scriptsize, yshift=2mm, text=black] {$\tau_2{<}\mathcal{S}{\leq}\tau_1$} (t2gen);
+\draw[arrow=red!70] (route) -- node[right, font=\scriptsize, xshift=0.5mm, yshift=-1mm, fill=white, inner sep=1pt, text=black] {$\mathcal{S}{\leq}\tau_2$} (t3);
 
 % CRITICAL FIX 1: Memory retrieves to Tier 1
 \draw[arrow=green!70, line width=2.5pt] (mem) to[out=-45, in=90] node[right, font=\scriptsize, xshift=2mm, yshift=1mm, fill=white, inner sep=1pt, text=black] {Retrieve} (t1);
@@ -155,12 +155,20 @@ CAEM organises a single query into an eight-stage pipeline that is traversed onc
 % CRITICAL FIX 2: Model generates for Tier 2 (SOLID, PROMINENT)
 \draw[arrow=orange!70, line width=2.5pt] (model) -- node[left, font=\scriptsize, xshift=-2mm, fill=white, inner sep=1pt, text=black] {Generate} (t2gen);
 
-% Tier 2: Generate -> Confidence Check -> Decision
-\draw[arrow=orange!70] (t2gen) -- (t2conf);
-\draw[arrow=orange!70] (t2conf) -- node[above, font=\scriptsize, fill=white, inner sep=1pt, text=black] {Accept} (verify);
+% Tier 2: Generate -> Verify (no post-generation safety gate -- the u_pre
+% safety override is pre-routing and is drawn below)
+\draw[arrow=orange!70] (t2gen) -- (verify);
 
-% CRITICAL FIX 3: Confidence fallback to Tier 3 (MORE PROMINENT)
-\draw[arrow=red!70, line width=2pt] (t2conf) -- node[right, font=\scriptsize, xshift=1mm, yshift=-0.5mm, fill=white, inner sep=1pt, text=black] {Fallback} node[right, font=\scriptsize, xshift=1mm, yshift=-3.5mm, fill=white, inner sep=1pt, text=black] {$u{<}0.6$} (t3);
+% PRE-ROUTING SAFETY OVERRIDE (Stage 1 u_pre): forces Tier 3 BEFORE the
+% router dispatches, independent of the combined-score rule. This is the
+% two-mechanism separation that distinguishes CAEM's router from a pure
+% similarity-threshold dispatcher.
+\draw[arrow=red!70, line width=2pt, dashed]
+    (input) to[out=-60, in=180, looseness=1.6]
+    node[font=\scriptsize, fill=white, inner sep=2pt, text=black,
+         pos=0.55, below, yshift=-1mm]
+    {Safety: $\upre{<}\tau \Rightarrow $ T3}
+    (t3.west);
 
 % External KB feeds Tier 3
 \draw[darrow=blue!60] (extkb) -- (t3);
@@ -187,7 +195,7 @@ CAEM organises a single query into an eight-stage pipeline that is traversed onc
 
 \vspace{0.3cm}
 
-{\small\caption[CAEM Architecture (High-Level View)]{High-level view of the CAEM architecture. A pre-routing confidence $\upre$ (Stage~1) and a Sentence-BERT memory lookup (Stage~2) feed a three-tier router (Stage~3) that dispatches to direct retrieval (Tier~1), zero-shot generation (Tier~2), or retrieval-augmented generation (Tier~3) based on a combined similarity-and-stored-quality score $\mathcal{S}$, with an independent safety override that forces Tier~3 whenever $\upre$ falls below a fixed floor. Tier outputs pass through a nine-signal post-generation verifier (Stage~5) and a four-outcome storage decision (Stage~6) before reaching the user (Stage~7). At cycle boundaries (Stage~8), retroactive re-verification, deferred-entry reconsideration, $L_2$-anchored fine-tuning, and an MMLU retention guard jointly update memory and weights; failed cycles roll back weights but not memory. Figure~4.1 in Chapter~\ref{ch:methodology} shows the full per-stage pipeline with notation, equations, and algorithms.}}
+{\small\caption[CAEM Architecture (High-Level View)]{High-level view of the CAEM architecture. A pre-routing confidence $\upre$ (Stage~1) and a Sentence-BERT memory lookup (Stage~2) feed a three-tier router (Stage~3) that dispatches to direct retrieval (Tier~1), zero-shot generation (Tier~2), or retrieval-augmented generation (Tier~3) based on a combined similarity-and-stored-quality score $\mathcal{S}$, with an independent safety override that forces Tier~3 whenever $\upre$ falls below a fixed floor. Tier outputs pass through a post-generation verifier (Stage~5) whose weighted composite $\ustored$ aggregates six of nine signals and is augmented by a separately-consumed contradiction veto, followed by a four-outcome storage decision (Stage~6), before reaching the user (Stage~7). At cycle boundaries (Stage~8), retroactive re-verification, deferred-entry reconsideration, $L_2$-anchored fine-tuning, and an MMLU retention guard jointly update memory and weights; failed cycles roll back weights but not memory. Figure~4.1 in Chapter~\ref{ch:methodology} shows the full per-stage pipeline with notation, equations, and algorithms.}}
 \label{fig:architecture}
 \end{figure}
 
@@ -201,13 +209,13 @@ All tier outputs undergo a nine-signal post-generation verifier organised into t
 
 \subsection{Constrained Self-Improvement Loop}
 
-CAEM implements iterative refinement over three cycles. Each cycle processes a workload of questions through the current system, collecting verified episodes, deferred entries, and contradiction-veto or abstain cases. At the cycle boundary, a retroactive re-verification pass re-scores every stored episode under the updated model with an upward-only rule (promote when the composite has improved past a re-verification threshold, prune when it has fallen below); a deferred-entry reconsideration pass promotes, drops by time-to-live, or requeues each held entry. Fine-tuning then draws a training pool from entries that pass a strict quality filter (a training threshold set above the store threshold, so that training-pool quality is held to a higher bar than Tier~1 retrieval quality), and optimises a mixed batch (90\% verified reasoning chains, 10\% general-QA) under an $L_2$ anchor regulariser toward the base model as an EWC approximation~\cite{doi:10.1073/pnas.1611835114}. Before and after the fine-tune, the cycle probes MMLU~\cite{hendrycks2021measuring} and computes a retention ratio. If the retention ratio falls below a fixed floor, the cycle aborts: weights are rolled back to the previous checkpoint and retroverify is skipped for that cycle. The memory, however, is never rolled back, so verified knowledge accumulated during the aborted cycle survives even when the weights do not. This asymmetry decouples weight-level drift from memory-level accumulation and is what makes the self-improvement loop safe to iterate.
+CAEM implements iterative refinement over ten cycles. Each cycle processes a workload of questions through the current system, collecting verified episodes, deferred entries, and contradiction-veto or abstain cases. At the cycle boundary, a retroactive re-verification pass re-scores every stored episode under the updated model with an upward-only rule (promote when the composite has improved past a re-verification threshold, prune when it has fallen below); a deferred-entry reconsideration pass promotes, drops by time-to-live, or requeues each held entry. Fine-tuning then draws a training pool from entries that pass a strict quality filter (a training threshold set above the store threshold, so that training-pool quality is held to a higher bar than Tier~1 retrieval quality), and optimises a mixed batch (90\% verified reasoning chains, 10\% general-QA) under an $L_2$ anchor regulariser toward the base model as an EWC approximation~\cite{doi:10.1073/pnas.1611835114}. Before and after the fine-tune, the cycle probes MMLU~\cite{hendrycks2021measuring} and computes a retention ratio. If the retention ratio falls below a fixed floor, the cycle aborts: weights are rolled back to the previous checkpoint and retroverify is skipped for that cycle. The memory, however, is never rolled back, so verified knowledge accumulated during the aborted cycle survives even when the weights do not. This asymmetry decouples weight-level drift from memory-level accumulation and is what makes the self-improvement loop safe to iterate.
 
 \subsection{Implementation}
 
 The system employs Flan-T5-Large (780M parameters)~\cite{JMLR:v25:23-0870} as the only trainable component for its instruction-tuned capabilities and encoder-decoder architecture. Sentence-BERT (all-mpnet-base-v2, 110M, frozen)~\cite{reimers-gurevych-2019-sentence} converts queries into 768-dimensional embeddings; FAISS~\cite{8733051} backs the episodic memory; RoBERTa-Large-MNLI (355M, frozen)~\cite{liu2019roberta} performs the natural-language-inference checks that feed the grounding and entailment signals. All components fit in the 24\,GB VRAM of a single RTX 4090 under bfloat16 mixed precision, with fine-tuning made memory-feasible by the $L_2$ anchor (which requires only the base-model parameters on-device, rather than a full Fisher Information Matrix). Evaluation uses FEVER, TriviaQA, Natural Questions, TruthfulQA, StrategyQA, and ARC-Challenge as the primary factual-QA panel, with MMLU as an out-of-distribution retention control, reporting the geometric Composite Evaluation Score (Chapter~\ref{ch:requirements}) and a confident-error-rate diagnostic. The 12-month timeline allocates four months for implementation, four for experimental cycles, and four for analysis and writing.
 
-Figure~\ref{fig:experimental-workflow} illustrates the planned experimental workflow across three self-improvement cycles. Each cycle runs the per-query pipeline over a fixed workload, then applies the cycle-boundary update passes (retroactive re-verification, deferred-entry reconsideration, $L_2$-anchored fine-tuning) under the MMLU retention guard.
+Figure~\ref{fig:experimental-workflow} illustrates the planned experimental workflow across a ten-cycle trajectory. Each cycle runs the per-query pipeline over a fixed workload, then applies the cycle-boundary update passes (retroactive re-verification, deferred-entry reconsideration, $L_2$-anchored fine-tuning) under the MMLU retention guard. The three boxes shown are representative phases of the trajectory rather than a literal cycle-by-cycle depiction.
 
 \begin{figure}[htbp]
 \centering
@@ -222,12 +230,12 @@ Figure~\ref{fig:experimental-workflow} illustrates the planned experimental work
                        rounded corners=2pt, font=\footnotesize\itshape}
 ]
 
-% Cycle 1 - Red to Yellow gradient
+% Early phase - Red to Yellow gradient
 \node[cycle, fill=red!20, draw=red!70!black] (c1) {
-\textbf{Cycle 1} \textit{(cold start)}\\
+\textbf{Early cycles} \textit{(cold start)}\\
 \vspace{0.1cm}
-$\bullet$ Memory: \textbf{Empty}\\
-$\bullet$ All queries to Tier 2/3\\
+$\bullet$ Memory: \textbf{Empty $\rightarrow$ sparse}\\
+$\bullet$ Most queries to Tier 2/3\\
 $\bullet$ 9-signal verify $\rightarrow$ 4-outcome decide\\
 $\bullet$ Store / Defer / Abstain / Discard
 };
@@ -238,9 +246,9 @@ Cycle boundary: retroverify $+$ defer-reconsider\\
 $L_2$-anchor fine-tune + MMLU guard ($\rho \ge 0.93$)
 };
 
-% Cycle 2 - Yellow gradient
+% Mid phase - Yellow gradient
 \node[cycle, fill=yellow!25, draw=orange!70!black, below=0.8cm of cons1] (c2) {
-\textbf{Cycle 2} \textit{(accumulating)}\\
+\textbf{Mid cycles} \textit{(accumulating)}\\
 \vspace{0.1cm}
 $\bullet$ Memory: \textbf{Growing}\\
 $\bullet$ Tier 1 share rises\\
@@ -254,12 +262,12 @@ Cycle boundary: retroverify $+$ defer-reconsider\\
 $L_2$-anchor fine-tune; abort $\rightarrow$ rollback weights (memory kept)
 };
 
-% Cycle 3 - Green gradient
+% Late phase - Green gradient
 \node[cycle, fill=green!25, draw=green!70!black, below=0.8cm of cons2] (c3) {
-\textbf{Cycle 3} \textit{(report)}\\
+\textbf{Late cycles} \textit{(report)}\\
 \vspace{0.1cm}
-$\bullet$ Memory: \textbf{Mature}\\
-$\bullet$ Higher Tier 1 share\\
+$\bullet$ Memory: \textbf{Mature, near-equilibrium}\\
+$\bullet$ Highest Tier 1 share\\
 $\bullet$ Composite Evaluation Score\\
 $\bullet$ Confident-error rate vs.\ baseline
 };
@@ -286,7 +294,7 @@ $\bullet$ MMLU retention $\rho$
 \textbf{Final report (Ch 5):}\\
 $\bullet$ CES geometric mean across 5 axes\\
 $\bullet$ Confident-error reduction vs.\ zero-shot\\
-$\bullet$ Ablation grid
+$\bullet$ Per-cycle trajectory + ablation grid
 };
 
 % Arrows with gradient colors
@@ -296,7 +304,7 @@ $\bullet$ Ablation grid
 \draw[arrow, green!60!black] (cons2) -- (c3);
 
 \end{tikzpicture}
-\caption[Experimental Workflow]{Three self-improvement cycles. Each cycle processes a fixed workload through the per-query pipeline (Stages 1--7) with verification and four-outcome storage. At each cycle boundary (Stage~8) a retroactive re-verification pass refreshes stored composites under the updated model, a deferred-entry reconsideration pass sweeps the deferred buffer, $L_2$-anchored fine-tuning draws from a strict training pool, and an MMLU retention probe aborts the cycle with a weight rollback if the retention ratio falls below $\rho_{\min} = 0.93$. Memory is never rolled back. Headline results (Composite Evaluation Score, confident-error reduction against baselines, and the ablation grid) are reported at the end of Cycle~3 in Chapter~5.}
+\caption[Experimental Workflow]{Ten-cycle self-improvement trajectory, shown schematically as early, mid, and late phases. Each cycle processes a fixed workload through the per-query pipeline (Stages 1--7) with verification and four-outcome storage. At each cycle boundary (Stage~8) a retroactive re-verification pass refreshes stored composites under the updated model, a deferred-entry reconsideration pass sweeps the deferred buffer, $L_2$-anchored fine-tuning draws from a strict training pool, and an MMLU retention probe aborts the cycle with a weight rollback if the retention ratio falls below $\rho_{\min} = 0.93$. Memory is never rolled back. Headline results (Composite Evaluation Score, confident-error reduction against baselines, per-cycle trajectory, and the ablation grid) are reported at the end of Cycle~10 in Chapter~5.}
 \label{fig:experimental-workflow}
 \end{figure}
 
@@ -308,9 +316,9 @@ This research focuses on tasks where there is a clear right or wrong answer and 
 
 The scope explicitly \textit{excludes} creative generation tasks such as story writing, poetry composition, or open-ended dialogue where evaluation criteria are subjective and multiple valid responses exist. Similarly, tasks requiring up-to-date real-world information beyond the training cutoff such as stock prices, breaking news and current events are outside scope, as the system lacks mechanisms for continuous knowledge based updates. Important grounds like Code generation and mathematical theorem proving are excluded to maintain focus on natural language reasoning. The system operates on English text only, with the scope of working on multilingual capabilities in the future.
 
-The model selection reflects resource constraints appropriate for undergraduate thesis work. Flan-T5-Large (780M parameters) provides sufficient capacity for complex reasoning while remaining feasible for fine-tuning with university GPU allocations. Larger models such as LLaMA-13B or GPT-3.5 scale would require computational resources that are too expensive and resource-heavy. The three-cycle experimental design captures the essential self-improvement dynamics while remaining achievable within a 12-month timeline, though in theory a full long-horizon equilibrium study would require 7--10 cycles.
+The model selection reflects resource constraints appropriate for undergraduate thesis work. Flan-T5-Large (780M parameters) provides sufficient capacity for complex reasoning while remaining feasible for fine-tuning with university GPU allocations. Larger models such as LLaMA-13B or GPT-3.5 scale would require computational resources that are too expensive and resource-heavy. The ten-cycle experimental design is sized to capture the essential self-improvement dynamics and allow the memory to approach equilibrium under the retention guard, while remaining achievable on a single RTX 4090 within a 12-month timeline.
 
-Per-benchmark evaluation uses a fixed sub-sample sized for meaningful statistical power without excessive computational cost. The episodic memory is bounded at a target capacity of $10^6$ entries with a flat FAISS index promoted to IVF-PQ above a threshold; for the three-cycle experiments reported in Chapter~5 the memory is initialised empty and grows up to the low tens of thousands of entries, which is well within single-GPU capacity and exercises the novelty filter and value-score pruning policies without saturating them.
+Per-benchmark evaluation uses a fixed sub-sample sized for meaningful statistical power without excessive computational cost. The episodic memory is bounded at a target capacity of $10^6$ entries with a flat FAISS index promoted to IVF-PQ above a threshold; for the ten-cycle experiments reported in Chapter~5 the memory is initialised empty and grows up to the low tens of thousands of entries, which is well within single-GPU capacity and exercises the novelty filter and value-score pruning policies without saturating them.
 
 \subsection{Technical Challenges}
 
