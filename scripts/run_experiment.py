@@ -1054,14 +1054,14 @@ def run_experiment(ns: argparse.Namespace) -> None:
             logger.warning(
                 "  Cycle %d ABORTED (retention ratio %.3f < %.3f). "
                 "Weights restored. Eval still runs on the restored model.",
-                cycle_num, cycle_result.forgetting_score, config.forgetting_tolerance,
+                cycle_num, cycle_result.mmlu_retention_ratio, config.forgetting_tolerance,
             )
         else:
             logger.info(
                 "  Fine-tuning done: %d episodes | retention_ratio=%.3f | loss=%.4f "
                 "| retroverify: %d updated / %d pruned",
                 cycle_result.n_episodes_used,
-                cycle_result.forgetting_score,
+                cycle_result.mmlu_retention_ratio,
                 cycle_result.final_train_loss,
                 cycle_result.n_retroverified,
                 cycle_result.n_retropruned,
@@ -1087,7 +1087,7 @@ def run_experiment(ns: argparse.Namespace) -> None:
             "fine_tune": {
                 "n_episodes_used": cycle_result.n_episodes_used,
                 "n_general_used": cycle_result.n_general_used,
-                "forgetting_score": cycle_result.forgetting_score,
+                "mmlu_retention_ratio": cycle_result.mmlu_retention_ratio,
                 "aborted": cycle_result.aborted,
                 "final_train_loss": cycle_result.final_train_loss,
                 "mmlu_retention": mmlu_serialisable,   # EXP-MMLU-FIX: neutral reporting metric
