@@ -784,3 +784,130 @@ GPU path). ~6.5 cores active (memory-bandwidth ceiling on k-means).
 Expected completion: ~21:50-22:05 UTC / ~03:50-04:05 BDT. Then Step 5
 smoke test fires automatically within 120 s of `passages.faiss` +
 `passages.pkl` materializing on disk.
+
+### Download-vs-preserve playbook (applies at end of each phase)
+
+**Always download (thesis inputs):**
+
+- `plan_a_outputs.tar.gz` after Step 20 (~400-600 MB compressed) --
+  this is produced autonomously by Plan A Step 20. Contains full_run,
+  baselines, smoke, cold_start_memory, purity_validation,
+  tab_sig_test.csv, and all logs.
+- After Phase 1 Full (manual Steps 16-18), manually produce a second
+  tar:
+  ```bash
+  tar czf /workspace/caem/phase1_full_outputs.tar.gz \
+      outputs/ablation \
+      outputs/ablation/ablation_table.csv \
+      outputs/ablation/ablation_per_cycle.csv \
+      outputs/ablation/ablation_aggregate_manifest.json
+  ```
+  scp down (~500 MB).
+- Belt-and-suspenders separate scps of a few flat files:
+  - `outputs/full_run/experiment_summary.csv`
+  - `outputs/tab_sig_test.csv`
+  - `outputs/full_run/tab_headline.csv`
+  - `outputs/full_run/dataset_splits.json`
+  - `outputs/purity_validation/theory_validation.json`
+  - `plan_a_runner.log` + `build_passage_index.log`
+
+**Preserve on Vast (do NOT download) while instance is Stopped:**
+
+| Artifact | Size | Why keep | Re-acquire cost if lost |
+|---|---:|---|---|
+| `data/passage_index/passages.faiss`+`.pkl` | ~17 GB | resume retrieval | $3.50 + 6 h rebuild |
+| `hf_cache/` | ~15 GB | avoid re-download | 15-30 min per resume |
+| `outputs/full_run/memory_store_cycle_*` | ~2 GB | Step 7 resume | re-run Step 7 ($14, 14-18 h) |
+| `outputs/full_run/model_checkpoint_cycle_*` | ~100 GB total | Step 7/18 resume | ditto |
+| `outputs/full_run/deferred_buffer_cycle_*.pkl` | ~1 GB | Step 7 resume | lose buffer state (minor) |
+
+**Stop vs Destroy decision rule (by expected pause duration):**
+
+| Pause length | Strategy | Cost math |
+|---|---|---|
+| < 2 weeks | **Stop** instance, keep disk | $0.15/hr idle * 336 h = ~$50 |
+| 2 weeks - 2 months | **Stop** is still cheaper than download + re-upload round trip | ~$72-216 idle |
+| > 2 months | **Destroy**, but first download `passages.faiss`+`.pkl` as insurance (~17 GB, 2-4 h on residential) | $0 idle; pay $3.50 + 6 h to rebuild OR re-upload backup |
+
+For Aksan's actual defense timeline (Phase 1A now -> Phase 1 Full
+within 1-2 weeks -> defense): Stop is correct. For post-defense
+journal prep (months-long pause before Phase 2): Destroy-with-
+index-backup is correct.
+
+**Sanity-check command for local "do I have everything" after download:**
+
+```bash
+ls -lh outputs_from_vast/outputs/full_run/experiment_summary.csv \
+       outputs_from_vast/outputs/tab_sig_test.csv \
+       outputs_from_vast/outputs/full_run/tab_headline.csv \
+       outputs_from_vast/outputs/purity_validation/theory_validation.json \
+       outputs_from_vast/outputs/ablation/ablation_table.csv   # Phase 1 Full only
+```
+
+All files non-empty = Ch5 has all inputs it needs.
+
+### 04:35 BDT (22:35 UTC, 2026-04-19) — faiss-cpu vs faiss-gpu: retrospective + plan for Phase 1 Full rebuilds
+
+**Incident**: Step 4's FAISS IVF-PQ clustering phase ran ~80 minutes on
+CPU (faiss-cpu, 6.3 cores of useful parallelism before hitting EPYC
+memory-bandwidth ceiling). GPU sat at 0% utilization the whole time
+because faiss-cpu has no GPU path. Same clustering on a 5090 with
+faiss-gpu would have taken 2-4 minutes (~20x speedup).
+
+**Why this happened**: the NEXT_SESSION_PLAN Step 3.2 runbook specified
+`pip install faiss-cpu` as the canonical install, chosen at runbook-
+write time for "works on any Vast pytorch image" robustness over "optimal
+on each GPU class." Not a correctness issue -- index quality is
+identical -- but a wall-clock choice that cost 75+ minutes on this run.
+
+**Claude self-correction**: Earlier in this session when the 2M training
+warning fired, the assistant described the faiss-gpu speedup as "2-4 min
+vs 15 min" -- a significant under-estimate. At 21M passages + 2M training
+vectors the CPU path actually takes ~80 min, making the ratio 20x rather
+than the quoted 5x. That under-estimate led to characterizing the switch
+as "a minor optimization" when it was actually a major one. User flagged
+this ("idk why you suggested earlier to use cpu"); accepted the
+correction and pushed through the fix below rather than trying to
+reinstall mid-run.
+
+**Why we did NOT switch mid-run**: killing the current build would have
+discarded 7 h of encoding + 80 min of clustering (~$5.10 spent) and
+forced a ~6 h re-encode. Net cost to save the last 10-15 min of this
+build: ~14 h round-trip. Not worth it. Letting the current CPU build
+finish and patching for NEXT rebuild is the correct trade.
+
+**Patches landed (for Phase 1 Full / Phase 2 / any future rebuild):**
+
+1. `NEXT_SESSION_PLAN.md` Step 3.2 now recommends `faiss-gpu-cu12` as
+   the default install, with `faiss-cpu` as a commented fallback. Added
+   a runtime check (`hasattr(faiss, "StandardGpuResources")`) so users
+   can tell immediately whether they got the GPU variant.
+
+2. `caem/retrieval/rag.py::PassageStore._build_index` — the IVF-PQ
+   train+add path now auto-detects faiss-gpu at runtime and routes
+   clustering through the GPU via `index_cpu_to_gpu(...)`, then swaps
+   back to CPU via `index_gpu_to_cpu(...)` for serialization (FAISS's
+   write_index only supports CPU indexes). Falls back to CPU train+add
+   silently if faiss-gpu is missing or GPU path raises. Zero behavioural
+   change for CPU-only installs -- just adds a fast path for GPU ones.
+
+**Expected impact of the patches on future rebuilds:**
+
+| Phase | With faiss-gpu | With faiss-cpu (current) |
+|---|---:|---:|
+| Step 4 k-means | 2-4 min | ~80 min |
+| Step 7 Tier 3 retrieval queries (~50K calls) | ~50 s total | ~8 min total |
+| Steps 11-13 B3/B4/B5 RAG queries (~90K calls) | ~90 s total | ~15 min total |
+| **Savings per Plan A rebuild** | — | **~95 min saved** |
+
+**What users should do on next rental:**
+
+```bash
+# After Step 3.2 install:
+python -c "import faiss; print('gpu:', hasattr(faiss, 'StandardGpuResources'))"
+# Prints "gpu: True"  -> good, Step 4 will be ~20x faster
+# Prints "gpu: False" -> on CPU variant, budget ~80 min for k-means
+```
+
+**No action required on the current run.** Step 4 will complete on
+faiss-cpu as-is. The patches take effect on subsequent index rebuilds.

@@ -157,8 +157,37 @@ class PassageStore:
                 else:
                     train_vecs = emb_f32
 
-                cast(Any, ivf).train(np.ascontiguousarray(train_vecs))
-                cast(Any, ivf).add(emb_f32)
+                # GPU acceleration when faiss-gpu is installed: IVF k-means
+                # on 2M x 768 vectors is ~80 min on faiss-cpu vs ~2-4 min
+                # on the 5090. Detection is runtime-safe: falls back to CPU
+                # if StandardGpuResources is missing (faiss-cpu install).
+                _use_gpu = hasattr(faiss, "StandardGpuResources")
+                if _use_gpu:
+                    try:
+                        _gpu_res = cast(Any, faiss).StandardGpuResources()
+                        ivf_gpu = cast(Any, faiss).index_cpu_to_gpu(
+                            _gpu_res, 0, ivf
+                        )
+                        cast(Any, ivf_gpu).train(
+                            np.ascontiguousarray(train_vecs))
+                        cast(Any, ivf_gpu).add(emb_f32)
+                        # Move back to CPU for serialization via
+                        # faiss.write_index (Step 4 write_store).
+                        ivf = cast(Any, faiss).index_gpu_to_cpu(ivf_gpu)
+                        logger.info(
+                            "PassageStore IVF-PQ train+add ran on GPU "
+                            "(faiss-gpu detected); swapped back to CPU "
+                            "for serialization.")
+                    except Exception as _gpu_exc:
+                        logger.warning(
+                            "faiss-gpu path failed (%s); falling back to "
+                            "CPU train+add.", _gpu_exc)
+                        cast(Any, ivf).train(
+                            np.ascontiguousarray(train_vecs))
+                        cast(Any, ivf).add(emb_f32)
+                else:
+                    cast(Any, ivf).train(np.ascontiguousarray(train_vecs))
+                    cast(Any, ivf).add(emb_f32)
                 ivf.nprobe = nprobe
                 self._index = ivf
                 logger.info(

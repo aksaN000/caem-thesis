@@ -221,11 +221,44 @@ cd ~/caem
 3.2 **[ACTION]** Install Python deps:
 
 ```bash
+# Default install (CPU FAISS): slow for Step 4 rebuilds -- k-means
+# clustering on 21M x 768 embeddings takes ~80 min on CPU.
 pip install torch transformers datasets "sentence-transformers<4" \
-    faiss-cpu numpy scipy scikit-learn
+    faiss-gpu-cu12 numpy scipy scikit-learn
+
+# If faiss-gpu-cu12 install fails (CUDA version mismatch on older Vast
+# images), fall back to CPU. Every Step 4 rebuild then pays ~75 min
+# extra for k-means on CPU.
+# pip install torch transformers datasets "sentence-transformers<4" \
+#     faiss-cpu numpy scipy scikit-learn
 ```
 
 **[VERIFY]** No red errors; final line shows "Successfully installed".
+
+**[WHY `faiss-gpu-cu12` over `faiss-cpu`]** On 2026-04-18 Session 1,
+Step 4 k-means clustering with `faiss-cpu` on 2M x 768 training vectors
+for 65536 IVF centroids took **~80 minutes** of wall-clock (memory-
+bandwidth-bound on EPYC 9654, ~6 cores of useful parallelism before
+hitting the RAM-channel ceiling). The GPU sat at 0% utilization the
+entire time because `faiss-cpu` has no GPU path. `faiss-gpu-cu12` runs
+the same IVF k-means on the 5090 in ~2-4 min -- a ~20x speedup on the
+single slowest sub-step of the whole pipeline. Also cuts per-query
+retrieval latency from ~10 ms to ~1 ms across Step 7 Tier 3 + Steps
+9-13 RAG baselines (~20 min saved across those).
+
+CUDA version pin: `faiss-gpu-cu12` matches CUDA 12.x on the
+`pytorch/pytorch:2.2.0-cuda12.1` Vast image. For `pytorch:2.0.x-cuda11.7`
+images (older), use `faiss-gpu-cu11` instead. If neither variant
+installs cleanly, the `faiss-cpu` fallback is correctness-equivalent,
+just slower. **Check which version installed after the pip call:**
+
+```bash
+python -c "import faiss; print('has gpu:', hasattr(faiss, 'StandardGpuResources'))"
+```
+
+If this prints `has gpu: True`, you got the GPU variant and Step 4
+will be ~20x faster. If `False`, you're on CPU and Step 4 will take
+~80 min in k-means alone -- budget for it.
 
 **[WHY the `sentence-transformers<4` pin]** On 2026-04-18 Session 1
 (`VAST_SESSION_LOG.md` Incident #1), sentence-transformers 5.4.1 failed
