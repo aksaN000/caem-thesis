@@ -911,3 +911,85 @@ python -c "import faiss; print('gpu:', hasattr(faiss, 'StandardGpuResources'))"
 
 **No action required on the current run.** Step 4 will complete on
 faiss-cpu as-is. The patches take effect on subsequent index rebuilds.
+
+### 04:50 BDT (22:50 UTC, 2026-04-19) — Thread-oversubscription finding (local-agent flag, data-verified, no intervention)
+
+Local agent flagged a possible "1-core effective" collapse on the
+running FAISS clustering and proposed killing + restarting. Gathered
+hard evidence before acting:
+
+**Findings:**
+
+1. **379 threads confirmed.** `/proc/159638/task/ | wc -l` shows 379
+   threads. 1 in R state, 378 in S state (sleeping on locks/futexes).
+2. **Machine has 384 cores available** (Vast UI claimed 48 allocated
+   but `nproc` and the scheduler see all 384). OMP default spawned
+   one thread per hw thread.
+3. **Environment is uncapped:** `/proc/159638/environ` shows no
+   `OMP_NUM_THREADS`, no `MKL_NUM_THREADS`, no `FAISS_NUM_THREADS`.
+4. **CPU utilization is NOT 1-core.** 5 consecutive `ps` samples over
+   5 seconds: 562, 562, 562, 562, 562 (very stable). That's **5.6
+   effective cores**, not the 1-core the local agent inferred from a
+   single top snapshot showing 0% per-thread. The per-thread %CPU is
+   instantaneous during a 1-second window; threads rotate work and no
+   individual thread is long-resident in R.
+5. **Nothing persisted to disk.** `--enable_checkpoint` was not passed
+   on the original run (Session 1 used default off). `find` for .npy /
+   .faiss / embedding checkpoints returned empty. The 21M x 768
+   matrix (~64 GB as float32) lives only in PID 159638's RAM (146 GB
+   resident).
+6. **Process disk I/O in 99 min of FAISS work: 864 KB total write.**
+   read_bytes=0. Confirms the slowness is NOT disk-bound -- it's pure
+   CPU + memory bandwidth on in-memory data.
+
+**Decision: let current run finish.**
+
+| Path | Wall-clock | Cost | Risk |
+|---|---|---|---|
+| Kill + restart with OMP=32 | 6 h re-encode + 30-45 min tuned FAISS = ~6.75 h | ~$4.30 | loses 99 min of FAISS work; re-encode dominates |
+| Let current run finish | ~75-115 min remaining | ~$1.00-1.50 | process healthy, R state, no errors |
+
+Let-finish wins by ~5 h and ~$3. Even the worst-case (current run
+taking another 5 h) is still cheaper than kill+restart ($3.20 vs
+$4.30). No intervention.
+
+**Local agent's "1-core effective / 70-hour ETA" calculation was wrong
+by ~5.6x** because it was anchored on the single-snapshot 1-core read
+rather than multi-sample aggregate. Rebutted inline with the 562% x 5
+sample evidence.
+
+**Correct finding from local agent (kept for future):** thread
+oversubscription on uncapped EPYC boxes is a real performance trap,
+even if the magnitude was overstated here. Added env-var caps to
+`NEXT_SESSION_PLAN.md` Step 3.2B as a runbook requirement.
+
+### Future-proofing patches landed
+
+**`NEXT_SESSION_PLAN.md` Step 3.2B (new sub-step):**
+
+```bash
+export OMP_NUM_THREADS=16
+export MKL_NUM_THREADS=16
+export OPENBLAS_NUM_THREADS=16
+export FAISS_NUM_THREADS=16
+```
+
+Sweet spot for IVF k-means + BLAS-heavy inference is 16-32 threads.
+Above that, mutex contention dominates. Capping at 16 is conservative;
+users on smaller Vast rentals can keep the same number without
+over-subscribing (it's a cap, not a floor). All four env vars set
+because different FAISS/BLAS builds respect different ones.
+
+**Combined expected savings on next rebuild** (faiss-gpu + OMP=16):
+
+| Sub-phase | faiss-cpu + 379 threads (this run) | faiss-gpu-cu12 + OMP=16 (next run) |
+|---|---:|---:|
+| Encoding 21M passages (SBERT) | ~6 h | ~6 h (GPU-bound already) |
+| FAISS IVF k-means | ~1h 40min+ | ~2-4 min |
+| PQ training + add 21M | ~10-15 min | ~3-5 min |
+| Write passages.faiss + .pkl | ~2-3 min | ~2-3 min |
+| **Total Step 4** | **~8+ h** | **~6 h 10 min** |
+
+So ~2 hours saved per Step 4 rebuild, dominated by the k-means
+fix. If ever faiss-gpu ships a faster encode path too, this drops
+further.

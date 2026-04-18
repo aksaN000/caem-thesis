@@ -269,6 +269,45 @@ import chain entirely. CAEM only uses the
 `SentenceTransformer(name, device=...).encode()` surface, which is
 stable across 3.x–5.x.
 
+3.2B **[ACTION]** Cap CPU threading BEFORE any FAISS call. Prevents the
+thread-oversubscription collapse observed on 2026-04-18 Session 1
+(`VAST_SESSION_LOG.md` entry at 22:50 UTC): on a 384-core EPYC Vast box
+with `OMP_NUM_THREADS` unset, faiss-cpu spawned **379 threads** for IVF
+k-means, yielding only **~5.6 effective cores** (1.5% utilization) due
+to lock contention and context-switch overhead. Explicit thread caps
+are essential even when using faiss-gpu, because scipy/numpy k-means
+post-processing and LBFGS temperature scaling in Step 7 also use
+OpenMP.
+
+```bash
+# Sweet spot for IVF k-means + BLAS-heavy inference workloads
+# Don't exceed 32 on typical EPYC Vast rentals
+export OMP_NUM_THREADS=16
+export MKL_NUM_THREADS=16
+export OPENBLAS_NUM_THREADS=16
+export FAISS_NUM_THREADS=16
+```
+
+For persistence across reconnects:
+
+```bash
+cat >> ~/.bashrc <<'EOF'
+export OMP_NUM_THREADS=16
+export MKL_NUM_THREADS=16
+export OPENBLAS_NUM_THREADS=16
+export FAISS_NUM_THREADS=16
+EOF
+```
+
+**[VERIFY]** After `source ~/.bashrc` (or reconnect), confirm the caps
+took effect:
+
+```bash
+env | grep -E "OMP|MKL|OPENBLAS|FAISS" | sort
+```
+
+Should print all four env vars set to 16. If missing, re-source.
+
 3.3 **[ACTION]** Confirm GPU is visible to PyTorch and the hardware
 profile auto-detects:
 
