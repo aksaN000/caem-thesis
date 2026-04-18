@@ -42,13 +42,17 @@ Fixes applied (audit 2025-04)
          balanced accuracy α = (TP+TN)/N. The fix counts both correctly
          accepted correct answers AND correctly rejected wrong answers.
 
-  FIX-4  Acceptance threshold for theorem α uses
-      retroverify_prune_threshold (the storage acceptance gate). An
-      earlier revision mistakenly used the Tier-2 post-generation
-      u_hat_accept_threshold; that gate has since been removed in
-      favour of the nine-signal UnifiedVerifier, but the fix here
-      (use the storage gate) remains correct because Theorem 1 is
-      about purity of accepted memory episodes.
+  FIX-4  Acceptance for theorem α is the full Stage 5 STORE decision,
+      not a scalar threshold. Stage 5 STORE gates on
+      (u_stored >= store_threshold) AND (p_contra < contra_veto);
+      reading sc.decision == "STORE" is the single source of truth and
+      automatically tracks any future veto additions. Earlier revisions
+      mistakenly thresholded on sc.u_stored alone (ignoring the
+      p_contra veto, which inflated α) and further used the wrong
+      threshold constant (retroverify_prune_threshold is for cycle-
+      boundary pruning of already-stored episodes; Stage 5 uses
+      store_threshold). Theorem 2 concerns purity of accepted memory
+      episodes, so α must measure whatever Stage 5 actually accepts.
 
   FIX-5  Memory store loading now matches run_experiment.py persistence
       format: outputs/memory_store_cycle_{n}.faiss + .meta. This prevents
@@ -282,10 +286,10 @@ def measure_verification_balanced_accuracy(
     α = 0.5 * (TPR + TNR) = 0.5 * (TP/(TP+FN) + TN/(TN+FP))
 
     where:
-      TP = answer was correct   AND passed verification (u_stored >= threshold)
-      TN = answer was wrong     AND failed verification (u_stored <  threshold)
-      FP = answer was wrong     AND passed verification
-      FN = answer was correct   AND failed verification
+      TP = answer was correct   AND Stage 5 decision == STORE
+      TN = answer was wrong     AND Stage 5 decision != STORE
+      FP = answer was wrong     AND Stage 5 decision == STORE
+      FN = answer was correct   AND Stage 5 decision != STORE
 
     Balanced accuracy (not (TP+TN)/N) corrects for class imbalance between
     correct and wrong predictions: a verifier that rejects everything on a
@@ -298,10 +302,23 @@ def measure_verification_balanced_accuracy(
     Balanced accuracy more faithfully represents verifier quality: a verifier
     that rejects everything has precision=undefined but balanced accuracy=0.5.
 
-    FIX-4: The acceptance threshold for theorem α is retroverify_prune_threshold,
-    because Theorem 1 concerns memory purity of accepted/stored episodes. The
-    (now-removed) Tier-2 post-generation u_hat gate was never the storage
-    acceptance criterion; retroverify_prune_threshold is.
+    FIX-4: The acceptance gate for theorem α is the full Stage 5 STORE
+    decision, NOT the u_stored scalar alone. Stage 5 STORE is
+    canonically defined as (u_stored >= store_threshold) AND
+    (p_contra < contra_veto), with p_contra acting as a hard contradiction
+    veto that the u_stored-only gate ignores (see caem/verification/
+    verifier.py:63-64 and _decide_from_signals). Measuring α against the
+    u_stored scalar alone would count samples that clear u_stored but fail
+    the p_contra veto as "passed verification" when Stage 5 actually
+    DISCARDs them -- inflating α relative to the true STORE rate and
+    feeding an incorrect α into the Theorem 2 P > p check. We therefore
+    use ``sc.decision == "STORE"`` directly; this single source of truth
+    automatically tracks the u_stored gate, the p_contra veto, and any
+    future veto additions without this measurement code going stale.
+    The previous implementation's use of retroverify_prune_threshold was
+    also subtly wrong: retroverify is the cycle-boundary pruning gate on
+    already-stored episodes, whereas purity validation measures fresh
+    samples (Stage 5 behaviour), which uses store_threshold.
 
     FIX-6: Uses generation + verifier directly instead of pipeline.answer() so
     measurement does not mutate memory (Stage 7 storage side effects).
@@ -316,8 +333,10 @@ def measure_verification_balanced_accuracy(
     -------
     float -- α (verification balanced accuracy in [0, 1])
     """
-    # FIX-4: Use the storage acceptance threshold for theorem α.
-    threshold = pipeline.config.retroverify_prune_threshold
+    # Acceptance = the full Stage 5 STORE decision. See the FIX-4 block in the
+    # docstring above for why we read sc.decision rather than thresholding
+    # sc.u_stored. No explicit threshold variable is needed -- the verifier
+    # owns the gate, we just read its output.
 
     tp = 0  # correct answer, passed verification
     tn = 0  # wrong answer,   failed verification
@@ -333,7 +352,13 @@ def measure_verification_balanced_accuracy(
         try:
             pred, input_ids = _generate_greedy_answer(pipeline, q, max_new_tokens=256)
             sc = pipeline.verifier.verify(query=q, answer=pred, input_ids=input_ids)
-            passed_verification = sc.u_stored >= threshold
+            # Stage 5 STORE decision is the canonical acceptance event
+            # for Theorem 2's α. DEFERRED / ABSTAIN / DISCARD all count
+            # as "not accepted" because none of them put the episode
+            # into memory at Stage 5. Deferred-buffer reconsideration is
+            # a separate mechanism evaluated over cycle boundaries and
+            # does not affect this per-sample α measurement.
+            passed_verification = (sc.decision == "STORE")
             is_correct = bool(_score_em(pred, gold, gold_label, bm))
 
             # Accumulate confusion matrix
@@ -820,6 +845,25 @@ def run_purity_validation(ns: argparse.Namespace) -> None:
         format="%(asctime)s  %(levelname)-7s  %(name)s  %(message)s",
     )
 
+    # Seed every stochastic source BEFORE any verifier inference runs.
+    # The empirical acceptance rate alpha feeds the Theorem 2 P > p check;
+    # an unseeded MC Dropout / self-consistency / semantic-entropy draw
+    # can shift alpha by a percentage point or two between runs, which
+    # is enough to make the P > p monotonicity plot (Chapter 5 Fig 5.5)
+    # appear to flip across cycles when the underlying signal is flat.
+    # Default seed is 42 to match the rest of the codebase; override
+    # via --seed for variance studies.
+    import random as _random
+    import numpy as _np
+    import torch as _torch
+    _seed = int(getattr(ns, "seed", 42))
+    _random.seed(_seed)
+    _np.random.seed(_seed)
+    _torch.manual_seed(_seed)
+    if _torch.cuda.is_available():
+        _torch.cuda.manual_seed_all(_seed)
+    logger.info("run_purity_validation: global seed set to %d (torch + numpy + random).", _seed)
+
     from scripts.hardware import print_hardware_summary
     profile = print_hardware_summary()
 
@@ -1087,6 +1131,23 @@ def _parse_args() -> argparse.Namespace:
                    help="Path to all_cycle_results.json (for cross-reference).")
     p.add_argument("--smoke_test", action="store_true",
                    help="Tiny synthetic run (no GPU or datasets needed).")
+    p.add_argument(
+        "--seed",
+        type=int,
+        default=42,
+        help=(
+            "Global seed for torch / numpy / random. Controls any "
+            "stochastic verifier inference (MC Dropout, self-consistency "
+            "sampling, semantic-entropy cluster draws) that feeds the "
+            "empirical acceptance rate alpha. Without this, consecutive "
+            "runs can produce alpha values that jitter by 1-2 percentage "
+            "points and cause the Theorem 2 P > p monotonicity plot "
+            "(Chapter 5, Figure 5.5) to show spurious cycle-to-cycle "
+            "flips where alpha is actually stable. Default 42 matches "
+            "the seed used across the rest of the codebase; override "
+            "only for variance studies."
+        ),
+    )
     return p.parse_args()
 
 

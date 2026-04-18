@@ -704,10 +704,18 @@ Each variant row reports the five CES axes
 (ACC, EPI, RET, CAL, VER) and the geometric-mean scalar CES at the
 final cycle of its own trajectory, plus $\Delta\text{CES}$ relative to
 the reference run with independent-seeds standard-deviation propagation
-once Phase~2 data is available. The per-cycle CES trace is also plotted
-for the reference run and for the ablation variants whose $\Delta$CES
-pattern across cycles is diagnostic (typically
-\texttt{no\_self\_improvement}, \texttt{no\_verifier}, and
+once Phase~2 data is available.\footnote{Error bars on
+$\Delta\text{CES}$ are propagated as
+$\sigma_{\Delta} = \sqrt{\sigma_v^{2} + \sigma_{\text{full}}^{2}}$,
+which is exact under seed-independence between the variant and
+reference runs. Phase~2 guarantees this by construction: each variant
+uses seeds \{42, 123, 456\} drawn independently of the reference run's
+seed set, so no run is shared across the two std terms. If any seed
+were reused, the two variances would become positively correlated and
+this formula would over-estimate $\sigma_{\Delta}$.} The per-cycle CES
+trace is also plotted for the reference run and for the ablation
+variants whose $\Delta$CES pattern across cycles is diagnostic
+(typically \texttt{no\_self\_improvement}, \texttt{no\_verifier}, and
 \texttt{no\_retroverify}).
 
 \subsubsection*{Expected effects and falsifiable predictions}

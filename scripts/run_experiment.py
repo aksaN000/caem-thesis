@@ -151,6 +151,23 @@ def build_pipeline(config: Any, ns: Any, m: Dict[str, Any]) -> "CAEMPipeline":
         )
         config.batch_size = hw.recommended_batch_size
 
+    # Pin the effective batch size to the thesis target (=32) via gradient
+    # accumulation on whatever hardware we're running on. On the thesis 5090
+    # path grad_accum_steps==1 (numerical no-op); on a 4090 fallback it
+    # becomes 2, on a 3060 it becomes 8, etc. See NOTE 14 resolution in
+    # docs/scripts-audit-report.md. Only overwrite when the config is using
+    # the default of 1, so explicit CLI/config overrides are preserved.
+    hw_grad_accum = int(getattr(hw, "grad_accum_steps", 1))
+    if getattr(config, "grad_accum_steps", 1) == 1 and hw_grad_accum != 1:
+        logger.info(
+            "Adjusting grad_accum_steps %d -> %d for current hardware "
+            "(effective batch=%d).",
+            config.grad_accum_steps,
+            hw_grad_accum,
+            config.batch_size * hw_grad_accum,
+        )
+        config.grad_accum_steps = hw_grad_accum
+
     # -- Flan-T5-Large ----------------------------------------------------- #
     logger.info("Loading Flan-T5-Large ...")
     torch = m["torch"]
@@ -706,12 +723,28 @@ def save_summary_csv(
 def print_mechanism_table(all_cycle_results: List[Dict]) -> None:
     """Print the five-mechanism evidence table to stdout (Chapter 5, Table 1).
 
-    Targets (from 10-cycle final plan):
-      Tier 1 fraction: ~5% (C0) -> growing per cycle -> ~50% at equilibrium (C7-C9)
-      Hallucination reduction: growing per cycle; practical equilibrium expected at C7-C9
-      MMLU Retention: >=93% across all cycles (requires separate MMLU eval, not run here)
-      Mean u_stored: rising monotonically across cycles (retroactive re-verification working)
-      Data Purity: rising as low-quality episodes are pruned and high-quality ones dominate
+    Expected patterns (10-cycle design; directional hypotheses, not
+    hardcoded pass/fail targets -- exact equilibrium values are
+    measured empirically and reported in Chapter 5 Table 5.X):
+      Tier 1 fraction: rising per cycle; late-cycle equilibrium
+        determined by the empirical distribution of u_stored and is
+        one of the mechanism signals we are trying to measure, not
+        a pre-set target.
+      Hallucination reduction: growing per cycle; practical
+        equilibrium expected in late cycles (C7-C9 in the 10-cycle
+        design).
+      MMLU Retention: >= ``CAEMConfig.forgetting_tolerance`` across
+        all cycles (config-backed -- do not hardcode a literal
+        percentage here; see caem/config.py).
+      Mean u_stored: rising monotonically across cycles
+        (retroactive re-verification working).
+      Data Purity: rising as low-quality episodes are pruned and
+        high-quality ones dominate.
+
+    This table is descriptive, not validating -- it prints whatever
+    the run produced and lets the reader compare against Chapter 5.
+    If you want an assertion-style check against specific numbers,
+    add it to the post-run analysis script, not here.
     """
     print("\n" + "=" * 90)
     print("MECHANISM EVIDENCE TABLE  (Chapter 5, Table 1)")
@@ -768,6 +801,37 @@ def run_experiment(ns: argparse.Namespace) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     eval_dir.mkdir(parents=True, exist_ok=True)
 
+    # -- Persistent file log ------------------------------------------------- #
+    # Main experiment runs on Vast.ai take ~12 hours; if the SSH terminal
+    # drops or the instance reboots, an stdout-only log is gone. Tee every
+    # log line to a file under output_dir so cycle-by-cycle routing
+    # distributions, α measurements, SIL training loss, and MMLU
+    # retention ratios are preserved for post-run analysis. Non-fatal
+    # on failure so the experiment still launches if output_dir is
+    # read-only or disk is exhausted. Same pattern applied in
+    # aggregate_ablation.py (NOTE 9 resolution).
+    try:
+        _file_handler = logging.FileHandler(
+            str(output_dir / "experiment.log"),
+            mode="a",
+            encoding="utf-8",
+        )
+        _file_handler.setLevel(logging.INFO)
+        _file_handler.setFormatter(logging.Formatter(
+            fmt="%(asctime)s  %(levelname)-7s  %(name)s  %(message)s",
+            datefmt="%H:%M:%S",
+        ))
+        logging.getLogger().addHandler(_file_handler)
+        logger.info(
+            "File logging enabled: %s", str(output_dir / "experiment.log"),
+        )
+    except Exception as _exc:
+        logger.warning(
+            "Could not attach file-log handler at %s (%s); "
+            "continuing with stdout logging only.",
+            str(output_dir / "experiment.log"), _exc,
+        )
+
     # -- Config ------------------------------------------------------------- #
     config = m["CAEMConfig"]()
     # Override n_questions if specified
@@ -810,15 +874,15 @@ def run_experiment(ns: argparse.Namespace) -> None:
         sil_benchmarks = [bm for bm in requested if bm in {"fever", "triviaqa", "natural_questions"}]
         if not sil_benchmarks:
             sil_benchmarks = ["fever", "triviaqa", "natural_questions"]
-        sil_samples = {bm: make_synthetic_samples(bm, n=10) for bm in sil_benchmarks}
+        sil_pool = {bm: make_synthetic_samples(bm, n=10) for bm in sil_benchmarks}
         eval_samples = {bm: make_synthetic_samples(bm, n=10) for bm in requested}
 
         # Minimal disjoint partition for smoke mode (IDs are trivially unique).
-        purity_samples = {bm: s[:3] for bm, s in sil_samples.items()}
-        calib_samples  = {bm: s[3:6] for bm, s in sil_samples.items()}
-        train_samples  = {bm: s[6:]  for bm, s in sil_samples.items()}
+        purity_samples = {bm: s[:3] for bm, s in sil_pool.items()}
+        calib_samples  = {bm: s[3:6] for bm, s in sil_pool.items()}
+        train_samples  = {bm: s[6:]  for bm, s in sil_pool.items()}
     else:
-        sil_samples = load_sil_training_pool(ns, m)
+        sil_pool = load_sil_training_pool(ns, m)
         eval_samples = load_eval_transfer_pool(ns, m)
 
         # Purity, Calibration, and Train are carved into three DISJOINT slices
@@ -826,7 +890,7 @@ def run_experiment(ns: argparse.Namespace) -> None:
         # generator during SIL (Gap-5 isolation; see §4.Verifier-Calibration
         # discussion in Chapter 4).
         purity_samples, calib_samples, train_samples = split_calibration_sets(
-            sil_samples,
+            sil_pool,
             calib_size=config.calibration_set_size,
             purity_size=config.purity_validation_set_size,
             seed=getattr(ns, "seed", 42),
@@ -1202,7 +1266,7 @@ def run_experiment(ns: argparse.Namespace) -> None:
         # fine-tuned model weights. Because this is for *generation*, we do
         # not care about the benchmark scores.
         #
-        # Gap-5 isolation: we pass `train_samples`, NOT `sil_samples`, so
+        # Gap-5 isolation: we pass `train_samples`, NOT `sil_pool`, so
         # the calibration slice stays unseen by the generator during SIL.
         logger.info("  Step 4: Generating Episodic Memory from SIL Train split (cycle=%d) ...", cycle_num)
         harness.run_all(train_samples, cycle=cycle_num, store_to_memory=True)

@@ -57,6 +57,24 @@ import time
 from pathlib import Path
 from typing import Any, cast
 
+# Hoist repo root onto sys.path so ``eval.metrics`` / ``eval.benchmarks``
+# resolve when this script is invoked via ``python scripts/check_base_model.py``
+# or ``python -m scripts.check_base_model``.  The module-top placement is
+# deliberate so that the metric imports below resolve at import time
+# instead of first-call time (pure-Python stdlib deps; zero HF dataset
+# side-effects).
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
+# Canonical evaluation metrics shared with the in-pipeline numbers. Previously
+# these were inlined below with a subtly different normalisation order (article
+# removal before punctuation stripping) which could drift from
+# ``eval/metrics.py`` on pathological inputs. The p-anchor the data-purity
+# theorem consumes (see §4.1) must match what the pipeline measures, so we
+# import the canonical implementations here.
+from eval.metrics import any_match_em, best_token_f1, rouge_l
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -107,73 +125,12 @@ def generate_answer(model, tokenizer, question: str, device: str, max_new_tokens
 
 
 # -----------------------------------------------------------------------------
-# Metric helpers (inline -- no dependency on eval/metrics.py)
+# Label extraction helpers
 # -----------------------------------------------------------------------------
-
-def _normalize(s: str) -> str:
-    """Lowercase + strip punctuation/articles (standard QA normalisation)."""
-    import re, string
-    s = s.lower()
-    s = re.sub(r"\b(a|an|the)\b", " ", s)
-    s = "".join(c for c in s if c not in string.punctuation)
-    return " ".join(s.split())
-
-
-def exact_match(prediction: str, gold_answers: list) -> float:
-    pred_norm = _normalize(prediction)
-    return 1.0 if any(_normalize(g) == pred_norm for g in gold_answers) else 0.0
-
-
-def token_f1(prediction: str, gold_answers: list) -> float:
-    from collections import Counter
-    pred_toks = _normalize(prediction).split()
-    best = 0.0
-    for gold in gold_answers:
-        gold_toks = _normalize(gold).split()
-        common = Counter(pred_toks) & Counter(gold_toks)
-        n_common = sum(common.values())
-        if n_common == 0:
-            continue
-        p = n_common / len(pred_toks) if pred_toks else 0
-        r = n_common / len(gold_toks) if gold_toks else 0
-        f = 2 * p * r / (p + r) if (p + r) > 0 else 0
-        best = max(best, f)
-    return best
-
-
-def rouge_l(prediction: str, gold_answers: list) -> float:
-    """ROUGE-L (LCS F1) against a list of reference strings.
-
-    Used for TruthfulQA instead of EM, because the correct_answers list
-    contains multiple valid phrasings and EM requires character-exact match.
-    ROUGE-L gives partial credit for overlapping word sequences.
-    The original TruthfulQA evaluation uses a GPT-judge; ROUGE-L is the
-    standard offline approximation when no judge model is available.
-    """
-    def _lcs_length(a: list, b: list) -> int:
-        # O(n*m) LCS via DP
-        m, n = len(a), len(b)
-        dp = [[0] * (n + 1) for _ in range(m + 1)]
-        for i in range(1, m + 1):
-            for j in range(1, n + 1):
-                if a[i - 1] == b[j - 1]:
-                    dp[i][j] = dp[i - 1][j - 1] + 1
-                else:
-                    dp[i][j] = max(dp[i - 1][j], dp[i][j - 1])
-        return dp[m][n]
-
-    pred_toks = _normalize(prediction).split()
-    best = 0.0
-    for gold in gold_answers:
-        gold_toks = _normalize(gold).split()
-        if not pred_toks or not gold_toks:
-            continue
-        lcs = _lcs_length(pred_toks, gold_toks)
-        p = lcs / len(pred_toks)
-        r = lcs / len(gold_toks)
-        f = 2 * p * r / (p + r) if (p + r) > 0 else 0.0
-        best = max(best, f)
-    return best
+# (Metric functions -- exact_match/token_f1/rouge_l -- now imported from
+# eval.metrics at module top; previously they were inlined here with a subtly
+# divergent normalisation order. Unifying ensures the p-anchor measured by
+# this script matches the in-pipeline numbers the data-purity theorem uses.)
 
 
 def extract_fever_label(prediction: str) -> str:
@@ -259,8 +216,10 @@ def evaluate_benchmark(
             em = 0.0   # not reported for TruthfulQA
             f1 = rouge_l(pred, gold)   # ROUGE-L reported as primary metric
         else:
-            em = exact_match(pred, gold)
-            f1 = token_f1(pred, gold)
+            # gold is a list of acceptable phrasings; any_match_em / best_token_f1
+            # aggregate across the list using the eval.metrics normalisation.
+            em = any_match_em(pred, gold)
+            f1 = best_token_f1(pred, gold)
 
         results.append({
             "id":         s.get("id", str(idx)),
@@ -360,13 +319,10 @@ def main(args: argparse.Namespace) -> None:
     logger.info("Model loaded: %.0f M params on %s", n_params, device)
 
     # -- Load benchmarks ------------------------------------------------------
-    # Import loaders -- resolve path relative to repo root.
-    # sys is already imported at module top; os is not used here, so both
-    # were removed from the former `import sys, os` duplicate.
-    repo_root = Path(__file__).resolve().parent.parent
-    if str(repo_root) not in sys.path:
-        sys.path.insert(0, str(repo_root))
-
+    # Loaders are imported inside main() (not at module top) because they
+    # pull in HuggingFace ``datasets``, which has heavy import-time side
+    # effects we don't want to pay in unit-test contexts. The repo root is
+    # already on sys.path via the module-top hoist.
     from eval.benchmarks import (
         load_arc_challenge,
         load_fever,

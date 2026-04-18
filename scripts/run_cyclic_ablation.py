@@ -644,7 +644,9 @@ def run_cyclic_ablation(ns: argparse.Namespace) -> None:
                     _tmp_path = _tmp.name
                 os.replace(_tmp_path, rv_path)
 
-                mmlu_per_cycle.append(mmlu_val)
+                mmlu_per_cycle.append(
+                    float(mmlu_val) if mmlu_val is not None else float("nan")
+                )
 
                 # -- Step 3: memory population (upgraded weights) ------------- #
                 logger.info("Populating memory under variant config...")
@@ -669,7 +671,11 @@ def run_cyclic_ablation(ns: argparse.Namespace) -> None:
                     benchmarks=list(eval_samples.keys()),
                     cycle=cycle_num,
                     baseline_mmlu=baseline_mmlu,
-                    cycle_mmlu=mmlu_val if not _math.isnan(mmlu_val) else None,
+                    cycle_mmlu=(
+                        float(mmlu_val)
+                        if mmlu_val is not None and not math.isnan(float(mmlu_val))
+                        else None
+                    ),
                     requires_baseline_only=variant.requires_baseline_only,
                 )
                 _append_ces_record(ces_path, ces_rec)
@@ -809,7 +815,13 @@ def _parse_args() -> argparse.Namespace:
         "--resume_from_cycle",
         type=int,
         default=0,
-        help="Cycle to resume from (0 = fresh). Requires prior checkpoints in the variant/seed dir.",
+        help=(
+            "[NOT YET IMPLEMENTED] Cycle to resume from (0 = fresh). "
+            "Passing a non-zero value currently raises a CLI error; "
+            "kept as a reserved flag so a future resume implementation "
+            "lands on the same surface. Delete the variant/seed output "
+            "dir and re-run from cycle 0 if a previous run crashed."
+        ),
     )
     p.add_argument(
         "--skip_calibration",
@@ -833,12 +845,20 @@ def _parse_args() -> argparse.Namespace:
 def main() -> None:
     ns = _parse_args()
     if ns.resume_from_cycle != 0:
-        # Resume is a Phase-2 upgrade; call out that it's a no-op in the
-        # current driver so the user isn't surprised.
-        logger.warning(
-            "--resume_from_cycle is not yet supported by run_cyclic_ablation "
-            "(will re-run from cycle 0). Delete the variant/seed dir to start fresh "
-            "or run the main experiment resume flow separately."
+        # Resume is a Phase-2 upgrade. Historically this was a soft
+        # logger.warning that then silently restarted from cycle 0,
+        # which could stay unnoticed for hours on Vast.ai when a user
+        # ctrl-C'd a stuck cycle and re-invoked with
+        # --resume_from_cycle N expecting resume semantics. Fail loud
+        # via argparse instead: the flag is reserved for a future resume
+        # implementation but any non-zero value today is a user error.
+        raise SystemExit(
+            "ERROR: --resume_from_cycle is not yet implemented by "
+            "run_cyclic_ablation.py. Passing a non-zero value would "
+            "silently re-run from cycle 0, which is almost never what "
+            "you want. Delete the variant/seed output directory and "
+            "re-run from cycle 0, or use the main-experiment resume "
+            "flow in scripts/run_experiment.py."
         )
     run_cyclic_ablation(ns)
 

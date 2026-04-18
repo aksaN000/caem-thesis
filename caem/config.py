@@ -231,6 +231,12 @@ class CAEMConfig:
     # [DES] Training hyperparameters.
     learning_rate: float = 1e-5
     batch_size: int = 16
+    # [DES] Gradient-accumulation multiplier. Effective batch size is
+    # ``batch_size * grad_accum_steps``; tuned per hardware tier by
+    # ``scripts.hardware.get_hardware_profile`` to hold effective batch at
+    # ``TARGET_EFFECTIVE_BATCH_SIZE`` (=32). Default 1 (no-op) so a bare
+    # CAEMConfig() stays identical to the thesis 5090 path.
+    grad_accum_steps: int = 1
     epochs_per_cycle: int = 3
     warmup_steps: int = 500
     # [DES] Only include verified episodes above this quality in training data.

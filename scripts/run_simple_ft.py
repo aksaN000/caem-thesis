@@ -101,6 +101,11 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--num_cycles", type=int, default=10)
     p.add_argument("--epochs_per_cycle", type=int, default=3)
     p.add_argument("--batch_size", type=int, default=16)
+    p.add_argument("--grad_accum_steps", type=int, default=-1,
+                   help="Gradient-accumulation multiplier. -1 (default) auto-"
+                        "selects from scripts.hardware so that batch_size * "
+                        "grad_accum_steps == TARGET_EFFECTIVE_BATCH_SIZE (=32) "
+                        "on every tier. Pass a positive integer to override.")
     p.add_argument("--learning_rate", type=float, default=1e-5)
     p.add_argument("--warmup_steps", type=int, default=500)
     p.add_argument("--grad_clip", type=float, default=1.0)
@@ -246,8 +251,17 @@ def _finetune_one_cycle(
     )
 
     epochs_done, final_loss = 0, 0.0
+    # Gradient-accumulation multiplier (1 = no-op). Optimiser step is taken
+    # every `grad_accum_steps` micro-batches so effective batch size equals
+    # `ns.batch_size * ns.grad_accum_steps`, which is pinned to the thesis
+    # target (=32) by the main() auto-resolution. Loss is scaled by 1/N so
+    # the summed gradient matches a single step at the effective batch size.
+    grad_accum_steps = max(int(getattr(ns, "grad_accum_steps", 1) or 1), 1)
     for epoch in range(ns.epochs_per_cycle):
         epoch_loss, n_batches = 0.0, 0
+        micro_step = 0
+        optimizer.zero_grad(set_to_none=True)
+
         for batch in loader:
             input_ids = batch["input_ids"].to(device)
             attn_mask = batch["attention_mask"].to(device)
@@ -261,7 +275,9 @@ def _finetune_one_cycle(
                                 attention_mask=attn_mask, labels=labels)
                 ce_loss = outputs.loss
             if not torch.isfinite(ce_loss):
+                # Discard any partial accumulation to avoid poisoning the step.
                 optimizer.zero_grad(set_to_none=True)
+                micro_step = 0
                 continue
 
             if anchor_tensors is not None:
@@ -269,32 +285,56 @@ def _finetune_one_cycle(
                 for p, p0 in zip(model.parameters(), anchor_tensors):
                     ref = p0.to(device, dtype=torch.float32)
                     l2 = l2 + ((p.float() - ref) ** 2).sum()
-                loss = ce_loss + (ns.l2_lambda / 2.0) * l2
+                raw_loss = ce_loss + (ns.l2_lambda / 2.0) * l2
             else:
-                loss = ce_loss
+                raw_loss = ce_loss
 
-            if not torch.isfinite(loss):
+            if not torch.isfinite(raw_loss):
                 optimizer.zero_grad(set_to_none=True)
+                micro_step = 0
                 continue
 
-            optimizer.zero_grad(set_to_none=True)
+            loss = raw_loss / grad_accum_steps
             if scaler.is_enabled():
                 scaler.scale(loss).backward()
+            else:
+                loss.backward()
+
+            micro_step += 1
+
+            if micro_step % grad_accum_steps == 0:
+                if scaler.is_enabled():
+                    scaler.unscale_(optimizer)
+                    nn.utils.clip_grad_norm_(model.parameters(), max_norm=ns.grad_clip)
+                    scaler.step(optimizer)
+                    scaler.update()
+                else:
+                    nn.utils.clip_grad_norm_(model.parameters(), max_norm=ns.grad_clip)
+                    optimizer.step()
+                optimizer.zero_grad(set_to_none=True)
+                micro_step = 0
+
+            epoch_loss += raw_loss.item()
+            n_batches += 1
+
+        # Tail: epoch ended mid-accumulation — step on the partial batch
+        # so no training data is wasted. At most one partial step per epoch.
+        if micro_step > 0:
+            if scaler.is_enabled():
                 scaler.unscale_(optimizer)
                 nn.utils.clip_grad_norm_(model.parameters(), max_norm=ns.grad_clip)
                 scaler.step(optimizer)
                 scaler.update()
             else:
-                loss.backward()
                 nn.utils.clip_grad_norm_(model.parameters(), max_norm=ns.grad_clip)
                 optimizer.step()
-
-            epoch_loss += loss.item()
-            n_batches += 1
+            optimizer.zero_grad(set_to_none=True)
+            micro_step = 0
 
         avg = epoch_loss / max(n_batches, 1)
-        logger.info("  Epoch %d/%d -- loss: %.4f",
-                    epoch + 1, ns.epochs_per_cycle, avg)
+        logger.info("  Epoch %d/%d -- loss: %.4f (grad_accum=%d, eff_batch=%d)",
+                    epoch + 1, ns.epochs_per_cycle, avg,
+                    grad_accum_steps, ns.batch_size * grad_accum_steps)
         epochs_done += 1
         final_loss = avg
 
@@ -330,9 +370,10 @@ def _mmlu_accuracy(model, tokenizer, device: str, n: int, seed: int) -> float:
     model.eval()
     with torch.no_grad():
         for ex in ds:
+            ex_d: dict = ex  # type: ignore[assignment]
             prompt = (
-                f"Question: {ex['question']}\n"
-                + "\n".join(f"{L}. {c}" for L, c in zip(letters, ex["choices"]))
+                f"Question: {ex_d['question']}\n"
+                + "\n".join(f"{L}. {c}" for L, c in zip(letters, ex_d["choices"]))
                 + "\nAnswer:"
             )
             enc = tokenizer(prompt, return_tensors="pt",
@@ -345,7 +386,7 @@ def _mmlu_accuracy(model, tokenizer, device: str, n: int, seed: int) -> float:
                 (ch for ch in pred if ch in letters),
                 "",
             )
-            gold_letter = letters[int(ex["answer"])]
+            gold_letter = letters[int(ex_d["answer"])]
             if pred_letter == gold_letter:
                 correct += 1
     return correct / max(len(ds), 1)
@@ -470,6 +511,28 @@ def main() -> None:
     ns = _parse_args()
     random.seed(ns.seed)
 
+    # Resolve --grad_accum_steps sentinel from the hardware profile so that
+    # `batch_size * grad_accum_steps` matches the thesis effective batch
+    # target on whatever hardware the script is invoked on. Explicit ints
+    # override the auto value. 1 is a no-op on the thesis 5090 path.
+    if ns.grad_accum_steps is None or ns.grad_accum_steps < 1:
+        try:
+            from scripts.hardware import get_hardware_profile
+            _hw_profile = get_hardware_profile()
+            ns.grad_accum_steps = int(_hw_profile.grad_accum_steps)
+        except Exception as _exc:  # pragma: no cover -- defensive
+            logger.warning(
+                "Hardware-profile lookup failed (%s); using grad_accum_steps=1.",
+                _exc,
+            )
+            ns.grad_accum_steps = 1
+    logger.info(
+        "Gradient accumulation: batch_size=%d, grad_accum_steps=%d "
+        "(effective batch=%d).",
+        ns.batch_size, ns.grad_accum_steps,
+        ns.batch_size * ns.grad_accum_steps,
+    )
+
     import torch
     from transformers import AutoTokenizer, T5ForConditionalGeneration
 
@@ -518,11 +581,30 @@ def main() -> None:
         logger.info("=" * 72)
 
         # Per-cycle slice of the pool (without replacement across cycles if
-        # possible, else wrap).
+        # possible, else wrap). This is B6/B7's deliberate contract: partition
+        # the shuffled-once pool into num_cycles disjoint windows so each
+        # sample is seen exactly once across the full run. Main CAEM instead
+        # resamples general_data per cycle and mixes in verifier-selected
+        # episodes; B7 is the "no verifier, no memory" baseline, so the fixed
+        # partitioning is the correct counterpart to CAEM's verifier-driven
+        # cycle composition. The DataLoader inside _finetune_one_cycle
+        # shuffles within the window, so within-cycle order is randomised.
+        # The modulo wrap is a defensive guard for pathological configs
+        # (num_cycles x per_cycle > pool_size); thesis configs never trigger
+        # it. The min(..., len(train_pool)) clamp may yield a short final
+        # cycle if pool size is not a multiple of per_cycle_pool_size --
+        # log a debug line so the truncation is visible.
         start = ((cycle - 1) * per_cycle_pool_size) % max(len(train_pool), 1)
         end = min(start + per_cycle_pool_size, len(train_pool))
         cycle_pairs = train_pool[start:end]
         logger.info("Cycle %d: training on %d pairs.", cycle, len(cycle_pairs))
+        if len(cycle_pairs) < per_cycle_pool_size:
+            logger.debug(
+                "Cycle %d: short batch (%d < per_cycle_pool_size=%d) -- "
+                "pool_size=%d is not divisible by num_cycles=%d.",
+                cycle, len(cycle_pairs), per_cycle_pool_size,
+                len(train_pool), ns.num_cycles,
+            )
 
         # Optional STaR rationalisation pass: regenerate training targets
         # as (rationale + answer) strings using the current weights before
@@ -625,4 +707,12 @@ def main() -> None:
         with open(log_path, "a", encoding="utf-8") as f:
             f.write(json.dumps(log_entry) + "\n")
 
-        # Update pre_mmlu to pos
+        # Update pre_mmlu to post-cycle value (used as next cycle's anchor
+        # reference for retention ratio).
+        pre_mmlu = post_mmlu
+
+    logger.info("All %d cycles complete. Checkpoints: %s", ns.num_cycles, out_root)
+
+
+if __name__ == "__main__":
+    main()

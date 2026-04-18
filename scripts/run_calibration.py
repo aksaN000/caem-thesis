@@ -174,11 +174,42 @@ def fit_temperature_scalar(
         p = np.clip(p, 1e-7, 1 - 1e-7)
         return float(-np.mean(labels_arr * np.log(p) + (1 - labels_arr) * np.log(1 - p)))
 
+    # L-BFGS-B bounds on log_T. T lives in [exp(-3), exp(3)] = [0.05, 20.1],
+    # wide enough to cover any realistic over/under-confidence on Flan-T5.
+    # Boundary hits are almost always a sign of pathological calibration
+    # data (e.g. a Cycle-0 split where every sample is wrong, forcing T to
+    # infinity) rather than a genuine NLL minimum.
+    _LOG_T_LOW, _LOG_T_HIGH = -3.0, 3.0
+    _BOUND_TOL = 0.05  # warn if log_T parks within this of a bound
+
     result = minimize(nll_loss, x0=[0.0], method="L-BFGS-B",
-                      bounds=[(-3.0, 3.0)], options={"maxiter": 500})
+                      bounds=[(_LOG_T_LOW, _LOG_T_HIGH)], options={"maxiter": 500})
     T_fitted = math.exp(result.x[0])
     logger.info("Temperature scalar fitted: T = %.4f (log_T = %.4f)", T_fitted, result.x[0])
     logger.info("  NLL before: %.6f | NLL after: %.6f", nll_loss([0.0]), result.fun)
+
+    # Diagnostic guards. These are logged, not raised -- the caller uses
+    # T_fitted either way, because the downstream sigmoid/logit path is
+    # robust to any positive T. The warning exists so a pathological fit
+    # is visible in the Vast.ai log rather than silently propagating a
+    # bound-clipped T into the next cycle.
+    if not bool(getattr(result, "success", True)):
+        logger.warning(
+            "Temperature scaling: L-BFGS-B did not converge "
+            "(message=%r, nit=%s). Returning the last-iterate T=%.4f; "
+            "consider re-running with a larger calibration split.",
+            getattr(result, "message", "?"), getattr(result, "nit", "?"),
+            T_fitted,
+        )
+    log_T = float(result.x[0])
+    if log_T <= _LOG_T_LOW + _BOUND_TOL or log_T >= _LOG_T_HIGH - _BOUND_TOL:
+        logger.warning(
+            "Temperature scaling: fitted log_T=%.4f is within %.3f of the "
+            "bound [%.1f, %.1f] (T=%.4f). Likely pathological calibration "
+            "data (extreme under- or over-confidence on the split); the "
+            "returned T is bound-clipped rather than an interior optimum.",
+            log_T, _BOUND_TOL, _LOG_T_LOW, _LOG_T_HIGH, T_fitted,
+        )
     return T_fitted
 
 
@@ -210,11 +241,24 @@ def log_signal_auroc(
         y = np.array(labels, dtype=np.int32)
         if len(X) < 20 or y.sum() < 5 or y.sum() == len(y):
             return
-        names = ["u_token", "u_dropout", "u_consistency", "u_entropy"]
-        for i, name in enumerate(names):
+        # Thesis-canonical label first, internal UnifiedVerifierOutput field
+        # in parentheses so anyone cross-referencing the log to the code can
+        # find the underlying attribute. u_consistency is stored as s_avg
+        # (mean pairwise semantic similarity across M chains) and u_entropy
+        # is stored as 1 - h_norm (complement of normalised semantic entropy).
+        names = [
+            ("u_token", "vout.u_token"),
+            ("u_dropout", "vout.u_dropout"),
+            ("u_consistency", "vout.s_avg"),
+            ("u_entropy", "1 - vout.h_norm"),
+        ]
+        for i, (thesis_name, field_name) in enumerate(names):
             try:
                 auc = roc_auc_score(y, X[:, i])
-                logger.info("  AUROC (diag) -- %s: %.4f", name, auc)
+                logger.info(
+                    "  AUROC (diag) -- %s (%s): %.4f",
+                    thesis_name, field_name, auc,
+                )
             except Exception:
                 pass
     except ImportError:

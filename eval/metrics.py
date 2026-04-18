@@ -172,6 +172,31 @@ def token_f1(prediction: str, gold: str) -> float:
     return 2 * precision * recall / (precision + recall)
 
 
+def best_token_f1(prediction: str, golds: Sequence[str]) -> float:
+    """Return max token-F1 across a list of acceptable gold strings.
+
+    Thin wrapper over :func:`token_f1` for benchmarks that provide multiple
+    valid answer phrasings (TriviaQA aliases, NQ short-answer variants).
+    The single-gold ``token_f1`` remains the canonical primitive; this helper
+    exists so ``scripts/check_base_model.py`` (and any other list-input
+    caller) shares the SAME normalisation as the in-pipeline numbers, which
+    is what the data-purity theorem's p-anchor comparison requires.
+
+    Parameters
+    ----------
+    prediction : str
+    golds : sequence of str -- acceptable answer phrasings
+
+    Returns
+    -------
+    float -- max token-F1 ∈ [0, 1]; 0.0 for empty ``golds``.
+    """
+    best = 0.0
+    for g in golds:
+        best = max(best, token_f1(prediction, g))
+    return best
+
+
 def rouge_l(prediction: str, golds: Sequence[str]) -> float:
     """ROUGE-L (LCS F1) across all gold strings, returning the max.
     

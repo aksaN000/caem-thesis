@@ -33,8 +33,11 @@ Larger corpus for production-quality RAG (requires ~16 GB RAM):
 
 Notes
 -----
-- Progress is checkpointed every CHECKPOINT_EVERY passages so interrupted runs
-  can be resumed with --resume.
+- Progress checkpointing is OFF by default (the common path is a single-shot
+  rebuild from scratch on Vast.ai, where mid-run checkpoint pickles cost
+  gigabytes of disk I/O for no benefit). Pass --enable_checkpoint to write
+  _checkpoint.pkl every CHECKPOINT_EVERY passages, or --resume to both
+  resume a prior run and keep checkpointing on for the remainder.
 - Wikipedia articles shorter than 20 words are skipped (stubs, redirects).
 - Passages that are part of a "See also" or "External links" section are
   dropped because they add noise without factual content.
@@ -338,6 +341,7 @@ def build_passage_index(
     pq_m: int = 64,
     pq_nbits: int = 8,
     train_sample_size: int = 500_000,
+    enable_checkpoint: bool = False,
 ) -> None:
     """Build and save a PassageStore from Wikipedia.
 
@@ -357,9 +361,19 @@ def build_passage_index(
     device : str or None
         ``"cuda"`` / ``"cpu"`` / ``None`` (auto).
     resume : bool
-        If True, load existing checkpoint and continue.
+        If True, load existing checkpoint and continue. Implies
+        ``enable_checkpoint=True`` since a future interruption of the
+        resumed run would otherwise lose progress.
     dataset_name, dataset_config : str
         HuggingFace dataset to stream.
+    enable_checkpoint : bool
+        If True, persist ``_checkpoint.pkl`` every CHECKPOINT_EVERY passages
+        so an interrupted run can be resumed later via ``--resume``.
+        Default False. Checkpoint writes pickle the full growing embedding
+        list; for a 500K-passage build that's ~4.5 GB of cumulative disk I/O
+        across 5 checkpoints, with no benefit if the run always completes
+        in one shot. The fresh-rebuild-from-zero path is the common case on
+        Vast.ai — leave this flag off unless you expect interruptions.
     """
     # `sys` is imported at module top — the duplicate here was dead.
     # Verify SBERT + FAISS are available before streaming anything.
@@ -380,6 +394,20 @@ def build_passage_index(
     # -- Resume from checkpoint or start fresh -----------------------------
     all_passages: List[str] = []
     all_embedding_batches: List[np.ndarray] = []
+
+    # `--resume` implies checkpointing: an interrupted resumed run without
+    # further checkpoints would re-lose its progress.
+    checkpoint_enabled = bool(enable_checkpoint or resume)
+    if checkpoint_enabled:
+        logger.info(
+            "Checkpointing enabled: writing _checkpoint.pkl every %d passages.",
+            CHECKPOINT_EVERY,
+        )
+    else:
+        logger.info(
+            "Checkpointing disabled (default). Run will not be resumable; "
+            "pass --enable_checkpoint to opt in.",
+        )
 
     if resume:
         cp_passages, cp_embeddings = _load_checkpoint(out)
@@ -409,7 +437,7 @@ def build_passage_index(
             buffer.append(passage)
             total_streamed += 1
 
-            # Encode and checkpoint in batches.
+            # Encode in batches; checkpoint only if explicitly enabled.
             if len(buffer) >= CHECKPOINT_EVERY:
                 logger.info("Encoding buffer of %d passages ...", len(buffer))
                 embs = encode_passages(
@@ -419,7 +447,8 @@ def build_passage_index(
                 )
                 all_passages.extend(buffer)
                 all_embedding_batches.append(embs)
-                _save_checkpoint(out, all_passages, all_embedding_batches)
+                if checkpoint_enabled:
+                    _save_checkpoint(out, all_passages, all_embedding_batches)
                 buffer = []
 
         # Encode remaining buffer.
@@ -442,6 +471,11 @@ def build_passage_index(
         "Concatenating embeddings from %d batches ...", len(all_embedding_batches)
     )
     all_embeddings = np.concatenate(all_embedding_batches, axis=0)
+    # Free the Python list so the transient memory peak drops from roughly
+    # 2x (list of batches + concatenated array) down to 1x (contiguous
+    # array only). FAISS IVF training requires the contiguous matrix, so
+    # we cannot avoid the 1x peak itself.
+    del all_embedding_batches
     emb_dim = all_embeddings.shape[1]  # Must match the configured SBERT model output dimension.
     assert all_embeddings.shape[0] == len(all_passages), (
         f"Count mismatch: {all_embeddings.shape[0]} embeddings vs {len(all_passages)} passages"
@@ -613,7 +647,17 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument(
         "--resume",
         action="store_true",
-        help="Resume from checkpoint if a previous run was interrupted.",
+        help="Resume from checkpoint if a previous run was interrupted. "
+             "Implies --enable_checkpoint.",
+    )
+    p.add_argument(
+        "--enable_checkpoint",
+        action="store_true",
+        help="Write _checkpoint.pkl every %d passages so an interrupted "
+             "run can be resumed. Default OFF because the common path "
+             "is a one-shot rebuild from scratch, and checkpoint writes "
+             "can cost gigabytes of disk I/O for no benefit in that case."
+             % CHECKPOINT_EVERY,
     )
     p.add_argument(
         "--smoke_test",
@@ -695,4 +739,5 @@ if __name__ == "__main__":
         pq_m=ns.pq_m,
         pq_nbits=ns.pq_nbits,
         train_sample_size=ns.train_sample_size,
+        enable_checkpoint=ns.enable_checkpoint,
     )

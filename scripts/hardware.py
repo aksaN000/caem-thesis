@@ -37,6 +37,15 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 
+#: Target effective batch size for fine-tuning. Tuned on the thesis hardware
+#: (RTX 5090, VRAM 32 GB, micro batch=32, grad_accum=1 → effective=32). All
+#: other tiers receive a `grad_accum_steps` that keeps `micro_batch *
+#: grad_accum_steps == TARGET_EFFECTIVE_BATCH_SIZE`, so fine-tuning loss
+#: dynamics stay hardware-invariant across reproducers. See the NOTE 14
+#: resolution in `docs/scripts-audit-report.md` for the rationale.
+TARGET_EFFECTIVE_BATCH_SIZE = 32
+
+
 @dataclass
 class HardwareProfile:
     """Describes available hardware and recommended settings for CAEM."""
@@ -45,7 +54,13 @@ class HardwareProfile:
     vram_gb: float                   # 0.0 if CPU
     use_fp16: bool                   # half-precision inference
     use_bf16: bool                   # bfloat16 (A100 only)
-    recommended_batch_size: int      # for SelfImprovementLoop
+    recommended_batch_size: int      # micro-batch per forward pass
+    # Gradient-accumulation multiplier. Effective batch size is
+    # ``recommended_batch_size * grad_accum_steps`` and is kept at
+    # ``TARGET_EFFECTIVE_BATCH_SIZE`` (=32) on every tier so that cross-
+    # hardware reproducers see matched loss dynamics. ``grad_accum_steps=1``
+    # is a numerical no-op on the thesis 5090 path.
+    grad_accum_steps: int = 1
     note: str = ""
 
 
@@ -87,6 +102,9 @@ def get_hardware_profile() -> HardwareProfile:
             use_fp16=False,
             use_bf16=False,
             recommended_batch_size=2,
+            # CPU is smoke-test only; keep grad_accum at 1 so tests run fast
+            # even though effective batch (=2) diverges from TARGET.
+            grad_accum_steps=1,
             note="CPU only -- smoke tests only; full experiments will be very slow.",
         )
 
@@ -98,6 +116,7 @@ def get_hardware_profile() -> HardwareProfile:
             use_fp16=False,  # fp16 unstable on MPS as of PyTorch 2.x
             use_bf16=False,
             recommended_batch_size=4,
+            grad_accum_steps=1,  # smoke-test tier; keep fast over matched
             note="Apple Silicon MPS. fp16 disabled (stability).",
         )
 
@@ -121,61 +140,79 @@ def get_hardware_profile() -> HardwareProfile:
         gpu_name = "Unknown CUDA GPU"
         vram_gb = 0.0
 
-    # Choose precision and batch size based on VRAM.
-    # Tier breakdown (2026 cloud GPU landscape):
-    #   A100 SXM/PCIe 80 GB  (vram_gb >= 70)  → bf16, batch=32
-    #   RTX 5090 / A100 40GB (vram_gb >= 30)  → bf16, batch=32
-    #   RTX 4090 / 3090 24GB (vram_gb >= 20)  → fp16, batch=16
-    #   T4 / V100 16 GB      (vram_gb >= 14)  → fp16, batch=8
-    #   RTX 3060 / 3070 12GB (vram_gb >= 10)  → fp16, batch=4
-    #   < 10 GB              (laptop)          → fp16, batch=2
+    # Choose precision, micro-batch size, and gradient-accumulation multiplier
+    # based on VRAM. `grad_accum_steps` is chosen so that
+    # `recommended_batch_size * grad_accum_steps == TARGET_EFFECTIVE_BATCH_SIZE`
+    # (=32) on every tier, giving all reproducers matched loss dynamics.
     #
-    # batch_size affects only speed, never accuracy (gradient accumulation preserves
-    # effective batch-size equivalence across hardware tiers).
+    # Tier breakdown (2026 cloud GPU landscape):
+    #   A100 SXM/PCIe 80 GB  (vram_gb >= 70)  → bf16, batch=32, accum=1
+    #   RTX 5090 / A100 40GB (vram_gb >= 30)  → bf16, batch=32, accum=1  ← thesis target
+    #   RTX 4090 / 3090 24GB (vram_gb >= 24)  → fp16, batch=16, accum=2
+    #   T4 / V100 16 GB      (vram_gb >= 14)  → fp16, batch=8,  accum=4
+    #   RTX 3060 / 3070 12GB (vram_gb >= 10)  → fp16, batch=4,  accum=8
+    #   < 10 GB              (laptop)          → fp16, batch=2,  accum=16
+    #
     # bf16: native on A100 (Ampere) and RTX 5090 (Blackwell). Larger dynamic range
-    # than fp16 — avoids overflow when L2 penalty sums 780M squared diffs. RTX 4090
+    # than fp16 -- avoids overflow when L2 penalty sums 780M squared diffs. RTX 4090
     # uses fp16 (no bf16 tensor core support on Ada Lovelace).
     # Multi-GPU: CAEM fine-tunes on a single GPU. On a 2x5090 machine, only one GPU
     # is used by run_experiment.py; use CUDA_VISIBLE_DEVICES to pin it and run the
     # ablation study on the second GPU in parallel.
-    if vram_gb >= 70:          # A100 SXM 80 GB / PCIe 80 GB (79–80 GB reported)
+    if vram_gb >= 70:          # A100 SXM 80 GB / PCIe 80 GB (79-80 GB reported)
         use_fp16, use_bf16 = False, True
         batch_size = 32
+        grad_accum = 1
         note = (
-            "A100 80 GB. bf16, batch_size=32. TF32 enabled for matmuls. "
+            "A100 80 GB. bf16, batch_size=32, grad_accum=1 "
+            "(effective batch=32). TF32 enabled for matmuls. "
             "theta_prev GPU optimisation active."
         )
-    elif vram_gb >= 30:        # RTX 5090 (32 GB), A100 40 GB (39–40 GB reported)
+    elif vram_gb >= 30:        # RTX 5090 (32 GB), A100 40 GB (39-40 GB reported)
         use_fp16, use_bf16 = False, True
         batch_size = 32
+        grad_accum = 1
         note = (
-            "RTX 5090 / A100 40 GB (30–70 GB range). bf16, batch_size=32. "
-            "TF32 enabled for matmuls. theta_prev GPU optimisation active."
+            "RTX 5090 / A100 40 GB (30-70 GB range). bf16, batch_size=32, "
+            "grad_accum=1 (effective batch=32). TF32 enabled for matmuls. "
+            "theta_prev GPU optimisation active."
         )
     elif vram_gb >= 24:        # RTX 4090 (24 GB), RTX 3090 (24 GB)
         use_fp16, use_bf16 = True, False
         batch_size = 16
+        grad_accum = 2
         note = (
-            "RTX 4090/3090-class (24 GB). fp16, batch_size=16. "
+            "RTX 4090/3090-class (24 GB). fp16, batch_size=16, "
+            "grad_accum=2 (effective batch=32). "
             "theta_prev GPU optimisation active (VRAM >= 24 GB)."
         )
     elif vram_gb >= 14:        # T4 (16 GB), V100 (16 GB), RTX 3080 Ti (12 GB edge)
         use_fp16, use_bf16 = True, False
         batch_size = 8
-        note = "16 GB GPU (T4/V100-class). fp16, batch_size=8."
+        grad_accum = 4
+        note = (
+            "16 GB GPU (T4/V100-class). fp16, batch_size=8, "
+            "grad_accum=4 (effective batch=32)."
+        )
     elif vram_gb >= 10:        # RTX 3060 (12 GB), RTX 3070 (8 GB edge)
         use_fp16, use_bf16 = True, False
         batch_size = 4
+        grad_accum = 8
         note = (
             f"~12 GB VRAM (RTX 3060-class). "
-            "fp16 enabled, batch_size=4. "
+            "fp16 enabled, batch_size=4, grad_accum=8 (effective batch=32). "
             "Flan-T5-Large (~1.5 GB) + NLI (~1.4 GB) + SBERT (~0.5 GB) "
             "= ~3.4 GB model footprint + ~4-6 GB activations -- fits with headroom."
         )
     else:                      # < 10 GB (laptop GPUs, GTX 1080, etc.)
         use_fp16, use_bf16 = True, False
         batch_size = 2
-        note = "< 10 GB VRAM. fp16, batch_size=2. NLI is required for verification; additional headroom may require reducing max sequence length."
+        grad_accum = 16
+        note = (
+            "< 10 GB VRAM. fp16, batch_size=2, grad_accum=16 "
+            "(effective batch=32). NLI is required for verification; "
+            "additional headroom may require reducing max sequence length."
+        )
 
     return HardwareProfile(
         device=device,
@@ -184,6 +221,7 @@ def get_hardware_profile() -> HardwareProfile:
         use_fp16=use_fp16,
         use_bf16=use_bf16,
         recommended_batch_size=batch_size,
+        grad_accum_steps=grad_accum,
         note=note,
     )
 
@@ -198,6 +236,10 @@ def get_hardware_info() -> dict:
         "use_fp16": profile.use_fp16,
         "use_bf16": profile.use_bf16,
         "recommended_batch_size": profile.recommended_batch_size,
+        "grad_accum_steps": profile.grad_accum_steps,
+        "effective_batch_size": (
+            profile.recommended_batch_size * profile.grad_accum_steps
+        ),
         "note": profile.note,
     }
 

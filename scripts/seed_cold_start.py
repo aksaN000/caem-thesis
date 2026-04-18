@@ -63,14 +63,23 @@ Note on "human annotator" text in the thesis plan
 The plan §4.5 says "human annotator verifies correctness against official
 ground truth" for cold-start seeding. This script replaces the manual
 annotation with the automated nine-signal UnifiedVerifier (internal
-calibration + sample-set agreement + external grounding + NLI contradiction),
-which targets ~85–90% verification accuracy at the storage threshold. State
-in Chapter 5:
-"Cold-start seeding was performed using the automated verification pipeline
-(Section 4.4) rather than human annotation, for scalability. This is
-equivalent to the human-annotated approach since the automated verifier
-achieves 85–90% accuracy and uses ground-truth labels from the training split
-for quality control."
+calibration + sample-set agreement + external grounding + NLI contradiction).
+The substitution is justified on the grounds that the automated verifier
+attains a sufficiently high balanced accuracy at the storage threshold to
+approximate human labelling for seeding purposes; the exact balanced accuracy
+alpha is MEASURED in-repo by ``scripts/run_purity_validation.py`` and
+reported in Chapter 5 Section 5.5 (data-purity theorem). The thesis must
+not cite a numeric value here until that measurement is available --
+earlier drafts contained an unsourced "~85-90%" estimate which has been
+removed pending the empirical number. Recommended Chapter 5 phrasing once
+alpha is measured:
+
+  "Cold-start seeding used the automated verification pipeline
+  (Section 4.4) rather than human annotation, for scalability. The
+  verifier's measured balanced accuracy on labelled validation data is
+  alpha = <value> (Section 5.5), which together with ground-truth labels
+  drawn from the training split approximates the human-annotator
+  protocol the purity theorem assumes."
 """
 
 from __future__ import annotations
@@ -137,8 +146,9 @@ def load_train_samples(benchmark: str, n: int, seed: int = 0) -> List[dict]:
     -------
     list of BenchmarkSample dicts (same schema as eval/benchmarks.py)
     """
-    import random
-    from datasets import load_dataset
+    # Benchmark-specific imports (random, datasets.load_dataset) are no longer
+    # needed at this scope: every branch now delegates to eval/benchmarks.py
+    # loaders, which import them internally.
 
     if benchmark == "truthfulqa":
         # TruthfulQA has no training split. Skip seeding.
@@ -149,45 +159,22 @@ def load_train_samples(benchmark: str, n: int, seed: int = 0) -> List[dict]:
         return []
 
     elif benchmark == "fever":
-        # Use lucadiliello/fever (Parquet mirror) -- 'fever'/'v1.0' uses a
-        # legacy Python script no longer supported by HF datasets (EXP-07 fix).
-        # Training split of lucadiliello/fever contains 145k samples.
+        # Delegates to eval/benchmarks.py::load_fever(split="train", ...) so
+        # the cold-start seed pool shares exactly the same loader (and label
+        # map, prompt format, NEI-handling policy) as the main evaluation
+        # pipeline. Previously this branch was inlined with its own
+        # _FEVER_LABEL_MAP which introduced silent-drift risk if
+        # eval/benchmarks.py ever retargeted to a different HF source.
+        # Training split of lucadiliello/fever contains ~145K samples.
         logger.info("Loading FEVER train split [lucadiliello/fever] (n=%d) ...", n)
-        _FEVER_LABEL_MAP = {
-            # Keep this aligned with eval/benchmarks.py (lucadiliello/fever):
-            # 0 -> supports, 1 -> not enough info, 2 -> refutes.
-            0: "supports", 1: "not enough info", 2: "refutes",
-            "SUPPORTS": "supports", "REFUTES": "refutes", "NOT ENOUGH INFO": "not enough info",
-        }
-        ds = load_dataset("lucadiliello/fever", split="train")
-        samples = []
-        for row in cast(Any, ds):
-            row = cast(Dict[str, Any], row)
-            # Default sentinel is None (not 2=refutes): silently treating a
-            # missing FEVER label as "refutes" would fabricate a positive
-            # refutation signal into cold-start memory. Rows without a label
-            # are skipped below.
-            raw_label = row.get("label", None)
-            if raw_label is None:
-                continue
-            gold_label = _FEVER_LABEL_MAP.get(raw_label, "not enough info")
-            claim = row.get("claim", "")
-            question = (
-                f"Answer with one of: supports, refutes, not enough info. "
-                f"Claim: {claim}"
-            )
-            samples.append({
-                "question":   question,
-                "answers":    [gold_label],
-                "gold_label": gold_label,
-                "id":         str(row.get("key", row.get("id", ""))) + "_seed",
-                "benchmark":  "fever",
-            })
-            if len(samples) >= n * 3:
-                break
-        rng = random.Random(seed)
-        rng.shuffle(samples)
-        return samples[:n]
+        from eval.benchmarks import load_fever
+        samples = load_fever(split="train", n=n, seed=seed, exclude_nei=False)
+        # Namespace-separate cold-start IDs from eval-time IDs so the two
+        # never collide in the episodic memory (same claim text seeded and
+        # later re-seen at eval would otherwise appear as a duplicate).
+        for s in samples:
+            s["id"] = f"{s['id']}_seed"
+        return samples
 
     elif benchmark == "triviaqa":
         logger.info("Loading TriviaQA train split (rc.nocontext) (n=%d) ...", n)

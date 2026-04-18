@@ -19,8 +19,15 @@ What a cycle looks like
    θ_prev are the weights frozen at the START of this cycle (previous
    checkpoint). The L2 term penalises large deviations from the prior.
 4. Forgetting check: after fine-tuning, run a fixed MMLU split
-    (n=200) and compare post/pre retention ratio. If
-    (post / pre) < forgetting_tolerance (0.93), abort and restore θ_prev.
+    (n=200) and compare post-cycle MMLU against the PRISTINE cycle-0
+    MMLU anchor (cached on the SelfImprovementLoop instance). If
+    (post / pristine) < forgetting_tolerance (0.93), abort and restore
+    θ_prev. The pristine anchor (rather than the previous cycle's post
+    MMLU) is required because cumulative drift across 10 cycles could
+    otherwise slip past the per-cycle tolerance silently -- each cycle
+    would be comparing against an already-drifted denominator. The
+    pre-cycle MMLU is still measured and logged for per-cycle
+    diagnostics but does not enter the abort criterion.
     MMLU is chosen over any in-distribution (e.g. TriviaQA) probe
     because catastrophic forgetting in the continual-learning sense
     manifests as loss of unrelated capability rather than erosion of
@@ -228,9 +235,30 @@ class SelfImprovementLoop:
         self.device = device
         self._last_chain_diagnostics: Optional[Dict[str, object]] = None
 
+        # Pristine MMLU anchor for the forgetting guard.
+        # Measured lazily on the first run_cycle() call and reused across
+        # all subsequent cycles; this ensures the retention_ratio compares
+        # post-cycle MMLU against the UNMODIFIED cycle-0 baseline rather
+        # than against the previous cycle's drifted post-MMLU. Without this
+        # anchor, a 10-cycle SIL run could drift cumulatively by well over
+        # the per-cycle forgetting_tolerance (0.93) without ever triggering
+        # an abort, because each cycle's denominator itself would have
+        # slid downward. Mirrors the pristine_mmlu pattern used in the
+        # B6/B7 baselines (scripts/run_simple_ft.py:562,644) so main CAEM
+        # and the fine-tune baselines share an identical abort contract.
+        self._pristine_mmlu: Optional[float] = None
+
     # ------------------------------------------------------------------ #
     # Public API                                                           #
     # ------------------------------------------------------------------ #
+
+    def reset_pristine_mmlu(self) -> None:
+        """Clear the cached pristine MMLU anchor so the next ``run_cycle``
+        re-measures it. Use between independent SIL runs (e.g. variants in
+        ``run_cyclic_ablation.py`` that share a constructed
+        SelfImprovementLoop instance, or multi-seed sweeps where each seed
+        must re-establish its own cycle-0 baseline)."""
+        self._pristine_mmlu = None
 
     def run_cycle(
         self,
@@ -338,40 +366,73 @@ class SelfImprovementLoop:
         # just been fine-tuned on TriviaQA-like pairs, so it cannot trigger.
         # The same MMLU measurement also serves as the CES RET reporting axis,
         # so there is zero compute overhead to using it as the abort guard.
-        baseline_mmlu = self._mmlu_score(n=200)
-        if __import__("math").isnan(baseline_mmlu):
-            logger.warning(
-                "Cycle %d: MMLU dataset not cached -- forgetting guard DISABLED; "
-                "cycle will complete without abort check.", cycle_num,
+        # The pre-cycle MMLU is still measured so we can log the per-cycle
+        # delta for diagnostics, but the abort guard's denominator is the
+        # PRISTINE cycle-0 MMLU (lazily cached on this instance), NOT this
+        # per-cycle value. See __init__ for the rationale; without pristine
+        # anchoring, cumulative drift across 10 cycles can silently slide
+        # past forgetting_tolerance because each cycle's own denominator
+        # would have drifted downward too.
+        pre_cycle_mmlu = self._mmlu_score(n=200)
+        if self._pristine_mmlu is None:
+            # First ever run_cycle on this SIL instance: adopt the current
+            # pre-cycle measurement as the pristine baseline. This works
+            # both when run_cycle is first called at cycle 0 (typical) and
+            # when a resumed run constructs a fresh SIL and re-measures
+            # pristine against the partially-drifted model -- the latter
+            # is a known limitation of the resume path and is flagged in
+            # the docstring of reset_pristine_mmlu.
+            self._pristine_mmlu = pre_cycle_mmlu
+            logger.info(
+                "Cycle %d: anchoring pristine MMLU baseline = %.4f "
+                "(forgetting guard will compare all future cycles against this value).",
+                cycle_num,
+                pre_cycle_mmlu if not __import__("math").isnan(pre_cycle_mmlu) else float("nan"),
             )
         else:
             logger.info(
-                "Cycle %d: pre-training MMLU baseline = %.4f",
-                cycle_num, baseline_mmlu,
+                "Cycle %d: pristine MMLU anchor = %.4f | pre-cycle MMLU = %.4f "
+                "(pre-cycle delta from pristine = %+.4f)",
+                cycle_num,
+                self._pristine_mmlu,
+                pre_cycle_mmlu if not __import__("math").isnan(pre_cycle_mmlu) else float("nan"),
+                (pre_cycle_mmlu - self._pristine_mmlu)
+                    if (not __import__("math").isnan(pre_cycle_mmlu)
+                        and not __import__("math").isnan(self._pristine_mmlu))
+                    else float("nan"),
+            )
+
+        if __import__("math").isnan(self._pristine_mmlu):
+            logger.warning(
+                "Cycle %d: pristine MMLU is NaN -- forgetting guard DISABLED; "
+                "cycle will complete without abort check.", cycle_num,
             )
 
         # Step 5: fine-tune with L2 regularisation
         epochs_done, final_loss = self._finetune(train_pairs, theta_prev)
 
-        # Step 6: MMLU forgetting check -- relative retention ratio.
+        # Step 6: MMLU forgetting check -- relative retention ratio vs. pristine.
         # post_mmlu is used simultaneously as (a) the abort-guard trigger via
-        # retention_ratio = post/pre, and (b) the absolute mmlu_retention value
-        # reported in CycleResult / Chapter 5 Table 5.2 RET column.
+        # retention_ratio = post/pristine, and (b) the absolute mmlu_retention
+        # value reported in CycleResult / Chapter 5 Table 5.2 RET column.
         post_mmlu = self._mmlu_score(n=200)
-        if __import__("math").isnan(post_mmlu) or __import__("math").isnan(baseline_mmlu) \
-                or baseline_mmlu <= 1e-6:
-            # Guard unavailable (dataset missing or baseline ~0) -- treat as
+        pristine = self._pristine_mmlu
+        if __import__("math").isnan(post_mmlu) \
+                or pristine is None \
+                or __import__("math").isnan(pristine) \
+                or pristine <= 1e-6:
+            # Guard unavailable (dataset missing or pristine ~0) -- treat as
             # "no detectable forgetting" to avoid false aborts from NaN / 0.
             retention_ratio = 1.0
             guard_active = False
         else:
-            retention_ratio = post_mmlu / baseline_mmlu
+            retention_ratio = post_mmlu / pristine
             guard_active = True
 
         if guard_active:
             logger.info(
-                "Cycle %d: post-training MMLU = %.4f | retention ratio = %.4f "
-                "(threshold = %.4f)",
+                "Cycle %d: post-training MMLU = %.4f | retention ratio vs. pristine "
+                "= %.4f (threshold = %.4f)",
                 cycle_num, post_mmlu, retention_ratio, cfg.forgetting_tolerance,
             )
         else:
@@ -754,10 +815,20 @@ class SelfImprovementLoop:
 
         epochs_done = 0
         final_loss  = 0.0
+        # Gradient-accumulation multiplier (default 1 = no-op). When >1 the
+        # optimiser step is taken every `grad_accum_steps` micro-batches so
+        # that effective batch size == cfg.batch_size * grad_accum_steps,
+        # matching the thesis target (=32) across hardware tiers. Loss is
+        # scaled by 1/N before backward so the accumulated gradient equals
+        # a single gradient at the effective batch size. See
+        # scripts/hardware.py::TARGET_EFFECTIVE_BATCH_SIZE for the rationale.
+        grad_accum_steps = max(int(getattr(cfg, "grad_accum_steps", 1)), 1)
 
         for epoch in range(cfg.epochs_per_cycle):
             epoch_loss = 0.0
             n_batches  = 0
+            micro_step = 0  # micro-batches accumulated since last optim step
+            optimizer.zero_grad(set_to_none=True)
 
             for batch in loader:
                 input_ids      = batch["input_ids"].to(self.device)
@@ -777,39 +848,82 @@ class SelfImprovementLoop:
                     ce_loss = outputs.loss
 
                 if not torch.isfinite(ce_loss):
-                    logger.warning("Non-finite CE loss encountered; skipping batch.")
+                    logger.warning(
+                        "Non-finite CE loss encountered; discarding %d "
+                        "accumulated micro-batch(es) and skipping.",
+                        micro_step,
+                    )
                     optimizer.zero_grad(set_to_none=True)
+                    micro_step = 0
                     continue
 
                 # L2 regularisation: penalise deviation from θ_prev.
                 # Uses theta_prev_for_penalty (GPU if VRAM >= 24 GB, else CPU).
                 l2_loss = self._l2_penalty(theta_prev_for_penalty)
-                loss = ce_loss + (cfg.l2_lambda / 2.0) * l2_loss
+                raw_loss = ce_loss + (cfg.l2_lambda / 2.0) * l2_loss
 
-                if not torch.isfinite(loss):
-                    logger.warning("Non-finite total loss encountered; skipping batch.")
+                if not torch.isfinite(raw_loss):
+                    logger.warning(
+                        "Non-finite total loss encountered; discarding %d "
+                        "accumulated micro-batch(es) and skipping.",
+                        micro_step,
+                    )
                     optimizer.zero_grad(set_to_none=True)
+                    micro_step = 0
                     continue
 
-                optimizer.zero_grad(set_to_none=True)
+                # Scale loss by grad_accum_steps so gradients summed over
+                # N micro-batches match a single gradient at effective batch.
+                loss = raw_loss / grad_accum_steps
+
                 if scaler.is_enabled():
                     scaler.scale(loss).backward()
+                else:
+                    loss.backward()
+
+                micro_step += 1
+
+                # Optimiser step on accumulation boundary.
+                if micro_step % grad_accum_steps == 0:
+                    if scaler.is_enabled():
+                        scaler.unscale_(optimizer)
+                        # Gradient clipping for training stability [DES]
+                        nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
+                        scaler.step(optimizer)
+                        scaler.update()
+                    else:
+                        # Gradient clipping for training stability [DES]
+                        nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
+                        optimizer.step()
+                    optimizer.zero_grad(set_to_none=True)
+                    micro_step = 0
+
+                epoch_loss += raw_loss.item()
+                n_batches  += 1
+
+            # Tail step: if the epoch ended mid-accumulation, step with
+            # whatever has been accumulated so no training data is wasted.
+            # Effective gradient magnitude is < 1× a full accumulation step
+            # (because micro_step < grad_accum_steps here), but at most one
+            # such partial step occurs per epoch.
+            if micro_step > 0:
+                if scaler.is_enabled():
                     scaler.unscale_(optimizer)
-                    # Gradient clipping for training stability [DES]
                     nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
                     scaler.step(optimizer)
                     scaler.update()
                 else:
-                    loss.backward()
-                    # Gradient clipping for training stability [DES]
                     nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
                     optimizer.step()
-
-                epoch_loss += loss.item()
-                n_batches  += 1
+                optimizer.zero_grad(set_to_none=True)
+                micro_step = 0
 
             avg_loss = epoch_loss / max(n_batches, 1)
-            logger.info("  Epoch %d/%d -- loss: %.4f", epoch + 1, cfg.epochs_per_cycle, avg_loss)
+            logger.info(
+                "  Epoch %d/%d -- loss: %.4f (grad_accum=%d, eff_batch=%d)",
+                epoch + 1, cfg.epochs_per_cycle, avg_loss,
+                grad_accum_steps, cfg.batch_size * grad_accum_steps,
+            )
             epochs_done += 1
             final_loss   = avg_loss
 

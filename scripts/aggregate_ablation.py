@@ -186,11 +186,12 @@ def _axes_at_cycle(
         return None
     # Filter out entries with a missing/None cycle index — otherwise a later
     # max(by_cycle) would TypeError on a mix of int and None keys.
-    by_cycle = {
-        h.get("cycle"): h
-        for h in history
-        if h.get("aggregate_axes") and h.get("cycle") is not None
-    }
+    # Explicit loop (not a dict-comp) so pyright narrows ``c`` to non-None.
+    by_cycle: Dict[int, Dict[str, Any]] = {}
+    for h in history:
+        c = h.get("cycle")
+        if h.get("aggregate_axes") and c is not None:
+            by_cycle[int(c)] = h
     if not by_cycle:
         return None
 
@@ -269,8 +270,14 @@ def _build_summary_rows(
         ces = row["ces_mean"]
         if not _is_nan(ces) and not _is_nan(full_ces_mean):
             delta = ces - full_ces_mean
-            # Propagate std conservatively (independent seeds approximation):
-            # std(delta) = sqrt(std_v^2 + std_full^2)
+            # Propagate std under the seed-independence assumption:
+            #   std(delta) = sqrt(std_v^2 + std_full^2)
+            # This is exact when variant and full-system runs use disjoint seeds
+            # (Phase 2 uses 42/123/456 per variant, so independence holds by
+            # construction). If seeds are ever shared across variant/full runs
+            # the two std terms become positively correlated and this formula
+            # over-estimates the true std(delta); Chapter 5 §5.3 footnote
+            # documents this caveat on reported error bars.
             delta_std = math.sqrt(row["ces_std"] ** 2 + full_ces_std ** 2)
         else:
             delta = float("nan")
@@ -391,6 +398,26 @@ def _print_ranking(rows: List[Dict[str, Any]]) -> None:
 
 def aggregate(ns: argparse.Namespace) -> None:
     output_root = Path(ns.output_dir)
+
+    # ---- File-logging handler ---- #
+    # Mirrors the stdout logger to <output_dir>/aggregate_ablation.log so a
+    # terminal disconnect during remote execution (e.g., via SSH to Vast.ai
+    # after a longer cyclic-ablation pass) doesn't lose the ranking output.
+    # Cross-file pattern #9 from the scripts audit; applied uniformly across
+    # long-running drivers. Aggregator is fast but the log is trivially
+    # cheap and keeps reviewers' traces reproducible.
+    try:
+        output_root.mkdir(parents=True, exist_ok=True)
+        log_path = output_root / "aggregate_ablation.log"
+        file_handler = logging.FileHandler(log_path, mode="a", encoding="utf-8")
+        file_handler.setFormatter(
+            logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
+        )
+        logging.getLogger().addHandler(file_handler)
+        logger.info("File logging enabled: %s", log_path)
+    except Exception as exc:  # non-fatal; stdout logger still works
+        logger.warning("Could not attach FileHandler (%s); stdout only.", exc)
+
     runs = _discover_runs(output_root)
 
     if not runs:

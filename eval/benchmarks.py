@@ -205,7 +205,16 @@ def load_fever(
     samples: List[BenchmarkSample] = []
     for row in cast(Any, ds):
         row = cast(Dict[str, Any], row)
-        raw_label = row.get("label", 2)
+        # Default sentinel is None (not 2 = "refutes"): silently treating a
+        # missing FEVER label as "refutes" would fabricate a false refutation
+        # signal. In practice the `lucadiliello/fever` train/paper_dev splits
+        # always provide a `label`, but `paper_test` is unlabeled -- anyone
+        # calling load_fever(split="paper_test") would otherwise receive a
+        # dataset where every sample is marked REFUTES. Rows without a label
+        # are skipped instead.
+        raw_label = row.get("label", None)
+        if raw_label is None:
+            continue
         gold_label = _FEVER_LABEL_MAP.get(raw_label, "not enough info")
 
         if exclude_nei and gold_label == "not enough info":
