@@ -91,6 +91,26 @@ Before submission, grep the .tex files for these substrings and verify they matc
 - `inference-time ablation` without surrounding caveat → ensure the surrounding paragraph lists the exact two variants that qualify (`full`, `no_self_improvement`)
 - `3 seeds` or `multi-seed` in §5.5 body text → ensure the Phase-1 limitation disclosure is present (S44-03) if the submission uses single-seed numbers
 
+### S44-08 — Wave 4 refactor cross-references (Tasks #113, #114)
+
+Two clarifications codified during the Wave 4 audit-remediation pass (docs/caem-package-audit-report.md). Both are implementation-level facts that must surface in Chapter 5's ablation discussion so the prose matches what the code now measures.
+
+**What `no_grounding` actually lesions (Task #114 — MAJOR-VR1):**
+
+Before the #114 fix, `no_grounding` zeroed all grounding-adjacent signals ambiguously — including p_entail (which is chain→answer NLI, not retrieval-grounding). Post-fix, `no_grounding` zeros **only** `p_ground_mean` and `p_ground_atomic` (the two retrieval-grounded entailment signals) and rescales the remaining four signals (NLI / SC / u_internal / SE) so their weights sum to 1.0. The chain-answer entailment signal (`p_entail`) is **preserved** under this ablation because it is not retrieval-based.
+
+**Required footnote in Chapter 5 §5.5 (near the ablation variant list):**
+
+> *"The `no_grounding` variant zeroes the two retrieval-grounded entailment signals (`p_ground_mean`, `p_ground_atomic`) and rescales the remaining four verifier signals (chain-answer NLI, self-consistency, internal calibration, semantic entropy) to sum to 1.0. The chain-answer NLI signal (`p_entail`) is preserved because it does not depend on retrieved passages. A companion `no_chain_answer_entailment` variant that separately lesions `p_entail` is deferred to future work — see `docs/caem-package-audit-report.md` MAJOR-VR1 for the sixteen-variant registry scope decision."*
+
+**Pre-Task #113 `no_tier3_rag` runs are invalidated (Task #113 — MAJOR-RN1):**
+
+Before the #113 fix, the `no_tier3_rag` ablation did not null out `pipeline.rag.passage_store`, so Tier-3 retrieval passages could still leak into verifier grounding signals (`p_ground_*`) even when Tier 3 itself was "disabled". Any CES number reported for `no_tier3_rag` from a pre-#113 run measures something strictly weaker than "no Tier 3"; the correct semantics is now enforced by `passage_store = None` (with backup/restore) during the variant's cyclic sweep.
+
+**Required note for Chapter 5 §5.5 or §5.10 Limitations:**
+
+> *"All `no_tier3_rag` CES values reported in this thesis come from post-#113 runs (`passage_store` is explicitly set to `None` for the duration of the ablation and restored afterwards). Earlier ablation passes using the unpatched runner are discarded."*
+
 ---
 
 ## Session 32 Addendum — 2026-04-11 (Plan-Compliance Guardrails)

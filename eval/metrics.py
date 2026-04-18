@@ -232,21 +232,18 @@ def rouge_l(prediction: str, golds: Sequence[str]) -> float:
     return best
 
 
-def best_token_f1(prediction: str, golds: Sequence[str]) -> float:
-    """Return the highest token F1 across all gold strings.
-
-    Used for TriviaQA and Natural Questions, where each question has
-    10–40 valid answer aliases. Returns the max token F1 over all aliases.
-    (TruthfulQA uses rouge_l(), not this function.)
-    """
-    if not golds:
-        return 0.0
-    return max(token_f1(prediction, g) for g in golds)
-
-
 # -----------------------------------------------------------------------------
 # FEVER label accuracy
 # -----------------------------------------------------------------------------
+
+# Sentinel returned by extract_*_label() helpers when no valid label can be
+# parsed from a model's free-form output. Propagating this through the EM
+# pipeline yields EM=0.0 (no string match with any gold label), so
+# unparseable outputs are correctly counted as errors rather than being
+# silently coerced to a "default" answer -- which previously biased FEVER
+# toward "not enough info" and StrategyQA toward "no". See audit report
+# MAJOR-M3 / Tasks #121, #125, #126.
+UNPARSEABLE = ""
 
 _FEVER_LABELS = frozenset({"supports", "refutes", "not enough info"})
 
@@ -268,42 +265,76 @@ def fever_accuracy(prediction: str, gold_label: str) -> float:
     return float(prediction.strip().lower() == gold_label.strip().lower())
 
 
+_FEVER_PATTERNS = (
+    (re.compile(r"\bnot enough info(?:rmation)?\b", re.IGNORECASE), "not enough info"),
+    (re.compile(r"\brefut(?:e|es|ed)\b",            re.IGNORECASE), "refutes"),
+    (re.compile(r"\bsupport(?:s|ed)?\b",            re.IGNORECASE), "supports"),
+)
+
+
 def extract_fever_label(text: str) -> str:
     """Extract a FEVER label from free-form model output.
 
-    Looks for "SUPPORTS", "REFUTES", or "NOT ENOUGH INFO" (case-insensitive)
-    anywhere in the text. Returns the first match or "not enough info" if none.
+    Scans ``text`` for all case-insensitive, word-boundary matches of the
+    three FEVER label families (SUPPORTS, REFUTES, NOT ENOUGH INFO) and
+    returns the label whose *last* occurrence appears furthest right.
+    Last-occurrence semantics reflect the model's final commitment, which
+    matters for rationale-style outputs like
+
+        "At first it looks like it supports the claim, but actually
+         there is not enough info."         -> "not enough info"
+        "There is not enough info to support this."
+                                             -> "supports"  (mechanical)
+
+    If no label family matches, returns :data:`UNPARSEABLE` (empty string)
+    so downstream EM comparison yields 0.0 rather than silently defaulting
+    to "not enough info" (the prior behaviour, which inflated NEI accuracy
+    on unparseable outputs -- audit report MAJOR-M2 / MAJOR-M3).
 
     This handles Flan-T5 outputs like:
       "The claim is supported by the evidence."  -> "supports"
       "REFUTES"                                   -> "refutes"
       "I don't have enough information."          -> "not enough info"
+      "I don't know anything."                    -> UNPARSEABLE ("")
     """
-    text_lower = text.lower()
-    if "not enough info" in text_lower or "not enough information" in text_lower:
-        return "not enough info"
-    if "refutes" in text_lower or "refuted" in text_lower:
-        return "refutes"
-    if "supports" in text_lower or "supported" in text_lower:
-        return "supports"
-    return "not enough info"   # conservative fallback
+    best_label = UNPARSEABLE
+    best_pos = -1
+    for pattern, label in _FEVER_PATTERNS:
+        for m in pattern.finditer(text):
+            if m.start() > best_pos:
+                best_pos = m.start()
+                best_label = label
+    return best_label
 
 
 def extract_strategyqa_label(text: str) -> str:
     """Extract a StrategyQA label (yes/no) from free-form model output.
 
-    Supports rationale-style outputs such as:
-      "Reasoning: ... Answer: yes"
-      "Yes, because ..."
+    Uses last-occurrence precedence across ``\\byes\\b`` / ``\\bno\\b``
+    matches (case-insensitive, word-boundary-anchored) so rationale-style
+    outputs commit to the label the model ended on:
 
-    Returns "yes" or "no"; defaults to "no" if no label is detectable.
+      "Reasoning: ... Answer: yes"           -> "yes"
+      "Yes, because ..."                      -> "yes"
+      "At first no, but actually yes."        -> "yes"
+      "uncertain output"                      -> UNPARSEABLE ("")
+
+    Returns :data:`UNPARSEABLE` (empty string) when no label word appears,
+    so downstream EM comparison yields 0.0 rather than silently defaulting
+    to "no" (the prior behaviour, which inflated StrategyQA accuracy on
+    unparseable outputs -- audit report MAJOR-M3).
     """
-    text_lower = text.lower()
-    if re.search(r"\byes\b", text_lower):
-        return "yes"
-    if re.search(r"\bno\b", text_lower):
-        return "no"
-    return "no"
+    best_label = UNPARSEABLE
+    best_pos = -1
+    for m in re.finditer(r"\byes\b", text, flags=re.IGNORECASE):
+        if m.start() > best_pos:
+            best_pos = m.start()
+            best_label = "yes"
+    for m in re.finditer(r"\bno\b", text, flags=re.IGNORECASE):
+        if m.start() > best_pos:
+            best_pos = m.start()
+            best_label = "no"
+    return best_label
 
 def extract_arc_label(text: str) -> str:
     """Extract an ARC-Challenge answer choice (A-D or 1-4) from free-form output.
@@ -371,23 +402,51 @@ def hallucination_rate(
 def routing_distribution(tiers: Sequence[int]) -> Dict[str, float]:
     """Compute fraction of queries routed to each tier.
 
+    Any value not in ``{1, 2, 3}`` is treated as a pipeline-crash sample
+    (sentinel ``tier = -1`` written by ``EvalHarness._run_one`` when
+    ``pipeline.answer()`` raises with ``fail_on_error=False``) and is
+    EXCLUDED from the per-tier denominator. The crash fraction is
+    reported separately as ``crash_frac = n_crashes / n_total`` so that
+    ``tier1_frac + tier2_frac + tier3_frac == 1.0`` over successful
+    samples and the Ch5 methodology section can report crash rate as
+    a distinct column rather than silently inflating Tier 3 routing.
+
+    Audit MAJOR-H2 / Task #117 — prior behaviour conflated crashes with
+    Tier 3 routes because the except block in the harness wrote
+    ``tier = 3`` on any exception.
+
     Parameters
     ----------
-    tiers : sequence of int -- one value per query (1, 2, or 3)
+    tiers : sequence of int -- one value per query; 1/2/3 are real routes,
+        anything else (typically -1) is a pipeline-crash sentinel.
 
     Returns
     -------
-    dict with keys "tier1_frac", "tier2_frac", "tier3_frac"
+    dict with keys ``tier1_frac``, ``tier2_frac``, ``tier3_frac``,
+    ``crash_frac``. All fractions are in [0, 1].
     """
     if not tiers:
-        return {"tier1_frac": 0.0, "tier2_frac": 0.0, "tier3_frac": 0.0}
+        return {
+            "tier1_frac": 0.0, "tier2_frac": 0.0, "tier3_frac": 0.0,
+            "crash_frac": 0.0,
+        }
 
-    n = len(tiers)
+    n_total = len(tiers)
     counts = Counter(tiers)
+    n_crashes = sum(c for t, c in counts.items() if t not in (1, 2, 3))
+    n_valid = n_total - n_crashes
+
+    if n_valid == 0:
+        return {
+            "tier1_frac": 0.0, "tier2_frac": 0.0, "tier3_frac": 0.0,
+            "crash_frac": n_crashes / n_total,
+        }
+
     return {
-        "tier1_frac": counts.get(1, 0) / n,
-        "tier2_frac": counts.get(2, 0) / n,
-        "tier3_frac": counts.get(3, 0) / n,
+        "tier1_frac": counts.get(1, 0) / n_valid,
+        "tier2_frac": counts.get(2, 0) / n_valid,
+        "tier3_frac": counts.get(3, 0) / n_valid,
+        "crash_frac": n_crashes / n_total,
     }
 
 
@@ -765,25 +824,31 @@ def reliability_bins(confidences, labels, n_bins=10):
 
 
 def decision_breakdown(decisions):
-    """Counts of UnifiedVerifier decisions: STORE / DEFER / ABSTAIN / DISCARD.
+    """Counts of UnifiedVerifier decisions: STORE / DEFERRED / ABSTAIN / DISCARD.
 
     Feeds Table 5.3 (Data Purity Theorem). Purity analysis needs the
     raw STORE count and the correctness rate among stored items; this
     helper provides the denominator and the rejection-mass tallies
-    (abstain, discard, defer) that justify the "selective retention"
+    (abstain, discard, deferred) that justify the "selective retention"
     framing in Ch 4.
+
+    Labels match :class:`caem.unified_verifier.UnifiedVerifierOutput`
+    exactly (Session-42 canonical schema). The prior "DEFER" key was a
+    pre-Session-42 leftover that silently dropped every real deferred
+    item, zeroing the deferred-rate column in Table 5.3 and forcing
+    ``eval/reporting.py`` to maintain a parallel tally. Audit MAJOR-M4.
 
     Parameters
     ----------
     decisions : list of str
-        Each element in {"STORE", "DEFER", "ABSTAIN", "DISCARD"}.
+        Each element in {"STORE", "DEFERRED", "ABSTAIN", "DISCARD"}.
 
     Returns
     -------
     dict with counts and normalized fractions.
     """
     total = len(decisions)
-    out = {k: 0 for k in ("STORE", "DEFER", "ABSTAIN", "DISCARD")}
+    out = {k: 0 for k in ("STORE", "DEFERRED", "ABSTAIN", "DISCARD")}
     for d in decisions:
         if d in out:
             out[d] += 1

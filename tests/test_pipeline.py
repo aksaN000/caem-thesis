@@ -336,10 +336,40 @@ class TestPipelineConstruction:
         assert p.memory_store is store
 
     def test_no_passage_store_warning(self, caplog):
+        """MAJOR-T1 regression guard (formerly a no-op test).
+
+        Before this fix the test opened caplog but never inspected records,
+        so any regression silencing the warning stayed green in CI. The
+        warning is the only runtime signal that passage_store is absent and
+        verifier grounding signals will be neutralised -- the exact
+        failure mode BLOCKER-V1 (Task #112) addresses -- so it must be
+        pinned explicitly to both level and a stable substring.
+        """
         import logging
         with caplog.at_level(logging.WARNING, logger="caem.pipeline"):
             p = _build_pipeline()
         assert p is not None
+        warning_records = [
+            rec for rec in caplog.records
+            if rec.levelname == "WARNING"
+            and "no passage_store provided" in rec.message
+        ]
+        assert warning_records, (
+            "Expected a WARNING log containing 'no passage_store provided' "
+            f"when passage_store=None; got records: "
+            f"{[(r.levelname, r.message) for r in caplog.records]}"
+        )
+        # Tighten further: the warning must also flag that verifier grounding
+        # signals will be neutralised, not just Tier 3. This keeps the test
+        # from silently accepting a future message that drops the grounding
+        # half of the signal (the BLOCKER-V1 half).
+        assert any(
+            "grounding" in rec.message.lower() for rec in warning_records
+        ), (
+            "Expected the warning to mention verifier grounding signals being "
+            "neutralised (BLOCKER-V1 signal); got messages: "
+            f"{[r.message for r in warning_records]}"
+        )
 
 
 # =============================================================================
@@ -697,3 +727,98 @@ class TestRetroverifyHelper:
         entry = make_episodic_entry(seed=2)
         fn = p.make_retroverify_fn()
         assert fn(entry) is None
+
+
+# =============================================================================
+# Verifier construction-time wiring (BLOCKER-V1 / MAJOR-T5 regression guard)
+# =============================================================================
+
+class TestVerifierWiring:
+    """Regression guard for BLOCKER-V1 (Task #112).
+
+    Prior to the BLOCKER-V1 fix, ``CAEMPipeline.__init__`` constructed
+    ``UnifiedVerifier(...)`` WITHOUT passing ``passage_retriever=``,
+    silently reducing the thesis's nine-signal verifier to a five-signal
+    verifier in production:
+
+      * ``p_ground_max``, ``p_ground_mean``, ``p_ground_atomic`` locked at
+        0.5 (empty-passage fallback)
+      * ``p_contra`` locked at 0.0 (empty-passage fallback)
+      * Early-exit confabulation gate (needs p_ground_max <= 0.20)
+        unable to fire
+      * Contradiction hard veto (needs p_contra >= 0.30) unable to fire
+      * ABSTAIN decision class (needs p_ground_max < 0.20) unable to fire
+
+    The existing ``_blank_verifier`` helper in tests/test_verifier.py
+    constructs via ``UnifiedVerifier.__new__`` and bypasses ``__init__``,
+    so every test using it would stay green even if the init-path wiring
+    broke again. This test class intercepts the real
+    ``UnifiedVerifier(...)`` call at pipeline construction time via a
+    MagicMock patch and asserts the kwarg is threaded through.
+    """
+
+    def _construct_with_verifier_patch(self, passage_store=None):
+        """Construct a CAEMPipeline with ``UnifiedVerifier`` mocked so we
+        can inspect the constructor call args. Returns (MockVerifier_cls,
+        pipeline).
+        """
+        model = make_mock_model()
+        tok = make_mock_tokenizer("ans")
+        enc = make_mock_encoder()
+        with patch("caem.pipeline.PreRoutingConfidenceEstimator"), \
+             patch("caem.pipeline.AdaptiveRouter"), \
+             patch("caem.pipeline.UnifiedVerifier") as MockVerifier, \
+             patch("caem.pipeline.TierThreeRAG"):
+            pipeline = CAEMPipeline(
+                model=model,
+                tokenizer=tok,
+                encoder=enc,
+                passage_store=passage_store,
+                device="cpu",
+            )
+        return MockVerifier, pipeline
+
+    def test_passage_retriever_kwarg_is_passed_at_construction(self):
+        """MAJOR-T5: assert ``passage_retriever=`` appears in the
+        UnifiedVerifier(...) kwargs. Without this, BLOCKER-V1 can
+        silently regress under a future refactor."""
+        MockVerifier, _ = self._construct_with_verifier_patch()
+        assert MockVerifier.called, "UnifiedVerifier was never constructed"
+        kwargs = MockVerifier.call_args.kwargs
+        assert "passage_retriever" in kwargs, (
+            "passage_retriever missing from UnifiedVerifier(...) kwargs; "
+            f"got: {sorted(kwargs.keys())}"
+        )
+
+    def test_passage_retriever_is_non_none_callable(self):
+        """MAJOR-T5: the passed retriever must be a non-None callable.
+        Under BLOCKER-V1, UnifiedVerifier.__init__ defaults it to None
+        and _retrieve_and_rerank silently returns [] on every call."""
+        MockVerifier, _ = self._construct_with_verifier_patch()
+        retriever = MockVerifier.call_args.kwargs.get("passage_retriever")
+        assert retriever is not None, "passage_retriever was passed as None"
+        assert callable(retriever), (
+            f"passage_retriever is not callable: {type(retriever)!r}"
+        )
+
+    def test_passage_retriever_returns_list_on_empty_store(self):
+        """MAJOR-T5: calling the retriever with the degenerate empty
+        PassageStore (the default when passage_store=None was passed
+        to CAEMPipeline) must return ``[]`` -- matches the
+        UnifiedVerifier empty-passage fallback contract so the
+        verifier still returns neutral grounding scores instead of
+        crashing."""
+        MockVerifier, _ = self._construct_with_verifier_patch()
+        retriever = MockVerifier.call_args.kwargs["passage_retriever"]
+        out = retriever("any query string", 5)
+        assert isinstance(out, list), (
+            f"retriever should return list, got {type(out)!r}"
+        )
+        assert out == [], (
+            f"empty PassageStore should yield empty retrieval, got {out!r}"
+        )
+        # Every element must be a string (List[str] per verifier contract)
+        assert all(isinstance(p, str) for p in out), (
+            f"retriever must return List[str], got items of types "
+            f"{[type(p).__name__ for p in out]}"
+        )

@@ -809,7 +809,9 @@ class SelfImprovementLoop:
             param_dtype = torch.bfloat16
         amp_enabled = use_cuda and param_dtype in (torch.float16, torch.bfloat16)
         amp_dtype = torch.float16 if param_dtype == torch.float16 else torch.bfloat16
-        scaler = torch.cuda.amp.GradScaler(enabled=amp_enabled and amp_dtype == torch.float16)
+        # Modern API (torch>=2.4): torch.amp.GradScaler("cuda", ...). The old
+        # torch.cuda.amp.GradScaler(...) still works but emits a DeprecationWarning.
+        scaler = torch.amp.GradScaler("cuda", enabled=amp_enabled and amp_dtype == torch.float16)
         if amp_enabled:
             logger.info("Fine-tuning with AMP (%s).", str(param_dtype))
 

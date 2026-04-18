@@ -41,7 +41,7 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import List, Optional
 
 import numpy as np
 import torch
@@ -210,34 +210,66 @@ class CAEMPipeline:
         # -- Stage 3b: Adaptive Router ----------------------------------- #
         self.router = AdaptiveRouter(config=self.config)
 
+        # -- Stage 6 prep: resolve PassageStore fallback BEFORE Stage 5 --- #
+        # The UnifiedVerifier grounding path AND Tier 3 generation both
+        # depend on the PassageStore, so the empty-store fallback must be
+        # resolved here -- before the verifier is constructed -- so the
+        # same store is threaded into both components.
+        if passage_store is None:
+            # Degenerate empty store -- Tier 3 will fall back to query-only
+            # generation AND UnifiedVerifier grounding signals
+            # (p_ground_max / p_ground_mean / p_ground_atomic / p_contra)
+            # will return neutral defaults from the empty-passage branch.
+            # The ABSTAIN decision class and the contradiction hard veto
+            # cannot fire in this configuration -- provide a real
+            # PassageStore for full nine-signal verification.
+            logger.warning(
+                "CAEMPipeline: no passage_store provided -- Tier 3 will use "
+                "query-only generation (no Wikipedia context) AND verifier "
+                "grounding signals (p_ground_max, p_ground_mean, "
+                "p_ground_atomic, p_contra) will return neutral defaults. "
+                "Provide a PassageStore for full RAG + grounding functionality."
+            )
+            passage_store = PassageStore([], np.empty((0, 768), dtype=np.float32))
+
+        # Adapter closure bridging PassageStore.search (embedding-in,
+        # (passage, score)-out) to the verifier's passage_retriever
+        # contract ((query_str, k) -> List[str]). Empty PassageStore
+        # returns [], which the verifier handles via its empty-passage
+        # fallback at verifier.py:_retrieve_and_rerank. Mirrors the
+        # encode-and-L2-normalise pattern used by
+        # CAEMPipeline._encode_query (pipeline.py:_encode_query) and
+        # TierThreeRAG.retrieve (rag.py) so grounding and Tier 3 RAG
+        # hit the same index with the same query embedding.
+        def _verifier_passage_retriever(query: str, k: int) -> List[str]:
+            emb = encoder.encode(query).astype(np.float32)
+            norm = np.linalg.norm(emb)
+            if norm > 0:
+                emb = emb / norm
+            results = passage_store.search(emb, k=k)
+            return [p for p, _ in results]
+
         # -- Stage 5: UnifiedVerifier (post-generation quality gate) --- #
         # The verifier emits UnifiedVerifierOutput carrying all nine signals
         # (u_token, u_dropout, u_internal, s_avg, h_norm, p_entail,
         # p_ground_max, p_ground_mean, p_ground_atomic) plus the
-        # STORE/DEFER/ABSTAIN/DISCARD decision and the scalar u_stored.
+        # STORE/DEFERRED/ABSTAIN/DISCARD decision and the scalar u_stored.
         # Passage retrieval for grounding signals is threaded through the
-        # same PassageStore used by Tier 3 RAG; passing a bound method here
-        # keeps the retriever path consistent across Tier 3 generation and
-        # Stage 5 grounding.
+        # adapter closure above, which wraps the same PassageStore used by
+        # Tier 3 RAG -- keeping the retriever path consistent across Tier 3
+        # generation and Stage 5 grounding.
         self.verifier = UnifiedVerifier(
             model=model,
             tokenizer=tokenizer,
             sbert_encoder=encoder,
             nli_model=nli_model,
             nli_tokenizer=nli_tokenizer,
+            passage_retriever=_verifier_passage_retriever,
             config=self.config,
             device=device,
         )
 
         # -- Stage 6: Tier 3 RAG ---------------------------------------- #
-        if passage_store is None:
-            # Degenerate empty store -- Tier 3 will fall back to query-only gen.
-            logger.warning(
-                "CAEMPipeline: no passage_store provided -- Tier 3 will use "
-                "query-only generation (no Wikipedia context). Provide a "
-                "PassageStore for full RAG functionality."
-            )
-            passage_store = PassageStore([], np.empty((0, 768), dtype=np.float32))
         self.rag = TierThreeRAG(
             model=model,
             tokenizer=tokenizer,
@@ -767,7 +799,13 @@ class CAEMPipeline:
     # ------------------------------------------------------------------ #
 
     def _encode_query(self, query: str) -> np.ndarray:
-        """Encode query to L2-normalised 768-dim float32 embedding."""
+        """Encode query to L2-normalised 768-dim float32 embedding.
+
+        Shared by Stage-1 memory search and by the verifier's
+        passage-retriever adapter closure (see ``__init__``), keeping the
+        query embedding path identical across memory lookup, Stage-5
+        grounding, and Tier-3 RAG.
+        """
         emb = self.encoder.encode(query).astype(np.float32)
         norm = np.linalg.norm(emb)
         if norm > 0:

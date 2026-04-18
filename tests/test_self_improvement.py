@@ -40,6 +40,7 @@ from caem.training.self_improvement import (
     QAPair,
     SelfImprovementLoop,
 )
+from caem.verification.verifier import UnifiedVerifierOutput
 
 
 # -----------------------------------------------------------------------------
@@ -55,7 +56,69 @@ def unit_emb(seed: int = 0) -> np.ndarray:
     return v / np.linalg.norm(v)
 
 
-def make_entry(question: str = "Q?", answer: str = "A", u_stored: float = 0.80) -> EpisodicEntry:
+def make_entry(
+    question: str = "Q?",
+    answer: str = "A",
+    u_stored: float = 0.80,
+    *,
+    vout: UnifiedVerifierOutput | None = None,
+) -> EpisodicEntry:
+    """Construct an EpisodicEntry whose nine-signal block is internally consistent.
+
+    Task #130 (MAJOR-T8) fix: the prior helper set ``u_stored`` from the scalar
+    kwarg but left every signal field at its dataclass default of 0.0 -- an
+    impossible state under the Session-42 composite
+
+        u_stored = 0.30*p_ground_mean + 0.15*p_ground_atomic
+                 + 0.15*p_entail + 0.15*s_avg + 0.15*u_internal
+                 + 0.10*(1 - h_norm)
+
+    where all-zero signals with h_norm=0.0 give u_stored=0.10, not 0.80. Any
+    SIL test that inspected the individual signals alongside the composite
+    would fire on a contradiction that the code itself would never produce.
+
+    Two modes:
+
+      1. ``vout`` is ``None`` (default): derive a canonical self-consistent
+         signal set from the scalar ``u_stored=v``. Setting every positive
+         signal to ``v`` and ``h_norm = 1 - v`` evaluates to exactly ``v``
+         under the default six-weight composite (weights sum to 1.0 and the
+         h_norm term contributes ``0.10 * v``).
+
+      2. ``vout`` provided: mirror the verifier's actual output -- all nine
+         signals plus ``p_contra``, ``decision``, and ``early_exit_triggered``
+         are copied verbatim, and the scalar ``u_stored`` kwarg is ignored
+         in favour of ``vout.u_stored``. This is the realistic path: in
+         production an entry is always built from a UnifiedVerifierOutput.
+    """
+    if vout is not None:
+        return EpisodicEntry(
+            question=question,
+            reasoning_chain="Because.",
+            answer=answer,
+            embedding=unit_emb(),
+            storage_cycle=1,
+            timestamp=0.0,
+            u_stored=vout.u_stored,
+            u_token=vout.u_token,
+            u_dropout=vout.u_dropout,
+            u_internal=vout.u_internal,
+            s_avg=vout.s_avg,
+            h_norm=vout.h_norm,
+            p_entail=vout.p_entail,
+            p_ground_max=vout.p_ground_max,
+            p_ground_mean=vout.p_ground_mean,
+            p_ground_atomic=vout.p_ground_atomic,
+            p_contra=vout.p_contra,
+            decision=vout.decision,
+            early_exit_triggered=vout.early_exit_triggered,
+            retrieval_count=0,
+            success_rate=0.0,
+            retroverified=False,
+        )
+
+    # Scalar-only path: derive consistent signals from u_stored.
+    v = float(max(0.0, min(1.0, u_stored)))
     return EpisodicEntry(
         question=question,
         reasoning_chain="Because.",
@@ -63,9 +126,26 @@ def make_entry(question: str = "Q?", answer: str = "A", u_stored: float = 0.80) 
         embedding=unit_emb(),
         storage_cycle=1,
         timestamp=0.0,
-        u_stored=u_stored,
-        # Session 42: nine-signal layout -- defaults used for everything
-        # except the composite u_stored, which Stage-8 filtering actually reads.
+        u_stored=v,
+        # Internal calibration: u_internal = v (u_token/u_dropout are not
+        # in the composite; give them reasonable neutral values).
+        u_token=v,
+        u_dropout=1.0 - v,
+        u_internal=v,
+        # Sample-set signals: s_avg = v, p_entail = v, h_norm = 1 - v
+        # so (1 - h_norm) = v and all positive composite terms equal v.
+        s_avg=v,
+        h_norm=1.0 - v,
+        p_entail=v,
+        # External grounding: all three entailment signals = v.
+        # p_ground_max is not in the composite but stays consistent.
+        p_ground_max=v,
+        p_ground_mean=v,
+        p_ground_atomic=v,
+        # No contradiction implied; decision reflects the scalar band.
+        p_contra=0.0,
+        decision="STORE" if v >= 0.75 else ("DEFERRED" if v >= 0.55 else "DISCARD"),
+        early_exit_triggered=False,
         retrieval_count=0,
         success_rate=0.0,
         retroverified=False,

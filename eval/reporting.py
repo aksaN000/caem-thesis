@@ -83,6 +83,7 @@ from eval.metrics import (
     brier_score,
     ces_score,
     confabulation_rate,
+    decision_breakdown,
     forward_transfer,
     hallucination_rate,
     mcnemar_test,
@@ -97,14 +98,12 @@ logger = logging.getLogger(__name__)
 # Constants
 # -----------------------------------------------------------------------------
 
-# Verifier fields captured per sample (Phase 4m.3).  Kept in a constant so
-# the table builders and the JSONL writer iterate the same schema.
-VERIFIER_FIELDS = (
-    "u_token", "u_dropout", "u_internal",
-    "s_avg", "h_norm", "p_entail",
-    "p_ground_max", "p_ground_mean", "p_ground_atomic",
-    "p_contra", "decision", "early_exit_triggered",
-)
+# Verifier fields captured per sample (Phase 4m.3).  Imported from
+# ``eval.harness`` so a single dataclass-derived tuple feeds both the
+# per-sample JSONL writer (eval/harness.py) and the table builders below.
+# Previously a duplicate hand-written tuple — silent drift from the
+# verifier dataclass was the failure mode fixed by MAJOR-H3 / Task #118.
+from eval.harness import VERIFIER_FIELDS  # noqa: E402  (re-export)
 
 # Threshold used by the hallucination_rate helper's companion,
 # unsupported_correct_rate, when the caller does not override it.
@@ -583,19 +582,16 @@ def build_table_purity(cycles_data) -> Tuple[List[str], List[Dict[str, Any]]]:
     rows: List[Dict[str, Any]] = []
     per_cycle = _collect_per_cycle(cycles_data)
 
-    # Count directly against the UnifiedVerifier labels. The eval/metrics.py
-    # helper decision_breakdown() uses "DEFER" (pre-Session-42) and returns a
-    # nested dict shape; both are incompatible here, so we tally manually
-    # using the Session-42 labels STORE / DEFERRED / ABSTAIN / DISCARD.
-    SESSION42_LABELS = ("STORE", "DEFERRED", "ABSTAIN", "DISCARD")
-
+    # Count against the UnifiedVerifier labels via the shared helper.
+    # decision_breakdown() was fixed in Task #122 to use the Session-42
+    # canonical schema (STORE / DEFERRED / ABSTAIN / DISCARD); previously
+    # it used "DEFER" so reporting.py tallied manually to avoid silent
+    # drop-through. Now both agree on the schema.
     for cycle, data in per_cycle.items():
         decisions = [d for d in data["decision"] if d is not None]
         n_v = len(decisions)
-        counts = {k: 0 for k in SESSION42_LABELS}
-        for d in decisions:
-            if d in counts:
-                counts[d] += 1
+        breakdown = decision_breakdown(decisions)
+        counts = breakdown["counts"]
         n_s = counts["STORE"]
 
         # Mean u_stored restricted to STORE-decision items (quality-in-memory).

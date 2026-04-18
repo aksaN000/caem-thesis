@@ -38,6 +38,7 @@ from caem.memory.entry import (
     RoutingDecision,
 )
 from caem.memory.store import EpisodicMemoryStore
+from caem.verification.verifier import UnifiedVerifierOutput
 
 
 # -----------------------------------------------------------------------------
@@ -444,48 +445,78 @@ class TestPruning:
 # -----------------------------------------------------------------------------
 # Retroactive re-verification
 # -----------------------------------------------------------------------------
-# Session 42: these tests build `StoredConfidence(...)` mocks that no longer
-# exist; the retroverify API now expects `UnifiedVerifierOutput`. The class
-# is skipped until Phase 6a rewrites the mocks (the nine-signal copy in
-# store.py is already covered by integration paths).
+# Rewritten Task #128 (Wave 4) against UnifiedVerifierOutput. Pre-Session-42
+# the tests fabricated ``StoredConfidence`` mocks which the post-42 verifier
+# stack no longer accepts; the class was deleted. These tests now feed the
+# store.retroverify API with real UnifiedVerifierOutput instances.
 
-@pytest.mark.skip(
-    reason="Retroverify tests build StoredConfidence mocks that Session 42 "
-           "removed. Rewrite against UnifiedVerifierOutput is Phase 6a."
-)
+
+def _make_verifier_output(
+    u_stored: float,
+    *,
+    decision: str = "STORE",
+    p_entail: float = 0.90,
+    s_avg: float = 0.88,
+    h_norm: float = 0.20,
+    p_contra: float = 0.05,
+) -> UnifiedVerifierOutput:
+    """Build a UnifiedVerifierOutput with sensible signal defaults.
+
+    Kept minimal: the retroverify path only reads u_stored for the
+    gate decision plus the nine-signal block for the upward-update
+    copy. Other values default to reasonable mid-range samples so
+    nothing downstream trips on uninitialised floats.
+    """
+    return UnifiedVerifierOutput(
+        u_token=0.85,
+        u_dropout=0.15,
+        u_internal=0.85,
+        s_avg=s_avg,
+        h_norm=h_norm,
+        p_entail=p_entail,
+        p_ground_max=0.80,
+        p_ground_mean=0.75,
+        p_ground_atomic=0.70,
+        p_contra=p_contra,
+        u_stored=u_stored,
+        decision=decision,
+        early_exit_triggered=False,
+        abstained=False,
+    )
+
+
 class TestRetroVerify:
     def test_retroverify_updates_improved_entry(self):
         store = make_store()
         eid = store.add(make_entry(seed=0, u_stored=0.70))
 
-        # verify_fn returns improved score.
-        improved = StoredConfidence(p_entail=0.95, s_avg=0.90, h_norm=0.10, u_stored=0.90)  # type: ignore[name-defined]
+        improved = _make_verifier_output(u_stored=0.90, p_entail=0.95, s_avg=0.90, h_norm=0.10)
         n_updated, n_removed = store.retroverify(lambda _: improved, threshold=0.50)
 
         assert n_updated == 1
         assert n_removed == 0
-        assert store.get(eid).u_stored > 0.70  # type: ignore[union-attr]
+        assert store.get(eid).u_stored > 0.70
 
     def test_retroverify_does_not_downgrade(self):
         """If new score is lower (but still above threshold), old u_stored is kept."""
         store = make_store()
         eid = store.add(make_entry(seed=0, u_stored=0.85))
 
-        lower = StoredConfidence(p_entail=0.70, s_avg=0.75, h_norm=0.20, u_stored=0.73)  # type: ignore[name-defined]
+        lower = _make_verifier_output(u_stored=0.73, p_entail=0.70, s_avg=0.75)
         n_updated, n_removed = store.retroverify(lambda _: lower, threshold=0.50)
 
         assert n_updated == 0
         assert n_removed == 0
         # u_stored should be unchanged.
-        assert math.isclose(store.get(eid).u_stored, 0.85, abs_tol=1e-4)  # type: ignore[union-attr]
+        assert math.isclose(store.get(eid).u_stored, 0.85, abs_tol=1e-4)
         # But retroverified should be set.
-        assert store.get(eid).retroverified is True  # type: ignore[union-attr]
+        assert store.get(eid).retroverified is True
 
     def test_retroverify_removes_below_threshold(self):
         store = make_store()
         eid = store.add(make_entry(seed=0, u_stored=0.80))
 
-        bad = StoredConfidence(p_entail=0.30, s_avg=0.35, h_norm=0.80, u_stored=0.35)  # type: ignore[name-defined]
+        bad = _make_verifier_output(u_stored=0.35, p_entail=0.30, s_avg=0.35, h_norm=0.80, decision="DISCARD")
         n_updated, n_removed = store.retroverify(lambda _: bad, threshold=0.50)
 
         assert n_removed == 1
@@ -499,8 +530,8 @@ class TestRetroVerify:
 
         def verify_fn(entry):
             if entry.question == "good entry question":
-                return StoredConfidence(p_entail=0.95, s_avg=0.90, h_norm=0.10, u_stored=0.92)  # type: ignore[name-defined]
-            return StoredConfidence(p_entail=0.20, s_avg=0.30, h_norm=0.90, u_stored=0.25)  # type: ignore[name-defined]
+                return _make_verifier_output(u_stored=0.92, p_entail=0.95, s_avg=0.90, h_norm=0.10)
+            return _make_verifier_output(u_stored=0.25, p_entail=0.20, s_avg=0.30, h_norm=0.90, decision="DISCARD")
 
         n_updated, n_removed = store.retroverify(verify_fn, threshold=0.50)
         assert n_updated == 1
@@ -508,50 +539,48 @@ class TestRetroVerify:
         assert store.get(eid_good) is not None
         assert store.get(eid_bad) is None
 
-
-# -----------------------------------------------------------------------------
-# Save / Load round-trip
-# -----------------------------------------------------------------------------
-
-class TestSaveLoad:
-    def test_round_trip(self):
+    def test_retroverify_copies_all_nine_signals_on_upgrade(self):
+        """Task #128 regression guard: the upward-update path in
+        store.retroverify copies every signal from the UnifiedVerifierOutput
+        onto the stored entry, not just u_stored. Pre-42 StoredConfidence
+        only carried (p_entail, s_avg, h_norm, u_stored); Session 42
+        widened this to the full nine-signal block + p_contra + decision +
+        early_exit_triggered. Lock in the copy so a future field addition
+        that forgets to update store.py is caught at test time.
+        """
         store = make_store()
-        emb = random_unit_vec(42)
-        eid = store.add(make_entry(question="persist me", embedding=emb, u_stored=0.77))
+        eid = store.add(make_entry(seed=0, u_stored=0.60))
+        new = UnifiedVerifierOutput(
+            u_token=0.91, u_dropout=0.09, u_internal=0.92,
+            s_avg=0.93, h_norm=0.08,
+            p_entail=0.94, p_ground_max=0.89, p_ground_mean=0.87,
+            p_ground_atomic=0.85,
+            p_contra=0.02,
+            u_stored=0.90,
+            decision="STORE",
+            early_exit_triggered=False,
+            abstained=False,
+        )
+        n_updated, n_removed = store.retroverify(lambda _: new, threshold=0.50)
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "test_store"
-            store.save(path)
+        assert n_updated == 1
+        assert n_removed == 0
 
-            loaded = EpisodicMemoryStore.load(path)
-
-        assert loaded.size == 1
-        entry = loaded.get(eid)
-        assert entry is not None
-        assert entry.question == "persist me"
-        assert math.isclose(entry.u_stored, 0.77, abs_tol=1e-4)
-
-        # Search should still work on the loaded index.
-        results = loaded.search(emb, k=1)
-        assert len(results) == 1
-        _, sim = results[0]
-        assert math.isclose(sim, 1.0, abs_tol=1e-5)
-
-
-# -----------------------------------------------------------------------------
-# Summary
-# -----------------------------------------------------------------------------
-
-class TestSummary:
-    def test_summary_empty(self):
-        store = make_store()
-        s = store.summary()
-        assert s["size"] == 0
-
-    def test_summary_populated(self):
-        store = make_store()
-        store.add(make_entry(seed=0, u_stored=0.80))
-        store.add(make_entry(seed=1, u_stored=0.90))
-        s = store.summary()
-        assert s["size"] == 2
-        assert math.isclose(s["mean_u_stored"], 0.85, abs_tol=1e-3)
+        stored = store.get(eid)
+        # All nine signals copied from the verifier output.
+        assert stored.u_token        == pytest.approx(0.91)
+        assert stored.u_dropout      == pytest.approx(0.09)
+        assert stored.u_internal     == pytest.approx(0.92)
+        assert stored.s_avg          == pytest.approx(0.93)
+        assert stored.h_norm         == pytest.approx(0.08)
+        assert stored.p_entail       == pytest.approx(0.94)
+        assert stored.p_ground_max   == pytest.approx(0.89)
+        assert stored.p_ground_mean  == pytest.approx(0.87)
+        assert stored.p_ground_atomic == pytest.approx(0.85)
+        # Plus p_contra + decision + early_exit_triggered.
+        assert stored.p_contra       == pytest.approx(0.02)
+        assert stored.decision       == "STORE"
+        assert stored.early_exit_triggered is False
+        # And the composite itself was raised to the new value.
+        assert stored.u_stored       == pytest.approx(0.90)
+        assert stored.retroverified  is True

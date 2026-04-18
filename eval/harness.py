@@ -48,9 +48,11 @@ import json
 import logging
 import os
 import time
+from dataclasses import fields as _dc_fields
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
+from caem.verification.verifier import UnifiedVerifierOutput
 from eval.benchmarks import BenchmarkSample, make_synthetic_samples
 from eval.metrics import (
     aggregate,
@@ -71,6 +73,45 @@ logger = logging.getLogger(__name__)
 # Type aliases
 SampleResult = Dict[str, Any]
 EvalResult = Dict[str, Any]
+
+
+# ---------------------------------------------------------------------------- #
+# Verifier-schema registry (single source of truth)                             #
+# ---------------------------------------------------------------------------- #
+
+def _derive_verifier_fields() -> Tuple[str, ...]:
+    """Scalar (non-list) fields of :class:`UnifiedVerifierOutput`, minus ``u_stored``.
+
+    Derived at import time from ``dataclasses.fields(UnifiedVerifierOutput)``
+    so the per-sample JSON schema and the table builders stay in lockstep
+    with the verifier dataclass. When a new scalar signal is added to
+    ``UnifiedVerifierOutput`` it appears automatically on every subsequent
+    eval run -- no parallel tuple to update, no silent drop-through.
+
+    Exclusions:
+      * ``u_stored`` -- already captured at the top level of SampleResult
+        via ``pipeline.answer().u_stored``; including it here would
+        duplicate the key in ``record.update(verifier_signals)``.
+      * List-typed fields (``top_passages``, ``atomic_facts``,
+        ``per_atom_entail``) -- identified by ``default_factory is list``;
+        not flat scalars, not suitable for a rectangular per-sample JSON.
+
+    Audit MAJOR-H3 / Task #118.
+    """
+    names: List[str] = []
+    for f in _dc_fields(UnifiedVerifierOutput):
+        if f.name == "u_stored":
+            continue
+        # List-typed fields use ``field(default_factory=list)``.
+        if f.default_factory is list:   # type: ignore[comparison-overlap]
+            continue
+        names.append(f.name)
+    return tuple(names)
+
+
+# Module-level constant so both ``EvalHarness`` (here) and
+# ``eval.reporting.VERIFIER_FIELDS`` can share the single derivation.
+VERIFIER_FIELDS: Tuple[str, ...] = _derive_verifier_fields()
 
 
 class EvalHarness:
@@ -206,28 +247,23 @@ class EvalHarness:
     # Per-sample evaluation                                                #
     # ------------------------------------------------------------------ #
 
-    # Twelve verifier fields captured per sample when available.
-    # Order matches UnifiedVerifierOutput so make_tables.py can iterate
-    # this tuple directly without reshuffling.
-    _VERIFIER_FIELDS = (
-        "u_token", "u_dropout", "u_internal",
-        "s_avg", "h_norm", "p_entail",
-        "p_ground_max", "p_ground_mean", "p_ground_atomic",
-        "p_contra", "decision", "early_exit_triggered",
-    )
-
     @staticmethod
     def _extract_verifier_signals(vout) -> Dict[str, Any]:
         """Flatten a UnifiedVerifierOutput into a sample-record dict.
 
-        Returns a dict with all twelve keys set to None when ``vout`` is None
+        Returns a dict with all scalar keys set to None when ``vout`` is None
         (Tier 1 hits never run the verifier; Tier 2/3 may fail). This keeps
         the per-sample JSON schema rectangular so downstream analysis scripts
         can concatenate records into a pandas DataFrame cleanly.
+
+        The field tuple is derived once at import time from
+        ``UnifiedVerifierOutput`` (see ``VERIFIER_FIELDS`` at module level) so
+        schema additions to the verifier propagate automatically without
+        hand-edits here. Audit MAJOR-H3 / Task #118.
         """
         if vout is None:
-            return {k: None for k in EvalHarness._VERIFIER_FIELDS}
-        return {k: getattr(vout, k) for k in EvalHarness._VERIFIER_FIELDS}
+            return {k: None for k in VERIFIER_FIELDS}
+        return {k: getattr(vout, k) for k in VERIFIER_FIELDS}
 
     def _run_one(self, sample: BenchmarkSample, benchmark: str, store_to_memory: bool = False) -> SampleResult:
         """Run one sample through the pipeline and score it.
@@ -243,6 +279,7 @@ class EvalHarness:
         gold_label = sample.get("gold_label")
 
         # -- Pipeline call ---------------------------------------------- #
+        pipeline_error: Optional[str] = None
         try:
             result = self.pipeline.answer(
                 question,
@@ -261,12 +298,23 @@ class EvalHarness:
                 raise
             logger.warning("pipeline.answer() raised for sample %s: %s", sample.get("id"), exc)
             prediction = ""
-            tier = 3
+            # Sentinel tier for "pipeline crashed" — distinguishes a crash
+            # from a legitimate Tier 3 RAG route, which the old code silently
+            # conflated. routing_distribution() now excludes tier<1 from the
+            # per-tier denominator and exposes the fraction separately as
+            # "crash_frac", so the Ch5 tier distribution numbers are not
+            # inflated by pipeline errors. Audit MAJOR-H2 / Task #117.
+            tier = -1
             stored = False
             u_stored = None
             latency_ms = 0.0
             escalated = False
             verifier_signals = self._extract_verifier_signals(None)
+            # Record the exception class + message (not the full traceback,
+            # which can contain unsafe-to-serialise objects). The "crash
+            # rate" Ch5 methodology column is aggregated from the count of
+            # non-None pipeline_error entries across the per-sample JSON.
+            pipeline_error = f"{type(exc).__name__}: {exc}"
 
         # -- Scoring ---------------------------------------------------- #
         em, f1 = self._score(prediction, gold_answers, gold_label, benchmark)
@@ -285,6 +333,7 @@ class EvalHarness:
             "u_stored": u_stored,
             "latency_ms": latency_ms,
             "escalated": escalated,
+            "pipeline_error": pipeline_error,
         }
         record.update(verifier_signals)
         return record
@@ -403,11 +452,28 @@ class EvalHarness:
     ) -> List[Dict]:
         """Load all cycle results for one benchmark from an output directory.
 
-        Returns them sorted by cycle number.
+        Returns them sorted by cycle number (numeric order).
+
+        Lexical ``sorted(...glob())`` would put ``cycle10.json`` BEFORE
+        ``cycle2.json`` (since ASCII ``'1' < '2'``) — latent today because
+        Task #80 runs cycles 0-9 only, but immediately incorrect for any
+        11+ cycle extension. Downstream BWT / FWT / cycle-over-cycle plots
+        would silently receive scrambled data. Audit MAJOR-H1 / Task #116.
         """
         output_dir = Path(output_dir)
         pattern = f"{benchmark}_cycle*.json"
-        files = sorted(output_dir.glob(pattern))
+
+        def _cycle_index(path: Path) -> int:
+            # Filename shape: "{benchmark}_cycle{N}.json"; stem removes
+            # ".json", split("_cycle") yields ("{benchmark}", "{N}").
+            # Defensive: fall back to -1 on malformed names so glob noise
+            # doesn't crash the sort.
+            try:
+                return int(path.stem.split("_cycle")[-1])
+            except (ValueError, IndexError):
+                return -1
+
+        files = sorted(output_dir.glob(pattern), key=_cycle_index)
         return [cls.load_result(f) for f in files]
 
     # ------------------------------------------------------------------ #

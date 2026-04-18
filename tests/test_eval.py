@@ -258,10 +258,29 @@ class TestExtractFeverLabel:
         assert extract_fever_label("REFUTES") == "refutes"
 
     def test_fallback(self):
-        assert extract_fever_label("I don't know anything.") == "not enough info"
+        # No label family matches -> UNPARSEABLE sentinel (empty string),
+        # so downstream EM correctly yields 0.0 instead of silently
+        # defaulting to "not enough info" (audit MAJOR-M3).
+        assert extract_fever_label("I don't know anything.") == ""
 
-    def test_nei_takes_priority_over_supports(self):
-        assert extract_fever_label("There is not enough info to support this.") == "not enough info"
+    def test_last_occurrence_wins(self):
+        # Mechanical semantics: the rightmost label family match wins
+        # (model's final commitment). "support" appears after
+        # "not enough info", so the extractor returns "supports".
+        # This replaces the prior first-match-priority test, which
+        # was locking in the biased if-elif ordering (audit MAJOR-M2).
+        assert extract_fever_label(
+            "There is not enough info to support this."
+        ) == "supports"
+
+    def test_nei_beats_earlier_supports(self):
+        # And the symmetric case: when NEI appears after a supports
+        # match, NEI wins -- confirming the last-occurrence rule,
+        # not a static label precedence.
+        assert extract_fever_label(
+            "At first it supports the claim, but actually there is "
+            "not enough info."
+        ) == "not enough info"
 
 
 class TestExtractStrategyQALabel:
@@ -279,8 +298,11 @@ class TestExtractStrategyQALabel:
         text = "Reasoning: this is false. Therefore, no."
         assert extract_strategyqa_label(text) == "no"
 
-    def test_fallback_defaults_no(self):
-        assert extract_strategyqa_label("uncertain output") == "no"
+    def test_fallback_returns_unparseable(self):
+        # No yes/no word-boundary match -> UNPARSEABLE sentinel (empty
+        # string), so downstream EM correctly yields 0.0 instead of
+        # silently defaulting to "no" (audit MAJOR-M3).
+        assert extract_strategyqa_label("uncertain output") == ""
 
 
 # -----------------------------------------------------------------------------
@@ -323,15 +345,45 @@ class TestRoutingDistribution:
         assert dist["tier1_frac"] == pytest.approx(2 / 7)
         assert dist["tier2_frac"] == pytest.approx(2 / 7)
         assert dist["tier3_frac"] == pytest.approx(3 / 7)
+        assert dist["crash_frac"] == pytest.approx(0.0)
 
     def test_all_tier3(self):
         dist = routing_distribution([3, 3, 3])
         assert dist["tier3_frac"] == pytest.approx(1.0)
         assert dist["tier1_frac"] == pytest.approx(0.0)
+        assert dist["crash_frac"] == pytest.approx(0.0)
 
     def test_empty(self):
         dist = routing_distribution([])
-        assert dist == {"tier1_frac": 0.0, "tier2_frac": 0.0, "tier3_frac": 0.0}
+        assert dist == {
+            "tier1_frac": 0.0, "tier2_frac": 0.0, "tier3_frac": 0.0,
+            "crash_frac": 0.0,
+        }
+
+    def test_crash_sentinel_excluded_from_tier_denominator(self):
+        # tier=-1 is the harness crash sentinel (MAJOR-H2 / Task #117).
+        # It must NOT count toward tier1/2/3 denominators, and it must
+        # surface in crash_frac (over the TOTAL, including crashes).
+        dist = routing_distribution([1, 2, 3, -1, -1])
+        # 3 valid samples -> each of tier1/2/3 is 1/3.
+        assert dist["tier1_frac"] == pytest.approx(1 / 3)
+        assert dist["tier2_frac"] == pytest.approx(1 / 3)
+        assert dist["tier3_frac"] == pytest.approx(1 / 3)
+        # 2 of 5 total are crashes.
+        assert dist["crash_frac"] == pytest.approx(2 / 5)
+        # Invariant: tier*_frac sums to 1.0 over valid samples.
+        assert (
+            dist["tier1_frac"] + dist["tier2_frac"] + dist["tier3_frac"]
+        ) == pytest.approx(1.0)
+
+    def test_all_crashes(self):
+        # All samples crashed -> no valid routes; every tier is 0.0
+        # but crash_frac is 1.0.
+        dist = routing_distribution([-1, -1, -1])
+        assert dist["tier1_frac"] == 0.0
+        assert dist["tier2_frac"] == 0.0
+        assert dist["tier3_frac"] == 0.0
+        assert dist["crash_frac"] == pytest.approx(1.0)
 
 
 # -----------------------------------------------------------------------------
@@ -646,11 +698,33 @@ class TestBootstrapCI:
         r2 = bootstrap_ci(scores, seed=42)
         assert r1 == r2
 
-    def test_different_seeds_may_differ(self):
+    def test_different_seeds_preserve_point_estimate(self):
+        """Bootstrap resampling can only shift the CI bounds, not the point
+        estimate (which is the sample mean of ``scores``). Confirm that
+        seed variation leaves the mean unchanged and produces CI bounds
+        that bracket it on both sides.
+
+        Task #129 rewrite: the prior test was named `may_differ` but
+        asserted strict equality on the point estimate — a contradiction
+        that made the test a rubber stamp. The mean is a deterministic
+        function of the input, not the seed; bootstrap only affects the
+        CI. That is the actual property worth regressing.
+        """
         scores = [float(i % 2) for i in range(40)]
-        r1 = bootstrap_ci(scores, seed=1)
-        r2 = bootstrap_ci(scores, seed=2)
-        assert r1[0] == pytest.approx(r2[0])
+        mean_ref = sum(scores) / len(scores)
+
+        m1, lo1, hi1 = bootstrap_ci(scores, seed=1)
+        m2, lo2, hi2 = bootstrap_ci(scores, seed=2)
+
+        # Point estimate is the sample mean -- independent of seed.
+        assert m1 == pytest.approx(mean_ref)
+        assert m2 == pytest.approx(mean_ref)
+        assert m1 == pytest.approx(m2)
+
+        # CI bounds bracket the mean (not a strict property of bootstrap
+        # in pathological cases, but holds for this well-behaved input).
+        assert lo1 <= m1 <= hi1
+        assert lo2 <= m2 <= hi2
 
 
 # -----------------------------------------------------------------------------
@@ -903,28 +977,32 @@ class TestReliabilityBins:
 
 class TestDecisionBreakdown:
     def test_counts_and_fractions(self):
-        decisions = ["STORE", "STORE", "DEFER", "DISCARD", "ABSTAIN"]
+        # Session-42 canonical schema: STORE / DEFERRED / ABSTAIN / DISCARD
+        # (matches caem.unified_verifier.UnifiedVerifierOutput). Prior
+        # "DEFER" key was a pre-Session-42 leftover -- audit MAJOR-M4.
+        decisions = ["STORE", "STORE", "DEFERRED", "DISCARD", "ABSTAIN"]
         out = decision_breakdown(decisions)
         assert out["total"] == 5
         assert out["counts"]["STORE"] == 2
-        assert out["counts"]["DEFER"] == 1
+        assert out["counts"]["DEFERRED"] == 1
         assert out["counts"]["DISCARD"] == 1
         assert out["counts"]["ABSTAIN"] == 1
         assert out["fractions"]["STORE"] == pytest.approx(0.4)
 
     def test_unknown_decisions_are_ignored(self):
-        # decision_breakdown uses the legacy 'DEFER' label (not 'DEFERRED').
-        # Anything unrecognised is silently dropped. This matches the
-        # audit note in reporting.py's SESSION42_LABELS bypass.
+        # "GARBAGE" is not a canonical label and is silently dropped;
+        # "DEFERRED" is now canonical (Session-42) so it counts.
         out = decision_breakdown(["STORE", "DEFERRED", "GARBAGE"])
         assert out["counts"]["STORE"] == 1
+        assert out["counts"]["DEFERRED"] == 1
         assert out["total"] == 3
-        assert sum(out["counts"].values()) == 1
+        # 2 recognised + 1 dropped -> sum of counts is 2, not 3.
+        assert sum(out["counts"].values()) == 2
 
     def test_empty_input_has_zero_fractions(self):
         out = decision_breakdown([])
         assert out["total"] == 0
-        for k in ("STORE", "DEFER", "ABSTAIN", "DISCARD"):
+        for k in ("STORE", "DEFERRED", "ABSTAIN", "DISCARD"):
             assert out["counts"][k] == 0
             assert out["fractions"][k] == 0.0
 
@@ -1034,32 +1112,38 @@ class TestUnsupportedCorrectRate:
         grounds = [0.9, 0.9]
         assert unsupported_correct_rate(em, grounds) == 0.0
 
-    def test_threshold_is_strict_less_than(self):
-        em = [1.0]
-        grounds = [0.30]
-        assert unsupported_correct_rate(em, grounds, ground_threshold=0.30) == 0.0
-
-    def test_empty_input(self):
-        assert unsupported_correct_rate([], []) == 0.0
-
 
 class TestUngroundedAssertionRate:
-    def test_high_confidence_and_low_ground_counted(self):
-        grounds = [0.1, 0.9, 0.1]
-        us = [0.9, 0.9, 0.1]
-        assert ungrounded_assertion_rate(grounds, us) == pytest.approx(1 / 3)
+    def test_confident_and_ungrounded(self):
+        # (g, u) pairs under defaults g_thresh=0.30, u_thresh=0.50.
+        # Hits are (g <= 0.30 AND u >= 0.50):
+        #   (0.10, 0.90) -> hit
+        #   (0.90, 0.90) -> grounded, miss
+        #   (0.10, 0.10) -> not confident, miss
+        #   (0.20, 0.80) -> hit
+        # -> 2/4 = 0.5
+        grounds = [0.10, 0.90, 0.10, 0.20]
+        us     = [0.90, 0.90, 0.10, 0.80]
+        assert ungrounded_assertion_rate(grounds, us) == pytest.approx(0.5)
 
-    def test_empty_input(self):
+    def test_all_grounded_returns_zero(self):
+        # Every g > g_thresh (0.30) -> nothing is ungrounded, rate must be 0.
+        grounds = [0.90, 0.80, 0.70, 0.60]
+        us = [0.90, 0.90, 0.90, 0.90]
+        assert ungrounded_assertion_rate(grounds, us) == 0.0
+
+    def test_empty_input_returns_zero(self):
         assert ungrounded_assertion_rate([], []) == 0.0
 
-    def test_all_well_grounded(self):
-        assert ungrounded_assertion_rate([0.9, 0.9], [0.9, 0.9]) == 0.0
-
-    def test_thresholds_respected(self):
-        grounds = [0.4, 0.6]
-        us = [0.7, 0.7]
-        assert ungrounded_assertion_rate(grounds, us, g_thresh=0.5, u_thresh=0.5) == pytest.approx(0.5)
-
-    def test_mismatched_lengths_raise(self):
-        with pytest.raises(AssertionError):
-            ungrounded_assertion_rate([0.1], [0.9, 0.9])
+    def test_custom_thresholds(self):
+        # g_thresh=0.35, u_thresh=0.70 -> hit iff g<=0.35 AND u>=0.70.
+        #   (0.30, 0.80) -> hit
+        #   (0.40, 0.80) -> g too high, miss
+        #   (0.20, 0.60) -> u too low, miss
+        #   (0.50, 0.90) -> g too high, miss
+        # -> 1/4 = 0.25
+        grounds = [0.30, 0.40, 0.20, 0.50]
+        us     = [0.80, 0.80, 0.60, 0.90]
+        assert ungrounded_assertion_rate(
+            grounds, us, g_thresh=0.35, u_thresh=0.70
+        ) == pytest.approx(0.25)

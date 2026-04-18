@@ -75,7 +75,29 @@ def _mut_noop(cfg: CAEMConfig) -> None:
 
 
 def _mut_no_grounding(cfg: CAEMConfig) -> None:
-    """Zero external-grounding weights in u_stored; renormalize the rest.
+    """Zero EXTERNAL-grounding weights in u_stored; renormalize the rest.
+
+    Grounding in u_stored is carried by ``pground_mean`` and
+    ``pground_atomic`` only: both measure whether retrieved Wikipedia
+    passages entail the generated answer (passage -> answer entailment).
+
+    IMPORTANT: ``u_stored_weight_nli`` is NOT a grounding signal. Per
+    ``caem/config.py:192`` it weights ``p_entail`` (chain -> answer
+    entailment), which is a self-consistency / internal-coherence
+    signal — orthogonal to whether external passages support the claim.
+    The prior implementation zeroed ``u_stored_weight_nli`` alongside
+    the pground fields, which conflated two mechanism removals in one
+    variant and made the ``no_grounding`` ablation measure grounding + NLI
+    self-consistency jointly (not grounding alone). Audit MAJOR-VR1 /
+    Task #114.
+
+    Post-fix: this mutation zeroes ONLY the two pground weights and
+    rescales the other four (nli, sc, uinternal, se) to sum to 1.0.
+    The ``no_grounding`` variant now ablates external grounding cleanly.
+    A companion ``no_chain_answer_entailment`` variant (zeroing nli
+    only) is deferred to future work — adding it pushes the registry
+    from 16 to 17 and would require thesis table updates in Ch5 (see
+    "Sixteen named ablation variants" caption / §5.2).
 
     Early-returns when grounding weights are already zero so repeated
     application is bitwise-idempotent (avoiding FP drift in the rescale).
@@ -83,24 +105,27 @@ def _mut_no_grounding(cfg: CAEMConfig) -> None:
     if (
         cfg.u_stored_weight_pground_mean == 0.0
         and cfg.u_stored_weight_pground_atomic == 0.0
-        and cfg.u_stored_weight_nli == 0.0
     ):
         return
+    nli = cfg.u_stored_weight_nli
     sc = cfg.u_stored_weight_sc
     ui = cfg.u_stored_weight_uinternal
     se = cfg.u_stored_weight_se
-    total_keep = sc + ui + se
+    total_keep = nli + sc + ui + se
     if total_keep <= 0:
-        cfg.u_stored_weight_sc = 1 / 3
-        cfg.u_stored_weight_uinternal = 1 / 3
-        cfg.u_stored_weight_se = 1 / 3
+        # Pathological config (all kept weights zero); fall back to
+        # equal split across the four remaining signals.
+        cfg.u_stored_weight_nli = 1 / 4
+        cfg.u_stored_weight_sc = 1 / 4
+        cfg.u_stored_weight_uinternal = 1 / 4
+        cfg.u_stored_weight_se = 1 / 4
     else:
+        cfg.u_stored_weight_nli = nli / total_keep
         cfg.u_stored_weight_sc = sc / total_keep
         cfg.u_stored_weight_uinternal = ui / total_keep
         cfg.u_stored_weight_se = se / total_keep
     cfg.u_stored_weight_pground_mean = 0.0
     cfg.u_stored_weight_pground_atomic = 0.0
-    cfg.u_stored_weight_nli = 0.0
 
 
 def _mut_no_internal_calibration(cfg: CAEMConfig) -> None:
@@ -394,3 +419,12 @@ def get_variant(name: str) -> AblationVariant:
             f"Unknown ablation variant '{name}'. Registered variants: {known}"
         )
     return VARIANT_REGISTRY[name]
+
+
+__all__ = [
+    "AblationVariant",
+    "ConfigMutation",
+    "VARIANT_REGISTRY",
+    "get_variant",
+    "list_variants",
+]

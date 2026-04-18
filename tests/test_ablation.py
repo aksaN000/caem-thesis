@@ -138,11 +138,20 @@ class TestUStoredWeightRescaling:
             f"{name}: weights sum to {total}, expected 1.0"
         )
 
-    def test_no_grounding_zeros_pground_and_nli(self):
+    def test_no_grounding_zeros_pground_only(self):
+        """After MAJOR-VR1 fix (Task #114): no_grounding zeros ONLY the two
+        external-grounding weights (pground_mean, pground_atomic). The nli
+        weight — which carries ``p_entail`` (chain -> answer entailment,
+        a self-consistency signal, not grounding) — must remain non-zero.
+        Prior behaviour conflated grounding with chain-answer NLI.
+        """
         cfg = get_variant("no_grounding").apply()
         assert cfg.u_stored_weight_pground_mean == 0.0
         assert cfg.u_stored_weight_pground_atomic == 0.0
-        assert cfg.u_stored_weight_nli == 0.0
+        assert cfg.u_stored_weight_nli > 0.0, (
+            "nli is a self-consistency signal, not grounding — must not be "
+            "zeroed by no_grounding variant (see Task #114 / MAJOR-VR1)"
+        )
 
     def test_no_internal_calibration_zeros_uinternal(self):
         cfg = get_variant("no_internal_calibration").apply()

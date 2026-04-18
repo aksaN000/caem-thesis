@@ -146,12 +146,26 @@ def _apply_pipeline_flags(
     # tier1_combined_threshold mutation in variants.py already; this flag
     # is a belt-and-braces no-op here.
 
-    # skip_tier3_rag: disable passage retrieval by setting the pipeline's
-    # passage_store to None for the variant's lifetime.
+    # skip_tier3_rag: disable Tier 3 passage retrieval by nulling the
+    # PassageStore on ``pipeline.rag`` for the variant's lifetime. The
+    # passage_store does NOT live directly on CAEMPipeline — it lives on
+    # self.rag.passage_store (see caem/pipeline.py:273-280 construction
+    # site). The prior code `pipeline.passage_store = None` created a
+    # dangling attribute on the wrong object; Tier 3 continued to retrieve
+    # and the `no_tier3_rag` ablation silently measured the same system as
+    # `full`. Audit MAJOR-RN1 / Task #113.
+    #
+    # Note: UnifiedVerifier's grounding retriever closure captures the
+    # original ``passage_store`` at pipeline init time (pipeline.py:244-
+    # 250), so nulling rag.passage_store removes Tier 3 retrieval WITHOUT
+    # breaking the verifier's grounding signals — which is the correct
+    # semantic for `no_tier3_rag` (ablates RAG, not verification).
     if variant.skip_tier3_rag:
-        backups.append(("self", "passage_store", getattr(pipeline, "passage_store", None)))
-        pipeline.passage_store = None  # type: ignore[assignment]
-        # Tier-3 RAG sees a null passage_store and degrades to zero-shot.
+        backups.append(("rag", "passage_store", pipeline.rag.passage_store))
+        pipeline.rag.passage_store = None  # type: ignore[assignment]
+        # Tier-3 RAG sees a null passage_store -> search() raises, the
+        # except-Exception guard in rag._retrieve returns [] empty
+        # passages -> RAG degrades to zero-shot generation.
 
     return backups
 
@@ -291,12 +305,27 @@ def run_variant(
                 )
 
         if not em_list:
-            # Fallback: synthesise flat lists from meta (em scalar + mean
-            # u_stored). Not ideal but keeps the run going if per-sample
-            # disk I/O failed.
-            n = int(meta.get("n", 0))
-            em_list = [float(meta.get("em", 0.0))] * n
-            u_list = [float(meta.get("mean_u_stored", 0.0))] * n
+            # Previously this branch synthesised a flat list by broadcasting
+            # the meta scalar (em-aggregate and mean u_stored) N times,
+            # which destroys per-sample variance — EPI and CAL axes then
+            # collapse to constants and CES is artificially inflated. The
+            # ablation table silently downgrades to the meta-only system
+            # and the Ch5 ranking between variants becomes untrustworthy.
+            # Audit MAJOR-RN2 / Task #115.
+            #
+            # Raise loudly instead so the operator sees the missing
+            # per-sample artefact before the ablation table is built.
+            # The message names the file so rerunning the failed harness
+            # slice is mechanical.
+            raise RuntimeError(
+                f"Ablation runner: per-sample file not available for "
+                f"variant='{variant.name}', benchmark='{bm}', "
+                f"cycle={cycle} (looked for {per_sample_path}). "
+                f"CES axes require per-sample em/u_stored lists — "
+                f"broadcasting the meta scalar would destroy EPI/CAL "
+                f"variance and inflate CES. Fix: rerun the harness step "
+                f"for this variant, or check harness.output_dir wiring."
+            )
 
         axes = ces_axes_from_cycle(
             em_flags=em_list,
