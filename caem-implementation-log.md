@@ -2181,3 +2181,57 @@ These `writing-suggestions.md` entries now have confirmed data:
 | TH-04 convergence check table | FEVER passes; others still converging | mini-run table |
 | `l2_lambda` | 0.01 | [LIT] | Adapted from Kirkpatrick et al. 2017 (EWC); simplified to L2 here. |
 | `mc_dropout_k` | 5 | [LIT] | Gal 
+
+---
+
+## Session 33 — 2026-04-18 (Vast.ai Phase 1 Launch: Plan A + Phase Roadmap)
+
+**Context:** First paid Vast.ai rental. RTX 5090 / 32 GB / $0.638/hr / starting credit $48. Hardware specs and per-step execution log live in `VAST_SESSION_LOG.md` (committed this session); this entry is the *strategic* record — what we chose to run, what we deferred, and the forward path to thesis completion.
+
+### Decision: Plan A scope (skip Steps 16–18)
+
+**Selected:** Steps 1–15 + 19 + 20. Estimated cost ~$26–31.
+**Deferred:** Steps 16 (screening), 17 (aggregate screening), 18 (confirmatory ablation sweep). Estimated $40–50 on the 5090, blows the $48 envelope.
+
+**Why:** $48 doesn't fit Phase 1 ablation (~$50) at 5090 hourly rate. Headline + baselines + purity validation produce a defensible Chapter 5 §5.1 + §5.3 at 70–80% completeness. §5.5 ablation table stays empty until Phase 1 closure on a separate rental.
+
+### Phase roadmap (cost reconciliation, single source of truth)
+
+Estimates assume RTX 4090 at $0.40/hr unless noted. Wall-clock numbers from `NEXT_SESSION_PLAN.md` step table.
+
+| Phase | Scope | Time | $ on 4090 | $ on 5090 | $ on A100 80GB | Cumulative |
+|---|---|---|---|---|---|---|
+| **0** | Pre-experiment (code, drafts, audits) | — | $0 | $0 | $0 | $0 |
+| **1A** (this rental) | Plan A: Steps 1–15 + 19 + 20 | ~40h | $16 | **~$31** | $48 | ~$31 |
+| **1B** (deferred) | Phase 1 closure: Steps 16–18 (single seed=42 ablation) | 64–80h | $26–32 | $41–51 | $77–96 | ~$57–63 |
+| **2** (post-funding) | Multi-seed: re-run Step 18 confirmatory at seeds 123 + 456 across 14 cyclic variants | 300–370h on 4090 / 180–230h on A100 | $120–148 | $191–236 | $216–276 | ~$177–211 (4090 path) |
+| **20B** (optional) | STaR ceiling row (one extra training baseline) | 7–8h | $3 | $5 | $9 | +~$3–5 |
+| **Frontier ref** (optional, separate from Vast) | API-only addendum: GPT-5 / Claude 4.6 / Gemini 3 zero-shot reference row | <1 day | $0 (API ~$5–20) | — | — | +~$5–20 |
+
+**Path to defendable thesis @ each completion level:**
+- Plan A only → 70–80% (no ablation table)
+- Plan A + Phase 1B → 90% (single-seed ablation, no rigor)
+- Plan A + Phase 1B + Phase 2 → ~100% (committee-ready, multi-seed mean ± std)
+- + frontier ref → publication-grade (addresses the "why not just use scale" critique directly)
+
+### Code readiness audit (this session)
+
+| Phase | Required scripts | Status |
+|---|---|---|
+| Plan A | `run_experiment.py`, `run_baseline.py`, `run_simple_ft.py`, `run_purity_validation.py`, `aggregate_ablation.py` | ✅ all present, all running this session |
+| Phase 1B (Steps 16–18) | `run_cyclic_ablation.py`, `aggregate_ablation.py` | ✅ ready; `--seed` flag with explicit Phase-2 docstring at lines 41–66 |
+| Phase 2 (multi-seed) | Same `run_cyclic_ablation.py` re-invoked with `--seed 123` and `--seed 456` | ✅ ready, no new code |
+| Step 20B STaR ceiling | `run_simple_ft.py --use_rationalisation` | ✅ ready, code at lines 138–148 + 396–500 |
+| **Frontier reference add-on** | (would be `scripts/run_frontier_reference.py`) | ❌ **NOT WRITTEN** — only `frontier_reference_addendum.md` writeup-plan exists. Needs ~100–200 LOC mirroring `run_baseline.py` against an API client. ~2–4h work, post-Phase-1 |
+
+### Incidents this session (full detail in `VAST_SESSION_LOG.md`)
+
+1. **sentence-transformers 5.4.1 → torchcodec → libnppicc.so.13 missing on the Vast pytorch:2.2.0 image.** Resolved by pinning `<4` in Step 3.2. Patched `NEXT_SESSION_PLAN.md` for future sessions.
+2. **FAISS IVF training under-sample (500k vs 30×nlist=1.97M for nlist=65536).** Estimated 5–15pp recall@10 loss. Tried in-RAM extraction via gdb/pyrasite to recover the 21M × 768 embedding matrix without re-encoding — blocked at the container level (Vast seccomp disallows ptrace). Killed the in-progress build (lost $3.64 + 5h) and rebuilt with `--train_sample_size 2000000`. Patched `scripts/build_passage_index.py` default 500k → 2M to prevent recurrence.
+
+### Cross-references for future sessions
+
+- Hardware profile of the Phase 1 rental: `NEXT_SESSION_PLAN.md` "Active rental — Session 1" block.
+- Per-step execution timing + costs: `VAST_SESSION_LOG.md`.
+- Frontier reference writeup plan: `frontier_reference_addendum.md`.
+- Autonomous chain runner script: `run_plan_a.sh` at repo root.
