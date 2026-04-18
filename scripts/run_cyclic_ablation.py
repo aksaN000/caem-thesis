@@ -381,9 +381,27 @@ def run_cyclic_ablation(ns: argparse.Namespace) -> None:
     except Exception as exc:
         logger.warning("Could not serialise variant config (%s); continuing.", exc)
 
-    # Wire cycle count and SIL pool size into the config
-    config.num_cycles = int(profile["max_cycles"])
-    config.questions_per_cycle = int(profile["n_sil_per_cycle"])
+    # Wire cycle count and SIL pool size into the config.
+    # Ablation profiles (smoke / medium / full) intentionally override any
+    # num_cycles / questions_per_cycle value a variant may have set, because
+    # the profile governs the sweep-wide compute budget. Log when we are
+    # clobbering a non-default variant setting so reviewers can trace the
+    # decision instead of being surprised by a silent override.
+    profile_cycles = int(profile["max_cycles"])
+    profile_qpc = int(profile["n_sil_per_cycle"])
+    if config.num_cycles != profile_cycles:
+        logger.info(
+            "Ablation profile overrides variant num_cycles: %d -> %d (variant=%s).",
+            config.num_cycles, profile_cycles, variant.name,
+        )
+    if config.questions_per_cycle != profile_qpc:
+        logger.info(
+            "Ablation profile overrides variant questions_per_cycle: %d -> %d "
+            "(variant=%s).",
+            config.questions_per_cycle, profile_qpc, variant.name,
+        )
+    config.num_cycles = profile_cycles
+    config.questions_per_cycle = profile_qpc
 
     # --- Fabricate the namespace that run_experiment helpers expect --------- #
     # Most helpers take an argparse.Namespace with specific attributes.
@@ -418,10 +436,18 @@ def run_cyclic_ablation(ns: argparse.Namespace) -> None:
         ]
         if not sil_benchmarks:
             sil_benchmarks = ["fever", "triviaqa", "natural_questions"]
-        sil_samples = {bm: make_synthetic_samples(bm, n=10) for bm in sil_benchmarks}
-        eval_samples = {bm: make_synthetic_samples(bm, n=10) for bm in requested}
-        purity_samples = {bm: s[:5] for bm, s in sil_samples.items()}
-        calib_samples = {bm: s[5:] for bm, s in sil_samples.items()}
+        # Honour the ablation profile's n_sil_per_cycle / n_eval_per_benchmark
+        # instead of a hardcoded 10. This lets the smoke profile stay tiny
+        # (n=4) while medium/full profiles still exercise realistic batch
+        # sizes in smoke-test mode. Calibration split: half purity / half
+        # calib -- min 2 each so the split does not degenerate at tiny n.
+        n_sil_smoke = max(4, int(profile["n_sil_per_cycle"]))
+        n_eval_smoke = max(4, int(profile["n_eval_per_benchmark"]))
+        sil_samples = {bm: make_synthetic_samples(bm, n=n_sil_smoke) for bm in sil_benchmarks}
+        eval_samples = {bm: make_synthetic_samples(bm, n=n_eval_smoke) for bm in requested}
+        split_point = max(2, n_sil_smoke // 2)
+        purity_samples = {bm: s[:split_point] for bm, s in sil_samples.items()}
+        calib_samples = {bm: s[split_point:] for bm, s in sil_samples.items()}
     else:
         sil_samples = load_sil_training_pool(ns_shim, m)
         eval_samples = load_eval_transfer_pool(ns_shim, m)
@@ -454,6 +480,10 @@ def run_cyclic_ablation(ns: argparse.Namespace) -> None:
     baseline_mmlu: Optional[float] = None
 
     start_t = time.time()
+    # cycles_completed counts the number of completed cycles (cycle 0 is the
+    # baseline evaluation, cycles 1..N are SIL loops). Post-loop invariant:
+    # cycles_completed == last_completed_cycle_index + 1. A value of 1 means
+    # only the baseline ran; 3 means cycles 0, 1, and 2 all finished.
     cycles_completed = 0
     aborted = False
 
@@ -474,7 +504,7 @@ def run_cyclic_ablation(ns: argparse.Namespace) -> None:
 
         # Pristine MMLU baseline
         logger.info("Measuring pristine MMLU baseline (200 samples)...")
-        mmlu_baseline = float(sil._mmlu_score(n=200))
+        mmlu_baseline = float(sil.measure_mmlu(n=200))
         logger.info("Pristine MMLU baseline: %.4f", mmlu_baseline)
         try:
             with open(out_dir / "mmlu_baseline.json", "w", encoding="utf-8") as f:
@@ -645,6 +675,17 @@ def run_cyclic_ablation(ns: argparse.Namespace) -> None:
         # Always restore the pipeline's pre-variant state, even on crash.
         _restore_pipeline_flags(pipeline, flag_backups)
         logger.info("Pipeline flags restored.")
+        # Release GPU memory -- critical when this function is invoked
+        # in-process across variants (the CLI entrypoint runs one variant
+        # per process today, but callers can loop). Without this, sweeps
+        # accumulate stale CUDA allocations and eventually OOM.
+        try:
+            import torch as _torch
+            if _torch.cuda.is_available():
+                _torch.cuda.empty_cache()
+                _torch.cuda.ipc_collect()
+        except Exception:
+            pass
 
     # --- Summary CSV + manifest --------------------------------------------- #
     save_summary_csv(all_cycle_results, out_dir, mmlu_per_cycle=mmlu_per_cycle)

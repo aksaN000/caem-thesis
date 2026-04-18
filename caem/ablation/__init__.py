@@ -26,7 +26,7 @@ Design invariants
 2. Every variant is a pure mutation of CAEMConfig and/or pipeline flags
    -- no new hyperparameters are introduced in the ablation code path.
 3. MMLU retention for RET uses the same fixed 200-sample split as
-   ``SelfImprovementLoop._mmlu_score(n=200)``; see that method's
+   ``SelfImprovementLoop.measure_mmlu(n=200)``; see that method's
    docstring for the rationale.
 4. Variants that disable fine-tuning still measure RET against the
    pristine-model MMLU baseline (ratio == 1.0 by construction, since

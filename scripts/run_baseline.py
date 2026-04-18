@@ -21,7 +21,7 @@ outputs/baselines/<baseline>/<benchmark>_cycle0.json
 
 Usage
 -----
-Full baseline across the seven-benchmark panel (vast.ai / A100):
+Full baseline across the six-benchmark panel (3 ID + 3 OOD; vast.ai / A100):
 
     python -m scripts.run_baseline \\
         --baseline rag \\
@@ -152,6 +152,17 @@ def _parse_args() -> argparse.Namespace:
         default=50,
         help="Log progress every N samples.",
     )
+    p.add_argument(
+        "--seed",
+        type=int,
+        default=42,
+        help=(
+            "Global seed for Python's random, NumPy, and PyTorch. Applied "
+            "at main() entry so baseline runs are reproducible under the "
+            "same --n_questions / --split / --model_name. Default 42 matches "
+            "run_experiment.py."
+        ),
+    )
     return p.parse_args()
 
 
@@ -233,8 +244,31 @@ def _build_baseline(ns: argparse.Namespace):
 # Main                                                                          #
 # -----------------------------------------------------------------------------
 
+def _seed_everything(seed: int) -> None:
+    """Seed Python / NumPy / PyTorch RNGs. Mirrors run_experiment.py's
+    seeding so FEVER/TriviaQA slicing and sampled decoding are reproducible.
+    """
+    import random
+    random.seed(seed)
+    try:
+        import numpy as np
+        np.random.seed(seed)
+    except ImportError:
+        pass
+    try:
+        import torch
+        torch.manual_seed(seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(seed)
+    except ImportError:
+        pass
+
+
 def main() -> None:
     ns = _parse_args()
+
+    _seed_everything(ns.seed)
+    logger.info("Seeded all RNGs with seed=%d", ns.seed)
 
     from eval.benchmarks import load_benchmark
     from eval.harness import EvalHarness

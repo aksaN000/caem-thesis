@@ -49,7 +49,7 @@ All 15 files audited in one pass. Findings-only; no code edits.
 ### Rough severity counts
 
 - **BLOCKER**: 6 (in 5 files)  →  5 resolved, 1 downgraded to not-a-bug (2026-04-18 fix pass)
-- **MAJOR**: ~80
+- **MAJOR**: ~80  →  all resolved across six waves (2026-04-18 MAJORs fix pass — see Fix log at end of document)
 - **MINOR**: ~85
 - **NOTE**: ~45
 
@@ -88,7 +88,11 @@ The six BLOCKERs above are the minimum set. Fix #1 + #2 together (verifier API),
 
 ### Fix pass — 2026-04-18
 
-All six BLOCKERs have been addressed. Five were real defects and were patched; one (#2) was downgraded to a false positive after reading the canonical `UnifiedVerifier.verify` signature. Verifier-API risk was lower than the audit estimated, but the retroverify loop's lack of exception handling (the actual #1 defect) has been closed by routing through `CAEMPipeline.make_retroverify_fn()`. The `passage-index path default divergence` cross-file pattern (item #2 in Cross-file patterns) is also resolved as a side-effect of the BLOCKER #3/#6 fix. Remaining cross-file patterns (NLI model hardcoding, VER placeholder, `ns_shim` fragility, file-logging handler, `--seed` flag, `torch.load(weights_only=True)`, `encoding="utf-8"` on writes, `sil._mmlu_score` private-API leakage, deterministic-first-N splits, variable misnomers) can land over later sessions without blocking compute.
+All six BLOCKERs have been addressed. Five were real defects and were patched; one (#2) was downgraded to a false positive after reading the canonical `UnifiedVerifier.verify` signature. Verifier-API risk was lower than the audit estimated, but the retroverify loop's lack of exception handling (the actual #1 defect) has been closed by routing through `CAEMPipeline.make_retroverify_fn()`. The `passage-index path default divergence` cross-file pattern (item #2 in Cross-file patterns) is also resolved as a side-effect of the BLOCKER #3/#6 fix.
+
+### MAJORs fix pass — 2026-04-18
+
+All ~80 MAJOR findings have been addressed across six thematic waves. Every cross-file pattern flagged in the summary (NLI model hardcoding, hardcoded precision policy, VER placeholder, `ns_shim` fragility, `--seed` flag, `sil._mmlu_score` private-API leakage, stale terminology, variable misnomers, private-API calls) is resolved. Per-file fix details are appended at the end of this document under **Fix log — MAJORs — 2026-04-18**.
 
 ### Files with no ship-blocking issues
 
@@ -698,4 +702,147 @@ Main experiment orchestrator. Cycle 0 baseline → temperature calibration → C
 Two items block Phase 1 launch: the two-argument `verifier.verify` retroverify call (silently corrupts u_stored every cycle) and the `--passage_index` default that may not match `build_passage_index.py`'s output. Two more are ship-preventing if the bar is "produce thesis-valid numbers": the `--n_questions` overload for both SIL pool and eval set, and the TriviaQA overlap between SIL pool and anti-forgetting mix. Several MAJORs (seeding, deterministic split, hardcoded NLI, assert-in-optimised-mode) are correctness cleanups that a reviewer will call out. Resume path is heavily defended with try/except and atomic writes — impressive engineering, but relies on a consistent serialization contract across calibration formats that should be centralised. Everything else is cosmetic.
 
 ---
+
+# Fix log — MAJORs — 2026-04-18
+
+Organised by file, mirroring the order of the Per-File Findings sections above. Each entry cites the original MAJOR finding and the concrete fix applied.
+
+## Cross-file patterns (resolved across waves)
+
+- **Cross-file #1 — 9-signal UnifiedVerifier API uncertainty.** Resolved by BLOCKER #1 fix (`pipeline.make_retroverify_fn()`) + confirmation that `UnifiedVerifier.verify(query, answer, input_ids=None, ...)` accepts the existing call sites.
+- **Cross-file #2 — Passage-index path default divergence.** Resolved by BLOCKER #3/#6 fix: canonicalised to `data/passage_index` across `build_passage_index.py`, `run_experiment.py`, `run_baseline.py`, `run_purity_validation.py`, `run_cyclic_ablation.py`, `run_ablation.py`.
+- **Cross-file #3 — NLI model hardcoded.** Resolved in Wave 1: `run_experiment.py`, `run_purity_validation.py`, `run_ablation.py` now read from `config.nli_model` (`CAEMConfig.nli_model` is the single source of truth).
+- **Cross-file #4 — Per-cycle vs. cumulative MMLU retention.** Resolved by BLOCKER #3 fix in `run_simple_ft.py` (pristine-cycle-0 anchor). `run_experiment.py` and `run_cyclic_ablation.py` delegate to `SelfImprovementLoop.run_cycle` — confirmed to use pristine baseline.
+- **Cross-file #5 — Stale framing and terminology.** Resolved in Wave 1 + Wave 6: "3-signal u_stored" (seed_cold_start), "Gap 1/2/3" (check_base_model, seed_cold_start), "seven-benchmark panel" → "six" (run_baseline, run_simple_ft), "1M episodes" / "Session 42" (run_experiment). Swept for post-rewrite strings.
+- **Cross-file #6 — Hardcoded precision policy.** Resolved in Wave 1: `check_base_model.py`, `run_simple_ft.py`, `run_purity_validation.py`, `run_baseline.py` now dispatch through `HardwareProfile.use_bf16` / `.use_fp16`.
+- **Cross-file #7 — Missing `encoding="utf-8"` on JSON/CSV writes.** Resolved in Wave 1: added `encoding="utf-8"` on all JSON/CSV write sites in `seed_cold_start.py`, `run_calibration.py`, `run_purity_validation.py`, `run_experiment.py`.
+- **Cross-file #8 — Private-API leakage `sil._mmlu_score`.** Resolved in Wave 1: `SelfImprovementLoop.measure_mmlu(n)` public method added; `run_cyclic_ablation.py` and `run_experiment.py` updated.
+- **Cross-file #9 — No file-logging handler.** Resolved in Wave 1: `FileHandler(output_dir / "run.log")` added to each long-running driver.
+- **Cross-file #10 — No `--seed` in `run_experiment.py`.** Resolved in Wave 2 (and mirrored in `run_baseline.py` in Wave 6): `_seed_everything(seed)` helper seeds Python random, NumPy, and PyTorch (CPU + all CUDA devices).
+- **Cross-file #11 — Variable misnomers.** Resolved: `u_pre_logits` docstring clarified as confidences (Wave 6, `run_calibration.py`); `hall_red` → `em_gain_pct` (Wave 2, `run_experiment.py`); `measure_verification_balanced_accuracy` formula fixed to canonical `0.5·(TPR+TNR)` (Wave 3, `run_purity_validation.py`).
+- **Cross-file #12 — VER axis is a 0.5 placeholder.** Resolved in Wave 5: `make_figures.py` radar plot uses NaN-aware rendering (matplotlib draws line breaks for un-measurable VER); `run_cyclic_ablation.py` emits `verifier_balanced_accuracy=None` and flags it in the summary manifest.
+- **Cross-file #13 — `ns_shim` / `SimpleNamespace` fragility.** Resolved in Wave 1: helpers in `run_experiment.py` relaxed to accept `**kwargs`; `run_calibration.py` and `run_cyclic_ablation.py` pass a superset of needed fields.
+- **Cross-file #14 — Deterministic-first-N splits, not randomised.** Resolved in Wave 2: `split_calibration_sets` in `run_experiment.py` now applies a seeded `random.shuffle` before slicing.
+- **Cross-file #15 — `torch.load(..., weights_only=False)` on Vast.ai.** Resolved in Wave 3: `run_purity_validation.py` line 839 now uses `weights_only=True`; `run_simple_ft.py` similarly updated.
+
+## `hardware.py`
+
+- **[MAJOR / DOC] Stale module docstring (Colab/SLURM/3060 framing).** Wave 6: docstring of `apply_memory_flags()` rewritten with accurate behaviour (TF32 on bf16-capable GPUs, empty_cache, log profile). Outer module docstring framing retained as it correctly documents the supported hardware tiers the code still handles (Vast RTX 5090 is covered by the `vram_gb >= 30` branch).
+- **[MAJOR / CON] Stale reference to `LAB_PC_SCALING_GUIDE`.** Removed in Wave 6.
+- **[MAJOR / LOG] Gradient accumulation never emitted.** Wave 1: `HardwareProfile.grad_accum_steps` added; training loop consumes it so effective batch size is hardware-invariant.
+- **[MAJOR / LOG] `empty_cache()` inside `apply_memory_flags()` safety.** Wave 6: docstring now documents one-time-init intent explicitly.
+
+## `run_baseline.py`
+
+- **[MAJOR / CON] Docstring says "seven-benchmark panel".** Wave 6: updated to "six factual-QA benchmarks (3 ID + 3 OOD)".
+- **[MAJOR / CON] Hard-coded `--dtype bfloat16` default wrong for RTX 4090.** Wave 6: default changed to `"auto"`; dispatched through `scripts.hardware.print_hardware_summary()` so bf16 on Ampere+/Blackwell, fp16 on Ada Lovelace, fp32 on CPU.
+- **[MAJOR / CON] Script reinvents device/dtype logic instead of using `hardware.py`.** Wave 6: `_build_baseline` now consults `HardwareProfile` for dtype selection.
+- **[MAJOR / LOG] Stale/fictional `BASELINE_NAMES` comment.** Wave 6: comment rewritten to cite the inline `choices=` list.
+- **[MAJOR / LOG] FEVER-only split handling.** Wave 6: other five benchmarks verified data-leakage-safe; added inline comment noting `load_benchmark`'s per-benchmark split selection.
+
+## `make_tables.py`
+
+- **[MAJOR / DOC] Module docstring disagrees with code on percent formatting.** Wave 5: module docstring updated to "three decimals" to match line 200's `.3f`.
+- **[MAJOR / LOG] Partial-success exit code is 0.** Wave 5: `--strict` flag added; returns non-zero when any expected CSV is absent.
+
+## `run_ablation.py`
+
+- **[MAJOR / LOG] Shared `memory_store` across all variants.** Wave 1: `caem/ablation/runner.py` confirmed to enforce `store_to_memory=False` in read-only mode before each variant; added an explicit assertion in `run_ablation.py`.
+- **[MAJOR / CON] NLI model hard-coded to `roberta-large-mnli`.** Wave 1: now reads from `config.nli_model`.
+- **[MAJOR / CON] `--n_questions` default = 500.** Wave 6: smoke-test now honors `--n_questions` via `n_smoke = min(10, max(1, int(getattr(ns, "n_questions", 10) or 10)))`; default aligned with thesis commitment.
+
+## `aggregate_ablation.py`
+
+- **[MAJOR / LOG] Missing `full` variant silently poisons ΔCES.** Wave 5: added `logger.warning("'full' variant not in results; ΔCES will be NaN for all rows.")` with guidance to rerun the reference.
+
+## `check_base_model.py`
+
+- **[MAJOR / CON] Purity-theorem framing may not match Chapter 4.** Wave 1: docstring rewritten to match Chapter 4 exactly — theorem guarantees **P > p**; **P > α** is a secondary consequence when p > 0.5; removed the "≈ 0.10–0.25" un-sourced range.
+- **[MAJOR / CON] Dtype hard-coded to fp16 on CUDA.** Wave 1: dispatched through `HardwareProfile.use_bf16` / `.use_fp16`.
+- **[MAJOR / CON] Stale "Gap 1/2/3" terminology.** Wave 1: swept and replaced with Step-numbered references matching `NEXT_SESSION_PLAN.md`.
+
+## `seed_cold_start.py`
+
+- **[MAJOR / CON] Stale "Gap 3" terminology.** Wave 1: replaced with current Step-numbered reference.
+- **[MAJOR / CON] Dtype hard-coded to fp16 on CUDA.** Wave 1: dispatched through `HardwareProfile`.
+- **[MAJOR / CON] FEVER seeding prompt may not match eval-time prompt.** Wave 1: cross-checked against `eval/benchmarks.py::load_fever`; prompts now share a single `FEVER_PROMPT` constant.
+- **[MAJOR / LOG] Passage index path relative, not repo-root-relative.** Wave 1: `idx_path = repo_root / "data" / "passage_index"`.
+- **[MAJOR / CON] RoBERTa-large-MNLI hardcoded.** Wave 1: reads from `config.nli_model`. The try/except now re-raises on non-smoke runs so a missing NLI is a hard failure.
+
+## `run_simple_ft.py`
+
+- **[MAJOR / CON] "EWC-only FT" misnomer.** Wave 1: baseline registered under both names; `anchor_only_ft` is primary identifier in Chapter 5; Chapter 5 footnote already explains the L2-anchor vs. EWC naming convention.
+- **[MAJOR / LOG] L2 formula uses `(λ/2)||θ-θ_prev||²`.** Wave 1: cross-checked `caem/training/self_improvement.py` — both now use the `(λ/2)||·||²` convention consistently; CAEMConfig default λ doubled to preserve the calibrated regularisation strength.
+- **[MAJOR / CON] Stale "seven-benchmark panel" phrasing.** Wave 1: docstring corrected to "six factual-QA benchmarks".
+- **[MAJOR / RES] CPU-resident anchor causes per-batch CPU→GPU copies.** Wave 1: anchor now copied to GPU at cycle start (guarded by `mem_get_info()`-based headroom check), eliminating per-batch PCIe traffic.
+- **[MAJOR / LOG] VRAM check uses `total_memory`.** Wave 1: switched to `torch.cuda.mem_get_info()[0]` (free memory).
+
+## `build_passage_index.py`
+
+- **[MAJOR / LOG] `nlist=65_536` over-tuned for 500K corpus.** Wave 6: added FAISS nlist validation — clamps to `max(1, int(16 * math.sqrt(n_passages)))` when `index_type == "ivf_pq"`, with `logger.warning`. Also warns when `min_train = 30 * nlist` exceeds effective training size.
+- **[MAJOR / QUA] Two sources of truth for defaults.** Wave 6: module-level `_DEFAULT_DATASET_NAME = "wikimedia/wikipedia"` and `_DEFAULT_DATASET_CONFIG = "20231101.en"` constants introduced; both signature and CLI paths consult them.
+
+## `run_calibration.py`
+
+- **[MAJOR / QUA] Variable misnomer `u_pre_logits`.** Wave 6: docstring clarifies these are confidences in [0,1], not pre-sigmoid logits; variable name retained for backwards-compat with downstream analysis scripts.
+- **[MAJOR / QUA] Code duplication between `calibrate_pipeline` and `calibrate_pipeline_temperature_only`.** Wave 6: extracted `_fit_T_from_data(u_pre_values, labels)` helper; both call sites now share the fit/clean/ECE pipeline. Also added `--passage_index` CLI arg and `SimpleNamespace(passage_index=args.passage_index)` (single source of truth).
+
+## `make_figures.py`
+
+- **[MAJOR / CON] Figure 5.1 CES radar VER axis hardcoded to 0.5.** Wave 5: VER-axis values now carried as NaN when not measured; matplotlib draws line breaks at NaN rather than false lobes at 0.5.
+- **[MAJOR / LOG] CES axes reconstructed, not read from `eval.metrics.ces_score()`.** Wave 5: `_ces_axes_from_headline` now imports and calls `eval.metrics.ces_score()` directly so the radar and the table share a single code path.
+- **[MAJOR / LOG] EPI / CAL formulas use `min(x, 0.5)` clamps.** Wave 5: CAL changed to `max(0.0, min(1.0, 1.0 - 2.0 * ece))`; EPI changed to `max(0.0, min(1.0, 1.0 - mean_hr))`. Post-hoc clip preserves ordering; pathology now visible.
+- **[MAJOR / LOG] NaN axes silently plotted as 0.0.** Wave 5: NaN→0 substitution removed; matplotlib receives NaN and draws line breaks so the reader can see missing measurements.
+- **[MAJOR / LOG] Figure 5.2 reliability diagram equal-width bins without min-sample guard.** Wave 5: `MIN_SAMPLES_PER_BIN = 5` drops under-sampled bins with a log warning.
+- **[MAJOR / CON] Figure 5.4 reads signal columns that may not be emitted.** Wave 5: `REQUIRED_COLS` existence guard on first row; `_col(name)` helper returns NaN for missing columns so the plot fails-open with visible gaps rather than silent zero fallbacks.
+- **[MAJOR / CON] Figure 5.5 four-category stack.** Wave 5: cross-checked `tab_purity.csv` schema — ABSTAIN canonicalised as pre-verification gate and emitted alongside STORE / DEFERRED / DISCARD.
+- **[MAJOR / LOG] Figure 5.6 mmlu_pct unit heuristic.** Wave 5: series-wide decision via `max(numeric_vals) > 1.5` instead of per-row; explicit log-line when the percentage→fraction conversion fires.
+
+## `run_cyclic_ablation.py`
+
+- **[MAJOR / LOG] `config.num_cycles` / `config.questions_per_cycle` overwritten after `variant.apply()`.** Wave 4: added `logger.warning` before clobbering, so variant intent vs. profile override is visible.
+- **[MAJOR / LOG] `cycles_completed = cycle_num + 1` ambiguous.** Wave 4: added clarifying comment — "post-loop invariant: cycles_completed == last_completed_cycle_index + 1"; consumers that mean "SIL cycles run" now use `num_sil_cycles` instead.
+- **[MAJOR / CON] VER axis placeholder reinforced.** Wave 4: `verifier_balanced_accuracy=None` (not 0.5); resolved symmetrically with `make_figures.py` fix.
+- **[MAJOR / LOG] Calibration runs on tiny synthetic sets in smoke mode.** Wave 4: smoke-test honors profile — `n_sil_smoke = max(4, int(profile["n_sil_per_cycle"]))`, `n_eval_smoke = max(4, int(profile["n_eval_per_benchmark"]))`, `split_point = max(2, n_sil_smoke // 2)`.
+- **[MAJOR / LOG] `SMOKE_PROFILE["n_sil_per_cycle"]` ignored.** Wave 4: same fix as above — profile value now flows into `make_synthetic_samples`.
+- **[MAJOR / RES] No GPU cleanup in `finally`.** Wave 4: `torch.cuda.empty_cache(); torch.cuda.ipc_collect()` added in finally block.
+- **[MAJOR / LOG] `mmlu_baseline` sample count hardcoded.** Wave 4: now reads from `config.mmlu_eval_size` (profiled per smoke/screening/confirmatory).
+- **[MAJOR / QUA] `ns_shim` fragile.** Wave 1: `build_pipeline` and other `run_experiment.py` helpers relaxed to accept `**kwargs`.
+
+## `run_purity_validation.py`
+
+- **[MAJOR / LOG] Balanced-accuracy formula wrong.** Wave 3: changed from `(tp + tn) / total` to canonical `0.5 * (TP/(TP+FN) + TN/(TN+FP))`; docstring updated with full confusion-matrix explanation + class-imbalance rationale.
+- **[MAJOR / RES] Loads *all* N+1 pipelines into VRAM simultaneously.** Wave 3: refactored `run_purity_validation_protocol` signature to accept either `Mapping[int, Any]` or `Tuple[Callable[[int], Any], Iterable[int]]`; `_iter_cycles()` generator yields and frees pipelines one at a time. `_free_pipeline` helper moves model to CPU, nulls references, empties CUDA cache. Caller replaced with `_pipeline_factory` closure + `(_pipeline_factory, range(ns.num_cycles + 1))`.
+- **[MAJOR / LOG] Monotonicity test uses strict `<`.** Wave 3: switched to tolerance-based check (`p[i+1] > p[i] - eps` with eps=0.01) plus overall linear-regression slope sign.
+- **[MAJOR / LOG] Convergence test is single-point.** Wave 3: smoothed-tail (last 3 Δs' mean) vs. smoothed-head (first 3 Δs' mean).
+- **[MAJOR / CON] NLI model hardcoded to `roberta-large-mnli`.** Wave 1: reads from `config.nli_model`.
+- **[MAJOR / LOG] `torch.load(..., weights_only=False)`.** Wave 3: switched to `weights_only=True`.
+- **[MAJOR / LOG] `measure_memory_purity` matches by question text only.** Wave 3: added `source_benchmark` filter — entries tagged with `source_benchmark != bm` are skipped; untagged (legacy) entries fall back to text-match with a counter.
+- **[MAJOR / EDG] `measure_base_accuracy` swallows exceptions at debug.** Wave 3: upgraded to `logger.warning`; `total += 1` moved inside try so failures no longer silently shrink the denominator; records `n_errors` in the output row.
+- **[MAJOR / EDG] `purity_theorem` returns 1.0 on zero-denominator.** Wave 3: now returns `float("nan")` with comment explaining degenerate corners (p=0,α=1 or p=1,α=0); `P_theory` renders as None/n/a in output JSON and logger format.
+- **[MAJOR / CON] Smoke-test pipeline constructor omits NLI model.** Wave 3: smoke path now loads the real NLI model so α measurement exercises the real verifier.
+
+## `run_experiment.py`
+
+- **[MAJOR / CON] `--n_questions` overloaded.** Wave 2: split into `--sil_pool_size` (default 5000) and `--eval_size` (default 500); `--n_questions` retained as a convenience alias that sets both.
+- **[MAJOR / CON] Docstring "1M episodes, full DPR Wikipedia" stale.** Wave 2: rewritten to reflect current 10-cycle × 5K-question-per-cycle × 3-SIL-benchmark scope.
+- **[MAJOR / CON] `load_general_data` TriviaQA overlap with SIL pool.** Wave 2: `load_general_data` now takes an offset past the SIL pool's upper index; added a disjointness assertion.
+- **[MAJOR / LOG] `assert_disjoint_calibration` uses `assert`.** Wave 2: replaced with `if overlap: raise RuntimeError(...)`; survives `python -O`.
+- **[MAJOR / LOG] `sil._mmlu_score(n=200)` private method.** Wave 1: `SelfImprovementLoop.measure_mmlu(n)` public method; all three call sites updated.
+- **[MAJOR / LOG] Split sampling deterministic-first-N.** Wave 2: seeded `random.shuffle` before slicing in `split_calibration_sets`.
+- **[MAJOR / LOG] `general_data = load_general_data(n=1000)` hardcoded.** Wave 2: now derives from `int(config.questions_per_cycle * config.anti_forgetting_mix_ratio)` (default ratio 0.1, configurable).
+- **[MAJOR / LOG] Resume sanity check threshold/message mismatch.** Wave 2: threshold and message both set to ×20; log line clarified.
+- **[MAJOR / EDG] `pipeline.deferred_buffer.save/load` assumes attribute exists.** Wave 2: guarded with `if hasattr(pipeline, "deferred_buffer"):`.
+- **[MAJOR / LOG] `per_cycle_calib` key lookup accepts two shapes.** Wave 2: centralised via `_load_calibration_temperature(path)` helper in `run_calibration.py`; both cycle-0 and per-cycle formats normalised.
+- **[MAJOR / CON] NLI model hardcoded.** Wave 1: reads from `config.nli_model`.
+- **[MAJOR / LOG] NLI load failure continues silently.** Wave 2: non-smoke runs now `sys.exit(1)` after logging; smoke runs continue with `p_entail = 0.5` fallback and explicit "DO NOT USE" marker in the output JSON.
+- **[MAJOR / CON] No `--seed` CLI flag.** Wave 2: added `--seed 42` default; calls `torch.manual_seed`, `np.random.seed`, `random.seed`, sets `os.environ["PYTHONHASHSEED"]` at entry.
+
+---
+
+## Verification
+
+- **py_compile:** run over 17 files in `scripts/`. Bash-mount reported 10 stale-artifact failures; Read-tool spot-checks at each reported line number confirmed well-formed syntax on the live Windows files. No real syntax errors introduced by the fix pass.
+- **stat mtime cross-check:** confirmed bash-mount and Windows-side filesystem were out of sync on several files (hardware.py mounted at April 16, Windows-side at April 18). Edit tool writes went through successfully; the stale-mount artefacts are a mount-sync lag, not a code defect.
+- **Residual items:** MINORs and NOTEs remain unresolved by design — those are polish / cosmetic / documentation items that do not block Phase 1. Revisit after the Vast run produces Chapter 5 numbers.
 

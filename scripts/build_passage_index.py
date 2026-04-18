@@ -51,6 +51,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import math
 import os
 import pickle
 import sys
@@ -454,6 +455,32 @@ def build_passage_index(
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
     from caem.config import CAEMConfig
     from caem.retrieval.rag import PassageStore
+
+    # FAISS IVF training requires ~30-256x more points than nlist centroids
+    # (see https://github.com/facebookresearch/faiss/wiki/Guidelines-to-choose-an-index).
+    # A misconfigured nlist (e.g. 65k centroids for a 500k-passage corpus) will
+    # either crash training or produce degenerate clusters. We cap nlist to
+    # max(1, min(user_value, 16 * sqrt(N))) and log when we shrink it --
+    # never silently override.
+    n_passages = len(all_passages)
+    nlist_cap = max(1, int(16 * math.sqrt(n_passages)))
+    if index_type == "ivf_pq" and nlist > nlist_cap:
+        logger.warning(
+            "Requested nlist=%d exceeds the 16*sqrt(N) cap (N=%d, cap=%d) -- "
+            "shrinking to %d to keep IVF training well-conditioned.",
+            nlist, n_passages, nlist_cap, nlist_cap,
+        )
+        nlist = nlist_cap
+    # Training set should have at least ~30x nlist points. Warn if not.
+    if index_type == "ivf_pq":
+        min_train = 30 * nlist
+        effective_train = min(train_sample_size, n_passages)
+        if effective_train < min_train:
+            logger.warning(
+                "IVF training set (%d rows) is smaller than the 30*nlist "
+                "recommendation (%d for nlist=%d). Index quality may suffer.",
+                effective_train, min_train, nlist,
+            )
 
     cfg = CAEMConfig()
     cfg.rag_index_type = index_type

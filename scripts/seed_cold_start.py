@@ -1,7 +1,7 @@
 """
 scripts/seed_cold_start.py
 ==========================
-Gap 3 -- Cold-start memory seeder.
+Cold-start memory seeder.
 
 Purpose
 -------
@@ -482,7 +482,7 @@ def main(args: argparse.Namespace) -> None:
 
 if __name__ == "__main__":
     p = argparse.ArgumentParser(
-        description="Gap 3 -- Cold-start memory seeder for CAEM.",
+        description="Cold-start memory seeder for CAEM.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     p.add_argument(

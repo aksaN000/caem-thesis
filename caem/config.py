@@ -237,6 +237,11 @@ class CAEMConfig:
     min_u_stored_for_training: float = 0.75
     # [DES] Mix 10% general-domain data to prevent catastrophic forgetting.
     general_data_ratio: float = 0.10
+    # [DES] Number of TriviaQA-train general-domain QA pairs to load for the
+    # 10% anti-forgetting mix. Sized so there is never a shortage when the
+    # cycle's training batch grows. Scripts offset past the SIL pool so the
+    # mix is disjoint from the TriviaQA SIL training episodes.
+    general_data_size: int = 1000
     # [DES] Abort fine-tuning if general capability drops below this retention.
     forgetting_tolerance: float = 0.93
 

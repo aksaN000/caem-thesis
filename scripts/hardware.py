@@ -14,7 +14,9 @@ Usage
 
     device = get_device()                  # "cuda" | "mps" | "cpu"
     info = get_hardware_info()             # dict with VRAM, GPU name, etc.
-    apply_memory_flags()                   # enables memory-saving flags if < 12 GB VRAM
+    apply_memory_flags()                   # enables TF32 on bf16-capable GPUs,
+                                           # empties CUDA cache, and logs the
+                                           # detected profile. No-op on CPU/MPS.
 
 Hardware targets
 ----------------
@@ -119,7 +121,8 @@ def get_hardware_profile() -> HardwareProfile:
     #   RTX 3060 / 3070 12GB (vram_gb >= 10)  → fp16, batch=4
     #   < 10 GB              (laptop)          → fp16, batch=2
     #
-    # batch_size affects only speed, never accuracy (confirmed in LAB_PC_SCALING_GUIDE).
+    # batch_size affects only speed, never accuracy (gradient accumulation preserves
+    # effective batch-size equivalence across hardware tiers).
     # bf16: native on A100 (Ampere) and RTX 5090 (Blackwell). Larger dynamic range
     # than fp16 — avoids overflow when L2 penalty sums 780M squared diffs. RTX 4090
     # uses fp16 (no bf16 tensor core support on Ada Lovelace).
@@ -188,9 +191,18 @@ def get_hardware_info() -> dict:
 
 
 def apply_memory_flags(profile: Optional[HardwareProfile] = None) -> None:
-    """Apply CUDA memory-saving flags based on hardware profile.
+    """Apply CUDA initialisation flags based on hardware profile.
 
-    Safe to call unconditionally -- no-ops on CPU/MPS.
+    Concretely: (1) enables TF32 matmul/cuDNN paths for bf16-capable GPUs
+    (A100 / RTX 5090) to speed up matmuls with negligible numerical loss,
+    and (2) calls ``torch.cuda.empty_cache()`` to start each experiment
+    from a clean allocator state so the hardware-summary log accurately
+    reflects post-boot VRAM.
+
+    The name "memory_flags" is retained for backwards compatibility with
+    call sites; it is not literally enabling memory-saving (e.g. activation
+    checkpointing) -- that lives on the training-loop side. This function
+    is safe to call unconditionally: it no-ops on CPU / MPS.
     """
     if profile is None:
         profile = get_hardware_profile()

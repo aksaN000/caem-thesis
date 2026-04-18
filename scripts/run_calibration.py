@@ -238,7 +238,13 @@ def collect_calibration_data(
 
     Returns
     -------
-    u_pre_logits    : list of float -- raw u_pre (for temperature scaling)
+    u_pre_logits    : list of float -- pre-generation u_pre probabilities in
+                                       [0, 1] (NOT pre-sigmoid logits despite
+                                       the name). The identifier is retained
+                                       for backwards compatibility with
+                                       downstream callers; temperature
+                                       scaling converts these to logits
+                                       internally via logit(p) = log(p/(1-p)).
     u_pre_labels    : list of int   -- 1 = EM correct
     signal_matrix   : list of [u_token, u_dropout, u_sc, u_entropy]
     signal_labels   : list of int   -- 1 = EM correct (same as u_pre_labels)
@@ -575,6 +581,15 @@ def _parse_args() -> argparse.Namespace:
                        "Fallback sample bound used only when calib_ids are unavailable. "
                        "Windowing uses indices [500:n_calib] per benchmark."
                    ))
+    p.add_argument(
+        "--passage_index",
+        default="data/passage_index",
+        help=(
+            "Path to the Wikipedia PassageStore. Must match the path used by "
+            "build_passage_index.py / run_experiment.py so Tier-3 RAG is "
+            "consistent across calibration and evaluation."
+        ),
+    )
     return p.parse_args()
 
 
@@ -595,8 +610,11 @@ if __name__ == "__main__":
     m = _load_imports()
 
     import types
+    # Pass the CLI-provided passage_index through to build_pipeline instead
+    # of duplicating the "data/passage_index" default in a second place;
+    # the single source of truth is the --passage_index argparse default.
     ns = types.SimpleNamespace(
-        passage_index="data/passage_index",
+        passage_index=args.passage_index,
     )
     pipeline = build_pipeline(config, ns, m)
     # The build_pipeline call above creates an encoder without device explicitly passed to it, 

@@ -115,7 +115,7 @@ TABLE_META: Dict[str, Dict[str, str]] = {
     },
     "purity": {
         "caption": (
-            "Stage-5 decision breakdown (Session 42 labels) and mean "
+            "Stage-5 decision breakdown (Chapter 4 taxonomy) and mean "
             "$\\hat{u}_{\\text{stored}}$ restricted to accepted episodes. "
             "Empirically tests the purity theorem: memory only grows on items "
             "that clear the decision tree's composite gate."

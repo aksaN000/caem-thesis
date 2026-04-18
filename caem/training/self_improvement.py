@@ -888,6 +888,10 @@ class SelfImprovementLoop:
 
         return correct / len(general_eval)
 
+    def measure_mmlu(self, n: int = 200) -> float:
+        """Public entry point for MMLU scoring — see ``_mmlu_score``."""
+        return self._mmlu_score(n=n)
+
     def _mmlu_score(self, n: int = 200) -> float:
         """Measure MMLU 4-choice accuracy as a neutral cross-benchmark forgetting proxy.
 

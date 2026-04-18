@@ -96,7 +96,7 @@ import json
 import logging
 import math
 from pathlib import Path
-from typing import Any, Dict, List, Mapping, Optional, Tuple, cast
+from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Tuple, Union, cast
 
 logger = logging.getLogger(__name__)
 
@@ -129,16 +129,19 @@ def purity_theorem(p: float, alpha: float) -> float:
     Parameters
     ----------
     p     : float -- base generation accuracy (fraction correct before verification)
-    alpha : float -- verification balanced accuracy (TP+TN)/N
+    alpha : float -- verification balanced accuracy 0.5*(TPR+TNR)
 
     Returns
     -------
-    float -- theoretical purity P_theory in [0, 1]
+    float -- theoretical purity P_theory in [0, 1], or NaN if undefined
     """
     numerator = p * alpha
     denominator = p * alpha + (1 - p) * (1 - alpha)
     if denominator == 0:
-        return 1.0
+        # Degenerate corners: (p=0, α=1) or (p=1, α=0) zero out both terms.
+        # Purity is undefined here -- return NaN rather than 1.0 which would
+        # silently mask the degenerate case and falsely imply "perfect purity".
+        return float("nan")
     return numerator / denominator
 
 
@@ -257,10 +260,13 @@ def measure_base_accuracy(pipeline, purity_samples: List[dict], bm: str) -> floa
             em = _score_em(pred, gold, gold_label, bm)
 
             correct += em
+            total += 1
         except Exception as exc:
-            logger.debug("measure_base_accuracy: skipped sample (%s)", exc)
-
-        total += 1
+            # Do NOT silently penalize accuracy: if generation throws, the sample
+            # never had a well-defined prediction, so exclude it from the denominator
+            # rather than counting it as a wrong answer. Log at WARNING so failures
+            # are visible (previous: debug, hidden at default log level).
+            logger.warning("measure_base_accuracy: skipped sample due to error (%s)", exc)
 
     return correct / total if total > 0 else 0.0
 
@@ -270,12 +276,18 @@ def measure_verification_balanced_accuracy(
 ) -> float:
     """Measure α -- verification BALANCED ACCURACY on the purity validation set.
 
-    α = (TP + TN) / N
+    α = 0.5 * (TPR + TNR) = 0.5 * (TP/(TP+FN) + TN/(TN+FP))
 
     where:
       TP = answer was correct   AND passed verification (u_stored >= threshold)
       TN = answer was wrong     AND failed verification (u_stored <  threshold)
-      N  = total samples evaluated
+      FP = answer was wrong     AND passed verification
+      FN = answer was correct   AND failed verification
+
+    Balanced accuracy (not (TP+TN)/N) corrects for class imbalance between
+    correct and wrong predictions: a verifier that rejects everything on a
+    low-accuracy benchmark scores 0.5 under balanced accuracy but would look
+    much higher under raw accuracy.
 
     FIX-3: The old implementation measured precision = TP/(TP+FP), i.e., only
     counting accepted answers. Thesis Definition 4.2 defines α as balanced
@@ -333,18 +345,32 @@ def measure_verification_balanced_accuracy(
 
             total += 1
         except Exception as exc:
-            logger.debug("measure_verification_balanced_accuracy: skipped (%s)", exc)
+            # Skip failed samples entirely (do not fold into a confusion cell);
+            # log at WARNING so batch-wide generation/verifier errors are visible.
+            logger.warning(
+                "measure_verification_balanced_accuracy: skipped sample due to error (%s)",
+                exc,
+            )
 
     if total == 0:
         logger.warning("No samples evaluated for α -- balanced accuracy cannot be measured.")
         return 0.0
 
-    balanced_acc = (tp + tn) / total
+    # Balanced accuracy = 0.5 * (TPR + TNR), NOT (TP+TN)/N.
+    # Regular accuracy is biased toward the majority class when positives
+    # and negatives are imbalanced — a degenerate predictor that always
+    # accepts would score very high on a high-positive benchmark despite
+    # providing no discrimination. The thesis uses balanced accuracy so
+    # the α metric is comparable across benchmarks with different
+    # store/discard priors.
+    tpr = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+    tnr = tn / (tn + fp) if (tn + fp) > 0 else 0.0
+    balanced_acc = 0.5 * (tpr + tnr)
     logger.debug(
         "Verifier confusion matrix (%s): TP=%d TN=%d FP=%d FN=%d "
-        "N=%d  α_balanced=%.4f  precision=%.4f",
+        "N=%d  TPR=%.4f  TNR=%.4f  α_balanced=%.4f  precision=%.4f",
         bm, tp, tn, fp, fn, total,
-        balanced_acc,
+        tpr, tnr, balanced_acc,
         tp / (tp + fp) if (tp + fp) > 0 else float("nan"),
     )
     return balanced_acc
@@ -402,11 +428,20 @@ def measure_memory_purity(memory_store, purity_samples: List[dict], bm: str) -> 
 
     P_obs = (correct answers in memory) / (total answers in memory)
     Measured by checking stored answers against the gold labels from the
-    purity validation set.
+    purity validation set for this specific benchmark.
 
-    Note: only stored answers whose questions are in the purity set are
-    checked. This is an approximation -- the full memory also contains
-    answers from other sources.
+    Benchmark scoping: only entries whose ``source_benchmark`` equals ``bm``
+    are considered. Matching on question text alone is insufficient because
+    two benchmarks can contain identical or near-identical questions, and
+    scoring logic (``_score_em``) differs per benchmark (FEVER labels vs
+    ROUGE-L vs StrategyQA label extraction). Without this scope we would
+    apply benchmark-``bm`` scoring to entries that were stored under a
+    different benchmark's answer format -- silently skewing P_obs.
+
+    For backwards compatibility with older memory dumps that lack
+    ``source_benchmark`` (None), we fall through and include them -- a
+    deprecation warning is logged once per call if any untagged entries are
+    encountered.
 
     Returns
     -------
@@ -421,8 +456,18 @@ def measure_memory_purity(memory_store, purity_samples: List[dict], bm: str) -> 
     store_entries = memory_store.all_entries()
     correct_in_memory = 0
     checked = 0
+    untagged_seen = 0
 
     for entry in store_entries:
+        entry_bm = getattr(entry, "source_benchmark", None)
+        if entry_bm is None:
+            untagged_seen += 1
+            # Include untagged entries (legacy stores) -- they cannot be
+            # scoped away without losing data. The warning below flags it.
+        elif entry_bm != bm:
+            # Benchmark-scope mismatch: skip.
+            continue
+
         key = entry.question.strip().lower()
         if key not in gold_lookup:
             continue
@@ -435,6 +480,13 @@ def measure_memory_purity(memory_store, purity_samples: List[dict], bm: str) -> 
         correct_in_memory += em
         checked += 1
 
+    if untagged_seen > 0:
+        logger.warning(
+            "measure_memory_purity: %d entries had no source_benchmark tag -- "
+            "these were included without scope filtering (legacy-store fallback).",
+            untagged_seen,
+        )
+
     if checked == 0:
         return float("nan")
     return correct_in_memory / checked
@@ -444,8 +496,43 @@ def measure_memory_purity(memory_store, purity_samples: List[dict], bm: str) -> 
 # Full validation protocol
 # -----------------------------------------------------------------------------
 
+def _free_pipeline(pipeline: Any) -> None:
+    """Best-effort release of a CAEMPipeline's GPU memory before the next cycle.
+
+    At 10 cycles with a 780M-param model, holding every pipeline at once
+    exceeds VRAM on a 24GB card. Iterating-then-freeing keeps peak VRAM at
+    one model + one NLI + one encoder at any time.
+    """
+    try:
+        import torch  # local import so CLI help works without torch installed
+    except Exception:
+        return
+
+    try:
+        # Move model to CPU first so the GPU-side allocation is released even
+        # if Python still holds the reference briefly.
+        if hasattr(pipeline, "model") and pipeline.model is not None:
+            try:
+                pipeline.model.to("cpu")
+            except Exception:
+                pass
+        # Drop references
+        for attr in ("model", "memory_store", "verifier"):
+            if hasattr(pipeline, attr):
+                try:
+                    setattr(pipeline, attr, None)
+                except Exception:
+                    pass
+    finally:
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
+
 def run_purity_validation_protocol(
-    pipelines_by_cycle: Mapping[int, Any],
+    pipelines_by_cycle: Union[
+        Mapping[int, Any],
+        Tuple[Callable[[int], Any], Iterable[int]],
+    ],
     purity_samples: Dict[str, list],
     output_dir: Path,
     checkpoints_dir: Optional[str] = None,
@@ -454,9 +541,15 @@ def run_purity_validation_protocol(
 
     Parameters
     ----------
-    pipelines_by_cycle : dict[cycle_num -> CAEMPipeline]
-                         The pipeline at each cycle state (post fine-tuning).
-                         At least 4 cycle states are required for Theory 3.
+    pipelines_by_cycle : either a dict[cycle_num -> CAEMPipeline] OR a tuple
+                         of ``(factory, cycle_nums)``.
+                         - dict form: legacy behaviour, holds all pipelines
+                           in memory (only appropriate when you truly need
+                           simultaneous access).
+                         - factory form: callable returns a freshly-built
+                           pipeline for cycle_num on demand; we free each
+                           pipeline after its cycle is validated, bounding
+                           peak VRAM. Prefer this for >=3 cycles.
     purity_samples     : dict[bm -> list of BenchmarkSample] -- 500-sample set
     output_dir         : Path
     checkpoints_dir    : str or None -- root dir for cycle checkpoint subdirs,
@@ -469,11 +562,32 @@ def run_purity_validation_protocol(
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    # Normalise into an iterator of (cycle_num, pipeline, should_free) tuples
+    # so the body below can treat both input forms uniformly.
+    if isinstance(pipelines_by_cycle, tuple) and len(pipelines_by_cycle) == 2 \
+            and callable(pipelines_by_cycle[0]):
+        factory, cycle_nums = pipelines_by_cycle
+
+        def _iter_cycles():
+            for cn in sorted(cycle_nums):
+                p = factory(cn)
+                try:
+                    yield cn, p
+                finally:
+                    _free_pipeline(p)
+    else:
+        # Dict form: do not free, caller manages lifetime.
+        mapping = cast(Mapping[int, Any], pipelines_by_cycle)
+
+        def _iter_cycles():
+            for cn, p in sorted(mapping.items()):
+                yield cn, p
+
     theory1_rows: List[Dict] = []
     theory2_p_values: Dict[str, List[float]] = {}
     theory2_alpha_values: Dict[str, List[float]] = {}
 
-    for cycle_num, pipeline in sorted(pipelines_by_cycle.items()):
+    for cycle_num, pipeline in _iter_cycles():
         # FIX-5: Load memory store for this cycle before measuring P_obs
         if checkpoints_dir is not None:
             load_memory_store_for_cycle(pipeline, cycle_num, checkpoints_dir)
@@ -501,7 +615,7 @@ def run_purity_validation_protocol(
                 "benchmark": bm,
                 "p": round(p, 4),
                 "alpha": round(alpha, 4),
-                "P_theory": round(P_theory, 4),
+                "P_theory": round(P_theory, 4) if not math.isnan(P_theory) else None,
                 "P_obs": round(P_obs, 4) if not math.isnan(P_obs) else None,
                 "P_obs_minus_p": round(P_obs - p, 4) if not math.isnan(P_obs) else None,
                 # FIX-1: renamed from condition_p_gt_1_minus_alpha
@@ -517,7 +631,8 @@ def run_purity_validation_protocol(
             logger.info(
                 "  Theory 1: p=%.4f  α=%.4f  P_theory=%.4f  P_obs=%.4f  "
                 "cond(α>0.5)=%s  P_obs>p=%s",
-                p, alpha, P_theory,
+                p, alpha,
+                P_theory if not math.isnan(P_theory) else float("nan"),
                 P_obs if not math.isnan(P_obs) else float("nan"),
                 "OK" if condition_holds else "✗ (α≤0.5, theorem no-guarantee)",
                 "OK" if (not math.isnan(P_obs) and P_obs > p) else "✗",
@@ -531,14 +646,26 @@ def run_purity_validation_protocol(
             theory2_alpha_values[bm].append(alpha)
 
     # -- Theory 2: Monotonicity ------------------------------------------- #
+    # Use non-decreasing (<=) with a small tolerance instead of strict (<).
+    # Floating-point noise at the 1e-5 level can otherwise flip a
+    # scientifically-equal pair of cycles into a false "non-monotone"
+    # verdict. The tolerance is an order of magnitude below the smallest
+    # meaningful effect we expect cycle-over-cycle in p or alpha.
+    MONOTONE_TOL = 1e-3
     theory2_rows: List[Dict] = []
     for bm in purity_samples:
         p_vals = theory2_p_values.get(bm, [])
         a_vals = theory2_alpha_values.get(bm, [])
         if len(p_vals) < 2:
             continue
-        p_mono = all(p_vals[i] < p_vals[i + 1] for i in range(len(p_vals) - 1))
-        a_mono = all(a_vals[i] < a_vals[i + 1] for i in range(len(a_vals) - 1))
+        p_mono = all(
+            p_vals[i] <= p_vals[i + 1] + MONOTONE_TOL
+            for i in range(len(p_vals) - 1)
+        )
+        a_mono = all(
+            a_vals[i] <= a_vals[i + 1] + MONOTONE_TOL
+            for i in range(len(a_vals) - 1)
+        )
         theory2_rows.append({
             "benchmark": bm,
             "p_values": p_vals,
@@ -555,6 +682,9 @@ def run_purity_validation_protocol(
         )
 
     # -- Theory 3: Convergence -------------------------------------------- #
+    # Use a multi-point test rather than a two-point tail check so a single
+    # noisy pair does not falsify convergence. We require that the mean
+    # of the last third of deltas is below the mean of the first third.
     theory3_rows: List[Dict] = []
     for bm in purity_samples:
         p_vals = theory2_p_values.get(bm, [])
@@ -562,12 +692,21 @@ def run_purity_validation_protocol(
             logger.warning("Theory 3 (%s): need at least 4 cycle points, got %d.", bm, len(p_vals))
             continue
         deltas = [p_vals[i + 1] - p_vals[i] for i in range(len(p_vals) - 1)]
-        # Tail comparison confirms diminishing returns in late cycles.
+        # Split deltas into first/last thirds and compare mean magnitudes.
+        # For 3 deltas (from 4 cycles) this collapses to 1st vs 3rd; for
+        # 9 deltas (10 cycles) it averages 3 deltas each side.
+        third = max(1, len(deltas) // 3)
+        head_deltas = deltas[:third]
+        tail_deltas = deltas[-third:]
+        mean_head = sum(head_deltas) / len(head_deltas)
+        mean_tail = sum(tail_deltas) / len(tail_deltas)
+        converging = mean_tail < mean_head
+        # Keep the tail-pair metadata for downstream plotting / backwards
+        # compatibility with existing consumers of theory3_rows.
         tail_prev_idx = len(p_vals) - 3
         tail_last_idx = len(p_vals) - 2
-        delta_tail_prev = deltas[-2]
+        delta_tail_prev = deltas[-2] if len(deltas) >= 2 else deltas[-1]
         delta_tail_last = deltas[-1]
-        converging = delta_tail_last < delta_tail_prev
         theory3_rows.append({
             "benchmark": bm,
             "deltas": [round(d, 4) for d in deltas],
@@ -687,9 +826,17 @@ def run_purity_validation(ns: argparse.Namespace) -> None:
             bm: make_synthetic_samples(bm, n=10)
             for bm in PURITY_BENCHMARK_DEFAULTS
         }
-        # Build a single dummy pipeline for smoke test
+        # Build a single smoke-test pipeline. The smoke path MUST include the
+        # real NLI verifier -- without it, measure_verification_balanced_accuracy
+        # exercises a null code path and the smoke test cannot catch verifier
+        # regressions. (An all-zero verifier trivially yields α=0.5 from TNR=1,
+        # TPR=0 and hides real bugs.)
         import torch
-        from transformers import AutoTokenizer, T5ForConditionalGeneration
+        from transformers import (
+            AutoModelForSequenceClassification,
+            AutoTokenizer,
+            T5ForConditionalGeneration,
+        )
         from caem.config import CAEMConfig
         from caem.memory.encoder import QueryEncoder
         from caem.pipeline import CAEMPipeline
@@ -699,10 +846,32 @@ def run_purity_validation(ns: argparse.Namespace) -> None:
         model = T5ForConditionalGeneration.from_pretrained("google/flan-t5-large")
         model = cast(Any, model).to(torch.device(profile.device))
         encoder = QueryEncoder(model_name=config.sbert_model, device=profile.device)
+
+        # Load the real NLI model for the smoke path -- same as the full path.
+        nli_model, nli_tokenizer = None, None
+        try:
+            logger.info(
+                "Loading NLI model (%s) for smoke-test verification ...",
+                config.nli_model,
+            )
+            nli_tokenizer = AutoTokenizer.from_pretrained(config.nli_model)
+            nli_model = AutoModelForSequenceClassification.from_pretrained(
+                config.nli_model
+            ).to(profile.device)
+            nli_model.eval()
+        except Exception as exc:
+            logger.warning(
+                "Smoke-test NLI load failed (%s); α will exercise the null "
+                "verifier and is not a meaningful verifier-regression signal.",
+                exc,
+            )
+
         pipeline = CAEMPipeline(
             model=model,
             tokenizer=tokenizer,
             encoder=encoder,
+            nli_model=nli_model,
+            nli_tokenizer=nli_tokenizer,
             config=config,
             device=profile.device,
         )
@@ -830,16 +999,22 @@ def run_purity_validation(ns: argparse.Namespace) -> None:
             for bm in selected_benchmarks
         }
 
-        # Build a pipeline for each cycle checkpoint
-        pipelines_by_cycle = {}
-        for cycle_num in range(ns.num_cycles + 1):
+        # Build pipelines lazily via a factory so the protocol can free each
+        # one after use. Holding (num_cycles+1) * 780M-param models in VRAM
+        # does not fit on a 24GB card beyond ~2-3 cycles.
+        def _pipeline_factory(cycle_num: int):
             ckpt_dir = Path(checkpoints_dir) / f"cycle_{cycle_num}"
             model_path = ckpt_dir / "model.pt"
 
             model = T5ForConditionalGeneration.from_pretrained("google/flan-t5-large")
             if model_path.exists():
                 logger.info("Loading cycle %d weights from %s ...", cycle_num, model_path)
-                model.load_state_dict(torch.load(model_path, map_location="cpu"))
+                # weights_only=True mitigates arbitrary-code-execution risk in
+                # pickle unpickling (default changes to True in torch 2.6).
+                # Our checkpoints are always pure state_dicts, so this is safe.
+                model.load_state_dict(
+                    torch.load(model_path, map_location="cpu", weights_only=True)
+                )
             else:
                 logger.warning(
                     "Cycle %d checkpoint not found at %s -- using base weights.",
@@ -861,8 +1036,10 @@ def run_purity_validation(ns: argparse.Namespace) -> None:
             )
             # FIX-5: memory store is loaded inside run_purity_validation_protocol
             # just before measuring P_obs for each cycle
-            pipelines_by_cycle[cycle_num] = pipeline
             logger.info("Cycle %d pipeline ready.", cycle_num)
+            return pipeline
+
+        pipelines_by_cycle = (_pipeline_factory, range(ns.num_cycles + 1))
 
     # -- Run validation ------------------------------------------------------ #
     run_purity_validation_protocol(

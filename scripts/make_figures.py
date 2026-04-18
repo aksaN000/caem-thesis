@@ -154,26 +154,32 @@ def _save(fig: plt.Figure, out_dir: Path, stem: str) -> Tuple[Path, Path]:
 # Figure 5.1 -- CES radar
 # -----------------------------------------------------------------------------
 
-# The five CES axes as stored by eval.metrics.ces_score(). Order is fixed;
-# the axes are rendered clockwise on the radar in this same order.
-_CES_AXES = ("ACC", "EPI", "RET", "CAL", "VER")
+# Radar axes for Figure 5.1. We plot the four CES axes that are directly
+# measurable from this experiment's outputs (ACC, EPI, RET, CAL). The fifth
+# CES axis (VER, verifier balanced-accuracy) requires gold STORE/DISCARD
+# labels we do not have offline, so CES still uses a 0.5 placeholder internally
+# but we do not render it on the radar to avoid visually implying a measurement.
+# Order is fixed; the axes are rendered clockwise on the radar in this order.
+_CES_AXES = ("ACC", "EPI", "RET", "CAL")
 
 
 def _ces_axes_from_headline(headline_rows: Sequence[Mapping[str, Any]],
                             calib_rows: Sequence[Mapping[str, Any]],
                             continual_rows: Sequence[Mapping[str, Any]]) -> Dict[int, Dict[str, float]]:
-    """Recover best-available per-cycle (ACC, EPI, RET, CAL, VER) tuples.
+    """Recover best-available per-cycle (ACC, EPI, RET, CAL) tuples.
 
     The raw CES scalar is already in tab_headline.csv on the
-    ``benchmark == __cycle__`` rows, but the five underlying axes are not
+    ``benchmark == __cycle__`` rows, but the underlying axes are not
     persisted individually. We reconstruct them approximately from the three
     CSVs where they live:
 
       ACC = mean EM on the __cycle__ summary row  (tab_headline)
-      EPI = 1 - min(hallucination_rate_mean, 0.5)  (tab_halluc via caller)
+      EPI = clip(1 - hallucination_rate_mean, 0, 1)(tab_halluc via caller)
       RET = mmlu_retention_ratio                   (tab_continual)
-      CAL = 1 - 2 * min(ECE, 0.5)                  (tab_calibration)
-      VER = 0.5 fallback                           (verifier-BA unavailable)
+      CAL = clip(1 - 2 * ECE, 0, 1)                (tab_calibration)
+
+    VER is omitted from the radar (see _CES_AXES comment). The CES scalar
+    itself still uses VER=0.5 as a placeholder internally.
 
     We take the hallucination rate from the caller (passed separately) since
     this helper stays pure.
@@ -188,14 +194,18 @@ def _ces_axes_from_headline(headline_rows: Sequence[Mapping[str, Any]],
         acc = _parse_float(row.get("em")) or 0.0
         axes.setdefault(cycle, {})["ACC"] = acc
 
-    # CAL from tab_calibration (1 - 2*ECE, clipped).
+    # CAL from tab_calibration (1 - 2*ECE, clipped to [0, 1] after the fact).
+    # The earlier min(ece, 0.5) pre-clamp discarded signal: a very-poorly
+    # calibrated model (ECE=0.7) looked identical on the axis to a moderately
+    # bad one (ECE=0.5). Clipping the whole expression to non-negative
+    # preserves ordering and still keeps the axis in the [0, 1] radar range.
     for row in calib_rows:
         cycle = int(_parse_float(row.get("cycle")) or 0)
         ece = _parse_float(row.get("ece"))
         if ece is None:
             cal = float("nan")
         else:
-            cal = 1.0 - 2.0 * min(ece, 0.5)
+            cal = max(0.0, min(1.0, 1.0 - 2.0 * ece))
         axes.setdefault(cycle, {})["CAL"] = cal
 
     # RET from tab_continual.
@@ -234,12 +244,11 @@ def figure_ces_radar(
             epi_by_cycle.setdefault(cycle, []).append(hr)
     for cycle, vals in epi_by_cycle.items():
         mean_hr = sum(vals) / len(vals) if vals else 0.0
-        axes_map.setdefault(cycle, {})["EPI"] = 1.0 - min(mean_hr, 0.5)
+        # Clip the whole 1-HR expression to [0, 1] rather than pre-clamping HR
+        # -- same rationale as CAL above (preserves ordering at extreme HR).
+        axes_map.setdefault(cycle, {})["EPI"] = max(0.0, min(1.0, 1.0 - mean_hr))
 
-    # VER is the 0.5 placeholder (balanced-accuracy of the verifier is not
-    # directly observable without gold STORE/DISCARD labels).
-    for cycle in axes_map:
-        axes_map[cycle].setdefault("VER", 0.5)
+    # (VER axis intentionally omitted from the radar — see _CES_AXES comment.)
 
     # Build the radar figure.
     cycles_sorted = sorted(axes_map.keys())
@@ -259,8 +268,14 @@ def figure_ces_radar(
     cmap = plt.get_cmap("viridis")
     for i, cycle in enumerate(cycles_sorted):
         values = [axes_map[cycle].get(a, float("nan")) for a in _CES_AXES]
-        # NaN -> 0 for plotting; the axis label alone conveys the missingness.
-        plot_values = [v if (v is not None and not math.isnan(v)) else 0.0 for v in values]
+        # Preserve NaN instead of substituting 0 -- matplotlib draws polar
+        # paths with NaN as breaks in the line, which is the honest rendering
+        # for "this axis has no measurement this cycle". Substituting 0 would
+        # visually imply the axis scored exactly zero, distorting the shape.
+        plot_values = [
+            v if (v is not None and not math.isnan(v)) else float("nan")
+            for v in values
+        ]
         plot_values += plot_values[:1]
         color = cmap(i / max(len(cycles_sorted) - 1, 1))
         ax.plot(theta, plot_values, color=color, linewidth=2, label=f"Cycle {cycle}")
@@ -315,20 +330,36 @@ def figure_reliability(
     cmap = plt.get_cmap("viridis")
     edges = np.linspace(0.0, 1.0, n_bins + 1)
 
+    # Minimum-sample guard: reliability-diagram bins with very few samples
+    # are dominated by noise rather than signal. The standard threshold in
+    # the calibration literature is >= 5 samples; we enforce it here to
+    # avoid plotting bins that mislead more than they inform.
+    MIN_SAMPLES_PER_BIN = 5
+
     for i, cycle in enumerate(cycles_sorted):
         pairs = by_cycle[cycle]
         confs = np.array([p[0] for p in pairs])
         labels = np.array([p[1] for p in pairs])
         mean_conf, mean_acc = [], []
+        dropped_bins = 0
         for lo, hi in zip(edges[:-1], edges[1:]):
             # Half-open bins except for the final bin which includes 1.0.
             mask = (confs >= lo) & (confs < hi)
             if hi == 1.0:
                 mask |= confs == 1.0
-            if mask.sum() == 0:
+            n = int(mask.sum())
+            if n == 0:
+                continue
+            if n < MIN_SAMPLES_PER_BIN:
+                dropped_bins += 1
                 continue
             mean_conf.append(confs[mask].mean())
             mean_acc.append(labels[mask].mean())
+        if dropped_bins:
+            logger.info(
+                "figure_reliability cycle=%d: dropped %d under-sampled bins "
+                "(n<%d).", cycle, dropped_bins, MIN_SAMPLES_PER_BIN,
+            )
         if mean_conf:
             color = cmap(i / max(len(cycles_sorted) - 1, 1))
             ax.plot(mean_conf, mean_acc, "-o", color=color,
@@ -410,14 +441,38 @@ def figure_grounding(
         logger.warning("figure_grounding: no grounding data; skipping.")
         return None
 
+    # Column-existence guard: old runs may not emit every grounding column.
+    # We check once on the first row and warn clearly rather than silently
+    # substituting 0 for every cycle (which would draw a flat line that
+    # looks like a legitimate measurement).
+    REQUIRED_COLS = (
+        "mean_p_ground_max", "mean_p_ground_mean", "mean_p_ground_atomic",
+        "mean_p_contra", "unsupported_correct_rate",
+    )
+    if grounding_rows:
+        first = grounding_rows[0]
+        missing = [c for c in REQUIRED_COLS if c not in first]
+        if missing:
+            logger.warning(
+                "figure_grounding: grounding CSV is missing columns %s -- "
+                "those series will render as NaN (not 0).", missing,
+            )
+
     cycles, gmax, gmean, gatom, gcontra, usc = [], [], [], [], [], []
     for row in sorted(grounding_rows, key=lambda r: int(_parse_float(r.get("cycle")) or 0)):
         cycles.append(int(_parse_float(row.get("cycle")) or 0))
-        gmax.append(_parse_float(row.get("mean_p_ground_max")) or 0.0)
-        gmean.append(_parse_float(row.get("mean_p_ground_mean")) or 0.0)
-        gatom.append(_parse_float(row.get("mean_p_ground_atomic")) or 0.0)
-        gcontra.append(_parse_float(row.get("mean_p_contra")) or 0.0)
-        usc.append(_parse_float(row.get("unsupported_correct_rate")) or 0.0)
+        # Missing columns become NaN so they render as breaks in the line
+        # rather than a spurious flat-zero series.
+        def _col(name: str) -> float:
+            if name not in row:
+                return float("nan")
+            v = _parse_float(row.get(name))
+            return float("nan") if v is None else v
+        gmax.append(_col("mean_p_ground_max"))
+        gmean.append(_col("mean_p_ground_mean"))
+        gatom.append(_col("mean_p_ground_atomic"))
+        gcontra.append(_col("mean_p_contra"))
+        usc.append(_col("unsupported_correct_rate"))
 
     fig, (ax0, ax1) = plt.subplots(1, 2, figsize=(12, 4.5), gridspec_kw={"width_ratios": [2, 1]})
 
@@ -538,11 +593,26 @@ def figure_continual(
     fig, (ax0, ax1) = plt.subplots(1, 2, figsize=(12, 4.5))
 
     if cycles:
-        # Convert mmlu_pct -> fraction for plot if values look like percentages.
-        mmlu_frac = [(v / 100.0) if (v is not None and v > 1.5) else v for v in mmlu_pct]
-        ax0.plot(cycles, mmlu_frac, "-s", color="#2c3e50", label="MMLU accuracy")
+        # mmlu_pct column can be emitted as either a fraction (0.28) or
+        # a percentage (28.0) depending on writer version. Detect via
+        # max value: if any entry exceeds 1.5, treat the whole series
+        # as percentage and divide by 100 uniformly; otherwise treat it
+        # as already in [0, 1]. We apply the decision uniformly to the
+        # series (not per-element) to prevent a mixed-unit plot.
+        numeric_vals = [v for v in mmlu_pct if v is not None]
+        is_percentage = bool(numeric_vals) and max(numeric_vals) > 1.5
+        if is_percentage:
+            logger.info(
+                "figure_continual: mmlu_pct appears to be in percent (max=%.3f); "
+                "dividing series by 100 to plot as fraction in [0, 1].",
+                max(numeric_vals),
+            )
+            mmlu_frac = [(v / 100.0) if v is not None else None for v in mmlu_pct]
+        else:
+            mmlu_frac = list(mmlu_pct)
+        ax0.plot(cycles, mmlu_frac, "-s", color="#2c3e50", label="MMLU accuracy (fraction)")
         ax0.plot(cycles, mmlu_ret,  "-o", color="#16a085", label="MMLU retention ratio")
-        ax0.set_xticks(cycles); ax0.set_xlabel("Cycle"); ax0.set_ylabel("Value")
+        ax0.set_xticks(cycles); ax0.set_xlabel("Cycle"); ax0.set_ylabel("Value (fraction in [0, 1])")
         ax0.set_ylim(0, 1.05); ax0.grid(True, alpha=0.3)
         ax0.set_title("MMLU retention across cycles")
         ax0.legend(loc="best", fontsize=9, frameon=False)

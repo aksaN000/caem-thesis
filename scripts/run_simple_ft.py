@@ -25,7 +25,9 @@ filter, no memory curation, no 90/10 general-data mix (unless
 Evaluation
 ----------
 After each cycle the fine-tuned weights are evaluated on the full
-seven-benchmark panel via ``eval.harness.EvalHarness`` driven by a
+six-benchmark panel (3 ID + 3 OOD; see ``TRAINING_BENCHMARKS`` /
+``TRANSFER_BENCHMARKS`` in ``caem/config.py``) via
+``eval.harness.EvalHarness`` driven by a
 ``ZeroShotBaseline`` that wraps the current model, so the baseline
 output JSONs are schema-compatible with CAEM runs and with the
 inference-baseline JSONs produced by ``scripts/run_baseline.py``.
@@ -567,7 +569,7 @@ def main() -> None:
         model.save_pretrained(str(ckpt_dir))
         tokenizer.save_pretrained(str(ckpt_dir))
 
-        # Evaluate the cycle weights on the seven-benchmark panel.
+        # Evaluate the cycle weights on the six-benchmark panel (3 ID + 3 OOD).
         logger.info("Cycle %d: evaluating on %d benchmarks ...",
                     cycle, len(ns.eval_benchmarks))
         baseline = ZeroShotBaseline.__new__(ZeroShotBaseline)

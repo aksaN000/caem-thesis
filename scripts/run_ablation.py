@@ -134,9 +134,16 @@ def _build_variant_pipeline(
 
 def _load_eval_samples(ns: argparse.Namespace, m: Dict[str, Any]) -> Dict[str, list]:
     if ns.smoke_test:
-        logger.info("SMOKE TEST MODE -- synthetic samples (n=10 per benchmark)")
+        # Smoke mode honours --n_questions (capped at 10 for CPU-friendliness)
+        # instead of a hardcoded 10. This lets callers do a 2-sample smoke
+        # for the fastest-possible CI check via --n_questions 2, or ramp
+        # up to the cap when debugging end-to-end integration.
+        n_smoke = min(10, max(1, int(getattr(ns, "n_questions", 10) or 10)))
+        logger.info(
+            "SMOKE TEST MODE -- synthetic samples (n=%d per benchmark)", n_smoke,
+        )
         return {
-            bm: m["make_synthetic_samples"](bm, n=10)
+            bm: m["make_synthetic_samples"](bm, n=n_smoke)
             for bm in (bm.strip().lower() for bm in ns.benchmarks)
         }
 

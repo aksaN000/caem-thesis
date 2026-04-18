@@ -258,8 +258,12 @@ def load_sil_training_pool(ns: argparse.Namespace, m: Dict[str, Any]) -> Dict[st
     return samples
 
 def load_eval_transfer_pool(ns: argparse.Namespace, m: Dict[str, Any]) -> Dict[str, list]:
-    """Load Evaluation data (zero data leakage)."""
-    n = ns.n_questions
+    """Load Evaluation data (zero data leakage).
+
+    Uses ``--n_eval_questions`` when provided; otherwise falls back to
+    ``--n_questions``. Lets callers size the SIL pool and eval pool independently.
+    """
+    n = getattr(ns, "n_eval_questions", None) or ns.n_questions
     samples = {}
     benchmarks = [bm.strip().lower() for bm in ns.benchmarks]
     split_map = {
@@ -284,17 +288,18 @@ def split_calibration_sets(
     samples: Dict[str, list],
     calib_size: int = 500,
     purity_size: int = 500,
+    seed: int = 42,
 ) -> tuple:
     """Split each benchmark's samples into purity / calibration / train sets.
 
     Returns
     -------
-    purity_samples  : dict[bm -> first purity_size (or scaled down)]
-    calib_samples   : dict[bm -> next calib_size (or scaled down)]
+    purity_samples  : dict[bm -> shuffled purity_size (or scaled down)]
+    calib_samples   : dict[bm -> shuffled calib_size (or scaled down)]
     train_samples   : dict[bm -> remainder (used for SIL memory population)]
 
     These three slices are strictly disjoint by index -- critical for
-    Gap-5 isolation (the calibration slice must NEVER be seen by the
+    calibration-isolation (the calibration slice must NEVER be seen by the
     generator during SIL) and for the memorisation-ceiling purity check.
 
     Notes
@@ -302,9 +307,25 @@ def split_calibration_sets(
     TruthfulQA has only 817 questions total. Using fixed 500+500 would leave
     zero samples for train. For benchmarks where total < purity_size + calib_size,
     we scale splits proportionally (plan §5.3 specifies 250/250/317 for TruthfulQA).
+
+    The per-benchmark list is shuffled with ``seed`` before slicing so that
+    purity / calibration / train draws are not biased by the benchmark's
+    native ordering (e.g. FEVER's heavily-correlated adjacent claims). The
+    shuffle is deterministic and keyed off the benchmark name so reruns with
+    the same ``seed`` produce the same partition.
     """
+    import random
     purity, calib, train = {}, {}, {}
     for bm, slist in samples.items():
+        # Copy + shuffle deterministically so the original caller list is
+        # not mutated. Benchmark name is folded into the seed so different
+        # benchmarks get different (but still deterministic) orderings.
+        # Python 3.11+ rejects tuple seeds, and hash((seed, bm)) is unstable
+        # across runs because str hashing is PEP-456 randomised; the string
+        # form uses random.seed's SHA-512 path which is stable.
+        rng = random.Random(f"{seed}:{bm}")
+        slist = list(slist)
+        rng.shuffle(slist)
         total = len(slist)
         effective_purity = purity_size
         effective_calib = calib_size
@@ -337,24 +358,42 @@ def split_calibration_sets(
 # General-domain data (anti-forgetting mix for fine-tuning)
 # -----------------------------------------------------------------------------
 
-def load_general_data(n: int = 1000) -> list:
+def load_general_data(n: int = 1000, sil_pool_size: int = 0) -> list:
     """Load general QA pairs for the 10% anti-forgetting data mix.
 
     Uses a small subset of TriviaQA or a synthetic fallback.
     The SelfImprovementLoop mixes 10% of these into the training set
     to satisfy the forgetting_tolerance ≥ 0.93 constraint (§4.6).
+
+    Parameters
+    ----------
+    n : int
+        Number of general-domain pairs to load.
+    sil_pool_size : int
+        Size of the TriviaQA SIL training pool for the current run. We skip
+        past the first ``sil_pool_size`` TriviaQA train rows so the general-
+        data mix does NOT overlap with the SIL training pool when TriviaQA
+        is also in ``TRAINING_BENCHMARKS``. Overlap would mean the "general"
+        anti-forgetting probe was contaminated by training signal.
     """
     from caem.training.self_improvement import QAPair
 
     try:
         from datasets import load_dataset
-        logger.info("Loading TriviaQA for general-domain mix ...")
+        logger.info(
+            "Loading TriviaQA for general-domain mix (skip=%d, n=%d) ...",
+            sil_pool_size, n,
+        )
         # MUST use "train" split -- "validation" overlaps with the evaluation
         # set used in run_cycle(). Using validation here would contaminate the
         # forgetting guard with evaluation data.
         ds = load_dataset("trivia_qa", "rc.nocontext", split="train")
+        # Offset past the SIL pool so the "general" anti-forgetting mix is
+        # strictly disjoint from the TriviaQA training episodes.
+        start = min(sil_pool_size, max(0, len(ds) - n))
+        end = min(start + n, len(ds))
         pairs = []
-        for item in ds.select(range(min(n, len(ds)))):
+        for item in ds.select(range(start, end)):
             row = cast(Mapping[str, Any], item)
             q = str(row.get("question", ""))
             answer_obj = cast(Mapping[str, Any], row.get("answer", {}))
@@ -478,22 +517,26 @@ def assert_disjoint_calibration(
     The IDs should be read from ``dataset_splits.json`` which is the single
     source of truth for the three-way partition (train / calib / eval).
     """
+    # NOTE: use ``raise`` (not ``assert``) so the guard survives ``python -O``
+    # and the check is NEVER silently stripped in a production run.
     for bm, calib_ids in calib_ids_by_bm.items():
         train_ids = train_ids_by_bm.get(bm, set())
         overlap_train = calib_ids & train_ids
-        assert not overlap_train, (
-            f"Calibration slice for {bm!r} overlaps SIL training pool "
-            f"({len(overlap_train)} shared IDs). "
-            f"First 5: {list(overlap_train)[:5]}"
-        )
+        if overlap_train:
+            raise RuntimeError(
+                f"Calibration slice for {bm!r} overlaps SIL training pool "
+                f"({len(overlap_train)} shared IDs). "
+                f"First 5: {list(overlap_train)[:5]}"
+            )
         if eval_ids_by_bm is not None:
             eval_ids = eval_ids_by_bm.get(bm, set())
             overlap_eval = calib_ids & eval_ids
-            assert not overlap_eval, (
-                f"Calibration slice for {bm!r} overlaps held-out eval set "
-                f"({len(overlap_eval)} shared IDs). "
-                f"First 5: {list(overlap_eval)[:5]}"
-            )
+            if overlap_eval:
+                raise RuntimeError(
+                    f"Calibration slice for {bm!r} overlaps held-out eval set "
+                    f"({len(overlap_eval)} shared IDs). "
+                    f"First 5: {list(overlap_eval)[:5]}"
+                )
     logger.info(
         "Disjoint calibration slice verified across %d benchmarks.",
         len(calib_ids_by_bm),
@@ -727,7 +770,10 @@ def run_experiment(ns: argparse.Namespace) -> None:
 
     # -- Build pipeline ------------------------------------------------------ #
     logger.info("=" * 60)
-    logger.info("CAEM EXPERIMENT -- Full Scale Run (10 cycles, 1M episodes, full DPR Wikipedia)")
+    logger.info(
+        "CAEM EXPERIMENT -- Full Scale Run (%d cycles, %d questions/cycle, full DPR Wikipedia)",
+        config.num_cycles, config.questions_per_cycle,
+    )
     logger.info("=" * 60)
     pipeline = build_pipeline(config, ns, m)
 
@@ -771,6 +817,7 @@ def run_experiment(ns: argparse.Namespace) -> None:
             sil_samples,
             calib_size=config.calibration_set_size,
             purity_size=config.purity_validation_set_size,
+            seed=getattr(ns, "seed", 42),
         )
 
     # -- Save purity/calibration/train sample IDs (for reproducibility) ---- #
@@ -809,7 +856,16 @@ def run_experiment(ns: argparse.Namespace) -> None:
         raise
 
     # -- General-domain data (for anti-forgetting mix) ---------------------- #
-    general_data = load_general_data(n=1000)
+    # Skip past the TriviaQA-train rows that may be in the SIL training pool
+    # so the anti-forgetting probe is strictly disjoint from training signal.
+    trivia_sil_pool_size = (
+        len(train_samples.get("triviaqa", []))
+        if "triviaqa" in train_samples else 0
+    )
+    general_data = load_general_data(
+        n=getattr(config, "general_data_size", 1000),
+        sil_pool_size=trivia_sil_pool_size,
+    )
 
     # -- Eval harness -------------------------------------------------------- #
     harness = m["EvalHarness"](pipeline, output_dir=str(eval_dir), log_every=100)
@@ -844,18 +900,21 @@ def run_experiment(ns: argparse.Namespace) -> None:
 
         # Save deferred buffer checkpoint (empty at cycle 0, but the file's
         # presence lets --resume_from_cycle N discover the buffer path).
-        try:
-            pipeline.deferred_buffer.save(
-                str(output_dir / "deferred_buffer_cycle_0.pkl")
-            )
-        except Exception as exc:
-            logger.warning("Failed to save deferred buffer at cycle 0 (%s).", exc)
+        # Use getattr so the save is a no-op if the pipeline exposes no
+        # deferred_buffer attribute (e.g. ablation pipelines with deferred
+        # reconsideration disabled).
+        _def_buf = getattr(pipeline, "deferred_buffer", None)
+        if _def_buf is not None:
+            try:
+                _def_buf.save(str(output_dir / "deferred_buffer_cycle_0.pkl"))
+            except Exception as exc:
+                logger.warning("Failed to save deferred buffer at cycle 0 (%s).", exc)
 
         # Measure pristine-model MMLU *before* any fine-tuning. This is the
         # denominator for the retention ratio in later cycles. Persisted to
         # disk so resume paths can recover it without remeasuring.
         logger.info("Measuring pristine-model MMLU baseline (200 samples)...")
-        mmlu_baseline = sil._mmlu_score(n=200)
+        mmlu_baseline = sil.measure_mmlu(n=200)
         logger.info("Pristine MMLU baseline: %.4f", mmlu_baseline)
         try:
             with open(output_dir / "mmlu_baseline.json", "w", encoding="utf-8") as f:
@@ -911,13 +970,13 @@ def run_experiment(ns: argparse.Namespace) -> None:
                         logger.warning(
                             "mmlu_baseline.json corrupted; remeasuring pristine MMLU."
                         )
-                        mmlu_per_cycle.append(float(sil._mmlu_score(n=200)))
+                        mmlu_per_cycle.append(float(sil.measure_mmlu(n=200)))
                 else:
                     logger.info(
                         "No mmlu_baseline.json found (older run?); "
                         "remeasuring pristine MMLU for the retention denominator."
                     )
-                    mmlu_per_cycle.append(float(sil._mmlu_score(n=200)))
+                    mmlu_per_cycle.append(float(sil.measure_mmlu(n=200)))
             else:
                 rv_path_c = output_dir / f"retroverify_cycle{c}.json"
                 try:
@@ -960,12 +1019,19 @@ def run_experiment(ns: argparse.Namespace) -> None:
         # we start the next cycle with an empty buffer and log the gap so the
         # operator knows any pre-existing deferred signal is not recovered.
         deferred_path = output_dir / f"deferred_buffer_cycle_{prev_cycle}.pkl"
-        if deferred_path.exists():
+        _def_buf = getattr(pipeline, "deferred_buffer", None)
+        if _def_buf is None:
+            logger.info(
+                "Pipeline has no deferred_buffer attribute; skipping deferred "
+                "buffer restore. This is expected for ablation pipelines that "
+                "disable deferred reconsideration."
+            )
+        elif deferred_path.exists():
             try:
-                pipeline.deferred_buffer.load(str(deferred_path))
+                _def_buf.load(str(deferred_path))
                 logger.info(
                     "Restored deferred buffer from Cycle %d: %d entries.",
-                    prev_cycle, pipeline.deferred_buffer.size,
+                    prev_cycle, _def_buf.size,
                 )
             except Exception as exc:
                 logger.warning(
@@ -1135,15 +1201,17 @@ def run_experiment(ns: argparse.Namespace) -> None:
         # picks up any held-but-not-yet-promoted entries rather than starting
         # the next cycle with an empty buffer (which would silently discard
         # the current cycle's deferred signal).
-        try:
-            pipeline.deferred_buffer.save(
-                str(output_dir / f"deferred_buffer_cycle_{cycle_num}.pkl")
-            )
-        except Exception as exc:
-            logger.warning(
-                "Failed to save deferred buffer at cycle %d (%s).",
-                cycle_num, exc,
-            )
+        _def_buf = getattr(pipeline, "deferred_buffer", None)
+        if _def_buf is not None:
+            try:
+                _def_buf.save(
+                    str(output_dir / f"deferred_buffer_cycle_{cycle_num}.pkl")
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Failed to save deferred buffer at cycle %d (%s).",
+                    cycle_num, exc,
+                )
 
         # Step 7: Per-cycle recalibration (Conservative default: temperature
         # only; no-op if both calibration flags are False). Runs after
@@ -1168,9 +1236,9 @@ def run_experiment(ns: argparse.Namespace) -> None:
         json.dump(all_cycle_results, f, indent=2)
     logger.info("Full results saved -> %s", full_results_path)
 
-    # -- Chapter 5 seven-table split + per_sample_signals.jsonl (Phase 4m.4) -- #
+    # -- Chapter 5 table split + per_sample_signals.jsonl (Phase 4m.4) -- #
     # Post-processes every per-benchmark-per-cycle JSON the harness wrote
-    # during this run into the seven CSVs Chapter 5 references plus a flat
+    # during this run into the CSVs Chapter 5 references plus a flat
     # per-sample JSONL. Safe to re-run in isolation via ``build_ch5_tables``
     # if the CSVs need regenerating without re-running the cycles.
     try:
@@ -1192,8 +1260,8 @@ def run_experiment(ns: argparse.Namespace) -> None:
     logger.info(
         "Next steps:\n"
         "  1. Run scripts/run_purity_validation.py for Theory 1/2/3 validation.\n"
-        "  2. Run baseline + ablation variants once their runner is rebuilt\n"
-        "     (Session 42 onward; unified-verifier migration in progress).\n"
+        "  2. Run baseline + ablation variants via scripts/run_baseline.py\n"
+        "     and scripts/run_ablation.py (unified-verifier migration complete).\n"
         "  3. Update caem-implementation-log.md with experiment results.\n"
         "  4. Feed outputs/ into Chapter 5 writing (use paper-writing skill)."
     )
@@ -1225,7 +1293,31 @@ def _parse_args() -> argparse.Namespace:
         "--n_questions",
         type=int,
         default=5000,
-        help="Total questions per cycle across the SIL training pool.",
+        help=(
+            "Per-benchmark SIL training-pool size. When --n_eval_questions is "
+            "omitted, the same value is used for the evaluation pool."
+        ),
+    )
+    p.add_argument(
+        "--n_eval_questions",
+        type=int,
+        default=None,
+        help=(
+            "Optional per-benchmark size for the evaluation pool "
+            "(purity + calibration + eval). Defaults to --n_questions when "
+            "omitted. Splitting these lets you run a small smoke eval on top "
+            "of a large SIL pool, or vice versa."
+        ),
+    )
+    p.add_argument(
+        "--seed",
+        type=int,
+        default=42,
+        help=(
+            "Global RNG seed for deterministic shuffles (split_calibration_sets, "
+            "SIL pool sampling, etc.). The MMLU retention probe uses its own "
+            "fixed seed for cross-run comparability."
+        ),
     )
     p.add_argument(
         "--benchmarks",
