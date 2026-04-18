@@ -41,6 +41,7 @@ runs/
 # ── HuggingFace cache ──────────────────────────────────────────────────────────
 .cache/
 ~/.cache/huggingface/
+hf_cache/
 
 # ── FAISS index files ─────────────────────────────────────────────────────────
 *.faiss

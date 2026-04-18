@@ -8,6 +8,30 @@ skip actions. Do not re-order. If an expected output is missing or
 wrong, stop and diagnose — skipping a failing action compounds cost
 downstream.
 
+---
+
+## Active rental — Session 1 (2026-04-18)
+
+Running session-specific state lives in `VAST_SESSION_LOG.md`; this block
+captures the hardware profile so anyone reading this plan knows what
+numbers the current Phase 1 results were produced on.
+
+- **Instance ID:** 35180107 (datacenter 81036, machine 30024)
+- **GPU:** NVIDIA GeForce RTX 5090, 31.8 GB VRAM, 108.1 TFLOPS, 1454.2 GB/s mem bandwidth, max CUDA 13.1
+- **CPU:** AMD EPYC 9654 96-core (48 cores allocated), 96.7 GB RAM per Vast UI
+- **Disk:** KIOXIA KCD8XRUG7T68 NVMe ~16 GB/s, 150.1 GB allocated
+- **Net:** 250 ports, 4648.7 / 6801.6 Mbps
+- **Motherboard:** GENOA2D24G-2L, PCIE 5.0 x16
+- **Hourly cost:** ~$0.638/hr
+- **DLPerf:** 203.1 (318.5 DLP/$/hr)
+
+**Hardware-profile note:** The RTX 5090 auto-detects into CAEM's
+`scripts/hardware.py` profile as bf16 / batch_size=32 / grad_accum=1 /
+TF32-on, which is one tier faster than the RTX 4090 profile the rest of
+this runbook was calibrated against. Wall-clock estimates in the
+step-by-step table below remain useful but tend to be slightly
+pessimistic on a 5090 for compute-bound steps.
+
 Legend used throughout:
 
 - **[ACTION]** — a thing you type or click.
@@ -197,11 +221,20 @@ cd ~/caem
 3.2 **[ACTION]** Install Python deps:
 
 ```bash
-pip install torch transformers datasets sentence-transformers \
+pip install torch transformers datasets "sentence-transformers<4" \
     faiss-cpu numpy scipy scikit-learn
 ```
 
 **[VERIFY]** No red errors; final line shows "Successfully installed".
+
+**[WHY the `sentence-transformers<4` pin]** On 2026-04-18 Session 1
+(`VAST_SESSION_LOG.md` Incident #1), sentence-transformers 5.4.1 failed
+to import because it pulls in `torchcodec` transitively, which needs
+`libnppicc.so.13` (CUDA NPP), missing from the `pytorch/pytorch:2.2.0`
+Vast image. Pinning to `<4` (equivalent to 3.x) avoids the torchcodec
+import chain entirely. CAEM only uses the
+`SentenceTransformer(name, device=...).encode()` surface, which is
+stable across 3.x–5.x.
 
 3.3 **[ACTION]** Confirm GPU is visible to PyTorch and the hardware
 profile auto-detects:
