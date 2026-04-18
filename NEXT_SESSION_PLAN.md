@@ -398,11 +398,50 @@ a tmux session and launch the build:
 tmux new-session -s build
 python scripts/build_passage_index.py \
     --max_passages 21000000 \
+    --train_sample_size 2000000 \
+    --enable_checkpoint \
     --output_dir data/passage_index
 ```
 
+**[WHY `--enable_checkpoint`]** Writes `_checkpoint.pkl` every
+`CHECKPOINT_EVERY=100_000` passages (~once every ~1.5 min on 5090).
+Worst-case loss from an OOM / network disconnect / instance eviction
+in the middle of the ~6 h encode drops from "start over" (~$4 + 6 h)
+to "one buffer" (~100K passages, ~1.5 min, ~$0.02). Overhead is
+~500 MB of pickled embedding buffers on disk, reclaimed when the
+build finishes and `passages.faiss` + `passages.pkl` are written.
+
+Session 1 (2026-04-18) did NOT pass this flag. When the FAISS
+thread-oversubscription incident (`VAST_SESSION_LOG.md` 22:50 UTC)
+surfaced, recovery was impossible because nothing was persisted --
+the only options were "let the slow run finish" or "lose 6 h of
+encoding." Always pass `--enable_checkpoint` on any run longer than
+~30 min to guarantee a recovery path exists.
+
+**[WHY `--train_sample_size 2000000`]** FAISS IVF clustering on
+the default `nlist=65536` recommends 39x nlist = 2,555,904 training
+vectors. 2M is the pragmatic minimum (30.5x nlist, 78% of ideal,
+~1-3 pp recall loss vs. the ideal density, symmetric across CAEM
+and all baselines so doesn't bias sig-test). Session 1 Incident #2
+(`VAST_SESSION_LOG.md`) downgraded recall@10 by 5-15 pp with the
+previous 500K default; patched default is now 2M, keep the explicit
+flag for audit clarity.
+
 4.2 **[ACTION]** Detach from tmux with `Ctrl+B, D`. Reattach at any
-time with `tmux attach -t build`.
+time with `tmux attach -t build`. If the build gets interrupted,
+**resume** with:
+
+```bash
+tmux new-session -s build
+python scripts/build_passage_index.py \
+    --max_passages 21000000 \
+    --train_sample_size 2000000 \
+    --resume \
+    --output_dir data/passage_index
+```
+
+(`--resume` implies `--enable_checkpoint` so future interruptions
+continue to be recoverable.)
 
 4.3 **[VERIFY]** Wait ~2–3 h. When done:
 

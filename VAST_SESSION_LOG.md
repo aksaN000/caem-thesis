@@ -993,3 +993,63 @@ because different FAISS/BLAS builds respect different ones.
 So ~2 hours saved per Step 4 rebuild, dominated by the k-means
 fix. If ever faiss-gpu ships a faster encode path too, this drops
 further.
+
+### 05:00 BDT (23:00 UTC, 2026-04-19) — Enable-checkpoint mandate added to Step 4.1
+
+Follow-on from the thread-oversubscription incident: when the
+oversubscription was identified and recovery was considered, we
+discovered that **zero embeddings were persisted to disk** because
+`--enable_checkpoint` was not passed on the original invocation.
+The 21M x 768 float32 matrix lived only in PID 159638's RAM (146 GB
+resident). The recovery options at 99 min into FAISS clustering
+were: (a) let the slow run finish, (b) kill + re-encode from
+scratch (6 h + ~$4). Option (c) "kill + resume from disk" did not
+exist.
+
+**Patch**: `NEXT_SESSION_PLAN.md` Step 4.1 default invocation now
+includes `--enable_checkpoint`:
+
+```bash
+python scripts/build_passage_index.py \
+    --max_passages 21000000 \
+    --train_sample_size 2000000 \
+    --enable_checkpoint \
+    --output_dir data/passage_index
+```
+
+Also added a resume-path sub-step (`4.2`) that shows the `--resume`
+invocation for post-interruption recovery. `--resume` implies
+checkpointing on its own, so chained recoveries stay safe.
+
+**Cost of checkpointing:**
+- Per-checkpoint disk I/O: ~500 MB / 100K passages written to
+  `_checkpoint.pkl`. Cumulative overhead across 21M passages: ~15 min
+  of extra I/O time (~$0.16 on 5090).
+- Peak disk footprint during build: ~20 GB temporary (the checkpoint
+  file, cleaned up when the final `passages.faiss` + `passages.pkl`
+  write completes).
+
+**Worst-case recovery cost with checkpoint on:** lose the last buffer
+(100K passages), ~1.5 min of re-work, ~$0.02.
+
+**Worst-case recovery cost without checkpoint on (this session):**
+lose the entire encoding pass, 6 h of re-work, ~$4.
+
+Net: $0.16 of insurance premium buys $4 of downside protection.
+Checkpointing is the correct default. Added to the runbook
+permanently alongside OMP thread caps and faiss-gpu-cu12.
+
+**Three runbook patches now mandatory for any Phase 1 Full / Phase 2
+rebuild:**
+
+1. `pip install faiss-gpu-cu12` (Step 3.2) — 20x speedup on IVF
+   k-means, cuts Step 4 by ~75 min.
+2. `OMP_NUM_THREADS=16` etc. (Step 3.2B) — prevents 379-thread
+   oversubscription collapse, keeps k-means at the 16-32-core sweet
+   spot.
+3. `--enable_checkpoint` (Step 4.1) — survives any interruption
+   during the 6 h encode at $0.16 insurance premium.
+
+Combined effect on next Step 4 rebuild wall-clock: **~6 h** (down from
+~8+ h today), with a recovery floor of "lose ~1.5 min if interrupted"
+instead of "lose 6 h."
