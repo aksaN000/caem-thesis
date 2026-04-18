@@ -319,14 +319,29 @@ def load_strategyqa(
 
     samples: List[BenchmarkSample] = []
 
-    # Attempt 1: requested HF split.
+    # Attempt 1: ChilleD/StrategyQA -- currently maintained HF mirror with
+    # both labeled 'train' (1,603) and 'test' (687) splits. Replaces the
+    # deprecated `wics/strategy-qa` dataset script (HF Datasets dropped
+    # support for repository scripts in 2024-2025). Schema is a superset
+    # of what CAEM needs; _normalise_rows handles the (qid, question,
+    # answer:bool) → (id, question, answers:[yes/no]) conversion.
     try:
-        logger.info("Loading StrategyQA [wics/strategy-qa, %s] from HuggingFace...", split)
-        ds_hf = load_dataset("wics/strategy-qa", split=split)
+        logger.info("Loading StrategyQA [ChilleD/StrategyQA, %s] from HuggingFace...", split)
+        ds_hf = load_dataset("ChilleD/StrategyQA", split=split)
         hf_rows = [cast(Dict[str, Any], r) for r in cast(Any, ds_hf)]
-        samples = _normalise_rows(hf_rows, f"wics/strategy-qa:{split}")
+        samples = _normalise_rows(hf_rows, f"ChilleD/StrategyQA:{split}")
     except Exception as exc:
-        logger.warning("StrategyQA HF split '%s' unavailable (%s).", split, exc)
+        logger.warning("StrategyQA ChilleD split '%s' unavailable (%s). "
+                       "Trying legacy wics/strategy-qa...", split, exc)
+        # Attempt 1b: legacy wics/strategy-qa (deprecated but might work on
+        # older HF datasets versions). Expected to fail on newer datasets
+        # installations ("Dataset scripts are no longer supported").
+        try:
+            ds_hf = load_dataset("wics/strategy-qa", split=split)
+            hf_rows = [cast(Dict[str, Any], r) for r in cast(Any, ds_hf)]
+            samples = _normalise_rows(hf_rows, f"wics/strategy-qa:{split}")
+        except Exception as exc2:
+            logger.warning("Legacy wics/strategy-qa also failed (%s).", exc2)
 
     # Attempt 2 (optional): train JSON fallback only when explicitly enabled.
     if not samples:

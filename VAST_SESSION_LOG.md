@@ -716,3 +716,71 @@ $42.15 that's already on the card.
 3. First operation on any resumed session:
    `ls -lh /workspace/caem/data/passage_index/passages.faiss`
    Non-empty confirms the preserved disk mounted correctly.
+
+### 03:45 BDT (21:45 UTC, 2026-04-19) — StrategyQA loader blocker + fix (caught during pre-flight audit of Step 7 dataset availability)
+
+FAISS IVF-PQ training emitted its "2000000 points / 2555904 recommended"
+warning mid-Step-4. Warning is informational -- FAISS proceeds with whatever
+training data it has, at a minor recall cost vs the 39x-nlist ideal. At
+30.5x nlist we're at 78% of recommended density -- estimated 1-3 pp
+recall@10 loss vs 5-15 pp in Incident #2's 500k case. Symmetric across
+CAEM and all baselines (same index), so doesn't bias the sig-test
+comparison. No action taken; build proceeds.
+
+While FAISS trained, did a dataset-availability pre-flight probe for every
+split Step 7's eval path will touch. Four of five OK; **StrategyQA test
+split FAILS** with the deprecated `wics/strategy-qa` HF dataset script:
+
+```
+Dataset scripts are no longer supported, but found strategy-qa.py
+RuntimeError: StrategyQA split 'test' unavailable or unlabeled, and
+  allow_train_fallback=False.
+```
+
+This would have aborted Step 7 at Cycle 0's first StrategyQA eval pass
+(~30 min after Step 4 finishes). Fix landed before runner could trigger it:
+
+**Patch**: `eval/benchmarks.py::load_strategyqa` now tries
+`ChilleD/StrategyQA` FIRST (a currently-maintained HF mirror with
+labeled `train` (1,603) and `test` (687) splits, same underlying
+StrategyQA data). Falls through to the legacy `wics/strategy-qa` path
+for backward compatibility, then to the official `train.json` URL
+fallback (still behind `allow_train_fallback=True`).
+
+Schema maps cleanly: ChilleD's `qid` → CAEM's `id`, `answer` (bool) →
+CAEM's `answers` (["yes"]/["no"]), `question` passes through with the
+"Answer yes or no. Question: ..." prefix applied in `_normalise_rows`.
+Verified: 687 unique ids on test split, balanced yes/no distribution
+(roughly 52/48).
+
+**Affected downstream paths (all fixed by the one patch):**
+- `run_experiment.py::load_eval_transfer_pool` -- Step 7 CAEM main
+  run eval on StrategyQA.
+- `run_baseline.py` -- Steps 9-13 B1-B5 StrategyQA eval.
+- `run_simple_ft.py` -- Steps 14-15 B6/B7 per-cycle StrategyQA eval.
+- `run_purity_validation.py` -- Step 19 purity measurement on
+  StrategyQA (OOD probe).
+
+All six benchmarks on Plan A's panel are now verified loadable:
+
+| Benchmark | HF source | split used | n |
+|---|---|---|---:|
+| FEVER | lucadiliello/fever | dev | 19,998 |
+| TriviaQA | trivia_qa (rc.nocontext) | validation | 17,944 |
+| Natural Questions | nq_open | validation | 3,610 |
+| TruthfulQA | truthful_qa (generation) | validation | 817 |
+| StrategyQA | ChilleD/StrategyQA | test | **687** (patched) |
+| ARC-Challenge | ai2_arc (ARC-Challenge) | test | 1,172 |
+| MMLU (retention probe) | cais/mmlu (all) | test | 14,042 |
+
+No runner relaunch needed -- `run_plan_a.sh` is unchanged; the Python
+script that holds the patch gets re-read fresh on every
+`python -m scripts.run_experiment` invocation.
+
+### Step 4 FAISS training status
+
+Started clustering at 21:11 UTC. CPU-bound on EPYC 9654 (faiss-cpu, no
+GPU path). ~6.5 cores active (memory-bandwidth ceiling on k-means).
+Expected completion: ~21:50-22:05 UTC / ~03:50-04:05 BDT. Then Step 5
+smoke test fires automatically within 120 s of `passages.faiss` +
+`passages.pkl` materializing on disk.
