@@ -169,6 +169,24 @@ def _load_eval_samples(ns: argparse.Namespace, m: Dict[str, Any]) -> Dict[str, l
 # Ranking CSV
 # -----------------------------------------------------------------------------
 
+def _sort_by_ces(results: List[Any]) -> List[Any]:
+    """Sort ablation results by CES descending, with missing CES at the bottom.
+
+    Uses -inf as the missing-CES sentinel (not -1) so a legitimately-negative
+    CES cannot accidentally float above an un-scored variant. Centralised so
+    the CSV writer and the stdout pretty-printer stay in lockstep.
+    """
+    return sorted(
+        results,
+        key=lambda r: (
+            r.aggregate_axes.ces
+            if r.aggregate_axes.ces is not None
+            else float("-inf")
+        ),
+        reverse=True,
+    )
+
+
 def write_ranking_csv(
     results: List[Any],          # list[AblationResult]
     output_dir: Path,
@@ -195,11 +213,10 @@ def write_ranking_csv(
                 full_ces = r.aggregate_axes.ces
                 break
 
-    sorted_results = sorted(
-        results,
-        key=lambda r: r.aggregate_axes.ces if r.aggregate_axes.ces is not None else -1,
-        reverse=True,
-    )
+    # -inf (not -1) as the missing-CES sentinel: CES is *usually* in [0, 1]
+    # but nothing in the pipeline forbids a negative value, so -1 could float
+    # a legitimately-poor variant above a missing one. -inf is unambiguous.
+    sorted_results = _sort_by_ces(results)
 
     rows: List[Dict[str, Any]] = []
     for rank, r in enumerate(sorted_results, start=1):
@@ -249,11 +266,7 @@ def print_ranking(results: List[Any], full_ces: Optional[float]) -> None:
         f"{'ACC':>6} {'EPI':>6} {'RET':>6} {'CAL':>6} {'VER':>6}"
     )
     print("-" * 110)
-    sorted_results = sorted(
-        results,
-        key=lambda r: r.aggregate_axes.ces if r.aggregate_axes.ces is not None else -1,
-        reverse=True,
-    )
+    sorted_results = _sort_by_ces(results)
     for rank, r in enumerate(sorted_results, start=1):
         ax = r.aggregate_axes
         if full_ces and full_ces > 0:
@@ -336,8 +349,20 @@ def main(ns: argparse.Namespace) -> None:
     baseline_path = Path(ns.baseline_mmlu_json) if ns.baseline_mmlu_json else None
     if baseline_path and baseline_path.exists():
         with open(baseline_path, "r", encoding="utf-8") as f:
-            baseline_mmlu = float(json.load(f)["mmlu_baseline"])
-        logger.info("Pristine MMLU baseline: %.4f", baseline_mmlu)
+            _baseline_payload = json.load(f)
+        # Be defensive: older runs sometimes wrote the value under "mmlu"
+        # instead of "mmlu_baseline". A hard KeyError here would abort the
+        # whole ablation sweep on an old artefact layout — cheap to support.
+        _raw = _baseline_payload.get("mmlu_baseline", _baseline_payload.get("mmlu"))
+        if _raw is None:
+            logger.warning(
+                "Baseline MMLU JSON %s lacks 'mmlu_baseline' (and 'mmlu') key; "
+                "continuing without a pristine baseline.",
+                baseline_path,
+            )
+        else:
+            baseline_mmlu = float(_raw)
+            logger.info("Pristine MMLU baseline: %.4f", baseline_mmlu)
 
     rv_path = Path(ns.retroverify_json) if ns.retroverify_json else None
     if rv_path and rv_path.exists():

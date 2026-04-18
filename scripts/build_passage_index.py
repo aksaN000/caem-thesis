@@ -361,7 +361,7 @@ def build_passage_index(
     dataset_name, dataset_config : str
         HuggingFace dataset to stream.
     """
-    import sys
+    # `sys` is imported at module top — the duplicate here was dead.
     # Verify SBERT + FAISS are available before streaming anything.
     _check_dependencies()
 
@@ -446,6 +446,19 @@ def build_passage_index(
     assert all_embeddings.shape[0] == len(all_passages), (
         f"Count mismatch: {all_embeddings.shape[0]} embeddings vs {len(all_passages)} passages"
     )
+    # Guard against a silent dim mismatch between the SBERT model actually used
+    # for encoding here and CAEMConfig.embedding_dim (what the downstream
+    # FAISS-based stores will assume). A mismatch would crash *much* later with
+    # an opaque FAISS error, so fail loudly now.
+    _expected_dim = 768  # CAEMConfig.embedding_dim; keep in sync with caem/config.py
+    if emb_dim != _expected_dim:
+        logger.error(
+            "Embedding dim mismatch: encoder produced dim=%d but "
+            "CAEMConfig.embedding_dim is %d. Update either the SBERT model "
+            "or config.embedding_dim before rebuilding the passage index.",
+            emb_dim, _expected_dim,
+        )
+        sys.exit(1)
     logger.info("Embeddings: %d × %d (dim=%d)", len(all_passages), emb_dim, emb_dim)
 
     # -- Build and save PassageStore ---------------------------------------
@@ -506,7 +519,7 @@ def build_passage_index(
 
 def _sanity_check(output_dir: Path, sbert_model: str, device: str) -> None:
     """Load the saved store and run one test query to verify correctness."""
-    import sys
+    # `sys` is imported at module top — the duplicate here was dead.
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
     from caem.retrieval.rag import PassageStore
     from sentence_transformers import SentenceTransformer
@@ -590,9 +603,12 @@ def _parse_args() -> argparse.Namespace:
     )
     p.add_argument(
         "--device",
-        default=None,
-        choices=["cuda", "cpu", None],
-        help="Compute device. Default: auto-detect.",
+        default="auto",
+        choices=["cuda", "cpu", "auto"],
+        help="Compute device. 'auto' (default) picks cuda if available, "
+             "else cpu. argparse cannot compare user input against None, "
+             "so 'auto' is used as the sentinel here and mapped to None "
+             "before calling build_passage_index().",
     )
     p.add_argument(
         "--resume",
@@ -660,13 +676,16 @@ if __name__ == "__main__":
         logger.info("Smoke-test mode: capping at 1 000 passages.")
         ns.max_passages = 1_000
 
+    # argparse sentinel: "auto" → None, build_passage_index() auto-detects.
+    device_arg = None if ns.device == "auto" else ns.device
+
     build_passage_index(
         output_dir=ns.output_dir,
         max_passages=ns.max_passages,
         chunk_words=ns.chunk_words,
         encode_batch_size=ns.encode_batch_size,
         sbert_model=ns.sbert_model,
-        device=ns.device,
+        device=device_arg,
         resume=ns.resume,
         dataset_name=ns.dataset_name,
         dataset_config=ns.dataset_config,

@@ -526,7 +526,9 @@ def calibrate_pipeline_temperature_only(
     calibrated = [_apply_temp(u, T_new) for u in u_pre_logits]
     ece_after = expected_calibration_error(calibrated, [float(l) for l in u_pre_labels])
 
-    T_old = config.temperature_scalar
+    # Use getattr with a 1.0 default so a cold-start config (no prior T) still
+    # produces a valid "before" reading — rather than AttributeError-ing here.
+    T_old = getattr(config, "temperature_scalar", 1.0)
     config.temperature_scalar = T_new
 
     result = {

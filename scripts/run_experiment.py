@@ -46,8 +46,10 @@ import argparse
 import csv
 import json
 import logging
+import math
 import os
 import sys
+import tempfile
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Mapping, cast
@@ -403,14 +405,21 @@ def load_general_data(n: int = 1000, sil_pool_size: int = 0) -> list:
         logger.info("  General-domain mix: %d QA pairs loaded.", len(pairs))
         return pairs
     except Exception as exc:
-        logger.warning(
-            "TriviaQA load failed (%s); using 200 synthetic pairs.", exc
+        # Fail LOUDLY: the general-mix anchor data is used for the
+        # forgetting_tolerance constraint in §4.6; silently substituting 200
+        # toy arithmetic pairs would produce thesis-invalid retention numbers.
+        # Callers (run_smoke_experiment) that legitimately want a synthetic
+        # mix should pass the `--smoke_test` flag and go through the
+        # `make_synthetic_samples` path instead.
+        logger.error(
+            "TriviaQA load failed (%s). Refusing to silently substitute a "
+            "synthetic general-domain mix — that would fabricate the anti-"
+            "forgetting retention measurements. Fix the dataset cache / "
+            "network and re-run, or use --smoke_test for a flagged synthetic "
+            "run.",
+            exc,
         )
-        # Minimal synthetic fallback so the loop still runs
-        return [
-            QAPair(question=f"What is {i} + {i}?", answer=str(i * 2))
-            for i in range(200)
-        ]
+        raise
 
 
 # -----------------------------------------------------------------------------
@@ -626,7 +635,6 @@ def save_summary_csv(
         Cycle-0 baseline (%). 100 = no forgetting; <100 = forgetting; >100
         = slight positive transfer (possible with EWC at low cycle counts).
     """
-    import math
     csv_path = output_dir / "experiment_summary.csv"
     fieldnames = [
         "cycle",
@@ -708,6 +716,10 @@ def print_mechanism_table(all_cycle_results: List[Dict]) -> None:
     print("\n" + "=" * 90)
     print("MECHANISM EVIDENCE TABLE  (Chapter 5, Table 1)")
     print("=" * 90)
+    # Header/data column widths MUST match — otherwise reviewers skim a
+    # mis-aligned table and distrust the numbers. Each header field here
+    # is sized to the exact width of its data field (including the trailing
+    # '%' character where present).
     print(
         f"{'Cycle':<6} {'BM':<12} {'EM':>6} {'F1':>6} "
         f"{'HallRed%':>9} {'T1%':>6} {'T3%':>6} "
@@ -729,7 +741,7 @@ def print_mechanism_table(all_cycle_results: List[Dict]) -> None:
             # NOTE: positive hall_red = reduction in hallucinations (EM improved)
 
             print(
-                f"  {cycle_num:<4} {bm:<12} "
+                f"{cycle_num:<6} {bm:<12} "
                 f"{em:>6.3f} {res.get('f1', 0.0):>6.3f} "
                 f"{hall_red:>+8.1f}% "
                 f"{res.get('tier1_frac', 0.0)*100:>5.1f}% "
@@ -1108,6 +1120,13 @@ def run_experiment(ns: argparse.Namespace) -> None:
         logger.info("-" * 60)
         t0 = time.time()
 
+        # --- Per-cycle step numbering ---
+        # Comment labels (Step 1..7) and logger labels MUST stay in lockstep;
+        # reviewers trace `grep "  Step "` against the thesis pipeline
+        # diagram to confirm the flow. Previously the comments said "Step
+        # 4.5" / "Step 5" / "Step 6" while the logger emitted "Step 2.5" /
+        # "Step 3" — this section is renumbered below so both agree.
+
         # Step 1: Fine-tune on verified episodes from current memory.
         # Passing verify_fn enables retroactive re-verification (Phase 5d):
         # after fine-tuning, every stored episode is re-scored by the updated
@@ -1139,19 +1158,18 @@ def run_experiment(ns: argparse.Namespace) -> None:
                 cycle_result.n_retropruned,
             )
 
-        # Step 2: Update pipeline's cycle counter
+        # (pipeline cycle counter update — housekeeping, not a numbered step)
         pipeline.current_cycle = cycle_num
 
-        # Step 3: Retroactive re-verification of memory
+        # Step 2: Retroactive re-verification of memory
         logger.info("  Step 2: Retroactive re-verification ...")
         retroverify_stats = retroactive_reverification(pipeline, cycle_num, config)
 
-        # Step 4: Save retroverify stats alongside cycle results
+        # Step 3: Save retroverify stats alongside cycle results
         # mmlu_retention is included here so the resume path can reconstruct
         # mmlu_per_cycle without re-running the model.
-        import math as _math
         mmlu_val = cycle_result.mmlu_retention
-        mmlu_serialisable = None if _math.isnan(mmlu_val) else round(mmlu_val, 6)
+        mmlu_serialisable = None if math.isnan(mmlu_val) else round(mmlu_val, 6)
         rv_path = output_dir / f"retroverify_cycle{cycle_num}.json"
         rv_payload = {
             "cycle": cycle_num,
@@ -1167,18 +1185,18 @@ def run_experiment(ns: argparse.Namespace) -> None:
         }
         # Atomic write: write to temp file then rename so a crash mid-write
         # never produces a truncated JSON that would break --resume_from_cycle.
-        import tempfile as _tempfile, os as _os
-        with _tempfile.NamedTemporaryFile(
+        # tempfile and os are now at module top; no per-iteration aliased import.
+        with tempfile.NamedTemporaryFile(
             mode="w", dir=output_dir, suffix=".tmp", delete=False, encoding="utf-8"
         ) as _tmp:
             json.dump(rv_payload, _tmp, indent=2)
             _tmp_path = _tmp.name
-        _os.replace(_tmp_path, rv_path)  # atomic on same filesystem (POSIX + Windows)
+        os.replace(_tmp_path, rv_path)  # atomic on same filesystem (POSIX + Windows)
 
         # Track per-cycle MMLU for summary CSV
         mmlu_per_cycle.append(mmlu_val)
 
-        # Step 4.5: Populate Memory by answering the SIL Train split (DISJOINT
+        # Step 4: Populate Memory by answering the SIL Train split (DISJOINT
         # from the calibration slice) with store_to_memory=True. This occurs
         # so that we populate the EpisodicMemoryStore with the *upgraded*
         # fine-tuned model weights. Because this is for *generation*, we do
@@ -1186,11 +1204,11 @@ def run_experiment(ns: argparse.Namespace) -> None:
         #
         # Gap-5 isolation: we pass `train_samples`, NOT `sil_samples`, so
         # the calibration slice stays unseen by the generator during SIL.
-        logger.info("  Step 2.5: Generating Episodic Memory from SIL Train split (cycle=%d) ...", cycle_num)
+        logger.info("  Step 4: Generating Episodic Memory from SIL Train split (cycle=%d) ...", cycle_num)
         harness.run_all(train_samples, cycle=cycle_num, store_to_memory=True)
 
         # Step 5: Evaluate all benchmarks (Dev/Transfer split), NO Memory Leakage
-        logger.info("  Step 3: Evaluating all benchmarks (cycle=%d) ...", cycle_num)
+        logger.info("  Step 5: Evaluating all benchmarks (cycle=%d) ...", cycle_num)
         cycle_results = harness.run_all(eval_samples, cycle=cycle_num, store_to_memory=False)
         all_cycle_results.append(cycle_results)
         

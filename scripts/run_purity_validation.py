@@ -268,7 +268,10 @@ def measure_base_accuracy(pipeline, purity_samples: List[dict], bm: str) -> floa
             # are visible (previous: debug, hidden at default log level).
             logger.warning("measure_base_accuracy: skipped sample due to error (%s)", exc)
 
-    return correct / total if total > 0 else 0.0
+    # NaN (not 0.0) when nothing was evaluated: downstream code distinguishes
+    # "undefined" from "measured zero", and reporting 0.0 here would falsely
+    # suggest the base model answered every sample wrong.
+    return correct / total if total > 0 else float("nan")
 
 
 def measure_verification_balanced_accuracy(
@@ -354,7 +357,10 @@ def measure_verification_balanced_accuracy(
 
     if total == 0:
         logger.warning("No samples evaluated for α -- balanced accuracy cannot be measured.")
-        return 0.0
+        # NaN flags "undefined" downstream, whereas 0.0 would falsely claim
+        # the verifier is maximally pessimistic. Consumers already expect
+        # NaN for undefined purity metrics (see purity_theorem path).
+        return float("nan")
 
     # Balanced accuracy = 0.5 * (TPR + TNR), NOT (TP+TN)/N.
     # Regular accuracy is biased toward the majority class when positives

@@ -1,4 +1,4 @@
-﻿"""
+"""
 scripts/hardware.py
 ====================
 Hardware detection and configuration for CAEM experiments.
@@ -108,7 +108,16 @@ def get_hardware_profile() -> HardwareProfile:
         # Report in GB
         vram_bytes = torch.cuda.get_device_properties(0).total_memory
         vram_gb = vram_bytes / (1024 ** 3)
-    except Exception:
+    except Exception as exc:
+        # Warn loudly: the tier lookup below will fall through to the
+        # "< 10 GB" branch, which silently boots with batch_size=2. A prod
+        # run should never land there — the operator deserves to see why.
+        logger.warning(
+            "Could not read CUDA device properties (%s); vram_gb=0 "
+            "— falling back to the smallest-GPU tier. Expect reduced "
+            "throughput; investigate if the host actually has a GPU.",
+            exc,
+        )
         gpu_name = "Unknown CUDA GPU"
         vram_gb = 0.0
 
@@ -132,7 +141,10 @@ def get_hardware_profile() -> HardwareProfile:
     if vram_gb >= 70:          # A100 SXM 80 GB / PCIe 80 GB (79–80 GB reported)
         use_fp16, use_bf16 = False, True
         batch_size = 32
-        note = "A100 80 GB. bf16, batch_size=32. TF32 enabled for matmuls."
+        note = (
+            "A100 80 GB. bf16, batch_size=32. TF32 enabled for matmuls. "
+            "theta_prev GPU optimisation active."
+        )
     elif vram_gb >= 30:        # RTX 5090 (32 GB), A100 40 GB (39–40 GB reported)
         use_fp16, use_bf16 = False, True
         batch_size = 32
@@ -140,7 +152,7 @@ def get_hardware_profile() -> HardwareProfile:
             "RTX 5090 / A100 40 GB (30–70 GB range). bf16, batch_size=32. "
             "TF32 enabled for matmuls. theta_prev GPU optimisation active."
         )
-    elif vram_gb >= 20:        # RTX 4090 (24 GB), RTX 3090 (24 GB)
+    elif vram_gb >= 24:        # RTX 4090 (24 GB), RTX 3090 (24 GB)
         use_fp16, use_bf16 = True, False
         batch_size = 16
         note = (
@@ -211,11 +223,22 @@ def apply_memory_flags(profile: Optional[HardwareProfile] = None) -> None:
 
     try:
         import torch
-        # Enable TF32 for A100 (speeds up matmuls with minimal accuracy loss)
-        if profile.use_bf16:
+        # Enable TF32 for every Ampere-or-newer CUDA GPU (compute capability
+        # >= 8.0), not only the bf16 tier. Ada Lovelace (4090/3090, SM 8.9)
+        # and Ampere (A100/3090, SM 8.0/8.6) both benefit from TF32 matmul
+        # even while we run fp16 elsewhere. Gating on use_bf16 only missed
+        # the RTX 4090 — the main thesis hardware target.
+        try:
+            major, _minor = torch.cuda.get_device_capability(0)
+        except Exception:
+            major = 0
+        if major >= 8:
             torch.backends.cuda.matmul.allow_tf32 = True
             torch.backends.cudnn.allow_tf32 = True
-            logger.info("TF32 enabled for A100-class GPU.")
+            logger.info(
+                "TF32 enabled (compute capability %d.x, Ampere or newer).",
+                major,
+            )
 
         # Empty cache to start clean
         torch.cuda.empty_cache()

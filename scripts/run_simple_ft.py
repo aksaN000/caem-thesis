@@ -74,7 +74,6 @@ import math
 import random
 import sys
 import time
-from dataclasses import asdict
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -240,8 +239,10 @@ def _finetune_one_cycle(
     use_cuda = str(device).startswith("cuda")
     amp_enabled = use_cuda and param_dtype in (torch.float16, torch.bfloat16)
     amp_dtype = torch.float16 if param_dtype == torch.float16 else torch.bfloat16
-    scaler = torch.cuda.amp.GradScaler(
-        enabled=amp_enabled and amp_dtype == torch.float16
+    # Modern API (torch>=2.4): torch.amp.GradScaler("cuda", ...). The old
+    # torch.cuda.amp.GradScaler(...) still works but emits a DeprecationWarning.
+    scaler = torch.amp.GradScaler(
+        "cuda", enabled=amp_enabled and amp_dtype == torch.float16
     )
 
     epochs_done, final_loss = 0, 0.0
@@ -281,18 +282,21 @@ def _finetune_one_cycle(
                 scaler.scale(loss).backward()
                 scaler.unscale_(optimizer)
                 nn.utils.clip_grad_norm_(model.parameters(), max_norm=ns.grad_clip)
-                scaler.step(optimizer); scaler.update()
+                scaler.step(optimizer)
+                scaler.update()
             else:
                 loss.backward()
                 nn.utils.clip_grad_norm_(model.parameters(), max_norm=ns.grad_clip)
                 optimizer.step()
 
-            epoch_loss += loss.item(); n_batches += 1
+            epoch_loss += loss.item()
+            n_batches += 1
 
         avg = epoch_loss / max(n_batches, 1)
         logger.info("  Epoch %d/%d -- loss: %.4f",
                     epoch + 1, ns.epochs_per_cycle, avg)
-        epochs_done += 1; final_loss = avg
+        epochs_done += 1
+        final_loss = avg
 
     model.eval()
     return final_loss, epochs_done, theta_prev
@@ -546,8 +550,14 @@ def main() -> None:
         post_mmlu = _mmlu_accuracy(
             model, tokenizer, ns.device, n=ns.mmlu_n, seed=ns.seed,
         )
+        # If either probe is NaN or the pristine baseline is ~0, report NaN
+        # (not 1.0). Silently substituting 1.0 would paper over a genuinely
+        # broken MMLU probe by claiming perfect retention, defeating the
+        # forgetting-guard rollback below. The guard branch already skips
+        # rollback when `retention_ratio < forgetting_tolerance` is False
+        # (NaN comparisons are False), so NaN propagation is safe.
         if math.isnan(pristine_mmlu) or math.isnan(post_mmlu) or pristine_mmlu <= 1e-6:
-            retention_ratio = 1.0
+            retention_ratio = float("nan")
         else:
             retention_ratio = post_mmlu / pristine_mmlu
 

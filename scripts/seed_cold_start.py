@@ -163,7 +163,13 @@ def load_train_samples(benchmark: str, n: int, seed: int = 0) -> List[dict]:
         samples = []
         for row in cast(Any, ds):
             row = cast(Dict[str, Any], row)
-            raw_label = row.get("label", 2)
+            # Default sentinel is None (not 2=refutes): silently treating a
+            # missing FEVER label as "refutes" would fabricate a positive
+            # refutation signal into cold-start memory. Rows without a label
+            # are skipped below.
+            raw_label = row.get("label", None)
+            if raw_label is None:
+                continue
             gold_label = _FEVER_LABEL_MAP.get(raw_label, "not enough info")
             claim = row.get("claim", "")
             question = (
@@ -371,8 +377,9 @@ def seed_benchmark(
 
 def run_smoke_test(args: argparse.Namespace) -> None:
     """Validate seeder logic with synthetic data -- no model or GPU required."""
-    import sys
-    from pathlib import Path
+    # sys and pathlib.Path are already imported at module top — the former
+    # duplicate `import sys` / `from pathlib import Path` inside this function
+    # was dead code.
     repo_root = Path(__file__).resolve().parent.parent
     if str(repo_root) not in sys.path:
         sys.path.insert(0, str(repo_root))
@@ -450,6 +457,19 @@ def main(args: argparse.Namespace) -> None:
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     store_path = output_dir / "memory_store"  # -> cold_start_memory/memory_store.faiss
+
+    # Guard against saving an empty store: an empty FAISS index on disk
+    # would quietly make every downstream Tier-3 lookup miss, and the
+    # thesis's cold-start protocol would still technically "succeed".
+    # Fail loudly so the operator notices and re-runs with working loaders.
+    if pipeline.memory_store.size == 0:
+        logger.error(
+            "Memory store is empty after seeding all %d benchmark(s). "
+            "Refusing to save an empty .faiss / .meta pair. Check the "
+            "per-benchmark loader logs above for a silent dataset failure.",
+            len(benchmarks),
+        )
+        sys.exit(1)
 
     pipeline.memory_store.save(str(store_path))
     logger.info("Memory store saved -> %s (.faiss + .meta)", store_path)

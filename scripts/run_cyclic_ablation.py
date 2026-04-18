@@ -94,8 +94,9 @@ import logging
 import os
 import random
 import sys
+import math
+import tempfile
 import time
-from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -369,13 +370,20 @@ def run_cyclic_ablation(ns: argparse.Namespace) -> None:
 
     # --- Variant-mutated config --------------------------------------------- #
     config = variant.apply(m["CAEMConfig"]())
-    # Persist the config snapshot for post-hoc reproducibility
+    # Persist the config snapshot for post-hoc reproducibility.
+    # We first try to let `json` handle each value directly so that lists,
+    # dicts and tuples of primitives survive as real JSON structures (rather
+    # than being coerced into opaque `repr()` strings that analysis notebooks
+    # then have to parse back).
+    def _json_safe(v):
+        try:
+            json.dumps(v)
+            return v
+        except (TypeError, ValueError):
+            return repr(v)
+
     try:
-        cfg_snapshot = {
-            k: (v if isinstance(v, (int, float, str, bool)) or v is None
-                else repr(v))
-            for k, v in vars(config).items()
-        }
+        cfg_snapshot = {k: _json_safe(v) for k, v in vars(config).items()}
         with open(out_dir / "variant_config.json", "w", encoding="utf-8") as f:
             json.dump(cfg_snapshot, f, indent=2)
     except Exception as exc:
@@ -472,7 +480,11 @@ def run_cyclic_ablation(ns: argparse.Namespace) -> None:
         output_dir=str(out_dir),
     )
 
-    general_data = load_general_data(n=1000)
+    # Pull the general-mix size from CAEMConfig (general_data_size=1000 by
+    # default) rather than hard-coding 1000 here — keeps the ablation sweep
+    # in lockstep with the main experiment when the anti-forgetting budget
+    # is ever re-tuned.
+    general_data = load_general_data(n=int(getattr(config, "general_data_size", 1000)))
 
     # Per-cycle trackers mirror the main experiment
     all_cycle_results: List[Dict[str, Any]] = []
@@ -600,10 +612,17 @@ def run_cyclic_ablation(ns: argparse.Namespace) -> None:
                     retro_stats = {"total": 0, "updated": 0, "pruned": 0}
                     logger.info("Skipping outer retroverify (variant=%s).", variant.name)
 
-                # Persist retroverify + fine-tune metrics per cycle
-                import math as _math
-                mmlu_val = cycle_result.mmlu_retention
-                mmlu_ser = None if _math.isnan(mmlu_val) else round(mmlu_val, 6)
+                # Persist retroverify + fine-tune metrics per cycle.
+                # Use getattr with a NaN default so a CycleResult that lacks
+                # mmlu_retention (e.g. an aborted cycle that stopped before
+                # the MMLU eval) degrades to a null JSON cell rather than
+                # AttributeError-ing the whole run.
+                mmlu_val = getattr(cycle_result, "mmlu_retention", float("nan"))
+                mmlu_ser = (
+                    None
+                    if mmlu_val is None or math.isnan(float(mmlu_val))
+                    else round(float(mmlu_val), 6)
+                )
                 rv_payload = {
                     "cycle": cycle_num,
                     "retroverify": retro_stats,
@@ -617,14 +636,13 @@ def run_cyclic_ablation(ns: argparse.Namespace) -> None:
                     },
                 }
                 rv_path = out_dir / f"retroverify_cycle{cycle_num}.json"
-                import tempfile as _tempfile, os as _os
-                with _tempfile.NamedTemporaryFile(
+                with tempfile.NamedTemporaryFile(
                     mode="w", dir=out_dir, suffix=".tmp",
                     delete=False, encoding="utf-8",
                 ) as _tmp:
                     json.dump(rv_payload, _tmp, indent=2)
                     _tmp_path = _tmp.name
-                _os.replace(_tmp_path, rv_path)
+                os.replace(_tmp_path, rv_path)
 
                 mmlu_per_cycle.append(mmlu_val)
 

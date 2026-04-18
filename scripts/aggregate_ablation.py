@@ -184,7 +184,13 @@ def _axes_at_cycle(
     """
     if not history:
         return None
-    by_cycle = {h.get("cycle"): h for h in history if h.get("aggregate_axes")}
+    # Filter out entries with a missing/None cycle index — otherwise a later
+    # max(by_cycle) would TypeError on a mix of int and None keys.
+    by_cycle = {
+        h.get("cycle"): h
+        for h in history
+        if h.get("aggregate_axes") and h.get("cycle") is not None
+    }
     if not by_cycle:
         return None
 

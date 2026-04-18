@@ -187,11 +187,16 @@ def _ces_axes_from_headline(headline_rows: Sequence[Mapping[str, Any]],
     axes: Dict[int, Dict[str, float]] = {}
 
     # ACC from the __cycle__ summary rows of tab_headline.
+    # Missing EM → NaN (not 0.0): a silent 0.0 would render an absent cycle as
+    # a zero-accuracy spoke, making "no data" look identical to "complete
+    # failure" on the radar plot. The downstream plotting code already
+    # tolerates NaN by dropping the point.
     for row in headline_rows:
         if row.get("benchmark") != "__cycle__":
             continue
         cycle = int(_parse_float(row.get("cycle")) or 0)
-        acc = _parse_float(row.get("em")) or 0.0
+        em_parsed = _parse_float(row.get("em"))
+        acc = float("nan") if em_parsed is None else em_parsed
         axes.setdefault(cycle, {})["ACC"] = acc
 
     # CAL from tab_calibration (1 - 2*ECE, clipped to [0, 1] after the fact).
@@ -666,7 +671,14 @@ def figure_em_progression(
         logger.warning("figure_em_progression: no EM values; skipping.")
         return None
 
-    cycles = sorted(set(list(mean_em.keys()) + [c for curve in per_bm.values() for c in curve]))
+    # Union of every cycle that appeared either in the mean-EM summary row
+    # or in any per-benchmark curve. Union (not intersection) so a benchmark
+    # with a later start/stop still contributes its available points rather
+    # than silently clipping the x-axis.
+    all_cycles: set = set(mean_em.keys())
+    for curve in per_bm.values():
+        all_cycles.update(curve.keys())
+    cycles = sorted(all_cycles)
 
     fig, ax = plt.subplots(figsize=(max(7, 1 + 1.2 * len(cycles)), 4.5))
 

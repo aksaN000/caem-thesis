@@ -190,6 +190,11 @@ def _fmt_cell(col: str, value: str) -> str:
     except ValueError:
         return _latex_escape(s)
 
+    # Inf / -inf would otherwise render as literal 'inf' in LaTeX. Treat
+    # non-finite numeric cells as NA so the table stays readable.
+    if not math.isfinite(x):
+        return _NA_CELL
+
     col_l = col.lower()
     if any(col_l.endswith(suf) for suf in _MS_SUFFIXES):
         return f"{x:.1f}"

@@ -846,3 +846,56 @@ Organised by file, mirroring the order of the Per-File Findings sections above. 
 - **stat mtime cross-check:** confirmed bash-mount and Windows-side filesystem were out of sync on several files (hardware.py mounted at April 16, Windows-side at April 18). Edit tool writes went through successfully; the stale-mount artefacts are a mount-sync lag, not a code defect.
 - **Residual items:** MINORs and NOTEs remain unresolved by design — those are polish / cosmetic / documentation items that do not block Phase 1. Revisit after the Vast run produces Chapter 5 numbers.
 
+---
+
+# Fix log — MINORs (triaged) — 2026-04-18
+
+After the MAJOR sweep, a second pass triaged the ~85 MINOR findings into four groups by value-for-effort. High-value fixes (deprecated APIs, dead imports, edge-case guards, silent-failure modes, reviewer-visible inconsistencies) were applied; low-value cosmetic MINORs (pure renames, semicolons already fixed under style, docstring nits that re-say what the code shows) were deferred.
+
+## Group 1 — Deprecated APIs + dead imports + duplicate imports
+
+- **`run_simple_ft.py`** — `torch.cuda.amp.GradScaler(...)` → `torch.amp.GradScaler("cuda", ...)`. Comment notes old API still works but emits DeprecationWarning. Removed dead `from dataclasses import asdict`; split three `;`-chained statements onto separate lines.
+- **`run_cyclic_ablation.py`** — removed dead `from dataclasses import asdict`. Promoted `import math` + `import tempfile` to module top; removed `import math as _math` and `import tempfile as _tempfile, os as _os` in-loop imports; converted all aliased references to plain names.
+- **`check_base_model.py`** — switched import from the slow Python-side `T5Tokenizer` to fast `AutoTokenizer` (~5× speed-up on long prompts); removed dead in-function `import sys, os` (module-top `import sys` suffices; `os` was never used).
+- **`seed_cold_start.py`** — removed duplicate in-function `import sys` + `from pathlib import Path` (both at module top).
+- **`build_passage_index.py`** — removed two duplicate in-function `import sys` calls (module-top is sufficient). Replaced `argparse.choices=["cuda", "cpu", None]` with `choices=["cuda", "cpu", "auto"]`, default="auto", because argparse's input is always a string so `None` in the choices list was unreachable; added `device_arg = None if ns.device == "auto" else ns.device` for the call site.
+- **`run_experiment.py`** — promoted `import math` + `import tempfile` to module top; removed in-loop `import math` and `import math as _math` usages; removed `import tempfile as _tempfile, os as _os` alongside an atomic-write block.
+
+## Group 2 — Edge case guards (inf / NaN / getattr defaults / dim checks)
+
+- **`make_tables.py`** — added `if not math.isfinite(x): return _NA_CELL` after the `float(s)` parse so `+inf` / `-inf` / `NaN` cells render as LaTeX NA instead of literal `inf`.
+- **`aggregate_ablation.py`** — filtered out history entries with `cycle is None` before passing the dict to `max(by_cycle)`; previously a mixed int/None key set would TypeError on Python 3.
+- **`build_passage_index.py`** — added explicit embedding-dim equality check against `CAEMConfig.embedding_dim (= 768)`; `sys.exit(1)` with a clear log message if the SBERT encoder output dim ever drifts from the index config (previously the mismatch would surface much later inside FAISS as an opaque shape error).
+- **`run_calibration.py`** — switched `config.temperature_scalar` reads to `getattr(config, "temperature_scalar", 1.0)` so a cold-start config without a prior T reports an identity-temp "before" value rather than AttributeError-ing.
+- **`run_purity_validation.py`** — `measure_base_accuracy` and `measure_verification_balanced_accuracy` now return `float("nan")` (not `0.0`) when `total == 0`; downstream code already distinguishes "undefined" from "measured zero".
+- **`run_cyclic_ablation.py`** — `cycle_result.mmlu_retention` read via `getattr(..., float("nan"))`; aborted cycles without mmlu_retention now degrade to a null JSON cell instead of AttributeError-ing the whole sweep. Also replaced the `repr(v)` fallback in variant-config JSON serialisation with a `json.dumps(v)`-try-first helper so lists/dicts/tuples of primitives survive as real JSON structures rather than opaque `repr()` strings.
+- **`run_experiment.py`** — `load_general_data` TriviaQA load failure now `raise`s instead of falling back to 200 toy arithmetic pairs. Silently substituting synthetic data would fabricate the anti-forgetting retention numbers that §4.6 depends on; smoke-test flows should go through `make_synthetic_samples` under `--smoke_test` explicitly.
+
+## Group 3 — Logic correctness (silent failure modes)
+
+- **`run_ablation.py`** — extracted `_sort_by_ces(results)` helper so the CSV writer and stdout pretty-printer share a single sort path; switched the missing-CES sentinel from `-1` to `float("-inf")` so a legitimately-negative CES can no longer float above an un-scored variant. Added defensive `.get()` lookup for `mmlu_baseline` (tries `"mmlu_baseline"` then `"mmlu"`) so old artefact layouts don't abort the sweep.
+- **`run_simple_ft.py`** — `retention_ratio` now `float("nan")` (not `1.0`) when pristine or post MMLU is NaN or the denominator is zero; a silent `1.0` would paper over a broken MMLU probe and defeat the forgetting-guard rollback. NaN comparisons evaluate False so the guard branch naturally skips.
+- **`seed_cold_start.py`** — FEVER label default switched from `2` ("refutes") to `None` with a `continue`; silently treating a missing label as "refutes" would inject a false refutation signal into cold-start memory. Added an empty-store guard before `pipeline.memory_store.save(...)`: if every benchmark loader silently failed, the script now `sys.exit(1)` instead of persisting an empty `.faiss` / `.meta` pair that would make every downstream Tier-3 lookup miss.
+- **`hardware.py`** — VRAM-read `try/except` now logs a WARNING with the exception before falling back to `vram_gb = 0.0`; previously the fall-through was silent and the driver booted at the smallest-GPU tier (`batch_size=2`) with no operator-visible cause. TF32 matmul/cuDNN gate broadened from `if profile.use_bf16` to `if compute_capability >= 8`; the old gate missed RTX 4090 (SM 8.9, fp16-tier) even though Ada Lovelace benefits from TF32 matmul.
+- **`make_figures.py`** — Figure 5.1 radar ACC axis now uses `float("nan")` for missing EM cells (previously `_parse_float(...) or 0.0` conflated "no data" with "zero accuracy"); matplotlib drops NaN points so missing cycles become visible gaps instead of zero-accuracy spokes.
+- **`run_cyclic_ablation.py`** — replaced hardcoded `load_general_data(n=1000)` with `int(getattr(config, "general_data_size", 1000))`; keeps the ablation sweep in lockstep with the main experiment when `CAEMConfig.general_data_size` (currently 1000) is ever re-tuned.
+
+## Group 4 — Cosmetic but reviewer-visible
+
+- **`check_base_model.py`** — added canonical `all_thresholds_passed` key in the summary JSON alongside the existing `all_pass_p_gt_half` (back-compat). The new name survives any future widening of the threshold set.
+- **`make_figures.py`** — replaced cramped `set(list(mean_em.keys()) + [c for curve in per_bm.values() for c in curve])` with an explicit `all_cycles` set-union block plus comment explaining why union (not intersection) is correct for the EM-progression x-axis.
+- **`run_experiment.py`** — renumbered the cycle-loop `Step N` comments and matching `logger.info` labels so both tracks agree (previously comments said `Step 3/4/5` while the log emitted `Step 2/2.5/3`, which confused reviewers tailing the run). Column-width fix in `print_mechanism_table` (`{cycle_num:<6}` to match `{'Cycle':<6}` header; previously `<4` vs. `<6`).
+
+## Deferred (stay as MINORs in the file)
+
+- **`run_calibration.py`** — `--cycle0_results` CLI flag kept with "Deprecated compatibility flag" help text; removing it would break existing call sites for no material benefit.
+- **`run_purity_validation.py`** — `delta_1_2` / `delta_2_3` JSON keys retained under a "Legacy fields kept for backward compatibility with prior analysis notebooks" comment; removing would break downstream consumers.
+- **`run_experiment.py` "seven-table split"** — recount was tasked, but the phrase does not appear in the current codebase; treated as already-resolved.
+- **Pure style MINORs (semicolons, reused `t0`, staleness comments in docstrings, etc.)** — deferred as zero-risk polish; not triaged into any of the four groups above.
+
+## Verification
+
+- **Windows-side Read-tool spot-check:** every file touched above was re-read after the last edit and confirmed well-formed (no truncation, no merge artifacts).
+- **py_compile via bash mount:** bash reported stale-artifact SyntaxErrors at line numbers with no relationship to the edits (e.g. a `"before calling build` fragment on line 611 of `build_passage_index.py` that does not exist in the live Windows file). `stat` confirmed the mount was holding an April 16 view of several scripts while the edits were live on the Windows side at April 18. Same bash-mount vs. Windows-side divergence previously documented in the MAJORs verification section.
+- **Risk posture:** MINOR edits are structurally conservative (argument-name swaps, helper extractions, getattr defaults, NaN sentinels, wording) and all preserve existing call-site shape. Safe to launch Vast once the mount staleness resolves on the operator's next git pull / reboot.
+

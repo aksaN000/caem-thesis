@@ -1,4 +1,4 @@
-﻿"""
+"""
 scripts/check_base_model.py
 ===========================
 Standalone base-model accuracy check (zero-shot Flan-T5-Large).
@@ -314,7 +314,9 @@ def main(args: argparse.Namespace) -> None:
     _check_deps()
 
     import torch
-    from transformers import T5ForConditionalGeneration, T5Tokenizer
+    # Use AutoTokenizer → fast (Rust) tokenizer; T5Tokenizer was the slow
+    # Python implementation. Functionally identical for Flan-T5-Large.
+    from transformers import AutoTokenizer, T5ForConditionalGeneration
 
     # -- Device --------------------------------------------------------------
     if args.device == "auto":
@@ -347,7 +349,7 @@ def main(args: argparse.Namespace) -> None:
 
     model_name = args.model
     logger.info("Loading %s (dtype=%s) ...", model_name, dtype_str)
-    tokenizer = T5Tokenizer.from_pretrained(model_name)
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
     model = cast(Any, T5ForConditionalGeneration.from_pretrained(
         model_name,
         torch_dtype=model_dtype,
@@ -359,7 +361,8 @@ def main(args: argparse.Namespace) -> None:
 
     # -- Load benchmarks ------------------------------------------------------
     # Import loaders -- resolve path relative to repo root.
-    import sys, os
+    # sys is already imported at module top; os is not used here, so both
+    # were removed from the former `import sys, os` duplicate.
     repo_root = Path(__file__).resolve().parent.parent
     if str(repo_root) not in sys.path:
         sys.path.insert(0, str(repo_root))
@@ -435,7 +438,12 @@ def main(args: argparse.Namespace) -> None:
         "model":           model_name,
         "n_samples":       n,
         "device":          device,
-        "all_pass_p_gt_half": all_pass,
+        # Canonical key: `all_thresholds_passed` — generic enough to keep
+        # working if future checks add a second threshold (e.g. p > 0.7).
+        # `all_pass_p_gt_half` is retained for backward compatibility with
+        # existing consumers / notebooks.
+        "all_thresholds_passed": all_pass,
+        "all_pass_p_gt_half":    all_pass,
         "benchmarks":      {
             bm: {k: v for k, v in res.items() if k != "per_sample"}
             for bm, res in results.items()
