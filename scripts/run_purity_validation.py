@@ -731,10 +731,13 @@ def run_purity_validation(ns: argparse.Namespace) -> None:
         nli_model, nli_tokenizer = None, None
         try:
             from transformers import AutoModelForSequenceClassification
-            logger.info("Loading RoBERTa-Large-MNLI for purity verification ...")
-            nli_tokenizer = AutoTokenizer.from_pretrained("roberta-large-mnli")
+            logger.info(
+                "Loading NLI model (%s) for purity verification ...",
+                config.nli_model,
+            )
+            nli_tokenizer = AutoTokenizer.from_pretrained(config.nli_model)
             nli_model = AutoModelForSequenceClassification.from_pretrained(
-                "roberta-large-mnli"
+                config.nli_model
             ).to(profile.device)
             nli_model.eval()
         except Exception as exc:

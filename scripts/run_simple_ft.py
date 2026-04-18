@@ -490,10 +490,14 @@ def main() -> None:
 
     # Pre-cycle MMLU baseline (needed for retention ratio even if guard off,
     # because the RET axis of CES consumes it).
-    pre_mmlu = _mmlu_accuracy(
+    pristine_mmlu = _mmlu_accuracy(
         model, tokenizer, ns.device, n=ns.mmlu_n, seed=ns.seed,
     )
-    logger.info("Pre-cycle MMLU: %.4f", pre_mmlu)
+    logger.info("Pre-cycle MMLU: %.4f", pristine_mmlu)
+
+    # Keep a copy of pristine MMLU for retention ratio computation.
+    # pre_mmlu will be updated per-cycle but pristine_mmlu stays fixed.
+    pre_mmlu = pristine_mmlu
 
     train_pool = _load_train_pool(ns)
     per_cycle_pool_size = max(len(train_pool) // ns.num_cycles, ns.batch_size)
@@ -540,10 +544,10 @@ def main() -> None:
         post_mmlu = _mmlu_accuracy(
             model, tokenizer, ns.device, n=ns.mmlu_n, seed=ns.seed,
         )
-        if math.isnan(pre_mmlu) or math.isnan(post_mmlu) or pre_mmlu <= 1e-6:
+        if math.isnan(pristine_mmlu) or math.isnan(post_mmlu) or pristine_mmlu <= 1e-6:
             retention_ratio = 1.0
         else:
-            retention_ratio = post_mmlu / pre_mmlu
+            retention_ratio = post_mmlu / pristine_mmlu
 
         aborted = False
         if ns.use_mmlu_guard and retention_ratio < ns.forgetting_tolerance \
@@ -596,6 +600,7 @@ def main() -> None:
             "epochs": epochs_done,
             "final_train_loss": final_loss,
             "train_seconds": train_seconds,
+            "pristine_mmlu": pristine_mmlu,
             "pre_mmlu": pre_mmlu,
             "post_mmlu": post_mmlu,
             "retention_ratio": retention_ratio,
@@ -608,12 +613,4 @@ def main() -> None:
         with open(log_path, "a", encoding="utf-8") as f:
             f.write(json.dumps(log_entry) + "\n")
 
-        # Update pre_mmlu to post-cycle value (used as next cycle's anchor
-        # reference for retention ratio).
-        pre_mmlu = post_mmlu
-
-    logger.info("All %d cycles complete. Checkpoints: %s", ns.num_cycles, out_root)
-
-
-if __name__ == "__main__":
-    main()
+        # Update pre_mmlu to pos

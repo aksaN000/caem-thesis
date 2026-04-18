@@ -28,7 +28,7 @@ Full baseline across the seven-benchmark panel (vast.ai / A100):
         --output_dir outputs/baselines \\
         --benchmarks fever triviaqa natural_questions truthfulqa strategyqa arc_challenge \\
         --n_questions 500 \\
-        --passage_index outputs/wiki_passage_index
+        --passage_index data/passage_index
 
 Smoke test (CPU-only, tiny N):
 
@@ -121,13 +121,17 @@ def _parse_args() -> argparse.Namespace:
     )
     p.add_argument(
         "--dtype",
-        default="bfloat16",
-        choices=["float32", "float16", "bfloat16"],
-        help="Model weight dtype (bfloat16 matches CAEM full run on 4090/A100).",
+        default="auto",
+        choices=["auto", "float32", "float16", "bfloat16"],
+        help=(
+            "Model weight dtype. 'auto' (default) routes through "
+            "scripts/hardware.py so the baseline matches the CAEM full run "
+            "(bf16 on Ampere+, fp16 on older CUDA, fp32 on CPU)."
+        ),
     )
     p.add_argument(
         "--passage_index",
-        default="outputs/wiki_passage_index",
+        default="data/passage_index",
         help="Path to PassageStore.save() output; required for rag/cot_rag/flare.",
     )
     p.add_argument(
@@ -164,7 +168,19 @@ def _build_baseline(ns: argparse.Namespace):
         "float16": torch.float16,
         "bfloat16": torch.bfloat16,
     }
-    dtype = dtype_map[ns.dtype]
+    if ns.dtype == "auto":
+        # Consult hardware.py so baselines and the CAEM main run agree on
+        # precision. Hardcoding bf16 silently broke fp16-only GPUs.
+        from scripts.hardware import print_hardware_summary
+        hw = print_hardware_summary()
+        if hw.use_bf16:
+            dtype = torch.bfloat16
+        elif hw.use_fp16:
+            dtype = torch.float16
+        else:
+            dtype = torch.float32
+    else:
+        dtype = dtype_map[ns.dtype]
 
     from eval.baselines import (
         ZeroShotBaseline, CoTBaseline,

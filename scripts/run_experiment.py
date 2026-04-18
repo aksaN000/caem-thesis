@@ -168,30 +168,36 @@ def build_pipeline(config: Any, ns: Any, m: Dict[str, Any]) -> "CAEMPipeline":
     encoder = m["QueryEncoder"](model_name=config.sbert_model, device=device)
 
     # -- NLI model ---------------------------------------------------------- #
+    # Model name is driven by CAEMConfig.nli_model so all NLI call-sites
+    # (verifier, purity validation, ablation, cold-start) share one source
+    # of truth.  A silent fallback here would produce thesis-invalid numbers,
+    # so a load failure is fatal for non-smoke runs.
     nli_model, nli_tokenizer = None, None
     try:
         from transformers import AutoModelForSequenceClassification
-        logger.info("Loading RoBERTa-Large-MNLI ...")
-        nli_tokenizer = m["AutoTokenizer"].from_pretrained(
-            "roberta-large-mnli"
-        )
+        logger.info("Loading NLI model (%s) ...", config.nli_model)
+        nli_tokenizer = m["AutoTokenizer"].from_pretrained(config.nli_model)
         nli_model = AutoModelForSequenceClassification.from_pretrained(
-            "roberta-large-mnli"
+            config.nli_model
         ).to(device)
         nli_model.eval()
         logger.info("NLI model loaded.")
     except Exception as exc:
-        logger.error(
+        msg = (
             "NLI MODEL LOAD FAILED: %s\n"
-            "  >> The verifier will use p_entail=0.5 for ALL answers.\n"
+            "  >> The verifier would use p_entail=0.5 for ALL answers.\n"
             "  >> This makes entailment indistinguishable from contradiction.\n"
-            "  >> Memory quality and hallucination reduction results will be\n"
+            "  >> Memory quality and hallucination reduction results would be\n"
             "     SEVERELY DEGRADED and scientifically invalid.\n"
-            "  >> Do NOT use these results for the thesis.\n"
-            "  >> Fix: ensure 'roberta-large-mnli' is downloadable and\n"
-            "     HuggingFace cache has sufficient disk space (~1.4 GB).",
-            exc,
+            "  >> Fix: ensure '%s' is downloadable and HuggingFace cache\n"
+            "     has sufficient disk space (~1.4 GB)."
         )
+        if getattr(ns, "smoke_test", False):
+            logger.warning(msg, exc, config.nli_model)
+            logger.warning("  >> Smoke test mode: continuing without NLI.")
+        else:
+            logger.error(msg, exc, config.nli_model)
+            sys.exit(1)
 
     # -- Passage store (Wikipedia FAISS index) ------------------------------ #
     passage_store = None
@@ -523,7 +529,7 @@ def retroactive_reverification(pipeline, cycle: int, config) -> Dict:
     # verify_fn: (EpisodicEntry) -> UnifiedVerifierOutput
     # Uses the pipeline's verifier so re-verification benefits from the
     # updated model weights after this cycle's fine-tuning.
-    verify_fn = lambda e: pipeline.verifier.verify(e.question, e.answer)
+    verify_fn = pipeline.make_retroverify_fn()
 
     n_updated, n_removed = store.retroverify(
         verify_fn=verify_fn,

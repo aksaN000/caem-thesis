@@ -1,4 +1,4 @@
-﻿"""
+"""
 scripts/build_passage_index.py
 ==============================
 One-time offline script: build a Wikipedia passage corpus and encode it into
@@ -178,8 +178,8 @@ def _article_to_passages(article: dict, chunk_words: int = CHUNK_WORDS) -> List[
 def stream_passages(
     max_passages: int,
     chunk_words: int = CHUNK_WORDS,
-    dataset_name: str = "wikipedia",
-    dataset_config: str = "20220301.en",
+    dataset_name: str = "wikimedia/wikipedia",
+    dataset_config: str = "20231101.en",
 ) -> Iterator[str]:
     """Stream Wikipedia and yield individual passage strings.
 
@@ -329,8 +329,8 @@ def build_passage_index(
     sbert_model: str = "sentence-transformers/all-mpnet-base-v2",
     device: Optional[str] = None,
     resume: bool = False,
-    dataset_name: str = "wikipedia",
-    dataset_config: str = "20220301.en",
+    dataset_name: str = "wikimedia/wikipedia",
+    dataset_config: str = "20231101.en",
     index_type: str = "ivf_pq",
     nlist: int = 65_536,
     nprobe: int = 64,

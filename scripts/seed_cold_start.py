@@ -28,7 +28,17 @@ How it works
 1. Load training-split questions for each benchmark (never the eval split).
 2. Run the CAEM Tier 3 RAG path (model generation + verification).
    Verified answers are stored with u_stored derived from the verification
-   pipeline (same formula as in production: 0.5·NLI + 0.3·SC + 0.2·(1−SE)).
+   pipeline (same nine-signal / six-weight composite used in production:
+     u_stored = 0.30·p_ground_mean
+              + 0.15·p_ground_atomic
+              + 0.15·s_avg
+              + 0.10·(1 − h_norm)
+              + 0.15·u_internal
+              + 0.15·p_entail
+   where u_internal = 0.5·u_token + 0.5·(1 − u_dropout).  p_contra feeds the
+   decision tree as a separate veto rather than into the composite.  See
+   caem/verification/verifier.py and §4.4 of the thesis for the canonical
+   definition).
 3. Stop each benchmark when target_episodes verified episodes are collected
    OR when max_questions questions have been processed (whichever first).
 4. Save the populated memory store to outputs/cold_start_memory/ for later
@@ -52,8 +62,10 @@ Note on "human annotator" text in the thesis plan
 --------------------------------------------------
 The plan §4.5 says "human annotator verifies correctness against official
 ground truth" for cold-start seeding. This script replaces the manual
-annotation with the automated multi-layer verifier (NLI + SC + SE), which
-achieves 85–90% verification accuracy. State in Chapter 5:
+annotation with the automated nine-signal UnifiedVerifier (internal
+calibration + sample-set agreement + external grounding + NLI contradiction),
+which targets ~85–90% verification accuracy at the storage threshold. State
+in Chapter 5:
 "Cold-start seeding was performed using the automated verification pipeline
 (Section 4.4) rather than human annotation, for scalability. This is
 equivalent to the human-annotated approach since the automated verifier
@@ -214,34 +226,56 @@ def build_pipeline(config, device: str):
     from caem.retrieval.rag import PassageStore
     from caem.pipeline import CAEMPipeline
 
+    # Hardware-driven dtype so seeding matches the main experiment's precision
+    # policy (bf16 on Ampere+/5090, fp16 on older GPUs, fp32 on CPU).  Picking
+    # dtype locally would diverge from run_experiment.py and shift u_stored.
+    from scripts.hardware import print_hardware_summary
+    hw = print_hardware_summary()
+    if hw.use_bf16:
+        model_dtype = torch.bfloat16
+        dtype_str = "bf16"
+    elif hw.use_fp16:
+        model_dtype = torch.float16
+        dtype_str = "fp16"
+    else:
+        model_dtype = torch.float32
+        dtype_str = "fp32"
+
     # -- Flan-T5-Large --------------------------------------------------- #
-    logger.info("Loading Flan-T5-Large for seeding ...")
+    logger.info("Loading Flan-T5-Large for seeding (dtype=%s) ...", dtype_str)
     model_name = "google/flan-t5-large"
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     model = cast(Any, T5ForConditionalGeneration.from_pretrained(
         model_name,
-        torch_dtype=torch.float16 if device == "cuda" else torch.float32,
+        torch_dtype=model_dtype,
     )).to(device).eval()
     logger.info(
         "Flan-T5-Large loaded (%.0f M params, %s).",
         sum(p.numel() for p in model.parameters()) / 1e6,
-        "fp16" if device == "cuda" else "fp32",
+        dtype_str,
     )
 
     # -- SBERT encoder --------------------------------------------------- #
     encoder = QueryEncoder(model_name=config.sbert_model)
 
     # -- NLI model (optional -- improves verification quality) ----------- #
+    # Model name is driven by CAEMConfig.nli_model so seed_cold_start shares
+    # a single source of truth with the verifier and run_experiment.py.
     nli_model, nli_tokenizer = None, None
     try:
-        logger.info("Loading RoBERTa-Large-MNLI for verification ...")
-        nli_tokenizer = AutoTokenizer.from_pretrained("roberta-large-mnli")
+        logger.info("Loading NLI model (%s) for verification ...", config.nli_model)
+        nli_tokenizer = AutoTokenizer.from_pretrained(config.nli_model)
         nli_model = cast(Any, AutoModelForSequenceClassification.from_pretrained(
-            "roberta-large-mnli"
+            config.nli_model
         )).to(device).eval()
         logger.info("NLI model loaded.")
     except Exception as exc:
-        logger.warning("NLI load failed (%s) -- verification uses SC+SE only.", exc)
+        logger.warning(
+            "NLI load failed (%s) -- verification uses SC+SE only.  "
+            "Downstream u_stored will not include p_entail, so stored "
+            "episodes will have lower verifier confidence than production.",
+            exc,
+        )
 
     # -- Wikipedia passage index (optional) ----------------------------- #
     passage_store = None

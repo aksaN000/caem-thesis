@@ -299,14 +299,19 @@ def main(ns: argparse.Namespace) -> None:
         model_obj = model_obj.to(torch.float16)
     model_obj = model_obj.to(device).eval()
 
-    # Encoders and verifier deps (shared)
+    # Encoders and verifier deps (shared).  Use a baseline CAEMConfig so the
+    # NLI model name matches what the verifier, run_experiment, and
+    # run_purity_validation load.  Variants mutate a config copy downstream
+    # (variant.apply()), but NLI weights are shared and are loaded once here.
+    base_config = m["CAEMConfig"]()
     encoder = m["QueryEncoder"](
-        model_name="sentence-transformers/all-mpnet-base-v2", device=device,
+        model_name=base_config.sbert_model, device=device,
     )
     from transformers import AutoModelForSequenceClassification
-    nli_tokenizer = m["AutoTokenizer"].from_pretrained("roberta-large-mnli")
+    logger.info("Loading NLI model (%s) ...", base_config.nli_model)
+    nli_tokenizer = m["AutoTokenizer"].from_pretrained(base_config.nli_model)
     nli_model = AutoModelForSequenceClassification.from_pretrained(
-        "roberta-large-mnli"
+        base_config.nli_model
     ).to(device).eval()
 
     passage_store = None
@@ -395,7 +400,7 @@ def _build_argparser() -> argparse.ArgumentParser:
                    help="Path prefix for the EpisodicMemoryStore checkpoint.")
     p.add_argument("--model_checkpoint", type=str, default=None,
                    help="Optional fine-tuned model state_dict to load.")
-    p.add_argument("--passage_index", type=str, default="outputs/passage_index",
+    p.add_argument("--passage_index", type=str, default="data/passage_index",
                    help="Path to the Wikipedia passage FAISS index.")
     p.add_argument("--baseline_mmlu_json", type=str, default="outputs/mmlu_baseline.json",
                    help="Cycle-0 pristine MMLU JSON (for RET denominator).")

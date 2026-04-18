@@ -1,7 +1,7 @@
 ﻿"""
 scripts/check_base_model.py
 ===========================
-Gap 1 -- Standalone base-model accuracy check (zero-shot Flan-T5-Large).
+Standalone base-model accuracy check (zero-shot Flan-T5-Large).
 
 Purpose
 -------
@@ -330,12 +330,27 @@ def main(args: argparse.Namespace) -> None:
         )
 
     # -- Load model ----------------------------------------------------------
+    # Dtype is sourced from hardware.py so all scripts share one rule
+    # (bf16 on Ampere+, fp16 on older CUDA, fp32 on CPU). Hardcoding dtype
+    # caused drift between scripts and silently broke bf16-capable GPUs.
+    from scripts.hardware import print_hardware_summary
+    hw = print_hardware_summary()
+    if hw.use_bf16:
+        model_dtype = torch.bfloat16
+        dtype_str = "bf16"
+    elif hw.use_fp16:
+        model_dtype = torch.float16
+        dtype_str = "fp16"
+    else:
+        model_dtype = torch.float32
+        dtype_str = "fp32"
+
     model_name = args.model
-    logger.info("Loading %s ...", model_name)
+    logger.info("Loading %s (dtype=%s) ...", model_name, dtype_str)
     tokenizer = T5Tokenizer.from_pretrained(model_name)
     model = cast(Any, T5ForConditionalGeneration.from_pretrained(
         model_name,
-        torch_dtype=torch.float16 if device == "cuda" else torch.float32,
+        torch_dtype=model_dtype,
     ))
     model = cast(Any, model).to(torch.device(device))
     model.eval()
@@ -414,7 +429,7 @@ def main(args: argparse.Namespace) -> None:
     logger.info("  FEVER may be low in zero-shot mode because retrieval context is absent.")
     logger.info("  The purity theorem p is measured from Cycle 0 Tier 3 RAG, not from this script.")
     logger.info("  Compare these floors against Cycle 0/target-cycle pipeline results, not directly to theorem claims.")
-    logger.info("  Safe to proceed to Gap 2 (build_passage_index) and Gap 3 (seed_cold_start).")
+    logger.info("  Safe to proceed to build_passage_index.py and seed_cold_start.py.")
 
     summary = {
         "model":           model_name,
@@ -441,7 +456,7 @@ def main(args: argparse.Namespace) -> None:
 
 if __name__ == "__main__":
     p = argparse.ArgumentParser(
-        description="Gap 1 -- Zero-shot base model accuracy check (no CAEM).",
+        description="Zero-shot base model accuracy check (no CAEM pipeline).",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     p.add_argument(
