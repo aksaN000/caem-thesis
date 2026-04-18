@@ -241,6 +241,33 @@ Reporting both in addition to MMLU retention answers
 the per-benchmark-per-cycle drift question that MMLU retention (being
 a single scalar) cannot address.
 
+\paragraph{Metric scoring caveats (TruthfulQA, MMLU).}
+Two headline metrics in the panel are computed with deliberately
+simplified offline proxies rather than the leaderboard protocols, for
+reasons of reproducibility and compute cost. First, TruthfulQA is
+scored with ROUGE-L against the reference-answer list (threshold
+$0.15$; \cref{sec:benchmarks}), not with the GPT-judge fine-tuned on
+human truthful/informative labels used by Lin et
+al.~\cite{lin-etal-2022-truthfulqa}. The ROUGE-L proxy is deterministic
+and independent of paid API access, so \caem{}'s absolute TruthfulQA
+scores in \cref{tab:headline} are \emph{not directly comparable} to
+published GPT-judge TruthfulQA leaderboard numbers; only cycle-over-cycle
+deltas on the same proxy (e.g., ``\caem{} cycle 5 versus cycle 0'' on
+TruthfulQA) and the same-proxy \caem{}-versus-baseline comparisons in
+\cref{tab:sig-test} are valid. Second, MMLU is scored by constrained
+generation (argmax over the first letter A/B/C/D under a CoT prompt), not
+by log-likelihood ranking as in Hendrycks et
+al.~\cite{hendrycks2021measuring} and the \texttt{lm-eval-harness}
+convention. Generation-mode scoring typically runs three to eight points
+below log-likelihood scoring on the same model because it is sensitive
+to parsing failure; this choice is justified because the retention
+instrument in \cref{tab:continual} and the RET axis of the CES report a
+\emph{ratio} ($\rho$ = cycle-$n$ / cycle-$0$ on the same pipeline), not
+an absolute leaderboard number. Absolute MMLU accuracy in
+\cref{tab:headline} should therefore be read as a within-thesis
+calibration point and not compared directly to published MMLU
+accuracies.
+
 \paragraph{Unified efficacy (CAEM Efficacy Score).}
 Because a reviewer must read the seven tables above quickly, we report
 a single composite scalar -- the \emph{\caem{} Efficacy Score} (CES) --
@@ -277,18 +304,23 @@ with $B = 1000$ resamples. Both computations use the existing
 \texttt{eval/metrics.py}, which were written and tested before the
 experiment phase.
 
-Because \caem{} is compared against eight baselines across the
+Because \caem{} is compared against up to eight baselines across the
 six factual-QA benchmarks (MMLU is a retention control, not a
-baseline-comparison target), the raw test count is
+baseline-comparison target), the raw test count is at most
 $8 \times 6 = 48$ pairwise McNemar tests per cycle, and a naive
 $p < 0.05$ threshold would inflate the family-wise error rate to
 approximately $1 - 0.95^{48} \approx 0.91$. We therefore apply the
 Holm--Bonferroni step-down correction~\cite{holm1979simple} within
-each benchmark family: the eight per-baseline \caem{}-vs-baseline
+each benchmark family: the per-baseline \caem{}-vs-baseline
 $p$-values within a benchmark are sorted in ascending order, and
 the $k$-th smallest is compared against $0.05 / (m - k + 1)$ where
-$m = 8$ is the number of baselines (and hence the number of tests
-within each benchmark family). This
+$m$ is the number of baselines actually present in the
+\texttt{outputs/baselines/} directory at the time
+\texttt{scripts/baseline\_sig\_tests.py} is run (and hence the number
+of tests within each benchmark family). For Phase 1A, Plan A runs
+$m = 7$ inference + training baselines (B1--B5, B6, B7); the
+STaR ceiling reference (B8) is executed only if budget allows
+and, when absent, is not padded into the correction. This
 is uniformly more powerful than plain Bonferroni while preserving the
 family-wise error rate at $\alpha_{\text{fam}} = 0.05$, and is the
 accepted correction for structured pairwise-comparison panels of

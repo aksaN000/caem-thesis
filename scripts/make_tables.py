@@ -15,13 +15,15 @@ that contains::
     tab_grounding.csv    -- Table 5.4
     tab_purity.csv       -- Table 5.5
     tab_continual.csv    -- Table 5.6
-    tab_sig_test.csv     -- Table 5.7
+    tab_cycle_progression.csv -- within-CAEM cycle-over-cycle paired tests
+    tab_sig_test.csv     -- Table 5.7 CAEM-vs-baseline (produced by
+                             scripts/baseline_sig_tests.py, not this module)
 
 Output
 ------
 Alongside each input CSV we write the corresponding .tex snippet::
 
-    tab_headline.tex, tab_calibration.tex, ..., tab_sig_test.tex
+    tab_headline.tex, tab_calibration.tex, ..., tab_cycle_progression.tex
 
 and a combined ``ch5_tables.tex`` file that ``\\input{}``s all seven
 snippets in order. Use ``\\input{tab_headline}`` in the thesis chapter
@@ -130,14 +132,16 @@ TABLE_META: Dict[str, Dict[str, str]] = {
         ),
         "label": "tab:ch5-continual",
     },
-    "sig_test": {
+    "cycle_progression": {
         "caption": (
-            "Paired statistical tests for each (benchmark, cycle) versus cycle~0. "
-            "CI is a 1000-bootstrap 95\\% interval on the EM delta; McNemar's test "
-            "is evaluated with continuity correction on the paired correctness "
-            "vectors."
+            "Within-CAEM cycle-over-cycle paired tests: each (benchmark, cycle) "
+            "versus cycle~0. CI is a 1000-bootstrap 95\\% interval on the EM delta; "
+            "McNemar's test is evaluated with Edwards continuity correction on the "
+            "paired correctness vectors. Not to be confused with the CAEM-vs-baseline "
+            "Table~\\ref{tab:sig-test}, which is produced by "
+            "\\texttt{scripts/baseline\\_sig\\_tests.py} as \\texttt{tab\\_sig\\_test.csv}."
         ),
-        "label": "tab:ch5-sig-test",
+        "label": "tab:ch5-cycle-progression",
     },
 }
 

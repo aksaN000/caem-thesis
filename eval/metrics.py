@@ -338,15 +338,24 @@ def extract_strategyqa_label(text: str) -> str:
 
 def extract_arc_label(text: str) -> str:
     """Extract an ARC-Challenge answer choice (A-D or 1-4) from free-form output.
-    
-    Looks for the first isolated multiple-choice letter or number in the output.
+
+    Letter first, digit fallback: a combined ``[A-Da-d1-4]`` regex misfires on
+    numbered CoT rationales like "1. Photosynthesis ... 2. The answer is B.",
+    where the regex locks onto the list bullet ``1`` before reaching ``B`` and
+    silently scores the sample wrong. We therefore search for an isolated
+    letter first, then only fall back to a digit match (1-4 → A-D) when no
+    letter is present.
     """
-    # Try looking at the CoT 'Answer:' portion primarily
     cot_final = extract_cot_answer(text).strip()
-    match = re.search(r"\b([A-Da-d1-4])\b", cot_final)
-    if match:
-        return match.group(1).upper()
-        
+
+    letter_match = re.search(r"\b([A-Da-d])\b", cot_final)
+    if letter_match:
+        return letter_match.group(1).upper()
+
+    digit_match = re.search(r"\b([1-4])\b", cot_final)
+    if digit_match:
+        return {"1": "A", "2": "B", "3": "C", "4": "D"}[digit_match.group(1)]
+
     return ""
 
 

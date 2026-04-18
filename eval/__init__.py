@@ -29,8 +29,8 @@ Quick start
 >>> # Smoke test (no dataset download needed)
 >>> result = harness.smoke_test("fever", n=5)
 >>>
->>> # Real evaluation (paper_dev = data-leakage-safe FEVER eval split)
->>> samples = load_benchmark("fever", n=500, split="paper_dev")
+>>> # Real evaluation (dev = data-leakage-safe FEVER eval split, renamed from paper_dev)
+>>> samples = load_benchmark("fever", n=500, split="dev")
 >>> result = harness.run("fever", samples, cycle=0)
 >>> result["em"], result["f1"]
 """

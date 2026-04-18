@@ -146,6 +146,18 @@ def _parse_args() -> argparse.Namespace:
                    help="Max new tokens when generating rationales.")
     p.add_argument("--rationalise_batch_size", type=int, default=8,
                    help="Batch size for the rationalisation generation pass.")
+    p.add_argument("--caem_splits_path", default="",
+                   help=(
+                       "Optional path to the CAEM main-run's "
+                       "dataset_splits.json (e.g. "
+                       "outputs/full_run/dataset_splits.json). When supplied, "
+                       "the per-cycle EVAL pool is filtered to the exact "
+                       "eval_ids CAEM used, guaranteeing the sig-test paired "
+                       "overlap is the full eval slice. The TRAINING pool is "
+                       "NOT filtered -- training data draws from the full "
+                       "train split independently. Empty string disables "
+                       "the filter (smoke runs)."
+                   ))
     return p.parse_args()
 
 
@@ -153,19 +165,51 @@ def _parse_args() -> argparse.Namespace:
 # Training-data assembly                                                        #
 # -----------------------------------------------------------------------------
 
-def _load_train_pool(ns: argparse.Namespace) -> List:
-    """Load raw (question, answer) pairs from each training benchmark."""
+def _q_hash(text: str) -> str:
+    """Stable 16-hex-char sha256 prefix of a trimmed question string.
+
+    Used by the train/eval disjointness guard to compare pools by question
+    TEXT rather than by sample id. Comparing by id is fragile: some HF
+    datasets (notably nq_open) use numeric `question_id` values that happen
+    to collide across splits even though the underlying questions are
+    distinct -- which would cause the guard to raise a false-positive
+    RuntimeError. Hashing the question string is immune to this.
+    """
+    import hashlib
+    return hashlib.sha256(text.strip().encode("utf-8")).hexdigest()[:16]
+
+
+def _load_train_pool(
+    ns: argparse.Namespace,
+) -> Tuple[List, Dict[str, set]]:
+    """Load raw (question, answer) pairs from each training benchmark.
+
+    Always pulls from ``split="train"`` -- the previous FEVER-only special
+    case silently pulled TriviaQA and NQ from their ``validation`` splits,
+    which are the same splits the per-cycle eval loop measures on. The
+    train/eval disjointness invariant asserted by the caller assumes all
+    training benchmarks are loaded from their dedicated train splits.
+
+    Returns
+    -------
+    (pool, train_qhashes_by_benchmark)
+        pool: shuffled flat list of QAPair instances.
+        train_qhashes_by_benchmark: {benchmark: set(question_hash)} used by
+            the caller to assert train/eval disjointness by question TEXT
+            (not by id) against the eval pool loaded at cycle-0 startup.
+    """
     from caem.training.self_improvement import QAPair
     from eval.benchmarks import load_benchmark
 
     pool: List[QAPair] = []
+    train_qhashes_by_bm: Dict[str, set] = {}
     for bench in ns.train_benchmarks:
         n = ns.n_train_per_bench
-        logger.info("Loading %d train samples from %s ...", n, bench)
-        if bench == "fever":
-            samples = load_benchmark(bench, n=n, split="train")
-        else:
-            samples = load_benchmark(bench, n=n)
+        logger.info("Loading %d train-split samples from %s ...", n, bench)
+        samples = load_benchmark(bench, n=n, split="train")
+        train_qhashes_by_bm[bench] = {_q_hash(s["question"])
+                                      for s in samples
+                                      if s.get("question")}
         for s in samples:
             answer = s["answers"][0] if s.get("answers") else ""
             if s["question"] and answer:
@@ -173,7 +217,7 @@ def _load_train_pool(ns: argparse.Namespace) -> List:
     random.Random(ns.seed).shuffle(pool)
     logger.info("Total training pool: %d pairs across %d benchmarks.",
                 len(pool), len(ns.train_benchmarks))
-    return pool
+    return pool, train_qhashes_by_bm
 
 
 # -----------------------------------------------------------------------------
@@ -551,6 +595,30 @@ def main() -> None:
     eval_root.mkdir(parents=True, exist_ok=True)
     log_path = out_root / "training_log.jsonl"
 
+    # Optional CAEM-split filter for the EVAL pool only (NOT training).
+    # Mirrors run_purity_validation.py::load_and_filter so B6/B7 evaluate on
+    # the exact eval_ids CAEM used, guaranteeing 1:1 sig-test pairing.
+    eval_ids_by_bm: Dict[str, set] = {}
+    if ns.caem_splits_path:
+        import json as _json
+        splits_path = Path(ns.caem_splits_path)
+        if splits_path.is_file():
+            try:
+                with splits_path.open("r", encoding="utf-8") as f:
+                    splits = _json.load(f)
+                for bm, meta in splits.items():
+                    if isinstance(meta, dict):
+                        eval_ids_by_bm[bm] = {str(i) for i
+                                              in meta.get("eval_ids", [])}
+                logger.info("Loaded eval_ids from %s for %d benchmarks.",
+                            splits_path, len(eval_ids_by_bm))
+            except Exception as exc:
+                logger.warning("Failed to parse %s (%s). Proceeding without "
+                               "eval_id filter.", splits_path, exc)
+        else:
+            logger.warning("--caem_splits_path %s not found. Proceeding "
+                           "without eval_id filter.", splits_path)
+
     logger.info("Loading %s ...", ns.model_name)
     tokenizer = AutoTokenizer.from_pretrained(ns.model_name)
     model = T5ForConditionalGeneration.from_pretrained(
@@ -568,8 +636,81 @@ def main() -> None:
     # pre_mmlu will be updated per-cycle but pristine_mmlu stays fixed.
     pre_mmlu = pristine_mmlu
 
-    train_pool = _load_train_pool(ns)
+    train_pool, train_qhashes_by_bm = _load_train_pool(ns)
     per_cycle_pool_size = max(len(train_pool) // ns.num_cycles, ns.batch_size)
+
+    # -- Mandatory train/eval disjointness invariant ---------------------- #
+    # Guards against a loader-default change silently re-introducing the
+    # train/eval leak that the split="train" fix just closed. Compares
+    # the training-pool question TEXT (sha256 prefix) against the question
+    # text of the eval slice CAEM used. Comparing by question text (not by
+    # id) is immune to the fact that some HF datasets (notably nq_open) use
+    # numeric question_id values that collide across train/val splits even
+    # though the underlying questions are distinct.
+    #
+    # Raises RuntimeError (NOT assert -- survives `python -O`). Skipped
+    # only when --caem_splits_path is empty or absent; the skip path logs
+    # loudly so it's visible in the run log.
+    _EVAL_SPLIT_MAP = {
+        "fever": "dev",
+        "triviaqa": "validation",
+        "natural_questions": "validation",
+        "strategyqa": "test",
+        "arc_challenge": "test",
+        # truthfulqa: no split kwarg needed; load_benchmark dispatch returns
+        # the validation pool by default and truthfulqa isn't in the ID
+        # training set anyway, so this benchmark won't hit the guard.
+    }
+    if eval_ids_by_bm:
+        for bm, train_hashes in train_qhashes_by_bm.items():
+            e_ids = eval_ids_by_bm.get(bm)
+            if not e_ids:
+                logger.info(
+                    "train/eval disjointness check: SKIPPED for %s "
+                    "(benchmark not in dataset_splits.json eval_ids).", bm)
+                continue
+            eval_split = _EVAL_SPLIT_MAP.get(bm)
+            if eval_split:
+                eval_samples = load_benchmark(bm, n=ns.n_eval_per_bench,
+                                              split=eval_split)
+            else:
+                eval_samples = load_benchmark(bm, n=ns.n_eval_per_bench)
+            # Restrict to CAEM's exact eval ids where possible; if the
+            # filter leaves the set empty, fall back to the unfiltered pool
+            # so the invariant still fires (but log the degradation).
+            filtered = [s for i, s in enumerate(eval_samples)
+                        if str(s.get("id", i)) in e_ids]
+            if not filtered:
+                logger.warning(
+                    "train/eval disjointness check: %s filtered to 0 "
+                    "samples via eval_ids; falling back to unfiltered "
+                    "eval pool for the check.", bm)
+                filtered = eval_samples
+            eval_hashes = {_q_hash(s["question"])
+                           for s in filtered
+                           if s.get("question")}
+            overlap = train_hashes & eval_hashes
+            if overlap:
+                raise RuntimeError(
+                    f"train/eval LEAKAGE detected for {bm}: "
+                    f"{len(overlap)} question-text hashes appear in both "
+                    f"the training pool (split='train', "
+                    f"n_train_qhashes={len(train_hashes)}) and the eval "
+                    f"pool (n_eval_qhashes={len(eval_hashes)}). This "
+                    f"indicates a loader regression re-introducing the "
+                    f"bug closed by the split='train' fix. Refusing to "
+                    f"proceed to cycle 1."
+                )
+            logger.info(
+                "train/eval disjoint verified: %s N_train_q=%d N_eval_q=%d "
+                "overlap=0.", bm, len(train_hashes), len(eval_hashes))
+    else:
+        logger.warning(
+            "train/eval disjointness check: SKIPPED entirely -- no "
+            "--caem_splits_path provided or dataset_splits.json missing. "
+            "This is acceptable ONLY for smoke runs where the CAEM main "
+            "run has not written its splits file yet. Phase 1A real runs "
+            "MUST pass --caem_splits_path so this invariant fires.")
 
     for cycle in range(1, ns.num_cycles + 1):
         if cycle <= ns.resume_from_cycle:
@@ -680,9 +821,25 @@ def main() -> None:
         for bench in ns.eval_benchmarks:
             if bench == "fever":
                 samples = load_benchmark(bench, n=ns.n_eval_per_bench,
-                                         split="paper_dev")
+                                         split="dev")
             else:
                 samples = load_benchmark(bench, n=ns.n_eval_per_bench)
+            allowed = eval_ids_by_bm.get(bench)
+            if allowed:
+                before = len(samples)
+                samples = [s for i, s in enumerate(samples)
+                           if str(s.get("id", i)) in allowed]
+                logger.info("eval_id filter: %s kept %d / %d samples (cycle %d).",
+                            bench, len(samples), before, cycle)
+                if not samples:
+                    logger.warning("eval_id filter left 0 samples for %s; "
+                                   "reloading unfiltered slice to avoid "
+                                   "empty-eval crash.", bench)
+                    if bench == "fever":
+                        samples = load_benchmark(bench, n=ns.n_eval_per_bench,
+                                                 split="dev")
+                    else:
+                        samples = load_benchmark(bench, n=ns.n_eval_per_bench)
             harness.run(benchmark=bench, samples=samples, cycle=cycle,
                         store_to_memory=False)
 

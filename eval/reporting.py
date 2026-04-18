@@ -32,9 +32,18 @@ Seven-table layout (Chapter 5 §5.1 preface)
 * ``tab_purity.csv``      -- Table 5.5  decision breakdown, mean u_stored
 * ``tab_continual.csv``   -- Table 5.6  MMLU retention, forgetting,
                                          BWT / FWT when >=2 cycles
-* ``tab_sig_test.csv``    -- Table 5.7  bootstrap CIs & McNemar p-values
+* ``tab_cycle_progression.csv`` -- within-CAEM cycle-over-cycle
+                                         bootstrap CIs & McNemar p-values
                                          for the (cycle N vs cycle 0)
-                                         EM comparison
+                                         EM comparison. NOT to be confused
+                                         with ``tab_sig_test.csv`` below.
+
+The CAEM-vs-baseline significance table that chapter_5.tex references as
+``\\ref{tab:sig-test}`` (CAEM vs each B1-B8 baseline, Holm-corrected
+per-benchmark family with dagger/star markers) is produced by a separate
+script ``scripts/baseline_sig_tests.py`` and lands as ``tab_sig_test.csv``
+alongside the files above. That script runs post-baselines in the Plan A
+runner; this module only covers the within-CAEM tables.
 
 Rectangular flat file
 ---------------------
@@ -690,11 +699,16 @@ def build_table_continual(cycles_data, mmlu_per_cycle=None) -> Tuple[List[str], 
 
 
 # -----------------------------------------------------------------------------
-# Table 5.7 -- Statistical Significance (cycle N vs. cycle 0)
+# Within-CAEM cycle-over-cycle progression (cycle N vs. cycle 0)
 # -----------------------------------------------------------------------------
 
-def build_table_sig_test(cycles_data) -> Tuple[List[str], List[Dict[str, Any]]]:
-    """Chapter 5 Table 5.7: bootstrap CI + McNemar p-value per benchmark.
+def build_table_cycle_progression(cycles_data) -> Tuple[List[str], List[Dict[str, Any]]]:
+    """Within-CAEM cycle-over-cycle progression: bootstrap CI + McNemar per benchmark.
+
+    Not to be confused with chapter_5.tex \\ref{tab:sig-test}, which compares
+    CAEM against each external baseline (B1-B8) and is produced by
+    scripts/baseline_sig_tests.py. This function answers a different question:
+    does CAEM's cycle-N improve over its own cycle-0 on each benchmark?
 
     For each benchmark and each cycle >= 1, compare to cycle 0:
       * Bootstrap 95% CI on the EM difference (cycle_n - cycle_0).
@@ -768,13 +782,17 @@ def build_table_sig_test(cycles_data) -> Tuple[List[str], List[Dict[str, Any]]]:
 # imports this constant so the LaTeX generator stays aligned with the
 # data writer even if the table IDs are renamed.
 TABLE_FILES = {
-    "headline":    "tab_headline.csv",
-    "calibration": "tab_calibration.csv",
-    "halluc":      "tab_halluc.csv",
-    "grounding":   "tab_grounding.csv",
-    "purity":      "tab_purity.csv",
-    "continual":   "tab_continual.csv",
-    "sig_test":    "tab_sig_test.csv",
+    "headline":          "tab_headline.csv",
+    "calibration":       "tab_calibration.csv",
+    "halluc":            "tab_halluc.csv",
+    "grounding":         "tab_grounding.csv",
+    "purity":            "tab_purity.csv",
+    "continual":         "tab_continual.csv",
+    # Within-CAEM cycle-over-cycle progression (cycle N vs. cycle 0). The
+    # CAEM-vs-baseline significance table (chapter_5.tex \ref{tab:sig-test})
+    # is produced separately by scripts/baseline_sig_tests.py and lands as
+    # tab_sig_test.csv alongside these files.
+    "cycle_progression": "tab_cycle_progression.csv",
 }
 
 
@@ -786,7 +804,7 @@ def build_ch5_tables(
 
     Reads every ``{bm}_cycle{c}.json`` under ``output_dir``, emits:
       * ``per_sample_signals.jsonl``  -- one record per sample, flat.
-      * ``tab_{headline,calibration,halluc,grounding,purity,continual,sig_test}.csv``
+      * ``tab_{headline,calibration,halluc,grounding,purity,continual,cycle_progression}.csv``
 
     Parameters
     ----------
@@ -823,7 +841,7 @@ def build_ch5_tables(
         "grounding":   lambda: build_table_grounding(cycles_data),
         "purity":      lambda: build_table_purity(cycles_data),
         "continual":   lambda: build_table_continual(cycles_data, mmlu_per_cycle),
-        "sig_test":    lambda: build_table_sig_test(cycles_data),
+        "cycle_progression": lambda: build_table_cycle_progression(cycles_data),
     }
 
     manifest: Dict[str, Path] = {"jsonl": jsonl_path}
@@ -854,6 +872,6 @@ __all__ = [
     "build_table_grounding",
     "build_table_purity",
     "build_table_continual",
-    "build_table_sig_test",
+    "build_table_cycle_progression",
     "build_ch5_tables",
 ]

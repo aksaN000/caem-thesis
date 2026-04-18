@@ -151,7 +151,7 @@ _FEVER_LABEL_MAP = {
 
 
 def load_fever(
-    split: str = "paper_dev",
+    split: str = "dev",
     n: Optional[int] = None,
     seed: int = 42,
     exclude_nei: bool = False,
@@ -166,8 +166,10 @@ def load_fever(
     dataset script (fever.py) which is no longer supported by the current
     HuggingFace datasets library (raises RuntimeError at load time).
     We use 'lucadiliello/fever' which is a Parquet-based mirror of the same
-    FEVER dataset with identical content. Splits: 'train', 'paper_dev', 'paper_test'.
-    We use 'paper_dev' (~19,998 samples) = the original FEVER paper evaluation split.
+    FEVER dataset with identical content. Splits (as of 2026): 'train', 'dev', 'test'.
+    We use 'dev' (~19,998 samples) = the original FEVER paper evaluation split.
+    (Historical note: this split was named 'paper_dev' before HuggingFace's
+    lucadiliello/fever dataset was renamed; the content is unchanged.)
     Label schema per dataset card: integer {0: supports, 1: not enough info, 2: refutes}.
 
     Constrained prompt design: the prompt explicitly enumerates the three
@@ -179,9 +181,9 @@ def load_fever(
     Parameters
     ----------
     split : str
-        "paper_dev" (~19,998 samples, default -- standard eval split) or
+        "dev" (~19,998 samples, default -- standard eval split) or
         "train" (145K samples, for SIL pool) or "paper_test" (unlabeled).
-        Use "paper_dev" for all evaluation to avoid data leakage from train.
+        Use "dev" for all evaluation to avoid data leakage from train.
     n : int or None
     seed : int
     exclude_nei : bool
@@ -207,9 +209,9 @@ def load_fever(
         row = cast(Dict[str, Any], row)
         # Default sentinel is None (not 2 = "refutes"): silently treating a
         # missing FEVER label as "refutes" would fabricate a false refutation
-        # signal. In practice the `lucadiliello/fever` train/paper_dev splits
+        # signal. In practice the `lucadiliello/fever` train/dev splits
         # always provide a `label`, but `paper_test` is unlabeled -- anyone
-        # calling load_fever(split="paper_test") would otherwise receive a
+        # calling load_fever(split="test") would otherwise receive a
         # dataset where every sample is marked REFUTES. Rows without a label
         # are skipped instead.
         raw_label = row.get("label", None)

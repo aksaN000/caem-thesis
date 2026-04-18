@@ -286,7 +286,7 @@ def load_eval_transfer_pool(ns: argparse.Namespace, m: Dict[str, Any]) -> Dict[s
     samples = {}
     benchmarks = [bm.strip().lower() for bm in ns.benchmarks]
     split_map = {
-        "fever": "paper_dev",        # lucadiliello/fever eval split (data-leakage safe)
+        "fever": "dev",              # lucadiliello/fever eval split (data-leakage safe; renamed from paper_dev)
         "triviaqa": "validation",
         "natural_questions": "validation",
         "strategyqa": "test",

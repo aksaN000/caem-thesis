@@ -702,10 +702,15 @@ tmux new-session -s b1
 python -m scripts.run_baseline \
     --baseline zero_shot \
     --benchmarks fever triviaqa natural_questions truthfulqa strategyqa arc_challenge \
-    --n_questions 500 \
+    --n_questions 5000 \
     --output_dir outputs/baselines \
     2>&1 | tee outputs/baselines/B1_zero_shot.log
 ```
+
+> **n=5000 rationale (2026-04-18 session):** all B1–B7 baselines run at n=5000
+> to match CAEM's `load_eval_transfer_pool` n, so the CAEM-vs-baseline McNemar
+> test in `scripts/baseline_sig_tests.py` has ~500–5000 paired-sample power per
+> benchmark (limited only by pool size for small benchmarks). Phase 1A decision.
 
 9.2 **[VERIFY]**
 
@@ -733,7 +738,7 @@ prompt or loader bug.
 python -m scripts.run_baseline \
     --baseline cot \
     --benchmarks fever triviaqa natural_questions truthfulqa strategyqa arc_challenge \
-    --n_questions 500 \
+    --n_questions 5000 \
     --output_dir outputs/baselines \
     2>&1 | tee outputs/baselines/B2_cot.log
 ```
@@ -753,7 +758,7 @@ python -m scripts.run_baseline \
 python -m scripts.run_baseline \
     --baseline rag \
     --benchmarks fever triviaqa natural_questions truthfulqa strategyqa arc_challenge \
-    --n_questions 500 \
+    --n_questions 5000 \
     --passage_index data/passage_index \
     --output_dir outputs/baselines \
     2>&1 | tee outputs/baselines/B3_rag.log
@@ -773,7 +778,7 @@ python -m scripts.run_baseline \
 python -m scripts.run_baseline \
     --baseline cot_rag \
     --benchmarks fever triviaqa natural_questions truthfulqa strategyqa arc_challenge \
-    --n_questions 500 \
+    --n_questions 5000 \
     --passage_index data/passage_index \
     --output_dir outputs/baselines \
     2>&1 | tee outputs/baselines/B4_cot_rag.log
@@ -794,7 +799,7 @@ smoke test passed.
 python -m scripts.run_baseline \
     --baseline flare \
     --benchmarks fever triviaqa natural_questions truthfulqa strategyqa arc_challenge \
-    --n_questions 500 \
+    --n_questions 5000 \
     --passage_index data/passage_index \
     --flare_theta 0.4 \
     --flare_look_ahead 64 \
@@ -820,9 +825,9 @@ tmux new-session -s b6
 python -m scripts.run_simple_ft \
     --baseline_name vanilla_ft \
     --num_cycles 10 \
-    --passage_index data/passage_index \
-    --benchmarks fever triviaqa natural_questions truthfulqa strategyqa arc_challenge \
-    --n_questions 500 \
+    --eval_benchmarks fever triviaqa natural_questions truthfulqa strategyqa arc_challenge \
+    --n_eval_per_bench 5000 \
+    --n_train_per_bench 4000 \
     --output_dir outputs/baselines/vanilla_ft \
     2>&1 | tee outputs/baselines/B6_vanilla_ft.log
 ```
@@ -852,9 +857,9 @@ python -m scripts.run_simple_ft \
     --use_l2_anchor \
     --use_mmlu_guard \
     --num_cycles 10 \
-    --passage_index data/passage_index \
-    --benchmarks fever triviaqa natural_questions truthfulqa strategyqa arc_challenge \
-    --n_questions 500 \
+    --eval_benchmarks fever triviaqa natural_questions truthfulqa strategyqa arc_challenge \
+    --n_eval_per_bench 5000 \
+    --n_train_per_bench 4000 \
     --output_dir outputs/baselines/ewc_only_ft \
     2>&1 | tee outputs/baselines/B7_ewc_only_ft.log
 ```

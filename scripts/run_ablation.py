@@ -148,7 +148,7 @@ def _load_eval_samples(ns: argparse.Namespace, m: Dict[str, Any]) -> Dict[str, l
         }
 
     split_map = {
-        "fever": "paper_dev",
+        "fever": "dev",
         "triviaqa": "validation",
         "natural_questions": "validation",
         "strategyqa": "test",

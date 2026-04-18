@@ -106,8 +106,9 @@ def _parse_args() -> argparse.Namespace:
     )
     p.add_argument(
         "--split",
-        default="paper_dev",
-        help="Benchmark split (paper_dev is data-leakage-safe for FEVER).",
+        default="dev",
+        help="Benchmark split (dev is data-leakage-safe for FEVER; "
+             "renamed from paper_dev on HuggingFace).",
     )
     p.add_argument(
         "--model_name",
@@ -161,6 +162,19 @@ def _parse_args() -> argparse.Namespace:
             "at main() entry so baseline runs are reproducible under the "
             "same --n_questions / --split / --model_name. Default 42 matches "
             "run_experiment.py."
+        ),
+    )
+    p.add_argument(
+        "--caem_splits_path",
+        default="",
+        help=(
+            "Optional path to the CAEM main-run's dataset_splits.json "
+            "(e.g. outputs/full_run/dataset_splits.json). When supplied, "
+            "the baseline's per-benchmark sample list is filtered to the "
+            "exact eval_ids CAEM used, guaranteeing the sig-test paired "
+            "overlap is the full eval slice regardless of load_benchmark "
+            "determinism. Mirrors the pattern in run_purity_validation.py. "
+            "Empty string disables filtering (smoke runs)."
         ),
     )
     return p.parse_args()
@@ -270,12 +284,37 @@ def main() -> None:
     _seed_everything(ns.seed)
     logger.info("Seeded all RNGs with seed=%d", ns.seed)
 
+    import json as _json
     from eval.benchmarks import load_benchmark
     from eval.harness import EvalHarness
 
     output_dir = Path(ns.output_dir) / ns.baseline
     output_dir.mkdir(parents=True, exist_ok=True)
     logger.info("Writing baseline results to %s", output_dir)
+
+    # Optional CAEM-split filter (belt-and-suspenders for sig-test pairing).
+    # When --caem_splits_path is set AND the file exists, we restrict each
+    # loaded benchmark's samples to the eval_ids CAEM actually evaluated on.
+    # Same pattern as run_purity_validation.py::load_and_filter.
+    eval_ids_by_bm: Dict[str, set] = {}
+    if ns.caem_splits_path:
+        splits_path = Path(ns.caem_splits_path)
+        if splits_path.is_file():
+            try:
+                with splits_path.open("r", encoding="utf-8") as f:
+                    splits = _json.load(f)
+                for bm, meta in splits.items():
+                    if isinstance(meta, dict):
+                        eval_ids_by_bm[bm] = {str(i) for i
+                                              in meta.get("eval_ids", [])}
+                logger.info("Loaded eval_ids from %s for %d benchmarks.",
+                            splits_path, len(eval_ids_by_bm))
+            except Exception as exc:
+                logger.warning("Failed to parse %s (%s). Proceeding without "
+                               "eval_id filter.", splits_path, exc)
+        else:
+            logger.warning("--caem_splits_path %s not found. Proceeding "
+                           "without eval_id filter.", splits_path)
 
     baseline = _build_baseline(ns)
 
@@ -292,12 +331,29 @@ def main() -> None:
         logger.info("BASELINE=%s | BENCHMARK=%s | N=%d",
                     ns.baseline, bench, ns.n_questions)
         logger.info("=" * 72)
-        # FEVER is the only benchmark with a paper_dev split; others fall
+        # FEVER is the only benchmark with a dedicated dev split; others fall
         # back to the default split that load_benchmark picks for that task.
         if bench == "fever":
             samples = load_benchmark(bench, n=ns.n_questions, split=ns.split)
         else:
             samples = load_benchmark(bench, n=ns.n_questions)
+        # Filter to CAEM's exact eval slice when splits file was loaded.
+        allowed = eval_ids_by_bm.get(bench)
+        if allowed:
+            before = len(samples)
+            samples = [s for i, s in enumerate(samples)
+                       if str(s.get("id", i)) in allowed]
+            logger.info("eval_id filter: %s kept %d / %d samples.",
+                        bench, len(samples), before)
+            if not samples:
+                logger.warning("eval_id filter left 0 samples for %s; falling "
+                               "back to the unfiltered load_benchmark slice.",
+                               bench)
+                if bench == "fever":
+                    samples = load_benchmark(bench, n=ns.n_questions,
+                                             split=ns.split)
+                else:
+                    samples = load_benchmark(bench, n=ns.n_questions)
         agg = harness.run(benchmark=bench, samples=samples, cycle=0,
                           store_to_memory=False)
         summaries[bench] = {

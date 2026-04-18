@@ -35,6 +35,14 @@ ls -lh data/passage_index/ || true
 
 BENCH="fever triviaqa natural_questions truthfulqa strategyqa arc_challenge"
 
+# Path to CAEM main-run's dataset_splits.json. Baselines read this to filter
+# their per-benchmark sample slice to the exact eval_ids CAEM used,
+# guaranteeing 1:1 sig-test pairing regardless of load_benchmark determinism.
+# The file is written by run_experiment.py during Step 7, so it exists before
+# Steps 9-15 run. If Step 7 fails to write it, the baseline scripts log a
+# warning and fall back to the un-filtered load_benchmark slice.
+CAEM_SPLITS=/workspace/caem/outputs/full_run/dataset_splits.json
+
 ############################################
 # Step 5 — smoke test (HARD GATE)
 ############################################
@@ -182,50 +190,55 @@ fi
 ############################################
 # Steps 9-13 — B1-B5 inference baselines (soft fail)
 ############################################
-say "Step 9 — B1 zero-shot"
+say "Step 9 — B1 zero-shot (n=5000, eval_ids filter via dataset_splits.json)"
 python -m scripts.run_baseline \
     --baseline zero_shot \
     --benchmarks $BENCH \
-    --n_questions 500 \
+    --n_questions 5000 \
     --output_dir outputs/baselines \
+    --caem_splits_path "$CAEM_SPLITS" \
     2>&1 | tee outputs/baselines/B1_zero_shot.log || say "B1 failed; continuing"
 
-say "Step 10 — B2 chain-of-thought"
+say "Step 10 — B2 chain-of-thought (n=5000, eval_ids filter)"
 python -m scripts.run_baseline \
     --baseline cot \
     --benchmarks $BENCH \
-    --n_questions 500 \
+    --n_questions 5000 \
     --output_dir outputs/baselines \
+    --caem_splits_path "$CAEM_SPLITS" \
     2>&1 | tee outputs/baselines/B2_cot.log || say "B2 failed; continuing"
 
-say "Step 11 — B3 DPR-RAG"
+say "Step 11 — B3 DPR-RAG (n=5000, eval_ids filter)"
 python -m scripts.run_baseline \
     --baseline rag \
     --benchmarks $BENCH \
-    --n_questions 500 \
+    --n_questions 5000 \
     --passage_index data/passage_index \
     --output_dir outputs/baselines \
+    --caem_splits_path "$CAEM_SPLITS" \
     2>&1 | tee outputs/baselines/B3_rag.log || say "B3 failed; continuing"
 
-say "Step 12 — B4 CoT + RAG"
+say "Step 12 — B4 CoT + RAG (n=5000, eval_ids filter)"
 python -m scripts.run_baseline \
     --baseline cot_rag \
     --benchmarks $BENCH \
-    --n_questions 500 \
+    --n_questions 5000 \
     --passage_index data/passage_index \
     --output_dir outputs/baselines \
+    --caem_splits_path "$CAEM_SPLITS" \
     2>&1 | tee outputs/baselines/B4_cot_rag.log || say "B4 failed; continuing"
 
 if [ "$FLARE_SMOKE_OK" = "1" ]; then
-    say "Step 13 — B5 FLARE"
+    say "Step 13 — B5 FLARE (n=5000, eval_ids filter)"
     python -m scripts.run_baseline \
         --baseline flare \
         --benchmarks $BENCH \
-        --n_questions 500 \
+        --n_questions 5000 \
         --passage_index data/passage_index \
         --flare_theta 0.4 \
         --flare_look_ahead 64 \
         --output_dir outputs/baselines \
+        --caem_splits_path "$CAEM_SPLITS" \
         2>&1 | tee outputs/baselines/B5_flare.log || say "B5 failed; continuing"
 else
     say "Step 13 — B5 FLARE SKIPPED (Step 8 smoke failed)"
@@ -234,38 +247,53 @@ fi
 ############################################
 # Step 14 — B6 Vanilla FT (10 cycles, soft fail)
 ############################################
-say "Step 14 — B6 Vanilla FT (10 cycles)"
+say "Step 14 — B6 Vanilla FT (10 cycles, n_eval=5000 + eval_ids filter, n_train=4000/ID-bench → 12K pairs/cycle matching CAEM)"
 mkdir -p outputs/baselines/vanilla_ft
 python -m scripts.run_simple_ft \
     --baseline_name vanilla_ft \
     --num_cycles 10 \
-    --passage_index data/passage_index \
-    --benchmarks $BENCH \
-    --n_questions 500 \
+    --eval_benchmarks $BENCH \
+    --n_eval_per_bench 5000 \
+    --n_train_per_bench 4000 \
     --output_dir outputs/baselines/vanilla_ft \
+    --caem_splits_path "$CAEM_SPLITS" \
     2>&1 | tee outputs/baselines/B6_vanilla_ft.log || say "B6 failed; continuing"
 
 ############################################
 # Step 15 — B7 EWC-only FT (10 cycles, soft fail)
 ############################################
-say "Step 15 — B7 EWC-only FT (10 cycles)"
+say "Step 15 — B7 EWC-only FT (10 cycles, n_eval=5000 + eval_ids filter, n_train=4000/ID-bench → 12K pairs/cycle matching CAEM)"
 mkdir -p outputs/baselines/ewc_only_ft
 python -m scripts.run_simple_ft \
     --baseline_name ewc_only_ft \
     --use_l2_anchor \
     --use_mmlu_guard \
     --num_cycles 10 \
-    --passage_index data/passage_index \
-    --benchmarks $BENCH \
-    --n_questions 500 \
+    --eval_benchmarks $BENCH \
+    --n_eval_per_bench 5000 \
+    --n_train_per_bench 4000 \
     --output_dir outputs/baselines/ewc_only_ft \
+    --caem_splits_path "$CAEM_SPLITS" \
     2>&1 | tee outputs/baselines/B7_ewc_only_ft.log || say "B7 failed; continuing"
+
+############################################
+# Step 15.5 — CAEM-vs-baseline significance table (tab_sig_test.csv)
+############################################
+say "Step 15.5 — CAEM-vs-baseline Holm-corrected significance (tab_sig_test.csv)"
+python -m scripts.baseline_sig_tests \
+    --caem_dir outputs/full_run \
+    --baselines_dir outputs/baselines \
+    --output_csv outputs/tab_sig_test.csv \
+    2>&1 | tee outputs/baseline_sig_tests.log || say "Step 15.5 failed; continuing"
+[ -f outputs/tab_sig_test.csv ] && head outputs/tab_sig_test.csv || echo "tab_sig_test.csv missing"
 
 ############################################
 # Step 19 — purity theorem validation
 ############################################
-say "Step 19 — purity theorem validation"
+say "Step 19 — purity theorem validation (points --checkpoints_dir at CAEM main-run output)"
 python scripts/run_purity_validation.py \
+    --checkpoints_dir outputs/full_run \
+    --passage_index data/passage_index \
     --output_dir outputs/purity_validation \
     2>&1 | tee outputs/purity_validation.log || say "Step 19 failed; continuing"
 [ -f outputs/purity_validation/theory_validation.json ] && head -c 4000 outputs/purity_validation/theory_validation.json && echo
@@ -286,7 +314,9 @@ tar czf /workspace/caem/plan_a_outputs.tar.gz \
     outputs/smoke \
     outputs/cold_start_memory \
     outputs/purity_validation \
-    outputs/ablation 2>/dev/null || say "tar had some missing dirs"
+    outputs/ablation \
+    outputs/tab_sig_test.csv \
+    outputs/baseline_sig_tests.log 2>/dev/null || say "tar had some missing dirs"
 ls -lh /workspace/caem/plan_a_outputs.tar.gz || true
 
 say "PLAN A COMPLETE. Next: user must run scp from local PC to pull /workspace/caem/plan_a_outputs.tar.gz, then Stop the Vast instance."

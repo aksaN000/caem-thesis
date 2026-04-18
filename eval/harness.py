@@ -133,7 +133,7 @@ class EvalHarness:
     Usage
     -----
     >>> harness = EvalHarness(pipeline, output_dir="outputs/eval")
-    >>> samples = load_benchmark("fever", n=500, split="paper_dev")
+    >>> samples = load_benchmark("fever", n=500, split="dev")
     >>> result = harness.run("fever", samples, cycle=1)
     """
 
