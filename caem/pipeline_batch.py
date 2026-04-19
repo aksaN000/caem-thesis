@@ -67,6 +67,35 @@ This file implements *static* batching: N samples are processed
 lockstep through each stage. True async overlapping (Level B Phase 2)
 would add event-loop concurrency between stages; deferred.
 
+Implementation strategy
+-----------------------
+Built incrementally, commit by commit:
+
+1. **Skeleton (done)**: ``BatchPipeline.answer_batch`` delegates to
+   serial ``answer()`` in a loop. Interface works, no speedup yet.
+   Validates integration with the harness and memory store.
+
+2. **Batched SBERT + FAISS** (next): pre-compute embeddings and
+   nearest-neighbour results for the whole batch in one forward,
+   pass them to a thin per-sample wrapper that reuses the serial
+   tier dispatch. Small speedup (~5%) but low risk.
+
+3. **Batched T5 generate** (for Tier 2 + Tier 3 buckets): replace
+   per-sample ``self.model.generate()`` with a batched call on
+   padded input IDs. Moderate speedup (~15-20%) because T5 generate
+   is one of the dominant forward passes.
+
+4. **Batched verifier** (``_verify_batch``): new method on
+   UnifiedVerifier that accepts a list of (query, answer, passages)
+   tuples and runs the nine-signal pipeline with all pairs pooled
+   into a single MiniCheck forward. Biggest single speedup (~30-40%)
+   because the MiniCheck call is the dominant GPU work.
+
+5. **Cross-sample K-chain pooling** (stretch): the K=10
+   self-consistency chain generation currently does K samples *per
+   input*; a batched version does K * N samples in one call. Small
+   additional gain on top of #4.
+
 Success criteria (test gate before launching Step 7 under this path):
   1. All 104+ existing tests pass unchanged.
   2. tests/test_pipeline_batch_equivalence.py passes on 50 samples.
@@ -82,9 +111,8 @@ branch ``level-b-static-batching``. Main remains on serial.
 from __future__ import annotations
 
 import logging
-import time
 from dataclasses import dataclass
-from typing import Any, List, Optional, Sequence, Tuple
+from typing import List, Optional, Sequence
 
 from caem.pipeline import CAEMPipeline, PipelineResult
 
@@ -130,26 +158,25 @@ class BatchPipeline:
     ) -> List[PipelineResult]:
         """Process N samples and return N results in the same order.
 
-        This is the single entry point for Level B execution. Callers
-        (the eval harness, the cold-start seeder, ...) migrate from
-        per-sample calls of ``pipeline.answer(q)`` to batched calls
-        of ``batch_pipeline.answer_batch([BatchSample(q, ...), ...])``.
+        Phase 1 skeleton: delegates to serial ``answer()`` for each
+        sample. Subsequent commits replace this loop with batched
+        execution stage by stage.
+
+        Contract: the returned list has the same length as ``samples``
+        and preserves submission order. Memory-store commits happen in
+        that same order so running ``answer_batch(S)`` is observationally
+        equivalent to looping ``p.answer(s) for s in S`` (same memory
+        state, same stored entries).
         """
-        # TODO(Phase 1 implementation):
-        #   1. Stage 2 batch: batch-encode all queries through SBERT
-        #   2. Stage 3a batch: batch-run pre_estimator for all queries
-        #   3. Stage 1 batch: batch FAISS search
-        #   4. Stage 3b per-sample: router decision (CPU, cheap)
-        #   5. Split into tier buckets {1, 2, 3}
-        #   6. Tier 1 bucket: return stored answers (no forward)
-        #   7. Tier 2 bucket: batched T5 generate (no context)
-        #   8. Tier 3 bucket: batched T5 generate with per-sample context
-        #   9. Stage 5 verifier on (Tier 2 + Tier 3) combined:
-        #      - batched M-chain generation (K=10 per sample × N samples)
-        #      - batched MiniCheck scoring across all pairs
-        #      - decision per sample from composite
-        #   10. Commit STOREs to memory_store in submission order
-        #   11. Assemble PipelineResult per sample, return in order
-        raise NotImplementedError(
-            "Level B Phase 1 in progress. See module docstring for design."
-        )
+        if not samples:
+            return []
+
+        results: List[PipelineResult] = []
+        for s in samples:
+            r = self.p.answer(
+                query=s.query,
+                store_to_memory=s.store_to_memory,
+                source_benchmark=s.source_benchmark,
+            )
+            results.append(r)
+        return results
