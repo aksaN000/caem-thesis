@@ -212,14 +212,24 @@ regardless of correctness.
 The verifier-decision breakdown -- counts and fractions of
 \textsc{STORE}, \textsc{DEFER}, \textsc{ABSTAIN}, and
 \textsc{DISCARD} decisions per cycle -- is reported alongside the
-empirical verifier true-positive rate $\alpha$, the base generation
-accuracy $p$, the theorem's predicted post-storage purity
-$P_\text{theory} = p\alpha / (p\alpha + (1-p)(1-\alpha))$, and the
-measured purity $P_\text{obs}$. This table is the empirical
+empirical verifier true-positive rate $\alpha_c$, the base generation
+accuracy $p_c$, the theorem's predicted post-storage purity
+$P_{\text{theory},c} = p_c\alpha_c / (p_c\alpha_c + (1-p_c)(1-\alpha_c))$,
+and the measured purity $P_{\text{obs},c}$ for every cycle $c \in
+\{0, 1, \ldots, 10\}$ (eleven rows). This table is the empirical
 instantiation of the purity theorem from~\cref{sec:purity-theorem};
 all five quantities are computed from the same purity-validation split
 defined in~\cref{sec:benchmarks}. The \textsc{STORE} denominator is
-obtained from \texttt{decision\_breakdown}.
+obtained from \texttt{decision\_breakdown}. The chapter quotes the
+Cycle-10 steady-state $\alpha_{10}$ as the defense-grade single
+number (the verifier's balanced accuracy under the final
+fine-tuned model) because it reflects the deployed system; the full
+eleven-row trajectory is the audit that the theorem's pass condition
+$\alpha_c > \tfrac{1}{2} \forall c$ from~\cref{sec:purity-theorem}
+Remark~\ref{rem:alpha-empirical-scope} is met at every cycle. An
+empty $|P_\text{theory}-P_\text{obs}|$ cell at any cycle is a
+failure flag and is discussed in the results narrative rather than
+being silently averaged.
 
 \paragraph{Continual learning (Table~\ref{tab:continual}).}
 Forgetting is reported with two instruments, following the dual-metric
