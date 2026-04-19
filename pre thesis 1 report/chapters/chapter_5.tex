@@ -1347,6 +1347,41 @@ Cycle & ECE & Brier & AUROC \\
 
 \begin{table}[t]
 \centering
+\caption{Decision-tree thresholds fitted at the Cycle-0 boundary
+from the $n_{\text{cal}} = 500$ calibration split
+$\ustored$ distribution (Chapter 4
+\S~\ref{par:content-hash-disjointness}
+\S~Threshold calibration). Target quantiles $(\alpha_S, \alpha_D, \alpha_T) = (0.70, 0.40, 0.90)$ are
+hyperparameters; the threshold values are fit outputs. Fitted
+thresholds are held fixed for cycles 1 through 10; the
+$\ustored$-distribution statistics column summarises the fit
+data. Ordering assertion $\tau_{\text{train}} > \tau_{\text{store}} > \tau_{\text{defer}}$
+must hold and is enforced at fit time.}
+\label{tab:fitted-thresholds}
+\small
+\begin{tabular}{lrrr}
+\toprule
+Quantity & Value (MiniCheck) & Value (RoBERTa, ablation) & Source \\
+\midrule
+\multicolumn{4}{c}{\emph{[Fitted values and distribution summary populated from \texttt{outputs/cycle\_0/calibrated\_thresholds.json}.]}}\\
+$\tau_{\text{store}}$ ($Q_{0.70}(\ustored)$) & \ldots & \ldots & fit \\
+$\tau_{\text{defer}}$ ($Q_{0.40}(\ustored)$) & \ldots & \ldots & fit \\
+$\tau_{\text{train}}$ ($Q_{0.90}(\ustored)$) & \ldots & \ldots & fit \\
+\midrule
+$\ustored$ median & \ldots & \ldots & summary \\
+$\ustored$ mean & \ldots & \ldots & summary \\
+$\ustored$ std & \ldots & \ldots & summary \\
+$\ustored$ min / max & \ldots & \ldots & summary \\
+\midrule
+Implied \textsc{Store} admission rate (Cycle 0) & $\sim 30\%$ & $\sim 30\%$ & by construction \\
+Implied \textsc{Defer} admission rate (Cycle 0) & $\sim 30\%$ & $\sim 30\%$ & by construction \\
+Implied training-pool admission rate (Cycle 0) & $\sim 10\%$ & $\sim 10\%$ & by construction \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[t]
+\centering
 \caption{Hallucination decomposition. Pooled confident-error rate
 (the quantity carrying the pre-registered $\geq 40\%$ reduction
 target) with its transfer-learning split into in-distribution

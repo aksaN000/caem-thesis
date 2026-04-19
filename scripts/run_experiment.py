@@ -841,6 +841,35 @@ def run_experiment(ns: argparse.Namespace) -> None:
     config.num_cycles = ns.num_cycles
     if getattr(ns, "verifier_backend", None):
         config.verifier_backend = ns.verifier_backend
+    # Threshold overrides from scripts/calibrate_thresholds.py (fit once at
+    # the Cycle-0 boundary, held fixed for cycles 1..N). Required ordering:
+    # train > store > defer. Missing override falls back to the CAEMConfig
+    # default (which is RoBERTa-era and likely wrong under MiniCheck).
+    if getattr(ns, "store_threshold", None) is not None:
+        config.store_threshold = float(ns.store_threshold)
+    if getattr(ns, "defer_threshold", None) is not None:
+        config.defer_threshold = float(ns.defer_threshold)
+    if getattr(ns, "train_threshold", None) is not None:
+        config.min_u_stored_for_training = float(ns.train_threshold)
+    # Validate ordering if any override was set.
+    if any(getattr(ns, attr, None) is not None
+           for attr in ("store_threshold", "defer_threshold", "train_threshold")):
+        if not (config.min_u_stored_for_training
+                > config.store_threshold
+                > config.defer_threshold):
+            raise SystemExit(
+                f"Threshold ordering violated after CLI overrides: "
+                f"train={config.min_u_stored_for_training} > "
+                f"store={config.store_threshold} > "
+                f"defer={config.defer_threshold} "
+                f"must hold. Refusing to launch."
+            )
+        logger.info(
+            "Decision-tree thresholds overridden via CLI: "
+            "store=%.4f defer=%.4f train=%.4f",
+            config.store_threshold, config.defer_threshold,
+            config.min_u_stored_for_training,
+        )
 
     if ns.resume_from_cycle < 0 or ns.resume_from_cycle > config.num_cycles:
         raise ValueError(
@@ -1559,6 +1588,40 @@ def _parse_args() -> argparse.Namespace:
             "lytang/MiniCheck-Flan-T5-Large) is the thesis main path; "
             "'roberta_nli' is the legacy ablation path. When omitted, "
             "CAEMConfig.verifier_backend is used."
+        ),
+    )
+    p.add_argument(
+        "--store_threshold",
+        type=float,
+        default=None,
+        help=(
+            "Override CAEMConfig.store_threshold (tau_store). Set this to "
+            "the value fitted by scripts/calibrate_thresholds.py at the "
+            "Cycle 0 boundary (typically ~0.40-0.50 under MiniCheck, vs "
+            "the RoBERTa-era default 0.65). See Chapter 4 Sec Threshold "
+            "calibration. When omitted, CAEMConfig default is used."
+        ),
+    )
+    p.add_argument(
+        "--defer_threshold",
+        type=float,
+        default=None,
+        help=(
+            "Override CAEMConfig.defer_threshold (tau_defer). Set this "
+            "from scripts/calibrate_thresholds.py output (typically "
+            "~0.25-0.40 under MiniCheck). Must satisfy "
+            "defer < store < train."
+        ),
+    )
+    p.add_argument(
+        "--train_threshold",
+        type=float,
+        default=None,
+        help=(
+            "Override CAEMConfig.min_u_stored_for_training (tau_train). "
+            "Set this from scripts/calibrate_thresholds.py output "
+            "(typically ~0.50-0.65 under MiniCheck). Must satisfy "
+            "train > store > defer."
         ),
     )
     return p.parse_args()
