@@ -1099,6 +1099,56 @@ The fine-tuning loss is a standard sequence-level cross-entropy term plus an L$_
 \end{equation}
 Here $\theta_{\text{prev}}$ are the weights snapshotted at the start of the current cycle (equivalently, the accepted checkpoint of the previous cycle), and the anchor penalises every parameter uniformly for drifting away from that snapshot. This is the L$_2$ simplification of elastic weight consolidation \citep{doi:10.1073/pnas.1611835114}: full EWC weights the per-parameter squared deviation by the diagonal of the Fisher information matrix, which requires an extra forward pass over the training set to estimate and roughly doubles the cost of a cycle. The uniform-weight simplification is a principled approximation when the Fisher matrix is close to uniform across parameters, a regime that holds reasonably well for a general-purpose seq2seq model fine-tuned on diverse QA chains. The thesis reports this choice as a documented design decision and the full-EWC comparison as a scheduled ablation in Chapter~5.
 
+The design is additionally supported by direct empirical evidence at
+the Flan-T5 scale we use. \citet{mehta2023empirical} report that
+pre-training flattens the loss landscape to the point that the
+Fisher-weighting advantage of EWC, SI, and MAS over plain
+$L_{2}$ becomes minimal or negative at BERT-Large scale, and
+\citet{wu2022pretrained} reproduce the same pattern across
+five pre-trained backbones. The most directly comparable study,
+\citet{jin2024forget}, measures Flan-T5-Large specifically: vanilla
+sequential fine-tuning over thirty-six P3 tasks produces only a four-
+to six-percent EM drop, and mini-batch replay of eight examples every
+ten steps drives forgetting below one percent. Our ten-percent replay
+share in Equation~\ref{eq:mix-size} sits an order of magnitude above
+that proven-sufficient point, and \citet{scialom2022fine} additionally
+demonstrate that one-percent rehearsal retains 99.8 percent of the
+multi-task upper bound on T0pp-11B. Taken together, these three
+studies establish that plain $L_{2}$ anchored to the previous cycle
+plus ten-percent replay is expected to hold catastrophic forgetting
+below one percent per cycle at Flan-T5-Large scale, which is
+comfortably within the $\rho_{\min} = 0.93$ cycle-level retention
+bound of Equation~\ref{eq:forgetting-guard}.
+
+\paragraph{Cycle-2 retention diagnostic and structured fallback.}
+The Jin 2024 one-percent forgetting expectation is a prior, not a
+guarantee: CAEM's training pool is drawn from the model's own verified
+outputs rather than from P3 and may induce a different drift profile.
+We therefore commit, at design time, to a Cycle-2 hold-out diagnostic
+as a conservative safety layer on top of the $\rho_{\min}$ forgetting
+guard: a 500-example slice of Cycle-0 evaluation questions is frozen
+before the first cycle begins and is re-evaluated on $\theta^{(2)}$ at
+the end of Cycle 2. The slice is stratified across all six benchmarks
+and is never used for training. If the absolute exact-match drop
+against the Cycle-0 baseline on this slice exceeds three percentage
+points, the pipeline logs a \emph{structured-fallback advisory}: the
+remaining cycles should proceed under O-LoRA-style stacked orthogonal
+adapters \citep{wang2023olora,biderman2024lora} with rank-sixteen
+matrices on every attention and MLP module, merged every two cycles
+to preserve some base-weight drift for the self-improvement
+framing. \citet{wang2023olora} specifically test this on T5-Large
+continual streams and report O-LoRA at sixty-nine percent of the
+fifteen-task average accuracy against multi-task upper bound of
+seventy-seven percent, cleanly Pareto-dominating both EWC
+(forty-five percent) and replay (fifty-four percent) alone. If the
+Cycle-2 drop is within three percentage points, plain $L_{2}$ plus
+ten-percent replay is retained as the parsimonious choice, consistent
+with the Mehta 2023 and Jin 2024 empirical regime. The three-percent
+threshold is set against the combined Jin 2024 / Scialom 2022
+upper envelope (both papers report sub-one-percent forgetting on
+comparable continual streams), and is therefore a strict tightening
+of the $\rho_{\min} = 0.93$ (seven-percent) cycle-level bound.
+
 \paragraph{Out-of-distribution forgetting guard.}
 After fine-tuning completes, the system evaluates the updated weights on a fixed 200-item MMLU split and compares the post-training accuracy against the pre-training baseline:
 \begin{equation}

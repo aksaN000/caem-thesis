@@ -388,6 +388,28 @@ torch/transformers stack.
 
 ## Step 4 — Build the passage index
 
+**[SHORTCUT if restoring on a new instance]** The 21M-passage
+IndexFlatIP from the 2026-04-19 build is archived on HuggingFace Hub
+(private dataset `aksaN000/caem-passage-index-21m`, ~72 GB). To skip
+the 6-hour rebuild:
+
+```bash
+hf auth login   # paste read-scope token
+mkdir -p data/passage_index
+hf download aksaN000/caem-passage-index-21m --repo-type dataset \
+    --local-dir data/passage_index
+# verify
+ls -lh data/passage_index/passages.faiss data/passage_index/passages.pkl
+# expected: passages.faiss ~65 GB, passages.pkl ~7.5 GB
+```
+
+Expected download time: ~2-5 min on a typical Vast 4-5 Gbps uplink.
+If download fails, fall back to the full rebuild below.
+
+---
+
+
+
 **[WHY]** Tier-3 RAG and the B3/B4/B5 baselines need a preprocessed
 Wikipedia-passage FAISS index.
 

@@ -815,3 +815,84 @@ eprint = {https://arxiv.org/abs/2305.14975}
     note = "Reports one hundred percent false positive rate at ninety five percent recall for DeBERTa-v3-large-MNLI on the HaluEval language model hallucination benchmark; the same miscalibration profile motivates swapping \texttt{roberta-large-mnli} for a claim-support-trained verifier (MiniCheck) in the CAEM verifier backend.",
 }
 
+@inproceedings{wu2022pretrained,
+    title = "Pretrained Language Model in Continual Learning: A Comparative Study",
+    author = "Wu, Tongtong and Caccia, Massimo and Li, Zhuang and Li, Yuan-Fang and Qi, Guilin and Haffari, Gholamreza",
+    booktitle = "International Conference on Learning Representations (ICLR)",
+    year = "2022",
+    note = "Head-to-head evaluation of eight continual-learning methods across BERT, RoBERTa, GPT-2, XLNet, and ALBERT on CLINC150, Maven, and WebRED. EWC is routinely below vanilla sequential fine-tuning; the paper concludes that standard regularisation-based CL methods fail to exploit the smoother loss landscape of pre-trained transformers. Cited in Chapter~4 alongside Mehta 2023 as cross-backbone evidence for the plain-L2 simplification.",
+}
+
+@inproceedings{scialom2022fine,
+    title = "Fine-tuned Language Models are Continual Learners",
+    author = "Scialom, Thomas and Chakrabarty, Tuhin and Muresan, Smaranda",
+    booktitle = "Proceedings of the 2022 Conference on Empirical Methods in Natural Language Processing (EMNLP)",
+    year = "2022",
+    note = "Reports 99.8 percent of the multi-task upper bound retained on T0pp-11B with only one percent rehearsal and zero explicit regularisation; the empirical lower bound on replay-sufficient continual fine-tuning at encoder-decoder T5 scale cited in Chapter~4 for the plain-L2-plus-replay design.",
+}
+
+@article{jin2024forget,
+    title = "What Will My Model Forget? Forecasting Forgotten Examples in Language Model Refinement",
+    author = "Jin, Xisen and Ren, Xiang",
+    journal = "arXiv preprint arXiv:2402.01865",
+    year = "2024",
+    note = "Flan-T5-Large-specific continual-fine-tuning study: vanilla sequential fine-tuning over thirty-six P3 tasks produces four to six percent EM drop on Flan-T5-Large; modest mini-batch replay drives forgetting below one percent. Closest apples-to-apples precedent for CAEM's ten-cycle L2-plus-replay design on Flan-T5-Large.",
+}
+
+@article{mehta2023empirical,
+    title = "An Empirical Investigation of the Role of Pre-training in Lifelong Learning",
+    author = "Mehta, Sanket and Patil, Darshan and Chandar, Sarath and Strubell, Emma",
+    journal = "Journal of Machine Learning Research",
+    year = "2023",
+    note = "Up to BERT-Large scale: pre-training flattens the loss landscape such that the Fisher-weighting advantage of EWC, SI, and MAS over plain L2 becomes minimal or negative; mechanism citation for the thesis's plain-L2 simplification.",
+}
+
+@inproceedings{biderman2024lora,
+    title = "{LoRA} Learns Less and Forgets Less",
+    author = "Biderman, Dan and Portes, Jacob and Ortiz, Jose Javier Gonzalez and Paul, Mansheej and Greengard, Philip and Jennings, Connor and King, Daniel and Havens, Sam and Chiley, Vitaliy and Frankle, Jonathan and others",
+    booktitle = "Transactions on Machine Learning Research (TMLR)",
+    year = "2024",
+    note = "LoRA Pareto-dominates weight decay on the learning-vs-forgetting frontier on LLaMA-2-7B/13B and preserves generation diversity; Chapter~4's fallback rule for the Cycle-2 retention diagnostic uses LoRA-merge-and-continue as the structured swap target if plain L2 falls outside the Jin 2024 tolerance.",
+}
+
+@inproceedings{wang2023olora,
+    title = "Orthogonal Subspace Learning for Language Model Continual Learning",
+    author = "Wang, Xiao and Chen, Tianze and Ge, Qiming and Xia, Han and Bao, Rong and Zheng, Rui and Zhang, Qi and Gui, Tao and Huang, Xuanjing",
+    booktitle = "Findings of the 2023 Conference on Empirical Methods in Natural Language Processing (EMNLP Findings)",
+    year = "2023",
+    note = "O-LoRA on T5-Large fifteen-task continual stream: vanilla 7.4 average accuracy, EWC 45.1, replay 54.2, naive LoRA 61.2, O-LoRA 69.6 versus multi-task UB 76.5. Rank barely matters on T5. Referenced in Chapter~4 as the T5-specific evidence that stacked orthogonal adapters are the cleanest fallback from plain L2 if the Cycle-2 retention diagnostic exceeds the three-percent forgetting threshold.",
+}
+
+@inproceedings{valentin2024hallucination,
+    title = "Cost-Effective Hallucination Detection for {LLM}s",
+    author = "Valentin, Simon and Fu, Jinmiao and Detommaso, Gianluca and Xu, Shaoyuan and Zappella, Giovanni and Wang, Bryan",
+    booktitle = "arXiv preprint arXiv:2407.21424",
+    year = "2024",
+    note = "Eight-signal isotonic-stacked hallucination detector with a published Spearman cross-signal correlation heat-map on TriviaQA, FEVER, HaluEval, BIG-bench; the direct precedent for CAEM's planned nine-by-nine correlation-matrix contribution in the Phase 1 Full / TMLR deliverable.",
+}
+
+@inproceedings{farquhar2024nature,
+    title = "Detecting Hallucinations in Large Language Models Using Semantic Entropy",
+    author = "Farquhar, Sebastian and Kossen, Jannik and Kuhn, Lorenz and Gal, Yarin",
+    booktitle = "Nature",
+    year = "2024",
+    note = "Semantic entropy beats perplexity, P(True), and supervised embedding regression by nine to ten AUROC points on a thirty-configuration average over TriviaQA, SQuAD, BioASQ, NQ-Open, SVAMP. Cited in Chapter~5 as the literature prior that semantic entropy dominates on open-generation QA but is silent on constrained-output benchmarks such as MMLU, ARC, and StrategyQA; the heterogeneity across CAEM's six-benchmark suite is the principled composite justification.",
+}
+
+@inproceedings{vashurin2024polygraph,
+    title = "{LM-Polygraph}: Uncertainty Estimation for Language Models",
+    author = "Vashurin, Roman and Fadeeva, Ekaterina and Vazhentsev, Artem and Rvanova, Lyudmila and Panchenko, Alexander and Shelmanov, Artem",
+    booktitle = "Transactions of the Association for Computational Linguistics (TACL)",
+    year = "2025",
+    note = "Twenty-eight-method head-to-head UQ benchmark. On MMLU and constrained-output tasks, verbalised UQ and MSP beat sample-diversity methods including semantic entropy, which is the empirical basis for CAEM's decision to prune the nine signals by correlation cluster rather than by absolute dominance on any one benchmark.",
+}
+
+@inproceedings{kuhn2023semantic,
+    title = "Semantic Uncertainty: Linguistic Invariances for Uncertainty Estimation in Natural Language Generation",
+    author = "Kuhn, Lorenz and Gal, Yarin and Farquhar, Sebastian",
+    booktitle = "International Conference on Learning Representations (ICLR)",
+    year = "2023",
+    note = "Bidirectional-NLI-clustering definition of semantic entropy used in CAEM's h\\_norm signal; Chapter~5 cites this as the definitive comparison against length-normalised predictive entropy, P(True), and lexical-similarity baselines on OPT-30B TriviaQA / CoQA.",
+}
+
+

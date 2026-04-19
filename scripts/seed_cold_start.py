@@ -419,6 +419,12 @@ def main(args: argparse.Namespace) -> None:
 
     from caem.config import CAEMConfig
     config = CAEMConfig()
+    if getattr(args, "cold_start_store_threshold", None) is not None:
+        logger.info(
+            "Overriding store_threshold for cold-start: %.3f -> %.3f",
+            config.store_threshold, args.cold_start_store_threshold,
+        )
+        config.store_threshold = float(args.cold_start_store_threshold)
 
     # -- Build pipeline -------------------------------------------------------
     pipeline = build_pipeline(config, device)
@@ -528,5 +534,20 @@ if __name__ == "__main__":
         type=int,
         default=0,
         help="Random seed for training-split sampling.",
+    )
+    p.add_argument(
+        "--cold_start_store_threshold",
+        type=float,
+        default=None,
+        help=(
+            "Override CAEMConfig.store_threshold for cold-start seeding only. "
+            "The default 0.65 is tuned against RoBERTa-MNLI's P(entail) "
+            "distribution; MiniCheck's stricter composite rarely clears 0.65 "
+            "pre-calibration, so cold-start on the untouched threshold "
+            "yields zero STORE. Recommended default for MiniCheck cold-start: "
+            "0.45 (the DEFERRED-band bar). Cold-start entries feed retrieval "
+            "only, not training (which still uses tau_train=0.75), so the "
+            "looser admission bar does not compromise the thesis guarantees."
+        ),
     )
     main(p.parse_args())

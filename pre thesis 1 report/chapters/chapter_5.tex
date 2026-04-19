@@ -1097,6 +1097,69 @@ if its standalone AUROC falls below $0.55$ the ablation in
 \cref{sec:ablation-results} should indicate whether it is worth
 keeping in the composite.
 
+\paragraph{Nine-signal correlation structure and effective-count
+analysis.}
+\label{sec:signal-correlation}
+The per-signal AUROCs above tell us which individual signals are
+informative; a separate question is whether the nine-signal composite
+has nine \emph{effectively independent} signals or substantially
+fewer. \citet{valentin2024hallucination} publish the only prior
+cross-signal Spearman heat-map in the LLM hallucination-detection
+literature (ten signals, four benchmarks) and report that ensembling
+collapses into three redundancy clusters. We follow the same
+protocol on the six CAEM benchmarks using the per-sample signal values
+exported by the evaluation harness, and predict the following
+grouping on a priori grounds:
+\begin{itemize}
+    \item \textbf{High redundancy} ($|\rho| > 0.9$, drop candidates):
+          (i) token-probability mean versus token-probability minimum,
+          which collapse to the same value on the one-to-five-token
+          answers typical of TriviaQA, NQ, and ARC; (ii) self-consistency
+          semantic-cluster count versus normalised semantic entropy,
+          since \citet{farquhar2024nature}'s discrete-SE variant is
+          literally a cluster count over the same $K=10$ samples;
+          (iii) NLI-entailment versus semantic-cluster on the sample-set
+          signals, if NLI is evaluated on the same sample pool.
+    \item \textbf{Moderate correlation} ($0.6 \le |\rho| \le 0.85$,
+          retain): MC-Dropout variance against token-probability
+          captures an epistemic-versus-aleatoric axis that
+          \citet{vashurin2024polygraph} report as non-collinear on
+          TriviaQA/Mistral-7B; retrieval top-1 similarity against
+          top-$k$ dispersion is expected to be negatively correlated at
+          $-0.5$ to $-0.7$ per the dense-retrieval literature, carrying
+          absolute-match versus ambiguity as distinct signals.
+    \item \textbf{Independent} ($|\rho| < 0.4$, retain without
+          question): the three grounding signals against all generation
+          signals, provided grounding uses the external Wikipedia
+          index; \citet{valentin2024hallucination} specifically find
+          NLI-DeBERTa the most independent signal in their set.
+\end{itemize}
+Post-pruning, the effective composite is predicted to reduce to
+five-to-seven independent signals out of nine nominal. The full
+nine-by-nine Spearman matrix per benchmark is produced by
+\texttt{scripts/signal\_correlation\_matrix.py} from the evaluation
+harness's per-sample signal values and is reported in
+an appendix figure pair (one
+aggregated across benchmarks, one per-benchmark array). Three falsification conditions are pre-registered: if no pair exceeds
+$|\rho| = 0.9$ on any benchmark, the pruning plan is unmotivated
+empirically and the thesis should retain all nine; if more than four
+pairs exceed $|\rho| = 0.9$ aggregated across benchmarks, the
+composite is substantially narrower than its nominal signal count
+and the Chapter~4 composite formula of
+Equation~\ref{eq:ustored-verify} should be re-derived from the
+surviving independent axes; if the aggregated matrix matches the
+Valentin 2024 clustering ordering within rank-$\rho$ distance of
+$0.2$, the thesis can cross-cite the published ten-signal evidence
+directly and strengthen the defensibility of the composite against
+the ``why not just semantic entropy?'' question that
+\citet{farquhar2024nature} raises on open-generation benchmarks and
+that \citet{vashurin2024polygraph} shows is dominated by verbalised
+UQ on constrained-output benchmarks such as MMLU. The
+thirty-two-configuration singleton-plus-leave-one-out ablation design
+of \citet{kuhn2023semantic} is a scheduled Phase 1 Full / TMLR
+deliverable and is recorded as the ablation template against which
+the registry in Table~\ref{tab:ablation-registry} was sized.
+
 \paragraph{Episodic-memory growth (\cref{tab:memory-growth}).}
 We predict sublinear growth in $|\mathcal{M}|$ across cycles, because
 \textsc{Store} is the minority outcome once the memory is seeded.
