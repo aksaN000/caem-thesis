@@ -230,12 +230,23 @@ class _MiniCheckJudge:
     def contradict_prob(self, premise: str, hypothesis: str) -> float:
         """Scalar contradiction probability.
 
-        Interpreted as ``1 - P(supported)``: unsupported claims fire the
-        CAEM contradiction veto regardless of whether they are strictly
-        refuted or merely unverified. This is the conservative read.
+        **Returns 0.0 always.** MiniCheck is a binary "supported vs
+        not-supported" judge; its "not-supported" class conflates strict
+        refutation with neutral / unverifiable claims, which are
+        distinct in NLI's 3-class label space. Mapping
+        ``contradict = 1 - P(supported)`` would cause the CAEM
+        contradiction-veto branch to fire on almost every claim whose
+        passage does not directly state the answer (empirically, ~100%
+        of samples under MiniCheck on TriviaQA-style eval), which is
+        not the semantic the veto is designed for.
+
+        The correct CAEM response is to let ``p_ground_max / p_ground_mean``
+        pull ``u_stored`` down for unsupported claims via the composite,
+        rather than via the hard veto. Consumers who need a dedicated
+        refutation signal should either use an NLI backend or add a
+        separate two-class refutation judge on top.
         """
-        arr = self._score_batch([premise], [hypothesis])
-        return float(np.clip(1.0 - arr[0], 0.0, 1.0))
+        return 0.0
 
     def argmax_label(self, premise: str, hypothesis: str) -> int:
         """Threshold-based 3-way label.
@@ -265,12 +276,8 @@ class _MiniCheckJudge:
     def batch_contradict_prob(
         self, pairs: Sequence[Tuple[str, str]]
     ) -> List[float]:
-        if not pairs:
-            return []
-        premises = [p for p, _ in pairs]
-        hypotheses = [h for _, h in pairs]
-        arr = self._score_batch(premises, hypotheses)
-        return [float(np.clip(1.0 - x, 0.0, 1.0)) for x in arr]
+        """Returns 0.0 per pair. See ``contradict_prob`` docstring for why."""
+        return [0.0] * len(pairs)
 
     def batch_argmax_label(
         self, pairs: Sequence[Tuple[str, str]]

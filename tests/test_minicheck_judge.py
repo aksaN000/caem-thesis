@@ -116,12 +116,17 @@ def test_entail_prob_high_when_yes_logit_dominates():
     assert p > 0.95, f"expected high entail prob, got {p}"
 
 
-def test_contradict_prob_is_one_minus_entail():
+def test_contradict_prob_is_zero_by_design():
+    # MiniCheck conflates "refuted" with "neutral/unverifiable" under its
+    # binary supported/unsupported output. Mapping 1-entail as contradict
+    # fires the CAEM veto on almost every sample (see commit on 2026-04-19).
+    # The correct semantic is contradict=0.0; rely on the composite's
+    # p_ground_* signals to pull u_stored down for unsupported claims.
     judge = _make_judge(yes_logits=[-2.0], no_logits=[2.0])
-    p_ent = judge.entail_prob("ctx", "claim")
-    judge2 = _make_judge(yes_logits=[-2.0], no_logits=[2.0])
-    p_con = judge2.contradict_prob("ctx", "claim")
-    assert abs(p_ent + p_con - 1.0) < 1e-5
+    # Regardless of the entailment score, contradict is always 0.0.
+    assert judge.contradict_prob("ctx", "claim") == 0.0
+    judge2 = _make_judge(yes_logits=[3.0], no_logits=[-3.0])
+    assert judge2.contradict_prob("ctx", "claim") == 0.0
 
 
 def test_argmax_label_thresholds():
@@ -149,16 +154,12 @@ def test_batch_entail_prob_matches_per_row_softmax():
         assert abs(o - e) < 1e-5
 
 
-def test_batch_contradict_prob_inverts_batch_entail():
-    yes = [1.0, -1.0]
-    no = [-1.0, 1.0]
-    judge = _make_judge(yes, no)
+def test_batch_contradict_prob_is_all_zero():
+    # Batched version of test_contradict_prob_is_zero_by_design.
+    judge = _make_judge([1.0, -1.0], [-1.0, 1.0])
     pairs = [("a", "b"), ("c", "d")]
-    p_ent = judge.batch_entail_prob(pairs)
-    judge2 = _make_judge(yes, no)
-    p_con = judge2.batch_contradict_prob(pairs)
-    for e, c in zip(p_ent, p_con):
-        assert abs(e + c - 1.0) < 1e-5
+    out = judge.batch_contradict_prob(pairs)
+    assert out == [0.0, 0.0]
 
 
 def test_batch_argmax_label_mirrors_argmax_label():
