@@ -247,25 +247,86 @@ class BatchPipeline:
     ) -> List[PipelineResult]:
         """Process N samples and return N results in the same order.
 
-        Phase 1 skeleton: delegates to serial ``answer()`` for each
-        sample. Subsequent commits replace this loop with batched
-        execution stage by stage.
+        Level B Phase 1 step 3: tier-bucketed execution with batched
+        Tier 2 generation.
+
+        Flow:
+          1. For each sample, determine routing tier via serial
+             ``_encode_query`` + ``pre_estimator`` + ``memory_store.search``
+             + ``router.route``. (These are cheap encoder/FAISS ops;
+             will be batched in a later commit.)
+          2. Bucket sample indices by tier.
+          3. Batch-generate Tier 2 answers via ``batch_tier2_generate``
+             (single padded T5 forward pass).
+          4. For each sample, call serial ``answer()`` to complete the
+             pipeline (Tier 1 retrieval / Tier 3 RAG generate + verify
+             + commit). Tier 2 samples pass the precomputed answer via
+             the ``_precomputed_tier2_answer`` kwarg so the
+             serial ``_tier2`` call is skipped.
 
         Contract: the returned list has the same length as ``samples``
         and preserves submission order. Memory-store commits happen in
         that same order so running ``answer_batch(S)`` is observationally
         equivalent to looping ``p.answer(s) for s in S`` (same memory
-        state, same stored entries).
+        state, same stored entries, same STORE ordering).
         """
         if not samples:
             return []
 
-        results: List[PipelineResult] = []
+        # Phase 1: per-sample tier determination.
+        # We need tier info to know which samples to batch-generate for.
+        # This is a cheap set of ops (SBERT encode + FAISS search +
+        # router dispatch); batching them is a later optimisation.
+        per_sample_tier: List[int] = []
         for s in samples:
-            r = self.p.answer(
+            tier = self._peek_tier(s.query)
+            per_sample_tier.append(tier)
+
+        # Phase 2: collect Tier 2 samples + batch-generate their answers.
+        tier2_indices = [i for i, t in enumerate(per_sample_tier) if t == 2]
+        precomputed_tier2: dict[int, str] = {}
+        if tier2_indices:
+            tier2_queries = [samples[i].query for i in tier2_indices]
+            tier2_answers = self.batch_tier2_generate(tier2_queries)
+            for idx, ans in zip(tier2_indices, tier2_answers):
+                precomputed_tier2[idx] = ans
+
+        # Phase 3: complete each sample's pipeline via serial answer(),
+        # injecting the precomputed Tier 2 answer where applicable.
+        # NOTE: tier determination is re-run inside answer() -- the
+        # _peek_tier() result above is only used to decide *which*
+        # samples need batched Tier 2 generation. Router outputs are
+        # deterministic given the same inputs, so the tier decision
+        # inside answer() will match per_sample_tier[i].
+        results: List[PipelineResult] = []
+        for i, s in enumerate(samples):
+            kwargs = dict(
                 query=s.query,
                 store_to_memory=s.store_to_memory,
                 source_benchmark=s.source_benchmark,
             )
+            if i in precomputed_tier2:
+                kwargs["_precomputed_tier2_answer"] = precomputed_tier2[i]
+            r = self.p.answer(**kwargs)
             results.append(r)
         return results
+
+    # ---- Internal helpers ----------------------------------------------- #
+
+    def _peek_tier(self, query: str) -> int:
+        """Return the tier this query would be routed to, without
+        generating an answer. Runs the cheap upstream ops (encode,
+        search, pre-route, router) and inspects the routing decision.
+
+        This duplicates work that ``answer()`` will do again, but the
+        duplicated work is inexpensive compared to the Tier 2/3
+        generate calls. Future commits batch these upstream ops
+        across samples to eliminate the duplication cost.
+        """
+        query_embedding = self.p._encode_query(query)
+        pre_conf = self.p.pre_estimator.estimate(query)
+        search_with_ids = self.p.memory_store.search_with_ids(
+            query_embedding, k=1,
+        )
+        routing = self.p.router.route(pre_conf, search_with_ids)
+        return int(routing.tier)

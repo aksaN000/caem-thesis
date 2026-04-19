@@ -294,3 +294,95 @@ def test_batch_tier2_generate_failure_returns_empty_strings():
     bp = BatchPipeline(fake)
     got = bp.batch_tier2_generate(["q0", "q1", "q2"])
     assert got == ["", "", ""]
+
+
+# --------------------------------------------------------------------------- #
+# Tier-bucket dispatch tests (step 3 wiring)                                  #
+# --------------------------------------------------------------------------- #
+
+def _make_serial_with_tier(tier_by_index):
+    """Pipeline stand-in whose _peek_tier inputs (encode/pre-route/search/
+    router) yield a predetermined tier per call. Records kwargs passed
+    into answer() so tests can verify whether precomputed Tier 2 answers
+    were injected.
+    """
+    p = MagicMock()
+    call_log: List[dict] = []
+    call_counter = {"i": 0}
+
+    def _answer(query=None, store_to_memory=True, source_benchmark=None,
+                _precomputed_tier2_answer=None):
+        idx = len(call_log)
+        call_log.append({
+            "query": query,
+            "store_to_memory": store_to_memory,
+            "source_benchmark": source_benchmark,
+            "_precomputed_tier2_answer": _precomputed_tier2_answer,
+        })
+        return _make_fake_pipeline_result(idx)
+
+    p.answer.side_effect = _answer
+
+    def _route(pre_conf, search_with_ids):
+        i = call_counter["i"]
+        call_counter["i"] += 1
+        return SimpleNamespace(tier=tier_by_index[i])
+
+    p.router.route.side_effect = _route
+    p._call_log = call_log
+    return p
+
+
+def test_answer_batch_routes_tier2_through_batch_generate(monkeypatch):
+    """Tier 2 samples should be collected and run through
+    ``batch_tier2_generate`` once, with their precomputed answers injected
+    into the serial ``answer()`` call via ``_precomputed_tier2_answer``.
+    Tier 1 / Tier 3 samples must NOT receive that kwarg (or receive None)."""
+    tier_pattern = [1, 2, 3, 2]  # mixed batch
+    p = _make_serial_with_tier(tier_pattern)
+    bp = BatchPipeline(p)
+
+    recorded_queries: List[List[str]] = []
+
+    def fake_batch_tier2(queries):
+        recorded_queries.append(list(queries))
+        return [f"T2_answer_for_{q}" for q in queries]
+
+    monkeypatch.setattr(bp, "batch_tier2_generate", fake_batch_tier2)
+
+    samples = [BatchSample(query=f"q{i}") for i in range(4)]
+    results = bp.answer_batch(samples)
+
+    # batch_tier2_generate called exactly once with only the Tier 2 queries
+    # in input order.
+    assert len(recorded_queries) == 1
+    assert recorded_queries[0] == ["q1", "q3"]
+
+    # Tier 2 calls received the precomputed answer; Tier 1/3 did not.
+    calls = p._call_log
+    assert calls[0]["_precomputed_tier2_answer"] is None  # tier 1
+    assert calls[1]["_precomputed_tier2_answer"] == "T2_answer_for_q1"
+    assert calls[2]["_precomputed_tier2_answer"] is None  # tier 3
+    assert calls[3]["_precomputed_tier2_answer"] == "T2_answer_for_q3"
+
+    assert len(results) == 4
+
+
+def test_answer_batch_skips_batch_generate_when_no_tier2(monkeypatch):
+    """If no sample routes to Tier 2, ``batch_tier2_generate`` must not
+    be invoked at all (saves a no-op T5 forward on all-Tier-1/3 batches)."""
+    p = _make_serial_with_tier([1, 3, 1])
+    bp = BatchPipeline(p)
+
+    calls: List[List[str]] = []
+
+    def fake_batch_tier2(queries):
+        calls.append(list(queries))
+        return [""] * len(queries)
+
+    monkeypatch.setattr(bp, "batch_tier2_generate", fake_batch_tier2)
+
+    samples = [BatchSample(query=f"q{i}") for i in range(3)]
+    bp.answer_batch(samples)
+
+    assert calls == []  # never invoked

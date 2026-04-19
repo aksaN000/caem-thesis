@@ -343,6 +343,7 @@ class CAEMPipeline:
         query: str,
         store_to_memory: bool = True,
         source_benchmark: Optional[str] = None,
+        _precomputed_tier2_answer: Optional[str] = None,
     ) -> PipelineResult:
         """Run the full CAEM pipeline for a single query.
 
@@ -409,7 +410,24 @@ class CAEMPipeline:
             self._update_tier1_stats(search_with_ids=search_with_ids)
 
         elif routing.tier == 2:
-            answer_str, post_conf, escalated = self._tier2(query, pre_conf)
+            if _precomputed_tier2_answer is not None:
+                # Level B batched path: Tier 2 generate was run in a single
+                # batched T5 forward pass by BatchPipeline.batch_tier2_generate;
+                # inject the precomputed string here and skip the individual
+                # _tier2 call. An empty string signals Tier 2 failed in the
+                # batched generate and we escalate to Tier 3 -- matches the
+                # serial _tier2 escalation contract.
+                answer_str = _precomputed_tier2_answer.strip()
+                post_conf = None
+                escalated = False
+                if not answer_str:
+                    logger.warning(
+                        "Tier 2 precomputed answer empty -- escalating to Tier 3.",
+                    )
+                    answer_str = self._tier3(query)
+                    escalated = True
+            else:
+                answer_str, post_conf, escalated = self._tier2(query, pre_conf)
             # -- Stage 5: UnifiedVerifier (nine signals + decision) ---- #
             # Pass through the already-computed u_token and u_dropout so the
             # verifier does not pay for a duplicate forward pass.
