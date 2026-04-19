@@ -287,6 +287,7 @@ class EvalHarness:
                 source_benchmark=benchmark,
             )
             prediction = result.answer
+            display_answer = getattr(result, "display_answer", result.answer)
             tier = result.tier
             stored = result.stored
             u_stored = result.u_stored
@@ -298,6 +299,7 @@ class EvalHarness:
                 raise
             logger.warning("pipeline.answer() raised for sample %s: %s", sample.get("id"), exc)
             prediction = ""
+            display_answer = ""
             # Sentinel tier for "pipeline crashed" — distinguishes a crash
             # from a legitimate Tier 3 RAG route, which the old code silently
             # conflated. routing_distribution() now excludes tier<1 from the
@@ -324,6 +326,7 @@ class EvalHarness:
             "benchmark": benchmark,
             "question": question,
             "prediction": prediction,
+            "display_answer": display_answer,
             "gold_answers": gold_answers,
             "gold_label": gold_label,
             "em": em,

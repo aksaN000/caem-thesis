@@ -119,6 +119,54 @@ class PipelineResult:
     u_stored: Optional[float] = None
     entry_id: Optional[int] = None
     escalated: bool = False
+    # Display layer per Ch4 Table tab:decision-tree Stage 7 actions.
+    # Separate from `answer` so scoring consumes raw predictions (preserving
+    # EM/F1 measurement on ABSTAIN/DISCARD cases) while a deployment frontend
+    # can use this field for user-facing output. STORE/DEFERRED pass through
+    # the raw answer; ABSTAIN returns a principled refusal per Ch4 spec;
+    # DISCARD suppresses output. The decision field on verifier_output
+    # remains the source of truth for diagnostic aggregation.
+    display_answer: str = ""
+
+
+# -----------------------------------------------------------------------------
+# Display-layer mapping
+# -----------------------------------------------------------------------------
+
+def _compute_display_answer(answer_str: str, vout) -> str:
+    """Map verifier decision to user-facing output per Ch4 Stage-7 spec.
+
+    Separate from the raw ``answer`` field so downstream scoring (EM/F1)
+    consumes the model's literal prediction, while a deployment frontend
+    can read ``display_answer`` for the user-facing string. This matches
+    Ch4 Table ``tab:decision-tree`` action column:
+
+    - STORE / DEFERRED: pass raw answer through (the model is confident
+      enough, or confident enough to hold for reconsideration).
+    - ABSTAIN: return the principled refusal string. Ch4 §4.6 specifies
+      an explicit ``I do not know`` response as the correct failure mode
+      in factual-QA settings where a confident wrong answer is costlier
+      than a refusal.
+    - DISCARD: suppress output entirely (empty string). Per Ch4 spec,
+      either the contradiction veto or the grounding floor fired; the
+      model's prediction is not safe to expose.
+    - Tier 1 hits / pipeline-failure edge cases: fall through to raw
+      answer (the verifier was deliberately skipped for Tier 1, and
+      pipeline failures are signalled upstream with stored=False).
+
+    The ``decision`` field on ``vout`` remains the source of truth for
+    diagnostic aggregation (decision_breakdown, hallucination_rate, etc.);
+    this function only affects the user-facing display string.
+    """
+    if vout is None:
+        return answer_str
+    decision = getattr(vout, "decision", None)
+    if decision == "ABSTAIN":
+        return "I do not know."
+    if decision == "DISCARD":
+        return ""
+    # STORE, DEFERRED, and any unrecognised decision pass through.
+    return answer_str
 
 
 # -----------------------------------------------------------------------------
@@ -411,6 +459,8 @@ class CAEMPipeline:
             latency_ms,
         )
 
+        display_answer = _compute_display_answer(answer_str, vout)
+
         return PipelineResult(
             query=query,
             answer=answer_str,
@@ -424,6 +474,7 @@ class CAEMPipeline:
             u_stored=u_stored_scalar,
             entry_id=entry_id,
             escalated=escalated,
+            display_answer=display_answer,
         )
 
     # ------------------------------------------------------------------ #

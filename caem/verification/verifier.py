@@ -239,6 +239,88 @@ class _NLIEnsemble:
             return int(top[0])
         return 1  # ties -> NEUTRAL
 
+    # ---- Batched variants -------------------------------------------------- #
+    # Replace the sequential _probs() call pattern with single-batched forward
+    # passes. Per-row softmax is numerically identical to per-sample; the only
+    # observable difference is wall-clock (~10-50x speedup on the K*K NLI
+    # clustering loop in _compute_h_norm and on the passages x samples grids in
+    # _score_p_ground / _score_p_contra). Added 2026-04-19 post-Step-4 to raise
+    # CAEM per-sample latency ceiling from ~10s to ~2s (see VAST_SESSION_LOG.md).
+
+    def _probs_batch(self, model: Any, tokenizer: Any,
+                     premises: Sequence[str], hypotheses: Sequence[str]
+                     ) -> np.ndarray:
+        """Run one batched forward pass; return (N, 3) probability matrix."""
+        enc = tokenizer(
+            list(premises), list(hypotheses),
+            return_tensors="pt",
+            truncation=True, max_length=512,
+            padding=True,
+        ).to(self.device)
+        with torch.no_grad():
+            logits = model(**enc).logits
+        return F.softmax(logits, dim=-1).detach().cpu().numpy()
+
+    def batch_entail_prob(
+        self, pairs: Sequence[Tuple[str, str]],
+    ) -> List[float]:
+        """Batched version of entail_prob. Returns min-across-bundles per pair.
+
+        Semantics identical to calling entail_prob() in a loop:
+        out[i] = min over bundles of softmax(logits(premises[i], hypotheses[i]))[ENTAILMENT]
+        """
+        if not self.bundles or not pairs:
+            return [0.5] * len(pairs)
+        premises = [p for p, _ in pairs]
+        hypotheses = [h for _, h in pairs]
+        # For each bundle, collect the ENTAILMENT column.
+        per_bundle_entail = []
+        for (m, t) in self.bundles:
+            probs = self._probs_batch(m, t, premises, hypotheses)
+            per_bundle_entail.append(probs[:, 2])  # ENTAILMENT = index 2
+        stacked = np.stack(per_bundle_entail, axis=0)  # (bundles, N)
+        min_across = stacked.min(axis=0)  # (N,) min over bundles per pair
+        return [float(np.clip(x, 0.0, 1.0)) for x in min_across]
+
+    def batch_contradict_prob(
+        self, pairs: Sequence[Tuple[str, str]],
+    ) -> List[float]:
+        """Batched version of contradict_prob. Max-across-bundles per pair."""
+        if not self.bundles or not pairs:
+            return [0.0] * len(pairs)
+        premises = [p for p, _ in pairs]
+        hypotheses = [h for _, h in pairs]
+        per_bundle_contra = []
+        for (m, t) in self.bundles:
+            probs = self._probs_batch(m, t, premises, hypotheses)
+            per_bundle_contra.append(probs[:, 0])  # CONTRADICTION = index 0
+        stacked = np.stack(per_bundle_contra, axis=0)
+        max_across = stacked.max(axis=0)
+        return [float(np.clip(x, 0.0, 1.0)) for x in max_across]
+
+    def batch_argmax_label(
+        self, pairs: Sequence[Tuple[str, str]],
+    ) -> List[int]:
+        """Batched version of argmax_label. Majority-vote across bundles per pair."""
+        N = len(pairs)
+        if not self.bundles or not pairs:
+            return [1] * N  # NEUTRAL default
+        premises = [p for p, _ in pairs]
+        hypotheses = [h for _, h in pairs]
+        # Collect per-bundle argmax for each pair.
+        per_bundle_labels = np.zeros((len(self.bundles), N), dtype=np.int64)
+        for b_idx, (m, t) in enumerate(self.bundles):
+            probs = self._probs_batch(m, t, premises, hypotheses)
+            per_bundle_labels[b_idx] = np.argmax(probs, axis=1)
+        # Majority vote per pair. Ties -> NEUTRAL (1).
+        out = []
+        for i in range(N):
+            labels_i = per_bundle_labels[:, i]
+            counts = np.bincount(labels_i, minlength=3)
+            top = np.flatnonzero(counts == counts.max())
+            out.append(int(top[0]) if len(top) == 1 else 1)
+        return out
+
 
 # ============================================================================ #
 # Atomic-fact decomposer                                                        #
@@ -580,11 +662,15 @@ class UnifiedVerifier:
             return 0.5
 
     def _score_p_entail(self, chains: List[str], answer: str) -> float:
-        """Avg over chains of ensemble-min P(ENTAIL | chain -> answer)."""
+        """Avg over chains of ensemble-min P(ENTAIL | chain -> answer).
+
+        Batched: one NLI forward per bundle instead of len(chains) forwards.
+        """
         if not self.nli or not chains:
             return 0.5
         try:
-            scores = [self.nli.entail_prob(c, answer) for c in chains]
+            pairs = [(c, answer) for c in chains]
+            scores = self.nli.batch_entail_prob(pairs)
             return float(np.clip(np.mean(scores), 0.0, 1.0))
         except Exception as exc:
             logger.warning("p_entail failed: %s -- returning 0.5", exc)
@@ -593,20 +679,32 @@ class UnifiedVerifier:
     # ---- semantic entropy ------------------------------------------------- #
 
     def _compute_h_norm(self, input_ids: torch.Tensor) -> float:
-        """Normalised semantic entropy via NLI clustering (ensemble argmax)."""
+        """Normalised semantic entropy via NLI clustering (ensemble argmax).
+
+        Batched: single model.generate(num_return_sequences=K) instead of K
+        sequential generations. Semantically identical (K i.i.d. samples at
+        the same temperature) but exercises the GPU in one sustained burst
+        instead of K sequential launches.
+        """
         K = self.config.se_samples_k
         T = self.config.se_temperature
         try:
             self.model.eval()
             samples: List[str] = []
             with torch.no_grad():
-                for _ in range(K):
-                    out = self.model.generate(
-                        input_ids,
-                        max_new_tokens=self.config.cot_max_new_tokens,
-                        do_sample=True, temperature=T,
-                    )
-                    decoded = self.tokenizer.decode(out[0], skip_special_tokens=True).strip()
+                # Single batched call producing K i.i.d. samples. Equivalent to
+                # K sequential calls with the same temperature/do_sample setup
+                # but avoids K kernel-launch round-trips.
+                out = self.model.generate(
+                    input_ids,
+                    max_new_tokens=self.config.cot_max_new_tokens,
+                    do_sample=True, temperature=T,
+                    num_return_sequences=K,
+                )
+                for i in range(out.shape[0]):
+                    decoded = self.tokenizer.decode(
+                        out[i], skip_special_tokens=True
+                    ).strip()
                     samples.append(decoded)
             if not samples:
                 return 0.5
@@ -619,7 +717,13 @@ class UnifiedVerifier:
             return 0.5
 
     def _semantic_entropy_nli(self, samples: List[str]) -> float:
-        """Bidirectional NLI clustering -> Shannon entropy (bits)."""
+        """Bidirectional NLI clustering -> Shannon entropy (bits).
+
+        Batched: collect all (i, j) and (j, i) pairs first, do ONE batched
+        argmax across both directions, then union-find on the results. Same
+        math as the nested-loop version (N*(N-1) NLI calls) but executed as
+        a single forward pass per bundle instead of N*(N-1) forwards.
+        """
         N = len(samples)
         parent = list(range(N))
 
@@ -633,11 +737,25 @@ class UnifiedVerifier:
             parent[find(x)] = find(y)
 
         ENTAILMENT = 2
+        # Collect all bidirectional (i, j) pairs in a single list.
+        # pairs_fwd[k] = (samples[i], samples[j]); pairs_bwd[k] = (samples[j], samples[i])
+        ij_index = []
+        pairs_fwd: List[Tuple[str, str]] = []
+        pairs_bwd: List[Tuple[str, str]] = []
         for i in range(N):
             for j in range(i + 1, N):
-                if (self.nli.argmax_label(samples[i], samples[j]) == ENTAILMENT and
-                        self.nli.argmax_label(samples[j], samples[i]) == ENTAILMENT):
-                    union(i, j)
+                ij_index.append((i, j))
+                pairs_fwd.append((samples[i], samples[j]))
+                pairs_bwd.append((samples[j], samples[i]))
+
+        # One batched NLI forward per bundle for each direction.
+        labels_fwd = self.nli.batch_argmax_label(pairs_fwd)
+        labels_bwd = self.nli.batch_argmax_label(pairs_bwd)
+
+        # Union-find on bidirectional entailment.
+        for k, (i, j) in enumerate(ij_index):
+            if labels_fwd[k] == ENTAILMENT and labels_bwd[k] == ENTAILMENT:
+                union(i, j)
 
         counts: dict = {}
         for i in range(N):
@@ -698,11 +816,15 @@ class UnifiedVerifier:
         passages: List[str],
         answer: str,
     ) -> Tuple[float, float]:
-        """Return (p_ground_max, p_ground_mean) over the reranked passages."""
+        """Return (p_ground_max, p_ground_mean) over the reranked passages.
+
+        Batched: one NLI forward per bundle covering all passages.
+        """
         if not self.nli or not passages:
             return 0.5, 0.5
         try:
-            scores = [self.nli.entail_prob(p, answer) for p in passages]
+            pairs = [(p, answer) for p in passages]
+            scores = self.nli.batch_entail_prob(pairs)
             return (
                 float(np.clip(max(scores), 0.0, 1.0)),
                 float(np.clip(np.mean(scores), 0.0, 1.0)),
@@ -712,11 +834,15 @@ class UnifiedVerifier:
             return 0.5, 0.5
 
     def _score_p_contra(self, passages: List[str], answer: str) -> float:
-        """Max contradiction probability across passages (ensemble max per passage)."""
+        """Max contradiction probability across passages (ensemble max per passage).
+
+        Batched: one NLI forward per bundle covering all passages.
+        """
         if not self.nli or not passages:
             return 0.0
         try:
-            scores = [self.nli.contradict_prob(p, answer) for p in passages]
+            pairs = [(p, answer) for p in passages]
+            scores = self.nli.batch_contradict_prob(pairs)
             return float(np.clip(max(scores), 0.0, 1.0))
         except Exception as exc:
             logger.warning("p_contra failed: %s -- returning 0.0", exc)
@@ -751,10 +877,19 @@ class UnifiedVerifier:
             facts = _parse_atomic_facts(decoded)
             if not facts:
                 return [], [], float(fallback)
+            # Batched: build (passage, fact) pair list for all facts x passages,
+            # do ONE batched NLI forward per bundle, then reshape to per-fact
+            # max-over-passages. Equivalent to the nested loop but N*M calls
+            # collapse into a single batched forward per bundle.
+            P = len(passages)
+            pairs_flat: List[Tuple[str, str]] = [
+                (p, f) for f in facts for p in passages
+            ]
+            flat_scores = self.nli.batch_entail_prob(pairs_flat)
             per_atom: List[float] = []
-            for f in facts:
-                scores = [self.nli.entail_prob(p, f) for p in passages]
-                per_atom.append(float(np.clip(max(scores), 0.0, 1.0)))
+            for k in range(len(facts)):
+                chunk = flat_scores[k * P:(k + 1) * P]
+                per_atom.append(float(np.clip(max(chunk), 0.0, 1.0)))
             return facts, per_atom, float(min(per_atom))
         except Exception as exc:
             logger.warning("atomic decomposition failed: %s -- using fallback", exc)
