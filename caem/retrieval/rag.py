@@ -512,3 +512,65 @@ class TierThreeRAG:
             max_length=512,          # Flan-T5-Large encoder limit
         )
         return enc["input_ids"].to(self.device)
+
+    def generate_batch(self, queries: List[str]) -> List[str]:
+        """Generate N Tier 3 RAG answers in one batched T5 forward pass.
+
+        Used by Level B static batching (BatchPipeline.batch_tier3_generate).
+        Retrieval and prompt construction still run per-query (cheap FAISS
+        + string ops); the expensive T5 ``generate`` call is batched.
+
+        Returns a list of length N in input order. Empty string at position
+        i signals a failed generation for that query (caller escalates).
+        """
+        if not queries:
+            return []
+
+        cfg = self.config
+
+        prompts: List[str] = []
+        for q in queries:
+            passages = self._retrieve(q, k=cfg.rag_top_k)
+            if passages:
+                prompts.append(self._build_prompt(q, passages))
+            else:
+                logger.warning("RAG batch: no passages for query '%s...' -- falling back to query-only.", q[:60])
+                prompts.append(q)
+
+        enc = self.tokenizer(
+            prompts,
+            return_tensors="pt",
+            truncation=True,
+            max_length=512,
+            padding=True,
+        )
+        input_ids = enc["input_ids"].to(self.device)
+        attention_mask = enc["attention_mask"].to(self.device)
+
+        try:
+            self.model.eval()
+            with torch.no_grad():
+                output_ids = self.model.generate(
+                    input_ids,
+                    attention_mask=attention_mask,
+                    max_new_tokens=cfg.rag_max_new_tokens,
+                    do_sample=cfg.rag_do_sample,
+                )
+        except Exception as exc:
+            logger.error(
+                "RAG generate_batch failed (N=%d): %s -- returning empty strings.",
+                len(queries), exc,
+            )
+            return [""] * len(queries)
+
+        decoded: List[str] = []
+        for i in range(output_ids.shape[0]):
+            try:
+                s = self.tokenizer.decode(
+                    output_ids[i], skip_special_tokens=True,
+                ).strip()
+            except Exception as exc:
+                logger.warning("RAG generate_batch decode %d failed: %s", i, exc)
+                s = ""
+            decoded.append(s)
+        return decoded

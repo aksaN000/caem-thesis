@@ -344,6 +344,7 @@ class CAEMPipeline:
         store_to_memory: bool = True,
         source_benchmark: Optional[str] = None,
         _precomputed_tier2_answer: Optional[str] = None,
+        _precomputed_tier3_answer: Optional[str] = None,
     ) -> PipelineResult:
         """Run the full CAEM pipeline for a single query.
 
@@ -443,7 +444,15 @@ class CAEMPipeline:
                 )
 
         else:  # tier == 3
-            answer_str = self._tier3(query)
+            if _precomputed_tier3_answer is not None:
+                # Level B batched path: Tier 3 RAG generate was run in a single
+                # batched T5 forward pass by BatchPipeline.batch_tier3_generate;
+                # inject the precomputed string here and skip the individual
+                # _tier3 call. An empty string is preserved as-is (same as
+                # serial _tier3 returning "" on total failure).
+                answer_str = _precomputed_tier3_answer
+            else:
+                answer_str = self._tier3(query)
             # -- Stage 5: UnifiedVerifier ------------------------------ #
             # Tier 3 has no pre-computed internal signals, so the verifier
             # computes u_token and u_dropout itself.

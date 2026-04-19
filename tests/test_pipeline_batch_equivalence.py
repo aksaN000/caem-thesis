@@ -311,13 +311,14 @@ def _make_serial_with_tier(tier_by_index):
     call_counter = {"i": 0}
 
     def _answer(query=None, store_to_memory=True, source_benchmark=None,
-                _precomputed_tier2_answer=None):
+                _precomputed_tier2_answer=None, _precomputed_tier3_answer=None):
         idx = len(call_log)
         call_log.append({
             "query": query,
             "store_to_memory": store_to_memory,
             "source_benchmark": source_benchmark,
             "_precomputed_tier2_answer": _precomputed_tier2_answer,
+            "_precomputed_tier3_answer": _precomputed_tier3_answer,
         })
         return _make_fake_pipeline_result(idx)
 
@@ -374,15 +375,78 @@ def test_answer_batch_skips_batch_generate_when_no_tier2(monkeypatch):
     p = _make_serial_with_tier([1, 3, 1])
     bp = BatchPipeline(p)
 
-    calls: List[List[str]] = []
+    t2_calls: List[List[str]] = []
+    t3_calls: List[List[str]] = []
 
     def fake_batch_tier2(queries):
-        calls.append(list(queries))
+        t2_calls.append(list(queries))
         return [""] * len(queries)
 
+    def fake_batch_tier3(queries):
+        t3_calls.append(list(queries))
+        return [f"T3_for_{q}" for q in queries]
+
     monkeypatch.setattr(bp, "batch_tier2_generate", fake_batch_tier2)
+    monkeypatch.setattr(bp, "batch_tier3_generate", fake_batch_tier3)
 
     samples = [BatchSample(query=f"q{i}") for i in range(3)]
     bp.answer_batch(samples)
 
-    assert calls == []  # never invoked
+    # Tier 2 never invoked; Tier 3 invoked once with just the Tier 3 queries.
+    assert t2_calls == []
+    assert t3_calls == [["q1"]]
+
+
+# --------------------------------------------------------------------------- #
+# Tier 3 batched-generate dispatch tests                                      #
+# --------------------------------------------------------------------------- #
+
+def test_answer_batch_routes_tier3_through_batch_generate(monkeypatch):
+    """Tier 3 samples should be collected and run through
+    ``batch_tier3_generate`` once, with their precomputed answers injected
+    into the serial ``answer()`` call via ``_precomputed_tier3_answer``."""
+    tier_pattern = [3, 1, 3, 2]
+    p = _make_serial_with_tier(tier_pattern)
+    bp = BatchPipeline(p)
+
+    recorded: List[List[str]] = []
+
+    def fake_batch_tier3(queries):
+        recorded.append(list(queries))
+        return [f"T3_answer_for_{q}" for q in queries]
+
+    monkeypatch.setattr(bp, "batch_tier3_generate", fake_batch_tier3)
+    # Neutralize Tier 2 batching so it doesn't interfere.
+    monkeypatch.setattr(
+        bp, "batch_tier2_generate", lambda qs: [f"T2_{q}" for q in qs],
+    )
+
+    samples = [BatchSample(query=f"q{i}") for i in range(4)]
+    bp.answer_batch(samples)
+
+    # Only Tier 3 queries went into batch_tier3_generate, in order.
+    assert len(recorded) == 1
+    assert recorded[0] == ["q0", "q2"]
+
+    calls = p._call_log
+    assert calls[0]["_precomputed_tier3_answer"] == "T3_answer_for_q0"
+    assert calls[1]["_precomputed_tier3_answer"] is None  # tier 1
+    assert calls[2]["_precomputed_tier3_answer"] == "T3_answer_for_q2"
+    assert calls[3]["_precomputed_tier3_answer"] is None  # tier 2
+
+
+def test_batch_tier3_generate_empty_queries():
+    p = MagicMock()
+    bp = BatchPipeline(p)
+    assert bp.batch_tier3_generate([]) == []
+
+
+def test_batch_tier3_generate_delegates_to_rag(monkeypatch):
+    """Non-empty input should forward to ``p.rag.generate_batch`` and
+    return its output verbatim."""
+    p = MagicMock()
+    p.rag.generate_batch.return_value = ["ans_a", "ans_b"]
+    bp = BatchPipeline(p)
+    out = bp.batch_tier3_generate(["qa", "qb"])
+    assert out == ["ans_a", "ans_b"]
+    p.rag.generate_batch.assert_called_once_with(["qa", "qb"])

@@ -239,6 +239,23 @@ class BatchPipeline:
             decoded.append(s)
         return decoded
 
+    def batch_tier3_generate(self, queries: Sequence[str]) -> List[str]:
+        """Generate N Tier-3 RAG answers in one batched T5 forward pass.
+
+        Equivalent to calling ``self.p._tier3(q)`` in a loop: each query
+        is retrieved + prompt-built serially (cheap FAISS + string ops),
+        then a single padded ``model.generate`` runs the expensive T5
+        pass over all N prompts at once. Answers come back in input order.
+
+        Empty string at position i signals a decode/generate failure;
+        the caller preserves it (matches serial contract: ``_tier3``
+        also returns "" on total failure, and the verifier handles an
+        empty answer just like the serial path).
+        """
+        if not queries:
+            return []
+        return self.p.rag.generate_batch(list(queries))
+
     # ---- Public API ------------------------------------------------------ #
 
     def answer_batch(
@@ -282,8 +299,11 @@ class BatchPipeline:
             tier = self._peek_tier(s.query)
             per_sample_tier.append(tier)
 
-        # Phase 2: collect Tier 2 samples + batch-generate their answers.
+        # Phase 2: collect Tier 2 / Tier 3 samples + batch-generate their
+        # answers. Tier 1 samples produce no generation work.
         tier2_indices = [i for i, t in enumerate(per_sample_tier) if t == 2]
+        tier3_indices = [i for i, t in enumerate(per_sample_tier) if t == 3]
+
         precomputed_tier2: dict[int, str] = {}
         if tier2_indices:
             tier2_queries = [samples[i].query for i in tier2_indices]
@@ -291,11 +311,18 @@ class BatchPipeline:
             for idx, ans in zip(tier2_indices, tier2_answers):
                 precomputed_tier2[idx] = ans
 
+        precomputed_tier3: dict[int, str] = {}
+        if tier3_indices:
+            tier3_queries = [samples[i].query for i in tier3_indices]
+            tier3_answers = self.batch_tier3_generate(tier3_queries)
+            for idx, ans in zip(tier3_indices, tier3_answers):
+                precomputed_tier3[idx] = ans
+
         # Phase 3: complete each sample's pipeline via serial answer(),
-        # injecting the precomputed Tier 2 answer where applicable.
+        # injecting the precomputed Tier 2 / Tier 3 answers where applicable.
         # NOTE: tier determination is re-run inside answer() -- the
         # _peek_tier() result above is only used to decide *which*
-        # samples need batched Tier 2 generation. Router outputs are
+        # samples need batched generation. Router outputs are
         # deterministic given the same inputs, so the tier decision
         # inside answer() will match per_sample_tier[i].
         results: List[PipelineResult] = []
@@ -307,6 +334,8 @@ class BatchPipeline:
             )
             if i in precomputed_tier2:
                 kwargs["_precomputed_tier2_answer"] = precomputed_tier2[i]
+            if i in precomputed_tier3:
+                kwargs["_precomputed_tier3_answer"] = precomputed_tier3[i]
             r = self.p.answer(**kwargs)
             results.append(r)
         return results
