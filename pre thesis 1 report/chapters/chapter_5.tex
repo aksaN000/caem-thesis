@@ -566,7 +566,7 @@ $n_{\text{eval}}$ is drawn from the \emph{dev or test splits} of all
 six benchmarks (FEVER dev, TriviaQA and Natural Questions validation,
 TruthfulQA single split, StrategyQA test, ARC-Challenge test) through
 \texttt{load\_eval\_transfer\_pool}. The two loaders therefore
-consume disjoint source splits, and the calibration-fold fit for
+consume disjoint source splits, and the calibration-split fit for
 $T^{*}$ and for the decision-tree quantile thresholds
 (Section~\ref{sec:self-improvement} threshold-calibration paragraph)
 never observes a question that will later feed the evaluation split.
@@ -578,6 +578,49 @@ transfer-eval benchmarks (TruthfulQA, StrategyQA, ARC-Challenge)
 contribute zero samples to the calibration or purity splits and are
 evaluated only, which is consistent with the
 transfer-generalisation role assigned to them in Chapter 3.
+
+\paragraph{Content-hash stable identity for split disjointness.}
+\label{par:content-hash-disjointness}
+The sample-level disjointness guarantee between the five splits is
+enforced by a content-hash stable identifier rather than by the
+dataset-provided native \texttt{id} field. For every sample drawn
+from any benchmark loader, a sixteen-character identifier is derived
+from SHA-256 over the question text (truncated to five hundred
+characters) at split-construction time and attached as
+\texttt{\_content\_id}; downstream disjointness assertions and the
+filter that removes cross-split collisions both consume this
+identifier instead of the native one. The index-based partition
+still happens first via \texttt{split\_calibration\_sets} (which
+shuffles the training pool deterministically from a benchmark-keyed
+seed and slices it into five hundred purity, five hundred
+calibration, and the remainder training samples per benchmark);
+content-hash filtering runs immediately after and (a) removes
+within-pool duplicates by \texttt{\_content\_id}, retaining only the
+first occurrence in each slice, and (b) drops calibration or purity
+samples whose content hash collides with the evaluation split.
+This guards against two Hugging Face dataset variants whose native
+IDs are non-unique under the loading assumptions:
+\texttt{lucadiliello/fever} reuses integer claim IDs between the
+training split and the dev split (so a FEVER training claim and a
+FEVER dev claim can share a native ID without sharing content),
+and the \texttt{trivia\_qa} \texttt{rc.nocontext} dump contains
+within-split duplicate native IDs (multiple training entries
+sharing a single \texttt{sfq\_*} or \texttt{qw\_*} identifier).
+Under these conditions, native-ID disjointness would produce both
+false positives (content-distinct samples flagged as overlapping)
+and false negatives (content-identical samples passing the check);
+content-hash disjointness eliminates both failure modes. The
+filter step drops at most a handful of samples per benchmark from
+the calibration and purity slices whose content hashes collide with
+the evaluation split, and removes a comparable small number of
+within-pool duplicates from the self-improvement training pool;
+the filter counts are logged at run time and are documented in
+\texttt{VAST\_SESSION\_LOG.md} for the confirmatory run. This
+content-hash mechanism is the engineering guarantee Chapter 5's
+headline metrics rely on, and it is what the McNemar and paired
+bootstrap tests of Table~\ref{tab:sig-test} assume when they claim
+evaluation-pool invariance across cycles and across ablation
+variants.
 
 \paragraph{Per-cycle calibration protocol.}
 At every cycle boundary, after fine-tuning and retroactive
