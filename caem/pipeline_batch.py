@@ -318,14 +318,17 @@ class BatchPipeline:
         if not samples:
             return []
 
-        # Phase 1: per-sample tier determination.
-        # We need tier info to know which samples to batch-generate for.
-        # This is a cheap set of ops (SBERT encode + FAISS search +
-        # router dispatch); batching them is a later optimisation.
+        # Phase 1: per-sample tier determination + routing bundle.
+        # Stages 1-3 (encode, search, route) run once per sample here.
+        # The full bundle is threaded into answer() via _precomputed_routing
+        # so the serial call does not repeat these ops (Phase 2 Tier-1
+        # fast path).
         per_sample_tier: List[int] = []
+        per_sample_routing: List[tuple] = []
         for s in samples:
-            tier = self._peek_tier(s.query)
+            tier, emb, pre_conf, search, routing = self._peek_routing(s.query)
             per_sample_tier.append(tier)
+            per_sample_routing.append((emb, pre_conf, search, routing))
 
         # Phase 2: collect Tier 2 / Tier 3 samples + batch-generate their
         # answers. Tier 1 samples produce no generation work.
@@ -385,6 +388,7 @@ class BatchPipeline:
                 query=s.query,
                 store_to_memory=s.store_to_memory,
                 source_benchmark=s.source_benchmark,
+                _precomputed_routing=per_sample_routing[i],
             )
             if i in precomputed_tier2:
                 kwargs["_precomputed_tier2_answer"] = precomputed_tier2[i]
@@ -399,14 +403,22 @@ class BatchPipeline:
     # ---- Internal helpers ----------------------------------------------- #
 
     def _peek_tier(self, query: str) -> int:
-        """Return the tier this query would be routed to, without
-        generating an answer. Runs the cheap upstream ops (encode,
-        search, pre-route, router) and inspects the routing decision.
+        """Return the tier this query would be routed to. Thin wrapper
+        around :meth:`_peek_routing` for call sites that only need the
+        tier int (e.g. tests). Equivalent to ``_peek_routing(q)[0]``.
+        """
+        tier, _, _, _, _ = self._peek_routing(query)
+        return tier
 
-        This duplicates work that ``answer()`` will do again, but the
-        duplicated work is inexpensive compared to the Tier 2/3
-        generate calls. Future commits batch these upstream ops
-        across samples to eliminate the duplication cost.
+    def _peek_routing(self, query: str) -> tuple:
+        """Run Stages 1-3 once and return the full routing bundle:
+        ``(tier, query_embedding, pre_conf, search_with_ids, routing)``.
+
+        Level B Phase 2: the bundle is threaded into the serial
+        :meth:`CAEMPipeline.answer` via the ``_precomputed_routing``
+        kwarg so each sample pays the Stage 1-3 cost exactly once
+        instead of twice (once for tier-bucket dispatch, once inside
+        the serial ``answer`` call).
         """
         query_embedding = self.p._encode_query(query)
         pre_conf = self.p.pre_estimator.estimate(query)
@@ -414,4 +426,10 @@ class BatchPipeline:
             query_embedding, k=1,
         )
         routing = self.p.router.route(pre_conf, search_with_ids)
-        return int(routing.tier)
+        return (
+            int(routing.tier),
+            query_embedding,
+            pre_conf,
+            search_with_ids,
+            routing,
+        )

@@ -346,6 +346,7 @@ class CAEMPipeline:
         _precomputed_tier2_answer: Optional[str] = None,
         _precomputed_tier3_answer: Optional[str] = None,
         _precomputed_vout: Optional[UnifiedVerifierOutput] = None,
+        _precomputed_routing: Optional[tuple] = None,
     ) -> PipelineResult:
         """Run the full CAEM pipeline for a single query.
 
@@ -370,19 +371,30 @@ class CAEMPipeline:
         """
         t_start = time.perf_counter()
 
-        # -- Stage 2: Encode query --------------------------------------- #
-        query_embedding = self._encode_query(query)
+        if _precomputed_routing is not None:
+            # Level B Phase 2 Tier-1 fast path: BatchPipeline already ran
+            # Stages 1-3 in _peek_routing when it classified tiers; thread
+            # those results through here to avoid re-encoding + re-searching
+            # + re-routing per sample. Saves ~30-50 ms per Tier-1 sample at
+            # late cycles where Tier-1 fraction is high (38% at Cycle 10).
+            query_embedding, pre_conf, search_with_ids, routing = \
+                _precomputed_routing
+        else:
+            # -- Stage 2: Encode query --------------------------------------- #
+            query_embedding = self._encode_query(query)
 
-        # -- Stage 3a: Pre-routing confidence --------------------------- #
-        pre_conf = self.pre_estimator.estimate(query)
+            # -- Stage 3a: Pre-routing confidence --------------------------- #
+            pre_conf = self.pre_estimator.estimate(query)
 
-        # -- Stage 1: Memory search (k=1 for routing) ------------------- #
-        # Use search_with_ids so Tier-1 stats updates can call back without
-        # scanning private _metadata for the entry ID.
-        search_with_ids = self.memory_store.search_with_ids(query_embedding, k=1)
+            # -- Stage 1: Memory search (k=1 for routing) ------------------- #
+            # Use search_with_ids so Tier-1 stats updates can call back without
+            # scanning private _metadata for the entry ID.
+            search_with_ids = self.memory_store.search_with_ids(
+                query_embedding, k=1,
+            )
 
-        # -- Stage 3b: Route --------------------------------------------- #
-        routing = self.router.route(pre_conf, search_with_ids)
+            # -- Stage 3b: Route --------------------------------------------- #
+            routing = self.router.route(pre_conf, search_with_ids)
 
         logger.debug(
             "Routing: Tier %d | u_pre=%.4f | sim=%.4f | score=%.4f | safety=%s",

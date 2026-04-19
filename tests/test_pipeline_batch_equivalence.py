@@ -61,7 +61,9 @@ def mock_serial_pipeline():
     pipeline = MagicMock()
     call_log: List[dict] = []
 
-    def _answer(query=None, store_to_memory=True, source_benchmark=None):
+    def _answer(query=None, store_to_memory=True, source_benchmark=None,
+                _precomputed_routing=None, _precomputed_tier2_answer=None,
+                _precomputed_tier3_answer=None, _precomputed_vout=None):
         call_log.append({
             "query": query,
             "store_to_memory": store_to_memory,
@@ -312,7 +314,7 @@ def _make_serial_with_tier(tier_by_index):
 
     def _answer(query=None, store_to_memory=True, source_benchmark=None,
                 _precomputed_tier2_answer=None, _precomputed_tier3_answer=None,
-                _precomputed_vout=None):
+                _precomputed_vout=None, _precomputed_routing=None):
         idx = len(call_log)
         call_log.append({
             "query": query,
@@ -321,6 +323,7 @@ def _make_serial_with_tier(tier_by_index):
             "_precomputed_tier2_answer": _precomputed_tier2_answer,
             "_precomputed_tier3_answer": _precomputed_tier3_answer,
             "_precomputed_vout": _precomputed_vout,
+            "_precomputed_routing": _precomputed_routing,
         })
         return _make_fake_pipeline_result(idx)
 
