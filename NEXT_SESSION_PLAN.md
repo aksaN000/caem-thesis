@@ -1,12 +1,50 @@
 # CAEM — Next Session Plan (Vast.ai Runbook)
 
-**Updated: 2026-04-18 | Phase 1 (Self-Funded) Line-by-Line Execution Plan**
+**Updated: 2026-04-19 | Phase 1a (Self-Funded) Line-by-Line Execution Plan**
 
 This document is a **step-by-step runbook**. Read each numbered action,
 execute it, verify the expected output, then move to the next. Do not
 skip actions. Do not re-order. If an expected output is missing or
 wrong, stop and diagnose — skipping a failing action compounds cost
 downstream.
+
+## Two-phase execution model
+
+Phase 1 is split in two funding tranches:
+
+**Phase 1a (self-funded, ~$240 topup on a $25 current balance):**
+Steps 4 → 15 + 19 → 20. Produces the headline result package the
+supervisor needs to see: main 10-cycle CAEM run **at Ch5-declared
+n=5000 SIL pool size** + 7 external baselines + purity-theorem
+validation. Steps 16–18 (ablation sweep) are **deferred**. Runtime
+estimate ~420 GPU-h at 8 s/sample under MiniCheck; credit envelope
+~$265 total after topup. The n=5000 value is what Ch5
+§AblationMethodology line 751 declares for the confirmatory pass
+including the reference run; reducing it would deviate from the
+pre-registration.
+
+**Phase 1 Full (supervisor-funded, ~$640 additional):**
+Steps 16–18 only — 17-variant screening sweep + top-N confirmatory
+runs. Runs on the same rental image after Phase 1a headline results
+secure the funding. Populates the Chapter 5 ablation results table.
+Runtime estimate ~1000 GPU-h.
+
+Defense sequence: Phase 1a complete → supervisor funding → Phase 1 Full
+complete → defense prep → viva.
+
+## Why the two-phase split
+
+Ch5 §AblationMethodology line 747 originally projected "approximately
+USD 200" for the Phase 1 screening sweep, assuming the pre-MiniCheck
+verifier at ~4 s/sample. The MiniCheck swap adopted on 2026-04-19
+(see VAST\_SESSION\_LOG.md Literature-review block Topic 1) doubles the
+per-sample wall-clock to ~8 s, which doubles the screening sweep cost
+to ~$400–$640 depending on the chosen n\_screen. The swap was
+non-negotiable (the generic NLI backend falsifies the Chapter 4
+purity theorem's α > 1/2 premise per HaluEval 2025), so the ablation
+sweep gets deferred to the supervisor-funded tranche rather than the
+MiniCheck swap being reverted. The headline story (Steps 7, 9–15, 19)
+is unchanged and fits comfortably in Phase 1a.
 
 ---
 
@@ -560,26 +598,34 @@ every later step.
 
 ---
 
-## Step 5.5 — Verifier calibration diagnostic (MiniCheck vs RoBERTa-NLI)
+## Step 5.5 — Verifier-backend calibration diagnostic (run after Step 7.0)
 
 **[WHY]** The Ch4 purity theorem requires empirical α > ½ on the
-*LM-generated claim* distribution. This step measures α for both
-backends on a stratified 500-pair labelled set and ships the result
-into the Chapter 5 appendix as the empirical justification for
-defaulting to MiniCheck.
+LM-generated claim distribution. This step measures AUROC / ECE /
+balanced-accuracy for both MiniCheck and legacy RoBERTa-MNLI on a
+stratified 500-pair labelled set derived from the Cycle-0 eval
+outputs, and ships the result into the Chapter 5 appendix as the
+empirical justification for defaulting to MiniCheck.
 
-5.5.1 **[ACTION]** Build the calibration pair file from cold-start
+**[ORDERING]** This step runs **after Step 7.0 Cycle-0 eval**, not
+here in the sequential position of the runbook. The pair builder
+needs the Cycle-0 eval JSONs (per-sample question / prediction / gold
+/ em) to derive labelled (document, claim, label) triples.
+
+5.5.1 **[ACTION]** Build the calibration pair set from Cycle-0 eval
 outputs (one-time, ~3 min):
 
 ```bash
-python scripts/build_calibration_pairs.py \
-    --source_jsonl outputs/cold_start_memory/seed_episodes.jsonl \
+PYTHONPATH=. python scripts/build_calibration_pairs.py \
+    --eval_jsons "outputs/cycle_0/eval/*_cycle0.json" \
+    --passage_index data/passage_index \
     --n_pairs 500 \
+    --balance 0.5 \
     --output_jsonl data/calibration/minicheck_pairs_500.jsonl
 ```
 
-5.5.2 **[ACTION]** Run the diagnostic (~8 min on 5090 for both
-backends):
+5.5.2 **[ACTION]** Run the head-to-head diagnostic (~8 min on 5090
+for both backends):
 
 ```bash
 PYTHONPATH=. python scripts/calibration_minicheck_vs_roberta.py \
@@ -593,19 +639,28 @@ PYTHONPATH=. python scripts/calibration_minicheck_vs_roberta.py \
 
 - `outputs/calibration/minicheck_vs_roberta.json` exists with both
   `minicheck` and `roberta_nli` blocks.
-- `delta_auroc_minicheck_minus_roberta` is positive (MiniCheck > RoBERTa
-  on this distribution) — literature expectation is +10–25 AUROC points.
-- MiniCheck ECE < 0.15 (well calibrated); RoBERTa ECE likely 0.25–0.45
-  (over confident on LM outputs per HaluEval 2025).
+- Literature expectation: MiniCheck AUROC +0.10 to +0.25 above
+  RoBERTa-MNLI on this distribution.
+- MiniCheck ECE < 0.15 (well calibrated); RoBERTa ECE likely
+  0.25–0.45 (over-confident on LM outputs per HaluEval 2025).
 
-5.5.4 **[GATE]** If `minicheck.auroc < 0.70` OR `ece > 0.30`:
-investigate (wrong pair labels, wrong prompt format, wrong tokenizer)
-before continuing. Do NOT fall back to RoBERTa-NLI for the main run;
-that backend is the *weaker* verifier by assumption.
+5.5.4 **[GATE — three scenarios, all documented in Ch5 and
+VAST\_SESSION\_LOG.md]**:
 
-**[CHECKPOINT 5.5]** α > ½ is empirically confirmed on the
-thesis-default backend; Ch4 Remark 4.3 (empirical scope of α) is
-auditable.
+- **A. MiniCheck wins cleanly** (AUROC delta ≥ +0.05 AND ECE delta
+  ≤ −0.10): proceed with MiniCheck default. No thesis edits needed.
+- **B. Marginal win** (AUROC delta +0.02 to +0.05): proceed with
+  MiniCheck default; soften Ch5 "10-25 AUROC advantage" to
+  "measured advantage of +X on the CAEM-specific diagnostic".
+- **C. Null or loss** (AUROC delta ≤ 0): revert default to
+  `roberta_nli` via `CAEMConfig.verifier_backend`; re-frame Ch2 +
+  Ch3 risk 6 + Ch4 empirical-scope remark + Ch5 §ExpSetup
+  verifier-backend paragraph. Step 7 wall-clock halves (RoBERTa is
+  2× faster than MiniCheck); Phase 1a budget drops from ~\$255 to
+  ~\$130.
+
+**[CHECKPOINT 5.5]** Verifier backend choice is empirically
+defended; Ch4 Remark 4.3 (empirical scope of α) is auditable.
 
 ---
 
@@ -639,12 +694,62 @@ novelty filter).
 
 ---
 
-## Step 7 — Main 10-cycle CAEM run (Phase 1 headline)
+## Step 7.0 — Cycle-0 baseline + threshold calibration (pre-Step-7)
 
-**[WHY]** This is the headline Chapter 5 result. ~16–18 h, ~$7 on
-RTX 4090.
+**[WHY]** Before the main 10-cycle run commits, fit the decision-tree
+thresholds (τ\_store, τ\_defer, τ\_train) from a Cycle-0 u\_stored
+distribution at quantile targets P70 / P40 / P90. Avoids the failure
+mode where RoBERTa-era defaults (0.65 / 0.45 / 0.75) produce 0% STORE
+under MiniCheck. See Chapter 4 §Threshold calibration.
 
-7.1 **[ACTION]** Launch in its own tmux session:
+7.0.1 **[ACTION]** Run a small Cycle-0 eval (500 samples/benchmark)
+to collect u\_stored values:
+
+```bash
+tmux new-session -s cycle0
+python -m scripts.run_experiment \
+    --output_dir outputs/cycle_0 \
+    --num_cycles 0 \
+    --n_questions 500 \
+    --n_eval_questions 500 \
+    --benchmarks fever triviaqa natural_questions truthfulqa strategyqa arc_challenge \
+    --passage_index data/passage_index \
+    --cold_start_memory outputs/cold_start_memory/memory_store \
+    2>&1 | tee outputs/cycle_0/run.log
+```
+
+7.0.2 **[ACTION]** Fit thresholds from the observed u\_stored:
+
+```bash
+PYTHONPATH=. python scripts/calibrate_thresholds.py \
+    --eval_jsons "outputs/cycle_0/eval/*_cycle0.json" \
+    --verifier_backend minicheck \
+    --output_json outputs/cycle_0/calibrated_thresholds.json
+```
+
+7.0.3 **[VERIFY]**
+
+```bash
+cat outputs/cycle_0/calibrated_thresholds.json
+```
+
+Expected: `thresholds.store` ≈ 0.35-0.50 under MiniCheck,
+`thresholds.defer` ≈ 0.20-0.35, `thresholds.train` > store by ≥ 0.10.
+The ordering assertion `train > store > defer` must hold; if it
+fails, inspect the u\_stored distribution and raise target quantile
+separation.
+
+---
+
+## Step 7 — Main 10-cycle CAEM run (Phase 1a headline)
+
+**[WHY]** This is the headline Chapter 5 result, run at
+Ch5 §AblationMethodology's declared n=5000 SIL pool size per
+benchmark. Budget on MiniCheck-backend 5090: ~400 GPU-h, ~\$255.
+
+7.1 **[ACTION]** Launch in its own tmux session. Thresholds from
+Step 7.0.2 are applied by reading
+`outputs/cycle_0/calibrated_thresholds.json`:
 
 ```bash
 tmux new-session -s main
@@ -652,6 +757,7 @@ python -m scripts.run_experiment \
     --output_dir outputs/full_run \
     --num_cycles 10 \
     --n_questions 5000 \
+    --n_eval_questions 500 \
     --benchmarks fever triviaqa natural_questions truthfulqa strategyqa arc_challenge \
     --passage_index data/passage_index \
     --cold_start_memory outputs/cold_start_memory/memory_store \
@@ -1088,12 +1194,43 @@ every cycle; if the guard fires, the rollback is logged.
 
 ---
 
-## Step 16 — Phase 1 screening sweep (16 variants × 3 cycles × n=1500)
+## ===== PHASE 1a ENDS HERE — STEPS 16–18 DEFERRED =====
 
-**[WHY]** Rank the 16 ablation variants so confirmatory budget goes
+**[BUDGET GATE]** Steps 16–18 below are the 17-variant ablation
+sweep. They are **deferred** to Phase 1 Full (supervisor-funded
+tranche) per the two-phase model declared at the top of this
+runbook.
+
+**When to return here:**
+1. Phase 1a complete (Step 20 done, results downloaded locally).
+2. Supervisor approves Phase 1 Full funding (~\$640 GPU-credit).
+3. Resume a Vast rental (same image, pull FAISS from HF per Step 4
+   shortcut).
+4. Execute Steps 16–18 below, then re-run Step 20 with the
+   augmented output set.
+
+**If Phase 1a satisfies your defense requirement:** jump directly to
+Step 19 (purity theorem validation) and Step 20 (aggregate + stop).
+
+---
+
+## Step 16 — Phase 1 Full screening sweep (17 variants × 3 cycles × n=1500)
+
+**[WHY]** Rank the 17 ablation variants so confirmatory budget goes
 only to the high-impact ones. **Screening rows never enter the
 Chapter 5 ablation table** — this is a budget-allocation instrument.
-~14–20 h total.
+~14–20 h total under RoBERTa per-sample time; ~480 h under MiniCheck
+8 s/sample. Budget for this step under MiniCheck: ~\$306.
+
+Variant set (17, matching `caem/ablation/variants.py`):
+reference `full`; verification family `no_verifier`, `no_grounding`,
+`no_contradiction_veto`, `no_store_gate`, `aggressive_store`,
+**`roberta_nli_backend`** (added 2026-04-19 for the MiniCheck-backend
+swap ablation); calibration family `no_internal_calibration`,
+`no_semantic_entropy`, `equal_signal_weights`; safety-gate
+`no_early_exit`; self-improvement `no_self_improvement`,
+`no_retroverify`; routing `no_tier1`; retrieval `no_tier3_rag`,
+`no_novelty_filter`, `no_recency_decay`.
 
 16.1 **[ACTION]** Write the wrapper script:
 
@@ -1102,10 +1239,11 @@ cat > run_screening.sh <<'BASH'
 #!/usr/bin/env bash
 set -euo pipefail
 VARIANTS=(
-    full no_self_improvement no_tier1 no_retrieval no_verification
-    no_nli no_selfcons no_entropy no_routing no_cold_start
-    no_abort_guard no_l2_anchor no_retroverify no_memory_prune
-    no_mcdropout lower_u_threshold
+    full no_verifier no_grounding no_contradiction_veto no_store_gate
+    aggressive_store roberta_nli_backend no_internal_calibration
+    no_semantic_entropy equal_signal_weights no_early_exit
+    no_self_improvement no_retroverify no_tier1 no_tier3_rag
+    no_novelty_filter no_recency_decay
 )
 for v in "${VARIANTS[@]}"; do
     echo "=== SCREENING $v ==="
@@ -1254,6 +1392,62 @@ cat outputs/purity_validation/theory_validation.json
 
 Expected: `theory_validation.json` with observed vs. predicted purity
 across all 6 benchmarks.
+
+---
+
+## Step 19.2 — Cycle-2 retention diagnostic (created pre-run in Step 7)
+
+**[WHY]** Before Cycle 1 starts, freeze a 500-sample Cycle-0 slice.
+After Cycle 2 completes, evaluate and check the three-percent absolute
+EM drop tripwire. See Ch4 §Cycle-2 retention diagnostic. ~10 min total.
+
+19.2.1 **[ACTION — after Step 7.0 eval, before Cycle 1]**
+
+```bash
+PYTHONPATH=. python scripts/cycle2_retention_diagnostic.py --make_slice \
+    --cycle0_eval_dir outputs/cycle_0/eval \
+    --output_slice data/retention/cycle0_slice_500.jsonl
+```
+
+19.2.2 **[ACTION — after Cycle 2 completes, as part of Step 19]**
+
+```bash
+PYTHONPATH=. python scripts/cycle2_retention_diagnostic.py --evaluate \
+    --slice data/retention/cycle0_slice_500.jsonl \
+    --cycle2_checkpoint outputs/full_run/cycle_2/model \
+    --output_report outputs/full_run/cycle_2/retention_diagnostic.json
+```
+
+19.2.3 **[GATE]** If the report's `advisory` field is
+`STRUCTURED_FALLBACK_TO_OLORA`, the remaining cycles 3-9 should be
+re-run under O-LoRA rank-16 adapters merged every 2 cycles. See Ch4
+"Cycle-2 retention diagnostic and structured fallback" paragraph.
+
+---
+
+## Step 19.5 — Nine-signal correlation matrix
+
+**[WHY]** Empirically grounds the Ch5 §ExpectedResults
+"Nine-signal correlation structure and effective-count analysis"
+pre-registration. ~5 min, CPU-only.
+
+19.5.1 **[ACTION]**
+
+```bash
+PYTHONPATH=. python scripts/signal_correlation_matrix.py \
+    --eval_jsons "outputs/full_run/cycle_0/eval/*_cycle0.json" \
+    --output_dir outputs/signal_correlation
+```
+
+19.5.2 **[VERIFY]**
+
+```bash
+cat outputs/signal_correlation/redundancy_report.json
+```
+
+Expected: `effective_signal_count_after_prune` in range 5-8 (after
+|ρ|>0.9 pruning), three pre-registered clusters (token-prob
+mean/min; SC / SE; NLI / SC if shared samples) probably collapse.
 
 ---
 
