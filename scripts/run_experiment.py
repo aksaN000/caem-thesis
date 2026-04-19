@@ -900,25 +900,87 @@ def run_experiment(ns: argparse.Namespace) -> None:
             seed=getattr(ns, "seed", 42),
         )
 
-    # -- Filter out calib / purity samples whose IDs collide with eval ----- #
-    # Some HuggingFace dataset variants (notably lucadiliello/fever) reuse
-    # integer IDs across train and dev splits. Our calib/purity slices are
-    # drawn from the train split and must be disjoint from the dev/test
-    # evaluation split; if the dataset emits the same native id for a train
-    # claim and a dev claim, they pass the code's slice-level disjointness
-    # but collide at the ID level. Filtering here catches this before the
-    # downstream assert fires.
+    # -- Content-hash stable IDs for disjointness checks ------------------- #
+    # Problem: some HuggingFace dataset variants have non-unique native
+    # sample IDs, either across splits (FEVER lucadiliello reuses integer
+    # claim IDs between train and dev) or within a single split
+    # (TriviaQA HF dump has duplicate sfq_/qw_/qz_ IDs). Relying on native
+    # .id for disjointness checks therefore produces spurious overlap
+    # warnings (same native ID on content-distinct samples) AND misses
+    # real overlap (different native IDs on content-identical duplicates).
+    # Fix: attach a content-hash identifier derived from question text to
+    # every sample BEFORE slicing; use that hash as the disjointness key.
+    import hashlib as _hashlib
+
+    def _content_id(sample: dict) -> str:
+        q = str(sample.get("question", "")).strip()[:500]
+        return _hashlib.sha256(q.encode("utf-8")).hexdigest()[:16]
+
+    for bm in sil_pool:
+        for s in sil_pool[bm]:
+            s["_content_id"] = _content_id(s)
+    for bm in eval_samples:
+        for s in eval_samples[bm]:
+            s["_content_id"] = _content_id(s)
+
+    # Re-stamp post-split slices (they share object references with sil_pool
+    # so the _content_id is already set; this is just a defensive pass).
+    for bm in list(calib_samples.keys()):
+        for s in calib_samples[bm]:
+            if "_content_id" not in s:
+                s["_content_id"] = _content_id(s)
+        for s in purity_samples[bm]:
+            if "_content_id" not in s:
+                s["_content_id"] = _content_id(s)
+        for s in train_samples[bm]:
+            if "_content_id" not in s:
+                s["_content_id"] = _content_id(s)
+
+    # Deduplicate within each slice by content hash. Datasets like TriviaQA
+    # contain literal duplicate questions within a single split; leaving
+    # them in causes calib/train/purity slices to look "overlapping" at the
+    # content level even when they're index-disjoint. Strategy: keep only
+    # the first occurrence per content-id within each slice, then remove
+    # train samples that also appear in calib or purity by content.
+    for bm in list(calib_samples.keys()):
+        def _dedup_inplace(slist):
+            seen = set()
+            out = []
+            for s in slist:
+                cid = s["_content_id"]
+                if cid in seen:
+                    continue
+                seen.add(cid)
+                out.append(s)
+            return out, seen
+
+        calib_samples[bm], calib_ids = _dedup_inplace(calib_samples[bm])
+        purity_samples[bm], purity_ids = _dedup_inplace(purity_samples[bm])
+        # Remove train samples whose content-id is in calib or purity slice.
+        reserved = calib_ids | purity_ids
+        kept_train = [s for s in train_samples[bm] if s["_content_id"] not in reserved]
+        train_dropped = len(train_samples[bm]) - len(kept_train)
+        if train_dropped:
+            logger.warning(
+                "  %s: dropped %d train samples that duplicate calib/purity "
+                "content within the SIL pool.", bm, train_dropped,
+            )
+        train_samples[bm] = kept_train
+
+    # Drop calib / purity samples whose content hash appears in the eval
+    # slice for that benchmark. Content-hash collision between train-drawn
+    # calib and dev-drawn eval indicates a genuine content duplicate across
+    # splits and must be filtered to preserve the disjointness guarantee.
     for bm in list(calib_samples.keys()):
         if bm not in eval_samples:
             continue
-        eval_ids_set = {str(s.get("id", i)) for i, s in enumerate(eval_samples[bm])}
+        eval_content_ids = {s["_content_id"] for s in eval_samples[bm]}
 
         def _not_colliding(slist):
             kept = []
             dropped = 0
-            for i, s in enumerate(slist):
-                sid = str(s.get("id", i))
-                if sid in eval_ids_set:
+            for s in slist:
+                if s["_content_id"] in eval_content_ids:
                     dropped += 1
                     continue
                 kept.append(s)
@@ -928,9 +990,9 @@ def run_experiment(ns: argparse.Namespace) -> None:
         purity_filtered, purity_dropped = _not_colliding(purity_samples[bm])
         if calib_dropped or purity_dropped:
             logger.warning(
-                "  %s: dropped %d calib + %d purity samples whose native IDs "
-                "collided with eval-split IDs (dataset reuses IDs across "
-                "splits). Remaining: %d calib, %d purity.",
+                "  %s: dropped %d calib + %d purity samples whose content "
+                "hash collides with an eval-split sample. Remaining: %d "
+                "calib, %d purity.",
                 bm, calib_dropped, purity_dropped,
                 len(calib_filtered), len(purity_filtered),
             )
@@ -954,17 +1016,21 @@ def run_experiment(ns: argparse.Namespace) -> None:
     # calib vs train: never seen by the generator during SIL.
     # calib vs eval:  never seen by the harness during eval.
     try:
+        # Use content-hash stable IDs (attached above) so the assertion is
+        # not confused by datasets that reuse native .id values within or
+        # across splits. Content-hash collisions here indicate GENUINE
+        # content-level overlap and must be treated as an error.
         assert_disjoint_calibration(
             calib_ids_by_bm={
-                bm: {s.get("id", i) for i, s in enumerate(calib_samples[bm])}
+                bm: {s["_content_id"] for s in calib_samples[bm]}
                 for bm in calib_samples
             },
             train_ids_by_bm={
-                bm: {s.get("id", i) for i, s in enumerate(train_samples[bm])}
+                bm: {s["_content_id"] for s in train_samples[bm]}
                 for bm in train_samples
             },
             eval_ids_by_bm={
-                bm: {s.get("id", i) for i, s in enumerate(eval_samples[bm])}
+                bm: {s["_content_id"] for s in eval_samples[bm]}
                 for bm in eval_samples if bm in calib_samples
             },
         )
