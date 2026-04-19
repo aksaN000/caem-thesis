@@ -900,6 +900,43 @@ def run_experiment(ns: argparse.Namespace) -> None:
             seed=getattr(ns, "seed", 42),
         )
 
+    # -- Filter out calib / purity samples whose IDs collide with eval ----- #
+    # Some HuggingFace dataset variants (notably lucadiliello/fever) reuse
+    # integer IDs across train and dev splits. Our calib/purity slices are
+    # drawn from the train split and must be disjoint from the dev/test
+    # evaluation split; if the dataset emits the same native id for a train
+    # claim and a dev claim, they pass the code's slice-level disjointness
+    # but collide at the ID level. Filtering here catches this before the
+    # downstream assert fires.
+    for bm in list(calib_samples.keys()):
+        if bm not in eval_samples:
+            continue
+        eval_ids_set = {str(s.get("id", i)) for i, s in enumerate(eval_samples[bm])}
+
+        def _not_colliding(slist):
+            kept = []
+            dropped = 0
+            for i, s in enumerate(slist):
+                sid = str(s.get("id", i))
+                if sid in eval_ids_set:
+                    dropped += 1
+                    continue
+                kept.append(s)
+            return kept, dropped
+
+        calib_filtered, calib_dropped = _not_colliding(calib_samples[bm])
+        purity_filtered, purity_dropped = _not_colliding(purity_samples[bm])
+        if calib_dropped or purity_dropped:
+            logger.warning(
+                "  %s: dropped %d calib + %d purity samples whose native IDs "
+                "collided with eval-split IDs (dataset reuses IDs across "
+                "splits). Remaining: %d calib, %d purity.",
+                bm, calib_dropped, purity_dropped,
+                len(calib_filtered), len(purity_filtered),
+            )
+        calib_samples[bm] = calib_filtered
+        purity_samples[bm] = purity_filtered
+
     # -- Save purity/calibration/train sample IDs (for reproducibility) ---- #
     meta_path = output_dir / "dataset_splits.json"
     with open(meta_path, "w") as f:
