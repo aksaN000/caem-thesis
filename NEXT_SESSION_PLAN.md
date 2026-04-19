@@ -736,14 +736,23 @@ python -m scripts.run_experiment \
     2>&1 | tee outputs/cycle_0/run.log
 ```
 
-7.0.2 **[ACTION]** Fit thresholds from the observed u\_stored:
+7.0.2 **[ACTION]** Fit thresholds from the **n\_cal=500 calibration
+fold** u\_stored values (Chapter 4 \S Threshold calibration; Chapter
+5 \S Implementation Details requires this fold to be disjoint from
+the n\_eval fold that Chapter 5 reports metrics on). The Cycle-0
+calibration pass writes the per-sample records to
+`outputs/cycle_0/calibration_fold_samples.json`:
 
 ```bash
 PYTHONPATH=. python scripts/calibrate_thresholds.py \
-    --eval_jsons "outputs/cycle_0/eval/*_cycle0.json" \
+    --calib_jsons outputs/cycle_0/calibration_fold_samples.json \
     --verifier_backend minicheck \
     --output_json outputs/cycle_0/calibrated_thresholds.json
 ```
+
+The script's safety guard refuses any path containing `/eval/` or
+ending `_eval.json`, so accidentally pointing it at the evaluation
+fold fails loudly rather than silently peeking at the test set.
 
 7.0.3 **[VERIFY]**
 
@@ -756,6 +765,28 @@ Expected: `thresholds.store` ≈ 0.35-0.50 under MiniCheck,
 The ordering assertion `train > store > defer` must hold; if it
 fails, inspect the u\_stored distribution and raise target quantile
 separation.
+
+**[BENCHMARK-SIZE CAVEAT]** Chapter 5 declares n\_eval=500,
+n\_cal=500, n\_purity=500, n\_MMLU=200 as disjoint splits. Three
+benchmarks have strict limits that `split_calibration_sets` handles
+by proportional scaling:
+
+| Benchmark | Available split sizes | Fold allocation |
+|---|---|---|
+| FEVER | train ≈ 145k, dev ≈ 20k | full 500 for each fold |
+| TriviaQA | train ≈ 87k, dev ≈ 11k | full 500 for each fold |
+| Natural Questions | train ≈ 87k, dev ≈ 3k (dev subset) | may be n\_eval=≤3k / bench |
+| TruthfulQA | single split 817 | n\_eval split ≤ 500; n\_cal and n\_purity not applicable (transfer-only, eval-only) |
+| StrategyQA | train 2k, dev 229 | n\_eval ≤ 229; transfer-only |
+| ARC-Challenge | train 1.1k, dev 299, test 1.2k | n\_eval ≤ 299; transfer-only |
+
+Transfer-only benchmarks (TruthfulQA/StrategyQA/ARC) use the eval
+split entirely for `n_eval`; they contribute ZERO samples to the
+calibration or purity folds because there are no training splits to
+draw from. This is fine because the calibration/purity folds already
+cover the three in-training benchmarks (FEVER/TriviaQA/NQ) where
+SIL memory population happens; the transfer benchmarks are just
+held-out evaluation.
 
 ---
 

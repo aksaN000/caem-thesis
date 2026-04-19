@@ -1145,12 +1145,21 @@ the decision-tree's design commitments: STORE catches the top
 thirty percent of the observed distribution, DEFERRED catches the
 next thirty percent, training-pool admission is reserved for the
 top ten percent, and ABSTAIN / DISCARD absorb the remaining forty
-percent. The quantiles are fit on the pooled 500-sample Cycle 0
-evaluation set (the same calibration fold that fits $T^{*}$) and
-held fixed for cycles one through N so that the decision tree
-operates on stationary thresholds even as the verifier backend,
-the base-model weights, or the composite weights shift between
-cycles. An assertion in the calibration script enforces
+percent. The quantiles are fit on the $n_{\text{cal}} = 500$
+calibration fold (Chapter 5 \S Implementation Details; drawn from the
+training splits of FEVER, TriviaQA, and Natural Questions, disjoint
+from the evaluation fold $n_{\text{eval}}$ that Chapter 5 reports
+results on). This is the same fold that fits the temperature scalar
+$T^{*}$ and is therefore already committed at the Cycle 0 boundary
+with no additional compute cost. The fitted thresholds are held
+fixed for cycles one through N so that the decision tree operates on
+stationary thresholds even as the verifier backend, the base-model
+weights, or the composite weights shift between cycles. Fitting
+thresholds on the calibration fold rather than on the evaluation
+fold is a deliberate disjointness guarantee: a quantile tuned on the
+fold that later evaluates metrics would constitute peeking at the
+test set and would invalidate the headline comparisons of
+Chapter 5. An assertion in the calibration script enforces
 $\tau_{\text{train}} > \tau_{\text{store}} > \tau_{\text{defer}}$;
 if the observed distribution violates this ordering the run is
 aborted rather than silently shipping a broken decision tree.

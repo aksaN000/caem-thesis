@@ -272,6 +272,8 @@ def log_signal_auroc(
 def collect_calibration_data(
     pipeline,
     calib_samples: Dict[str, list],
+    *,
+    record_jsonl_path: Optional[Path] = None,
 ) -> Tuple[List[float], List[int], List[List[float]], List[int]]:
     """Run calibration samples through the pipeline and collect signals.
 
@@ -328,6 +330,12 @@ def collect_calibration_data(
 
     logger.info("Collecting calibration signals ...")
 
+    # Per-sample record accumulator for threshold-fitter consumption.
+    # calibrate_pipeline() passes this list back to the caller, which writes
+    # it out as JSONL so scripts/calibrate_thresholds.py can read u_stored
+    # values from the calibration fold (disjoint from the eval fold).
+    per_sample_records: List[Dict[str, Any]] = []
+
     for bm, samples in calib_samples.items():
         for sample in samples:
             try:
@@ -342,6 +350,26 @@ def collect_calibration_data(
 
                 u_pre_logits.append(u_pre)
                 u_pre_labels.append(int(em))
+
+                # Per-sample dump for threshold calibration (Chapter 4
+                # Eq:threshold-calibration). Must be done here, not downstream,
+                # because only calibration-fold samples are seen here and the
+                # disjointness guarantee requires they never mix with eval.
+                vout_for_dump = getattr(result, "verifier_output", None)
+                per_sample_records.append({
+                    "benchmark": bm,
+                    "id": sample.get("id"),
+                    "u_pre": float(u_pre),
+                    "u_stored": float(getattr(vout_for_dump, "u_stored", 0.0))
+                        if vout_for_dump is not None else None,
+                    "u_token": float(getattr(vout_for_dump, "u_token", 0.0))
+                        if vout_for_dump is not None else None,
+                    "h_norm": float(getattr(vout_for_dump, "h_norm", 0.0))
+                        if vout_for_dump is not None else None,
+                    "em": float(em),
+                    "decision": getattr(vout_for_dump, "decision", None)
+                        if vout_for_dump is not None else None,
+                })
 
                 # Signal matrix -- sourced from UnifiedVerifierOutput (Stage 5).
                 # Session-42 merge: PostGenerationConfidenceEstimator was
@@ -384,6 +412,27 @@ def collect_calibration_data(
         f"signal_matrix/signal_labels length mismatch: "
         f"{len(signal_matrix)} vs {len(signal_labels)}"
     )
+
+    # Emit per-sample records to JSONL for the threshold-fitting script to
+    # consume. Structured as a dict compatible with the eval-harness format
+    # (meta + samples) so scripts/calibrate_thresholds.py reads one shape.
+    if record_jsonl_path is not None:
+        payload = {
+            "meta": {
+                "fold": "calibration",
+                "n_samples": len(per_sample_records),
+                "n_correct": int(sum(r["em"] for r in per_sample_records)),
+            },
+            "samples": per_sample_records,
+        }
+        record_jsonl_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(record_jsonl_path, "w", encoding="utf-8") as f:
+            json.dump(payload, f, indent=2)
+        logger.info(
+            "Wrote %d calibration-fold per-sample records to %s",
+            len(per_sample_records), record_jsonl_path,
+        )
+
     return u_pre_logits, u_pre_labels, signal_matrix, signal_labels
 
 
@@ -418,8 +467,14 @@ def calibrate_pipeline(
     # -- Collect raw signals ------------------------------------------------ #
     # signal_matrix/signal_labels are unused at runtime (u_hat gate removed);
     # they are passed to log_signal_auroc below as a diagnostic only.
+    # Per-sample u_stored records are emitted alongside so the threshold-
+    # calibration script (Chapter 4 Eq:threshold-calibration) can fit on
+    # the calibration fold, disjoint from the evaluation fold.
     u_pre_logits, u_pre_labels, signal_matrix, signal_labels = \
-        collect_calibration_data(pipeline, calib_samples)
+        collect_calibration_data(
+            pipeline, calib_samples,
+            record_jsonl_path=output_dir / "calibration_fold_samples.json",
+        )
 
     if not u_pre_logits:
         logger.error("No calibration data collected -- aborting calibration.")

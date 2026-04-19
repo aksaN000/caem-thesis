@@ -15,10 +15,21 @@ thresholds yield approximately zero STORE decisions in Cycle 0,
 starving the self-improvement loop.
 
 This script replaces hard-coded thresholds with quantile-targeted
-thresholds fit once on Cycle-0 evaluation data and held fixed for
-cycles 1..N. The quantile targets (not the thresholds themselves)
-are the design-time hyperparameters; the thresholds are outputs of
-the calibration step.
+thresholds fit once on the **Cycle-0 n_cal calibration fold** and
+held fixed for cycles 1..N. The quantile targets (not the thresholds
+themselves) are the design-time hyperparameters; the thresholds are
+outputs of the calibration step.
+
+Disjointness requirement (from Chapter 5 Implementation Details)
+----------------------------------------------------------------
+The calibration fold (n_cal=500 per training benchmark) must be
+disjoint from the evaluation fold (n_eval=500 per benchmark), the
+purity fold (n_purity=500), the MMLU retention probe (n_MMLU=200),
+and the screening fold (n_screen=1500). Fitting thresholds on a fold
+that later evaluates thesis metrics would constitute peeking at the
+test set and inflate headline comparisons. This script therefore
+consumes **calibration-fold JSONs only** and includes a safety guard
+against accidentally being pointed at evaluation-fold JSONs.
 
 Target quantiles
 ----------------
@@ -34,9 +45,15 @@ backend is in use.
 
 Input
 -----
-One or more per-benchmark Cycle-0 eval JSONs produced by eval.harness,
-e.g. outputs/cycle_0/eval/*_cycle0.json. Each sample record carries
-u_stored as a scalar field.
+One or more per-benchmark Cycle-0 **calibration-fold** JSONs produced
+by eval.harness (emitted via ``harness.run_all(calib_samples, ...)``
+under the per-cycle recalibration pass), typically at
+``outputs/cycle_0/calibration/*_cycle0.json``. Each sample record
+carries u_stored as a scalar field.
+
+Safety guard: paths containing the string ``eval/`` are refused
+(those are the evaluation-fold JSONs and would leak test-set
+information into the threshold fit).
 
 Output
 ------
@@ -58,7 +75,7 @@ is fully reproducible:
 Usage
 -----
 python scripts/calibrate_thresholds.py \\
-    --eval_jsons outputs/cycle_0/eval/*_cycle0.json \\
+    --calib_jsons outputs/cycle_0/calibration/*_cycle0.json \\
     --verifier_backend minicheck \\
     --output_json outputs/cycle_0/calibrated_thresholds.json
 
@@ -93,9 +110,20 @@ DEFAULT_TARGETS = {
 }
 
 
-def _load_u_stored(eval_jsons: List[Path]) -> List[float]:
+def _load_u_stored(calib_jsons: List[Path]) -> List[float]:
     values: List[float] = []
-    for p in eval_jsons:
+    for p in calib_jsons:
+        # Safety guard: refuse evaluation-fold JSONs. Fitting thresholds on
+        # the eval fold and then evaluating Cycle 1..N metrics on the same
+        # fold would constitute peeking at the test set (Chapter 5
+        # Implementation Details requires disjoint splits).
+        if "/eval/" in str(p) or str(p).endswith("_eval.json"):
+            raise RuntimeError(
+                f"Refused to fit thresholds on evaluation-fold JSON: {p}. "
+                f"Use calibration-fold JSONs only (typically under "
+                f"outputs/cycle_0/calibration/). See Chapter 4 \u00a7 Threshold "
+                f"calibration + Chapter 5 \u00a7 Implementation Details."
+            )
         with open(p) as f:
             d = json.load(f)
         for s in d.get("samples", []):
@@ -130,7 +158,19 @@ def _validate_ordering(thresholds: Dict[str, float]) -> None:
 
 def _parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--eval_jsons", nargs="+", required=True, type=str)
+    # Preferred flag: calibration-fold JSONs (disjoint from eval fold).
+    # Legacy alias --eval_jsons kept for back-compat; triggers a warning
+    # and runs the safety guard on every provided path.
+    p.add_argument(
+        "--calib_jsons", nargs="+", required=False, type=str,
+        help="Glob(s) of Cycle-0 calibration-fold JSONs, e.g. "
+             "outputs/cycle_0/calibration/*_cycle0.json.",
+    )
+    p.add_argument(
+        "--eval_jsons", nargs="+", required=False, type=str,
+        help="DEPRECATED alias for --calib_jsons. Will be rejected if the "
+             "paths match the evaluation-fold pattern.",
+    )
     p.add_argument("--output_json", required=True, type=Path)
     p.add_argument("--verifier_backend", type=str, default="minicheck")
     p.add_argument(
@@ -158,14 +198,27 @@ def _parse_args() -> argparse.Namespace:
 def main() -> None:
     ns = _parse_args()
 
+    # Resolve which fold source was provided; prefer --calib_jsons.
+    source = ns.calib_jsons or ns.eval_jsons
+    if source is None:
+        logger.error("Provide --calib_jsons (preferred) or --eval_jsons.")
+        sys.exit(1)
+    if ns.eval_jsons and not ns.calib_jsons:
+        logger.warning(
+            "--eval_jsons is a deprecated alias. Use --calib_jsons to fit "
+            "thresholds on the n_cal=500 calibration fold (Chapter 4 "
+            "\u00a7 Threshold calibration). Safety guard will reject "
+            "anything that looks like an evaluation-fold JSON.",
+        )
+
     expanded: List[Path] = []
-    for pat in ns.eval_jsons:
+    for pat in source:
         matches = glob.glob(pat)
         if not matches:
             logger.warning("No files match %r", pat)
         expanded.extend(Path(m) for m in matches)
     if not expanded:
-        logger.error("No eval JSONs found. Exiting.")
+        logger.error("No calibration JSONs found. Exiting.")
         sys.exit(1)
 
     values = _load_u_stored(expanded)
