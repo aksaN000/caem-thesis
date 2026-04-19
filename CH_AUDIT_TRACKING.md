@@ -402,6 +402,175 @@ of clarification at task #71 but not a deferred-item entry in itself.
 
 ---
 
+## 2026-04-19 / 2026-04-20 audit additions — MiniCheck swap + thresholds + disjointness
+
+This block catalogues architectural changes made during the MiniCheck
+verifier swap and the Phase 1a preparation session. All items below
+have already been resolved in the chapters; entries exist so task
+#71 can audit the cross-chapter coherence rather than hunt through
+twenty-two commits. Commit references point at origin/main SHAs.
+
+### M1 MiniCheck as default verifier backend (Ch1, Ch2, Ch3, Ch4, Ch5)
+DONE. Default verifier is MiniCheck-Flan-T5-Large
+(`lytang/MiniCheck-Flan-T5-Large`); RoBERTa-Large-MNLI kept as Ch5
+ablation variant `roberta_nli_backend`.
+
+Chapter hits:
+- Ch1 §Implementation: MiniCheck listed among frozen stack; RoBERTa
+  marked as ablation (`01ae26a`).
+- Ch2 §Natural Language Inference line 34: opens with MiniCheck; RoBERTa
+  reframed as ablation (`d8a5f15`).
+- Ch2 §Summary of Key Findings: verification-signals + composite-
+  precedent paragraphs updated (`b3818bd`).
+- Ch3 §Risk Analysis: 6th risk "verifier distribution mismatch"
+  (`f4303d3`, updated `01ae26a`).
+- Ch4 §Unified Verifier §Claim-support judge: paragraph rewritten from
+  "NLI ensemble aggregation" to name MiniCheck as default judge
+  (`d8a5f15`).
+- Ch4 §Theoretical Analysis Remark 4.3: empirical-scope remark added
+  (`f4303d3`).
+- Ch5 §Experimental Setup: verifier-backend paragraph (`f4303d3`).
+- Ch5 §Ablation Methodology: `roberta_nli_backend` as 17th variant
+  with pre-registered prediction (`b688e0f`, `3ba1654`).
+- Ch5 §Implementation Details hardware paragraph: MiniCheck replaces
+  RoBERTa in system spec (`d8a5f15`).
+- references.bib: `tang2024minicheck`, `semanticillusion2025`
+  (`f4303d3`).
+
+Code: `caem/verification/minicheck.py`; `caem/config.verifier_backend`;
+`load_verifier_judge`; four script call sites migrated; 95 existing
+tests + 9 new tests green.
+
+### M2 Threshold calibration protocol at Cycle 0 boundary (Ch4, Ch5)
+DONE. Decision-tree thresholds (τ_store, τ_defer, τ_train) fitted from
+the n_cal=500 calibration split at target quantiles (0.70, 0.40, 0.90)
+at Cycle-0 boundary and held fixed for Cycles 1-10. RoBERTa-era
+defaults (0.65/0.45/0.75) produce near-zero STORE under MiniCheck,
+motivating the fit.
+
+Chapter hits:
+- Ch4 §Self-Improvement Loop §Threshold calibration: new paragraph with
+  equation `eq:threshold-calibration` (`461239d`, terminology
+  standardized `4ad599b`).
+- Ch5 §Main Results `tab:fitted-thresholds`: placeholder table with
+  fitted values + u_stored stats + admission rates; MiniCheck and
+  RoBERTa columns side-by-side (`1637eb2`).
+- Ch5 §Main Results `tab:calibration` expanded: per-cycle T*_c, ΔT*,
+  ECE_pre, ECE_post, Brier, AUROC over eleven cycles (`005e312`).
+
+Code: `scripts/calibrate_thresholds.py` reads calibration-split
+u_stored, fits quantile thresholds, writes `calibrated_thresholds.json`;
+eval-fold safety guard prevents test-set peeking (`ef48424`).
+`scripts/run_calibration.py collect_calibration_data` emits per-sample
+`calibration_fold_samples.json` (`ef48424`).
+`scripts/run_experiment.py`: `--store_threshold / --defer_threshold /
+--train_threshold` CLI flags with ordering assertion (`1637eb2`).
+
+### M3 Content-hash stable identity for split disjointness (Ch5)
+DONE. Five-split disjointness enforced by SHA-256 content hash over
+question text rather than by native dataset IDs. Motivation from Step
+7.0 crash: `lucadiliello/fever` reuses integer claim IDs across train
+and dev splits (2 collisions observed); `trivia_qa rc.nocontext` has
+duplicate native IDs within a single split (26 intra-pool duplicates
+observed in TriviaQA train).
+
+Chapter hits:
+- Ch5 §Implementation Details: "Content-hash stable identity for split
+  disjointness" paragraph with `par:content-hash-disjointness` label
+  (`0487f74`).
+
+Code: `scripts/run_experiment.py` attaches `_content_id` at split
+construction; filter drops calib+purity samples colliding with eval;
+`assert_disjoint_calibration` consumes content-hash IDs (`faa0e84`).
+
+### M4 Cycle-2 retention diagnostic and O-LoRA structured fallback (Ch2, Ch3, Ch4)
+DONE. A 500-sample Cycle-0 hold-out slice is frozen before Cycle 1 and
+re-evaluated on θ^(2) after Cycle 2 completes. Absolute EM drop > 3 pp
+logs `STRUCTURED_FALLBACK_TO_OLORA` advisory and the remaining cycles
+should switch to O-LoRA stacked orthogonal adapters (Wang 2023 EMNLP
+Findings; Biderman 2024 TMLR).
+
+Chapter hits:
+- Ch2 §Summary of Key Findings continual-learning paragraph adds
+  Scialom 2022, Jin 2024, Mehta 2023 and references O-LoRA fallback
+  (`b3818bd`).
+- Ch3 §Risk Analysis Risk 2 (catastrophic forgetting): extended with
+  Cycle-2 diagnostic description (`01ae26a`).
+- Ch4 §Self-Improvement Loop §Cycle-2 retention diagnostic: new
+  paragraph (`f26912b`).
+
+Code: `scripts/cycle2_retention_diagnostic.py` (`--make_slice`,
+`--evaluate` modes) (`f26912b`). references.bib adds
+`mehta2023empirical`, `wu2022pretrained`, `scialom2022fine`,
+`jin2024forget`, `biderman2024lora`, `wang2023olora`.
+
+### M5 Nine-signal correlation-matrix analysis (Ch2, Ch5)
+DONE — scaffolding only (empirical data pending Step 7 eval JSONs).
+Pre-registers the nine-by-nine Spearman cross-signal correlation matrix
+as Phase 1 Full / TMLR deliverable with three falsification conditions
+(no pair > 0.9 → pruning unmotivated; more than four pairs > 0.9 →
+composite wider than nominal; matches Valentin 2024 clustering within
+rank-distance 0.2 → cross-cite directly).
+
+Chapter hits:
+- Ch2 §Summary of Key Findings composite-precedent paragraph adds
+  Valentin 2024, Vashurin 2024, Kuhn 2023 (`b3818bd`).
+- Ch5 §Expected Results "Nine-signal correlation structure and
+  effective-count analysis" paragraph with `sec:signal-correlation`
+  label (`f26912b`).
+
+Code: `scripts/signal_correlation_matrix.py` produces per-benchmark
+and aggregated 9x9 matrices with redundancy report via union-find over
+|ρ| > 0.9 (`f26912b`).
+
+### M6 Seventeen-variant ablation registry (Ch3, Ch4, Ch5)
+DONE. Registry bumped sixteen → seventeen with `roberta_nli_backend`
+(M1). All chapter mentions of "sixteen" / "16-variant" updated to
+"seventeen" / "17-variant".
+
+Chapter hits:
+- Ch3 §Compute Budget + §ChSummary (`4ad599b`).
+- Ch4 §ChSummary (`4ad599b`).
+- Ch5 §AblationMethodology registry caption + §AblationResults table
+  caption + prose (`3ba1654`, `4ad599b`).
+
+Code: `caem/ablation/variants.py` 17 entries; 63 ablation tests green.
+
+### M7 Phase 1a / Phase 1 Full budget split (runbook, Ch5 mapping note)
+DONE at runbook level; no thesis-text change. Runbook Phase 1a
+(self-funded Steps 4-15 + 19-20, ~$215 topup on $25 balance) and Phase
+1 Full (supervisor-funded Steps 16-18, ~$640 additional) partition by
+funding source. Ch5's Phase 1 / Phase 2 terminology (single-seed vs
+multi-seed confirmatory) partitions by statistical-power axis and is
+orthogonal. Both runbook Phase 1a and Phase 1 Full together constitute
+Ch5's Phase 1; Ch5 Phase 2 remains post-defense work.
+
+Chapter hits:
+- Runbook `NEXT_SESSION_PLAN.md` intro with terminology-mapping note
+  (`dc06033`, `31239a4`).
+- Ch5 Phase 1 / Phase 2 unchanged by design.
+
+### M8 Terminology cleanup — "calibration split" (Ch4, Ch5, runbook)
+DONE. Standardized "calibration split / purity split / evaluation
+split" across all new additions. Earlier drafts of my threshold-
+calibration paragraph briefly introduced "fold" terminology which
+diverged from Ch1-Ch3 convention. Restored in `4ad599b`.
+
+### M9 Benchmark-size allocation and transfer-only status (runbook, Ch5)
+DONE. Ch5 §Implementation Details paragraph + Step 7.0 runbook
+BENCHMARK-SIZE CAVEAT block document the three-benchmark
+(FEVER/TriviaQA/NQ) calibration + purity folds vs the six-benchmark
+evaluation split. Transfer benchmarks (TruthfulQA / StrategyQA /
+ARC-Challenge) contribute zero to calibration / purity by construction
+and are evaluated only. Per-benchmark split-size caps documented
+(StrategyQA test split caps at 229 etc.).
+
+Chapter hits:
+- Ch5 §Implementation Details (`a54788d`).
+- Runbook Step 7.0.3 BENCHMARK-SIZE CAVEAT block (`31239a4`).
+
+---
+
 ## Cross-chapter consistency pass (task #71) - checklist
 When task #71 comes up, walk this file top-to-bottom and resolve each entry.
 Every fix that edits a chapter file should be marked DONE here with the

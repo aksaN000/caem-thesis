@@ -810,11 +810,17 @@ held-out evaluation.
 Ch5 §AblationMethodology's declared n=5000 SIL pool size per
 benchmark. Budget on MiniCheck-backend 5090: ~400 GPU-h, ~\$255.
 
-7.1 **[ACTION]** Launch in its own tmux session. Thresholds from
-Step 7.0.2 are applied by reading
-`outputs/cycle_0/calibrated_thresholds.json`:
+7.1 **[ACTION]** First read the fitted thresholds from Step 7.0.2
+into shell variables, then launch:
 
 ```bash
+# Fitted thresholds + backend from Step 7.0 output
+TAU_STORE=$(jq -r '.thresholds.store' outputs/cycle_0/calibrated_thresholds.json)
+TAU_DEFER=$(jq -r '.thresholds.defer' outputs/cycle_0/calibrated_thresholds.json)
+TAU_TRAIN=$(jq -r '.thresholds.train' outputs/cycle_0/calibrated_thresholds.json)
+BACKEND=$(jq -r '.verifier_backend' outputs/cycle_0/calibrated_thresholds.json)
+echo "Fitted: backend=$BACKEND  store=$TAU_STORE  defer=$TAU_DEFER  train=$TAU_TRAIN"
+
 tmux new-session -s main
 python -m scripts.run_experiment \
     --output_dir outputs/full_run \
@@ -824,8 +830,19 @@ python -m scripts.run_experiment \
     --benchmarks fever triviaqa natural_questions truthfulqa strategyqa arc_challenge \
     --passage_index data/passage_index \
     --cold_start_memory outputs/cold_start_memory/memory_store \
+    --verifier_backend "$BACKEND" \
+    --store_threshold "$TAU_STORE" \
+    --defer_threshold "$TAU_DEFER" \
+    --train_threshold "$TAU_TRAIN" \
     2>&1 | tee outputs/full_run/run.log
 ```
+
+The four override flags propagate the Cycle-0 fit into Cycles 1-10;
+the ordering assertion inside `run_experiment.py` aborts cleanly if
+`train > store > defer` is violated. Without these flags the run
+would use RoBERTa-era CAEMConfig defaults (0.65 / 0.45 / 0.75) which
+give near-zero STORE rate under MiniCheck, starving the
+self-improvement loop.
 
 7.2 **[ACTION]** Detach with `Ctrl+B, D`. Tail progress from a second
 SSH session:
