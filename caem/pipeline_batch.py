@@ -239,6 +239,34 @@ class BatchPipeline:
             decoded.append(s)
         return decoded
 
+    def batch_verify(
+        self,
+        inputs: List[tuple],
+    ) -> list:
+        """Run the UnifiedVerifier over N (query, answer) pairs in one call.
+
+        Thin wrapper around ``self.p.verifier.verify_batch`` so that
+        ``answer_batch`` has a single, consistent surface for each
+        batched stage. Phase 1 skeleton: verify_batch currently loops
+        serial ``verify()``; a follow-up commit pools M-chain generation
+        and semantic-entropy sampling across samples (the two dominant
+        per-sample T5 costs inside verify).
+
+        Parameters
+        ----------
+        inputs : list of (query, answer) tuples
+            One entry per sample that needs verification. The caller
+            typically filters out Tier 1 samples (which do not run
+            Stage 5 in the serial pipeline) before calling this.
+
+        Returns
+        -------
+        list of UnifiedVerifierOutput, same length and order as ``inputs``.
+        """
+        if not inputs:
+            return []
+        return self.p.verifier.verify_batch(inputs)
+
     def batch_tier3_generate(self, queries: Sequence[str]) -> List[str]:
         """Generate N Tier-3 RAG answers in one batched T5 forward pass.
 
@@ -318,8 +346,34 @@ class BatchPipeline:
             for idx, ans in zip(tier3_indices, tier3_answers):
                 precomputed_tier3[idx] = ans
 
+        # Phase 2b: batched verify for all Tier 2 / Tier 3 samples.
+        # Tier 1 samples skip Stage 5 in the serial pipeline so they are
+        # excluded here. Escalation-to-Tier-3 (empty Tier 2 output -> Tier 3
+        # fallback inside answer()) is not reflected in per_sample_tier,
+        # so we skip batched verify for any Tier 2 sample whose batched
+        # answer came back empty -- the serial answer() call will handle
+        # the escalation and run a fresh verify on the Tier 3 output.
+        verify_indices: List[int] = []
+        verify_inputs: List[tuple] = []
+        for i in tier2_indices:
+            ans = precomputed_tier2.get(i, "")
+            if ans:  # non-empty -> verify the Tier 2 answer
+                verify_indices.append(i)
+                verify_inputs.append((samples[i].query, ans))
+        for i in tier3_indices:
+            ans = precomputed_tier3.get(i, "")
+            verify_indices.append(i)
+            verify_inputs.append((samples[i].query, ans))
+
+        precomputed_vouts: dict = {}
+        if verify_inputs:
+            vout_list = self.batch_verify(verify_inputs)
+            for idx, vout in zip(verify_indices, vout_list):
+                precomputed_vouts[idx] = vout
+
         # Phase 3: complete each sample's pipeline via serial answer(),
-        # injecting the precomputed Tier 2 / Tier 3 answers where applicable.
+        # injecting the precomputed Tier 2 / Tier 3 answers and verifier
+        # outputs where applicable.
         # NOTE: tier determination is re-run inside answer() -- the
         # _peek_tier() result above is only used to decide *which*
         # samples need batched generation. Router outputs are
@@ -336,6 +390,8 @@ class BatchPipeline:
                 kwargs["_precomputed_tier2_answer"] = precomputed_tier2[i]
             if i in precomputed_tier3:
                 kwargs["_precomputed_tier3_answer"] = precomputed_tier3[i]
+            if i in precomputed_vouts:
+                kwargs["_precomputed_vout"] = precomputed_vouts[i]
             r = self.p.answer(**kwargs)
             results.append(r)
         return results

@@ -345,6 +345,7 @@ class CAEMPipeline:
         source_benchmark: Optional[str] = None,
         _precomputed_tier2_answer: Optional[str] = None,
         _precomputed_tier3_answer: Optional[str] = None,
+        _precomputed_vout: Optional[UnifiedVerifierOutput] = None,
     ) -> PipelineResult:
         """Run the full CAEM pipeline for a single query.
 
@@ -430,11 +431,16 @@ class CAEMPipeline:
             else:
                 answer_str, post_conf, escalated = self._tier2(query, pre_conf)
             # -- Stage 5: UnifiedVerifier (nine signals + decision) ---- #
-            # Pass through the already-computed u_token and u_dropout so the
-            # verifier does not pay for a duplicate forward pass.
-            u_tok = getattr(post_conf, "u_token", None) if post_conf else None
-            u_drop = getattr(post_conf, "u_dropout", None) if post_conf else None
-            vout = self._verify(query, answer_str, u_token=u_tok, u_dropout=u_drop)
+            if _precomputed_vout is not None:
+                # Level B batched path: verify_batch was called upstream;
+                # inject the precomputed output and skip the internal call.
+                vout = _precomputed_vout
+            else:
+                # Pass through the already-computed u_token and u_dropout so
+                # the verifier does not pay for a duplicate forward pass.
+                u_tok = getattr(post_conf, "u_token", None) if post_conf else None
+                u_drop = getattr(post_conf, "u_dropout", None) if post_conf else None
+                vout = self._verify(query, answer_str, u_token=u_tok, u_dropout=u_drop)
             u_stored_scalar = vout.u_stored if vout else None
             if store_to_memory:
                 entry_id, stored_flag = self._maybe_store(
@@ -454,9 +460,14 @@ class CAEMPipeline:
             else:
                 answer_str = self._tier3(query)
             # -- Stage 5: UnifiedVerifier ------------------------------ #
-            # Tier 3 has no pre-computed internal signals, so the verifier
-            # computes u_token and u_dropout itself.
-            vout = self._verify(query, answer_str)
+            if _precomputed_vout is not None:
+                # Level B batched path: verify_batch was called upstream;
+                # inject the precomputed output and skip the internal call.
+                vout = _precomputed_vout
+            else:
+                # Tier 3 has no pre-computed internal signals, so the verifier
+                # computes u_token and u_dropout itself.
+                vout = self._verify(query, answer_str)
             u_stored_scalar = vout.u_stored if vout else None
             if store_to_memory:
                 entry_id, stored_flag = self._maybe_store(

@@ -565,6 +565,49 @@ class UnifiedVerifier:
         """Back-compat: True iff the verifier's decision is STORE."""
         return out.decision == "STORE"
 
+    def verify_batch(
+        self,
+        inputs: List[Tuple[str, str]],
+        u_tokens: Optional[List[Optional[float]]] = None,
+        u_dropouts: Optional[List[Optional[float]]] = None,
+    ) -> List[UnifiedVerifierOutput]:
+        """Run ``verify`` on N (query, answer) pairs and return N outputs.
+
+        Level B Phase 1 skeleton: this implementation loops serial
+        ``verify()`` so the API surface is available for BatchPipeline
+        wiring. A follow-up commit replaces the loop with pooled
+        M-chain generation and pooled semantic-entropy sampling across
+        samples (the two dominant T5 costs inside verify).
+
+        Parameters
+        ----------
+        inputs : list of (query, answer) tuples
+        u_tokens, u_dropouts : optional per-sample precomputed internal
+            signals from the generation stage. Length must match ``inputs``
+            when provided; ``None`` at position i means recompute that
+            sample's signal inside ``verify``.
+
+        Returns
+        -------
+        list of UnifiedVerifierOutput of length N, same order as ``inputs``.
+        """
+        if not inputs:
+            return []
+
+        N = len(inputs)
+        if u_tokens is None:
+            u_tokens = [None] * N
+        if u_dropouts is None:
+            u_dropouts = [None] * N
+        assert len(u_tokens) == N and len(u_dropouts) == N, (
+            "verify_batch: u_tokens/u_dropouts length must match inputs"
+        )
+
+        outputs: List[UnifiedVerifierOutput] = []
+        for (q, a), ut, ud in zip(inputs, u_tokens, u_dropouts):
+            outputs.append(self.verify(q, a, u_token=ut, u_dropout=ud))
+        return outputs
+
     # ====================================================================== #
     # Signal computation                                                      #
     # ====================================================================== #

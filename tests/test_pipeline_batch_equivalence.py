@@ -311,7 +311,8 @@ def _make_serial_with_tier(tier_by_index):
     call_counter = {"i": 0}
 
     def _answer(query=None, store_to_memory=True, source_benchmark=None,
-                _precomputed_tier2_answer=None, _precomputed_tier3_answer=None):
+                _precomputed_tier2_answer=None, _precomputed_tier3_answer=None,
+                _precomputed_vout=None):
         idx = len(call_log)
         call_log.append({
             "query": query,
@@ -319,6 +320,7 @@ def _make_serial_with_tier(tier_by_index):
             "source_benchmark": source_benchmark,
             "_precomputed_tier2_answer": _precomputed_tier2_answer,
             "_precomputed_tier3_answer": _precomputed_tier3_answer,
+            "_precomputed_vout": _precomputed_vout,
         })
         return _make_fake_pipeline_result(idx)
 
@@ -450,3 +452,90 @@ def test_batch_tier3_generate_delegates_to_rag(monkeypatch):
     out = bp.batch_tier3_generate(["qa", "qb"])
     assert out == ["ans_a", "ans_b"]
     p.rag.generate_batch.assert_called_once_with(["qa", "qb"])
+
+
+# --------------------------------------------------------------------------- #
+# batch_verify dispatch tests                                                 #
+# --------------------------------------------------------------------------- #
+
+def test_batch_verify_empty_returns_empty():
+    p = MagicMock()
+    bp = BatchPipeline(p)
+    assert bp.batch_verify([]) == []
+    p.verifier.verify_batch.assert_not_called()
+
+
+def test_batch_verify_delegates_to_verifier():
+    p = MagicMock()
+    sentinel = [SimpleNamespace(decision="STORE"), SimpleNamespace(decision="DISCARD")]
+    p.verifier.verify_batch.return_value = sentinel
+    bp = BatchPipeline(p)
+    inputs = [("q0", "a0"), ("q1", "a1")]
+    got = bp.batch_verify(inputs)
+    assert got is sentinel
+    p.verifier.verify_batch.assert_called_once_with(inputs)
+
+
+def test_answer_batch_calls_verify_only_for_tier2_and_tier3(monkeypatch):
+    """verify_batch input should contain (query, answer) pairs for Tier 2
+    (non-empty generated answer) and Tier 3 samples only. Tier 1 samples
+    are excluded from Stage 5 in the serial pipeline and must stay excluded
+    here. Tier 2 samples whose batched generate returned "" are also
+    excluded -- the serial escalation-to-Tier-3 path inside answer() runs
+    its own fresh verify."""
+    p = _make_serial_with_tier([1, 2, 3, 2])
+    bp = BatchPipeline(p)
+
+    # Tier 2 index 1 -> non-empty answer (kept); Tier 2 index 3 -> empty
+    # (escalated via answer() so skipped from batch verify).
+    def fake_t2(qs):
+        return ["T2_ANS", ""]
+
+    def fake_t3(qs):
+        return ["T3_ANS"]
+
+    recorded_verify_inputs: List[List[tuple]] = []
+
+    def fake_batch_verify(inputs):
+        recorded_verify_inputs.append(list(inputs))
+        return [SimpleNamespace(decision="STORE") for _ in inputs]
+
+    monkeypatch.setattr(bp, "batch_tier2_generate", fake_t2)
+    monkeypatch.setattr(bp, "batch_tier3_generate", fake_t3)
+    monkeypatch.setattr(bp, "batch_verify", fake_batch_verify)
+
+    samples = [BatchSample(query=f"q{i}") for i in range(4)]
+    bp.answer_batch(samples)
+
+    # One call to batch_verify, pairing (Tier 2 non-empty, Tier 3) in order.
+    assert len(recorded_verify_inputs) == 1
+    assert recorded_verify_inputs[0] == [("q1", "T2_ANS"), ("q2", "T3_ANS")]
+
+    # Only indices 1 (Tier 2 non-empty) and 2 (Tier 3) receive _precomputed_vout.
+    calls = p._call_log
+    assert calls[0].get("_precomputed_vout") is None  # tier 1 -- no verify
+    assert calls[1].get("_precomputed_vout") is not None  # tier 2 non-empty
+    assert calls[2].get("_precomputed_vout") is not None  # tier 3
+    assert calls[3].get("_precomputed_vout") is None  # tier 2 empty -> escalated
+
+    # And answer() fallback kwarg for tier 2 escalation still works.
+    assert calls[3]["_precomputed_tier2_answer"] == ""
+
+
+def test_answer_batch_skips_verify_when_all_tier1(monkeypatch):
+    """If every sample routes to Tier 1, batch_verify must not be called."""
+    p = _make_serial_with_tier([1, 1, 1])
+    bp = BatchPipeline(p)
+
+    calls: List[List[tuple]] = []
+
+    def fake_batch_verify(inputs):
+        calls.append(list(inputs))
+        return []
+
+    monkeypatch.setattr(bp, "batch_verify", fake_batch_verify)
+
+    samples = [BatchSample(query=f"q{i}") for i in range(3)]
+    bp.answer_batch(samples)
+
+    assert calls == []
