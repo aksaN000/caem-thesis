@@ -242,6 +242,7 @@ the per-benchmark-per-cycle drift question that MMLU retention (being
 a single scalar) cannot address.
 
 \paragraph{Metric scoring caveats (TruthfulQA, MMLU).}
+\label{sec:metric-scoring-caveats}
 Two headline metrics in the panel are computed with deliberately
 simplified offline proxies rather than the leaderboard protocols, for
 reasons of reproducibility and compute cost. First, TruthfulQA is
@@ -649,7 +650,7 @@ cycles as \caem{}). The optional STaR ceiling reference adds a further
 $\sim 8$ GPU-hours when compute permits; Self-RAG is included as a
 positioning reference rather than a replicated numerical baseline
 (\S\ref{sec:baselines}, B8) and contributes no GPU time. The Phase~1
-screening sweep over the sixteen variants at three
+screening sweep over the seventeen variants at three
 cycles and $n_{\text{screen}} = 1\,500$ occupies a further $\sim 24$
 GPU-hours before the confirmatory panel narrows to the subset that
 earns full $10$-cycle runs.
@@ -676,11 +677,11 @@ or any other signal that feeds back into subsequent cycles, so the
 variant requires its own full cyclic rerun from the pristine baseline).
 Under strict application of this principle, only two variants are
 inference-time: the full system and
-\texttt{no\_self\_improvement}; all 14 remaining variants are
+\texttt{no\_self\_improvement}; all 15 remaining variants are
 training-time and obtain their own 10-cycle trajectory.
 
 \paragraph{Variant registry.}
-A named registry of 16 variants is defined in
+A named registry of 17 variants is defined in
 \texttt{caem/ablation/variants.py} and dispatched by
 \texttt{scripts/run\_cyclic\_ablation.py}. Each cyclic rerun writes its
 cycle-wise CES axes to
@@ -690,7 +691,7 @@ rows for the ablation table. Table~\ref{tab:ablation-registry}
 summarises the registry.
 
 \begin{center}
-\captionof{table}[Ablation Registry]{Sixteen named ablation variants,
+\captionof{table}[Ablation Registry]{Seventeen named ablation variants,
 grouped by mechanism family. Training-time variants each receive their
 own cyclic rerun; inference-time variants reuse the reference-run weights.
 Names and groupings mirror \texttt{caem/ablation/variants.py} exactly.}
@@ -710,6 +711,7 @@ Names and groupings mirror \texttt{caem/ablation/variants.py} exactly.}
 \texttt{no\_contradiction\_veto} & training & Neutralise $p_{\text{contra}}$ veto; contradicting episodes may still reach STORE. \\
 \texttt{no\_store\_gate} & training & Disable $\tau_{\text{store}}$/$\tau_{\text{defer}}$ admission thresholds; every generation enters the pool. \\
 \texttt{aggressive\_store} & training & Raise $\tau_{\text{store}}$ to $0.85$ and $\tau_{\text{defer}}$ to $0.75$ (sensitivity-sweep companion to \texttt{no\_store\_gate}). \\
+\texttt{roberta\_nli\_backend} & training & Swap the verifier judge from MiniCheck-Flan-T5-Large back to legacy \texttt{roberta-large-mnli}; per-cycle trajectory under the generic-NLI backend, complementing the one-shot calibration diagnostic of \S\ref{sec:metric-scoring-caveats} and grounding the verifier-backend-mismatch risk of Ch.~3 \S\ref{sec:risks}. \\
 \midrule
 \multicolumn{3}{@{}l}{\textit{Calibration / signal mix}}\\
 \texttt{no\_internal\_calibration} & training & Zero $u_{\text{internal}}$ (token-probability + MC-Dropout) weight in $\ustored$; rescale the remaining signals. \\
@@ -745,7 +747,7 @@ Variant selection is pre-registered in
 \texttt{caem-implementation-log.md} (Session~44) before the confirmatory
 pass begins.} Phase~1 (self-funded, approximately USD~200) executes a
 screening pass at $n=1500$ SIL for 3~cycles on a single seed (42) across
-the entire 16-variant registry, ranks variants by point-estimate
+the entire 17-variant registry, ranks variants by point-estimate
 $\Delta$CES, and then commits budget to the confirmatory pass at
 $n=5000$ SIL for 10~cycles on a single seed for the top candidates
 plus the reference run. Phase~2 (post-funding, approximately
@@ -858,7 +860,29 @@ distribution, but $P_{\text{obs}}$ rising because the surviving
 episodes are more tightly verified; a positive
 $\Delta\text{CES}$ here would mean the default
 $\tau_{\text{store}} = 0.65$ is admitting noise and should be
-revisited.
+revisited. \texttt{roberta\_nli\_backend} swaps the verifier judge
+back to generic \texttt{roberta-large-mnli}, testing the counterfactual
+that a natural-language-inference model trained on human MultiNLI /
+SNLI pairs could ground the purity theorem's $\alpha > \tfrac{1}{2}$
+premise on language-model-generated claims. Literature predicts this
+fails: HaluEval~2025 reports a one-hundred-percent false-positive
+rate at ninety-five-percent recall for a near-state-of-the-art generic
+NLI model on LM hallucinations, corresponding to $\alpha \le 0.475$
+and a zero VER-axis contribution after the $\max(2\beta-1,\,0)$
+clamp. We therefore predict a moderate negative
+$\Delta\text{CES}$ ($-0.02$ to $-0.05$) concentrated primarily on the
+VER axis, with a secondary smaller EPI drop because the generic NLI
+verifier conflates fluent-but-wrong claims with fluent positives and
+admits them to the pool. Falsification condition: a zero or positive
+$\Delta\text{CES}$ here against the MiniCheck reference would mean
+the MiniCheck swap is not load-bearing for the thesis claim and the
+thesis main-text case (\S\ref{sec:metric-scoring-caveats} verifier
+backend and the empirical $\alpha$ assumption) should be revised
+empirically rather than dropped. This variant's role is to convert
+the one-shot calibration diagnostic of
+\S\ref{sec:metric-scoring-caveats} into trajectory evidence across
+ten cycles so that the backend choice is defended at the cycle-level
+rather than only at the Cycle-0 reliability-diagram level.
 
 \paragraph{Calibration and signal mix
 (\texttt{no\_internal\_calibration}, \texttt{no\_semantic\_entropy},
@@ -1375,7 +1399,7 @@ increments $\Delta P_t$ against the predicted envelope.
 \label{sec:ablation-results}
 % ---------------------------------------------------------------
 
-This section reports the sixteen-variant ablation table introduced
+This section reports the seventeen-variant ablation table introduced
 in~\cref{sec:ablation}. For every variant the table records the CES
 composite, its five axes, the $\Delta$CES against the full-CAEM
 reference row, and the paired-seed significance test. Screening-pass
@@ -1410,7 +1434,7 @@ Chapter~5 fixes the experimental protocol for the Phase~2 run: a
 six-benchmark factual-QA panel with an MMLU retention control, the
 CES geometric-mean composite with its five validated axes, the eight
 external baselines (plus one optional STaR ceiling), and the
-sixteen-variant cyclic ablation registry. The seven metric-category
+seventeen-variant cyclic ablation registry. The seven metric-category
 tables (\cref{tab:headline,tab:calibration,tab:halluc,tab:routing,tab:verifier-attrib,tab:memory-growth,tab:ces})
 and the ablation table (\cref{tab:ablation-main}) are scaffolded
 above and populated by Phase~2; the three theoretical validations
