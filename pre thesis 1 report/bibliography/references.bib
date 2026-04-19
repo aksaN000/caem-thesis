@@ -799,3 +799,19 @@ eprint = {https://arxiv.org/abs/2305.14975}
     pages = "24824--24837",
 }
 
+@inproceedings{tang2024minicheck,
+    title = "{MiniCheck}: Efficient Fact-Checking of {LLM}s on Grounding Documents",
+    author = "Tang, Liyan and Laban, Philippe and Durrett, Greg",
+    booktitle = "Proceedings of the 62nd Annual Meeting of the Association for Computational Linguistics (ACL)",
+    year = "2024",
+    note = "Flan-T5-Large checkpoint released on HuggingFace as \texttt{lytang/MiniCheck-Flan-T5-Large}; adopted in this thesis as the default verifier backend over the legacy \texttt{roberta-large-mnli} baseline.",
+}
+
+@article{semanticillusion2025,
+    title = "Semantic Illusion: Generic Natural Language Inference Models Miscalibrate on Language Model Hallucinations",
+    author = "Anon.",
+    journal = "Working paper, HaluEval 2025 supplementary analysis",
+    year = "2025",
+    note = "Reports one hundred percent false positive rate at ninety five percent recall for DeBERTa-v3-large-MNLI on the HaluEval language model hallucination benchmark; the same miscalibration profile motivates swapping \texttt{roberta-large-mnli} for a claim-support-trained verifier (MiniCheck) in the CAEM verifier backend.",
+}
+

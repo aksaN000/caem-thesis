@@ -186,36 +186,37 @@ def build_pipeline(config: Any, ns: Any, m: Dict[str, Any]) -> "CAEMPipeline":
     logger.info("Loading SBERT encoder (all-mpnet-base-v2) ...")
     encoder = m["QueryEncoder"](model_name=config.sbert_model, device=device)
 
-    # -- NLI model ---------------------------------------------------------- #
-    # Model name is driven by CAEMConfig.nli_model so all NLI call-sites
-    # (verifier, purity validation, ablation, cold-start) share one source
-    # of truth.  A silent fallback here would produce thesis-invalid numbers,
-    # so a load failure is fatal for non-smoke runs.
-    nli_model, nli_tokenizer = None, None
+    # -- Verifier judge (MiniCheck or legacy NLI) -------------------------- #
+    # Dispatch on CAEMConfig.verifier_backend:
+    #   "minicheck"   -> MiniCheck-Flan-T5-Large (default; thesis main path)
+    #   "roberta_nli" -> legacy roberta-large-mnli (kept for ablation)
+    # All verifier call-sites share one source of truth via
+    # caem.verification.load_verifier_judge().
+    from caem.verification import load_verifier_judge
+    judge, nli_model, nli_tokenizer = None, None, None
     try:
-        from transformers import AutoModelForSequenceClassification
-        logger.info("Loading NLI model (%s) ...", config.nli_model)
-        nli_tokenizer = m["AutoTokenizer"].from_pretrained(config.nli_model)
-        nli_model = AutoModelForSequenceClassification.from_pretrained(
-            config.nli_model
-        ).to(device)
-        nli_model.eval()
-        logger.info("NLI model loaded.")
+        logger.info("Loading verifier judge (backend=%s) ...",
+                    config.verifier_backend)
+        judge, nli_model, nli_tokenizer = load_verifier_judge(
+            config, device,
+            allow_fallback=getattr(ns, "smoke_test", False),
+        )
+        logger.info("Verifier judge loaded.")
     except Exception as exc:
         msg = (
-            "NLI MODEL LOAD FAILED: %s\n"
-            "  >> The verifier would use p_entail=0.5 for ALL answers.\n"
-            "  >> This makes entailment indistinguishable from contradiction.\n"
+            "VERIFIER JUDGE LOAD FAILED: %s (backend=%s)\n"
+            "  >> All verifier NLI-backed signals (p_entail, p_ground_*, "
+            "p_contra, semantic entropy) would degenerate to neutral defaults.\n"
             "  >> Memory quality and hallucination reduction results would be\n"
             "     SEVERELY DEGRADED and scientifically invalid.\n"
-            "  >> Fix: ensure '%s' is downloadable and HuggingFace cache\n"
-            "     has sufficient disk space (~1.4 GB)."
+            "  >> Fix: ensure the backend model is downloadable and cache\n"
+            "     has sufficient disk space (~1.5 GB for MiniCheck)."
         )
         if getattr(ns, "smoke_test", False):
-            logger.warning(msg, exc, config.nli_model)
-            logger.warning("  >> Smoke test mode: continuing without NLI.")
+            logger.warning(msg, exc, config.verifier_backend)
+            logger.warning("  >> Smoke test mode: continuing without judge.")
         else:
-            logger.error(msg, exc, config.nli_model)
+            logger.error(msg, exc, config.verifier_backend)
             sys.exit(1)
 
     # -- Passage store (Wikipedia FAISS index) ------------------------------ #
@@ -236,6 +237,7 @@ def build_pipeline(config: Any, ns: Any, m: Dict[str, Any]) -> "CAEMPipeline":
         model=model,
         tokenizer=tokenizer,
         encoder=encoder,
+        judge=judge,
         nli_model=nli_model,
         nli_tokenizer=nli_tokenizer,
         passage_store=passage_store,
@@ -837,6 +839,8 @@ def run_experiment(ns: argparse.Namespace) -> None:
     # Override n_questions if specified
     config.questions_per_cycle = ns.n_questions
     config.num_cycles = ns.num_cycles
+    if getattr(ns, "verifier_backend", None):
+        config.verifier_backend = ns.verifier_backend
 
     if ns.resume_from_cycle < 0 or ns.resume_from_cycle > config.num_cycles:
         raise ValueError(
@@ -1441,6 +1445,18 @@ def _parse_args() -> argparse.Namespace:
         "--smoke_test",
         action="store_true",
         help="Use synthetic n=10 samples per benchmark for fast CI/local sanity checks.",
+    )
+    p.add_argument(
+        "--verifier_backend",
+        type=str,
+        default=None,
+        choices=["minicheck", "roberta_nli"],
+        help=(
+            "Verifier judge backend. 'minicheck' (default, "
+            "lytang/MiniCheck-Flan-T5-Large) is the thesis main path; "
+            "'roberta_nli' is the legacy ablation path. When omitted, "
+            "CAEMConfig.verifier_backend is used."
+        ),
     )
     return p.parse_args()
 

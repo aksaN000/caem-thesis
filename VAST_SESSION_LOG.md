@@ -1389,3 +1389,389 @@ rebuild:**
 Combined effect on next Step 4 rebuild wall-clock: **~6 h** (down from
 ~8+ h today), with a recovery floor of "lose ~1.5 min if interrupted"
 instead of "lose 6 h."
+
+---
+
+## Literature-review block (three topics) — logged 21:05 BDT (15:05 UTC, 2026-04-19)
+
+User provided three structured literature reviews to drive
+optimization and defense-hardening decisions for CAEM Phase 1 and for
+the TMLR journal version. Each review is logged in full below with
+the CAEM decision that follows from it. These are the first three of
+a multi-topic review; user will supply further topics sequentially.
+
+The three reviews, in order received:
+1. **NLI verifier inadequacy** — DeBERTa/RoBERTa NLI cannot defensibly
+   ground a formal "purity > base accuracy" claim on LM-generated
+   answers; MiniCheck-Flan-T5-Large is the recommended replacement.
+2. **Nine-signal confidence composite for TMLR** — a ≥5-signal
+   composite is publishable, but three of CAEM's nine signals are
+   near-duplicates and should be pruned; the 9×9 correlation matrix
+   is itself a publishable contribution.
+3. **Plain L2 anchoring for Flan-T5-Large continual FT** — plain L2
+   anchored to the previous cycle's parameters is defensible at
+   ≥500M pretrained transformer scale, provided a replay buffer is
+   present; the Fisher-weighting advantage of EWC vanishes.
+
+### Topic 1 — NLI verifier inadequacy (RoBERTa-large-MNLI → MiniCheck)
+
+**Core problem in plain language.** CAEM's verifier uses
+`roberta-large-mnli` to score entailment between a context and the
+model's free-form answer. RoBERTa was trained on human-written
+sentence pairs (MultiNLI, SNLI). It was never trained to judge
+LM-generated text. When a generator writes a fluent-but-wrong answer,
+it looks structurally identical to a correct NLI positive example.
+The verifier assigns high P(entail). Fluent hallucinations pass the
+verifier. That weakens CAEM's Ch4 §Theoretical Analysis purity
+theorem, whose `αp / (αp + (1-α)(1-p))` argument requires P(entail)
+to actually track truth.
+
+**Key literature cited by user:**
+
+- *Semantic Illusion 2025* — DeBERTa-v3-large-MNLI exhibits **100%
+  FPR at 95% recall** on HaluEval. The model assigns high entailment
+  to fluent-but-wrong LM outputs across the full test set.
+- *MiniCheck* (Tang et al. 2024, ACL) — Flan-T5-Large (770M) trained
+  on synthetic claim-decomposition data specifically for LM-generated
+  hypothesis verification. Reported AUROC gains of 10-25 points over
+  generic NLI on HaluEval / AggreFact / FEVER-hallucination splits.
+  VRAM: ~1.5 GB at bf16. Same inference cost profile as
+  roberta-large-mnli.
+- *Training data matters more than parameter size* — MiniCheck-770M
+  exceeds DeBERTa-v3-large (1.5B) specifically because the training
+  distribution matches the inference distribution (LM claims, not
+  human sentence pairs).
+
+**Implication for CAEM's Ch4 theorem.** The purity theorem assumes:
+"if verifier accepts, then ground truth with probability p". If p is
+unknown and the verifier is systematically miscalibrated on LM
+outputs, the theorem is formally a conditional claim ("p > base
+accuracy iff verifier is calibrated") rather than an unconditional
+guarantee. The empirical Ch5 numbers (scored against gold-answer EM)
+are unaffected — those use exact-match, not the verifier. The
+theorem is the weak link.
+
+**Decision paths discussed:**
+- **Path A — Thesis text re-frame only** (~2 hrs, 0 GPU): rewrite
+  Ch4 §Theoretical Analysis as empirical claim conditional on
+  verifier calibration. Ch3 §Risk Analysis adds "verifier miscal.
+  on LM outputs" as named risk with MiniCheck swap as mitigation.
+  Ch5 adds a one-paragraph limitation. No code change. Defense-safe.
+- **Path B — Signal normalization hot-fix** (~1 day, ~8 min rerun):
+  replace raw P(entail) with P(entail) / (P(entail) + P(contradict)).
+  Cheap code change, reduces fluent-but-wrong over-confidence.
+  Band-aid: same RoBERTa model, same training distribution, same
+  blindspot. Does not fix root cause.
+- **Path C — Full verifier replacement with MiniCheck** (~3 days +
+  full rerun): swap verifier model, re-run Step 5 → 20. Proper
+  literature-defensible fix.
+
+**Decision: A + C, skip B.** B normalizes the output of a broken
+judge — wrong tool for the job. C replaces the judge with one
+trained on the right distribution. Timing is ideal: we are still at
+Step 5 smoke, so Steps 6-20 (the expensive ~60 GPU-hours) have not
+yet run. Switching verifier *now* costs +1 day of adapter + a
+re-run of the smoke; switching post-Step 20 would mean a full-chain
+redo. User authorized A + C at 21:00 BDT with budget coverage from
+remaining credit + a future $200 topup.
+
+**Execution plan for Path C (this session):**
+1. Kill current Step 5 smoke on Vast cleanly.
+2. Download MiniCheck-Flan-T5-Large weights (HF checkpoint
+   `lytang/MiniCheck-Flan-T5-Large`, ~1.5 GB bf16).
+3. Wire adapter in `caem/verification/verifier.py` behind a
+   `--verifier_model {roberta_nli, minicheck}` CLI flag. RoBERTa
+   stays in the codebase as ablation / appendix comparison.
+4. Calibration diagnostic: stratified 500-pair labeled set from
+   the CAEM train-split questions, evaluate RoBERTa vs MiniCheck on
+   {AUROC, ECE, Brier, selective-accuracy@80%coverage}. Result
+   becomes thesis appendix table justifying the swap.
+5. Re-run Step 5 smoke under MiniCheck (~7 min expected under the
+   current 1.4x verifier-batching speedup).
+6. Continue autonomous chain Step 6 → Step 20.
+
+**Path A (text-only) will be drafted in parallel while the GPU
+runs MiniCheck setup; zero-GPU cost.**
+
+### Topic 2 — Nine-signal confidence composite for TMLR (defense hardening)
+
+**User-supplied review synthesis.** A nine-signal composite is
+defensible for TMLR only after pruning to **~6 effective signals**,
+and only if the ablation explicitly answers "why not just semantic
+entropy?". Literature survey:
+
+**RQ1 — precedent for composite:**
+- **Valentin et al. 2024** (arXiv 2407.21424) — 8-signal fusion
+  (Inverse Perplexity, P(True), P(InputContradict),
+  P(SelfContradict), P(FactContradict), Verbalized-P, NLI-DeBERTa,
+  SelfCheckGPT-NLI, HallucinationRail, SimilarityDegree) with
+  per-signal isotonic calibration + isotonic-regression stacker.
+  *Publishes a Spearman cross-signal heat-map* — the direct anchor
+  citation for CAEM's own planned 9x9 matrix.
+- **Vashurin et al. 2024** (LM-Polygraph, arXiv 2406.15627, TACL
+  2025) — 28 UQ methods head-to-head. Best PRRs on
+  TriviaQA/Mistral-7B: DegMat-NLI 0.47, SAR 0.46, LexSim-RougeL
+  0.44, Semantic Entropy 0.42, MSP 0.37. Ranks methods, does NOT
+  learn a composite or publish a correlation matrix.
+- **HaMI (Niu 2025, arXiv 2504.07863)** — hidden state + logit +
+  perplexity + semantic-consistency via multi-instance learning;
+  AUROC up to 0.923 on RAGTruth.
+- **Pcib 2026 (arXiv 2601.15652)** — 5-signal BASE AUROC 0.827 vs
+  8-signal IMPROVED AUROC 0.867 on HaluBench. Direct evidence that
+  signals beyond 5 still add measurable gain.
+- **Gurrapu et al. 2025 (arXiv 2508.18473)** — ≥5 zero-resource
+  scores fused via conformal-p-value (Simes/Bonferroni). ≥5.2%
+  AUROC lift over worst individual score.
+
+**RQ2 — semantic entropy dominates open-ended QA but collapses on
+MCQ.** Five head-to-head comparisons (Kuhn 2023; Farquhar 2024
+Nature; Manakul 2023 SelfCheckGPT; Tian 2023; Vashurin 2024):
+Semantic entropy beats simpler logit signals by **+8 to +10 AUROC
+points** on TriviaQA-style open generation. But on MMLU-style
+constrained outputs, Vashurin 2024 shows **verbalized UQ and MSP
+win** — sample-diversity methods collapse on short outputs. The
+heterogeneity across CAEM's six-benchmark suite (TriviaQA open-gen
+↔ FEVER binary label ↔ StrategyQA binary ↔ ARC MCQ) is the
+principled composite justification.
+
+**Key numbers to cite in defense:**
+| Paper | Setup | SE AUROC | Best simpler | Gap |
+|---|---|---:|---:|---:|
+| Kuhn 2023 | OPT-30B TriviaQA | ~0.82 | LexSim 0.74; P(True) 0.68 | +8 to +14 |
+| Farquhar 2024 Nature | LLaMA-2/Falcon/Mistral avg over 30 combos | 0.790 | P(True) 0.698; embedding 0.687 | +9 to +10 |
+| Manakul 2023 WikiBio | GPT-3 | SelfCheck-NLI 92.5 | token-prob 83.2 | +9 |
+| Vashurin 2024 | Mistral-7B TriviaQA | 0.42 PRR | DegMat-NLI 0.47 | DegMat ≥ SE |
+| Vashurin 2024 | GPT-4o-mini MMLU | collapses | verbalized wins | verb ≫ SE |
+
+**RQ3 — calibration recipe.** Five-step pipeline, every step cited:
+1. **Correlation-based feature pruning** — Spearman on dev fold,
+   drop one of any pair with |ρ| > 0.9 (Guyon & Elisseeff 2003;
+   Vashurin 2024; Kamath 2020).
+2. **Per-signal Centered Isotonic Regression** 5-fold OOF, fallback
+   to 1-param temperature scaling if N<1000 (Vashurin 2024
+   "Isotonic PCC"; Niculescu-Mizil & Caruana 2005; Guo 2017).
+3. **Uniform 1/N average** as default composite, zero learned
+   parameters (Breiman 1996; SummaCZS; AlignScore).
+4. **Optional ridge-penalised logistic stacker**, Gaussian prior at
+   1/N, 5-fold CV (Wolpert 1992; Hoerl & Kennard 1970; Kull 2019
+   Dirichlet). Accept only if beats uniform by paired-bootstrap CI
+   margin (Caruana 2004 "Ensemble Selection").
+5. **Avoid MLP combiners with >10 params on 2k dev sets**.
+
+**Overfitting risk bound**: Niculescu-Mizil & Caruana 2005 learning
+curves show nonparametric calibrators deteriorate below 2000
+points; Guo 2017 makes the same bias-variance argument. For CAEM's
+~2000-example dev splits, the recipe's effective parameter count
+sits at ~1-2 (ridge-penalised on <6 pruned signals), well under
+the 9 nominal signals.
+
+**RQ4 — 32-configuration ablation design** (Kuhn/Farquhar/
+SelfCheckGPT/Vashurin template):
+| Row group | # rows | Content |
+|---|---:|---|
+| A. Singletons | 9 | Each signal sᵢ alone, calibrated |
+| B. Strong baselines | 3 | SE-only (Farquhar), P(True) (Kadavath), SelfCheck-NLI (Manakul) |
+| C. Full composite | 1 | All retained signals |
+| D. Leave-one-out | 9 | Composite minus sᵢ |
+| E. Greedy-add curve | 9 | k=1..9 greedily selected |
+| F. Parsimony variant | 1 | Top-3 from E |
+
+Columns: 6 benchmarks. Primary metric AUROC; secondary ECE/Brier
+after isotonic; tertiary selective-accuracy@{50%,80%,95%} coverage.
+Significance: paired bootstrap 10k resamples, BCa 95% CIs,
+Holm-Bonferroni over ~21 pairwise comparisons.
+
+**RQ5 — expected correlation structure:**
+
+*Very likely ρ>0.9 (prune candidates):*
+- {token-prob mean, token-prob min} — on 1-5 token answers the min
+  dominates the mean.
+- {self-consistency semantic-cluster, semantic entropy} — both
+  cluster the same K=5 samples via NLI; Farquhar's Discrete SE is
+  literally cluster counts.
+- {NLI entailment, semantic-cluster} — IF NLI uses the same K
+  samples. LM-Polygraph DegMat/EigV/Eccentricity tie within 0.01
+  PRR on TriviaQA, indicating collinearity.
+
+*Moderately correlated (0.6-0.85), retain:*
+- MC Dropout vs token-prob — captures epistemic vs aleatoric.
+- self-consistency exact-match vs semantic-cluster — diverge on
+  paraphrastic answers (StrategyQA, TruthfulQA).
+- retrieval top-1 vs top-k dispersion — ρ ≈ -0.5 to -0.7 per BEIR
+  and DPR, distinct signal.
+
+*Likely independent (<0.4):* retrieval signals vs all generation
+signals (Valentin 2024 finds NLI-DeBERTa most-independent).
+
+**Implication for CAEM Phase 1:** effective composite after pruning
+is **5-7 independent signals**, not 9. The 9x9 correlation matrix
+publication itself is a first-class contribution because only
+Valentin 2024 has come close, and not across retrieval + MC Dropout
+families on a 6-benchmark suite.
+
+**Implication for CAEM Phase 1 *this session*:** add a "Row A
+singleton + Row D LOO" subset to Step 20's evaluation report so
+the defense has a visible composite-vs-SE-only comparison even in
+Phase 1. The full 32-config ablation is a Phase 1 Full / TMLR
+deliverable, not a pre-defense requirement.
+
+**Three conditions to keep all nine signals (per review):** (i) the
+9x9 correlation matrix published per benchmark shows no pair
+exceeds ρ=0.9 after calibration; (ii) LOO ablation shows every
+signal contributes a positive AUROC gap with paired-bootstrap CI
+excluding zero on ≥1 benchmark; (iii) composite does not require
+learning 9 independent weights — correlation-prune +
+uniform-default + CV-gated ridge caps effective params well below 9.
+
+### Topic 3 — Plain L2 anchoring for Flan-T5-Large continual FT
+
+**User-supplied review synthesis.** Plain L2 anchored to the previous
+cycle's parameters is **defensible but not optimal** for the 10-cycle
+Flan-T5-Large self-improvement loop. Verdict: **(c) MIXED — green
+light with a named empirical fallback test in Cycle 2**.
+
+**RQ1 — empirical evidence at ≥500M scale:**
+- Direct head-to-head at ≥500M *does not exist*. Closest:
+  - **Mehta et al. 2023 JMLR** (arXiv 2112.09153) — up to BERT-Large
+    (336M). Plain FT forgets 16.7%; Experience-Replay forgets 21.6%;
+    EWC gives "minimal or sometimes negative additional benefit."
+    Mechanism: pretraining flattens the loss landscape, so uniform
+    and Fisher-weighted penalties converge in effect.
+  - **Wu et al. 2022 ICLR** — BERT/RoBERTa/GPT-2/XLNet/ALBERT on
+    CLINC150/Maven/WebRED. EWC is typically the *worst* CL method
+    tested and routinely below unregularised Vanilla (e.g., BERT
+    Class-IL CLINC150: Vanilla 15.09 vs EWC 12.11). Counterintuitive
+    but repeated across backbones.
+  - **Hsu et al. 2018** (arXiv 1810.12488) — at MLP scale, L2 ≈
+    online EWC ≈ SI ≈ MAS within 1-3 points on Split-MNIST domain-IL.
+  - **Xuhong Li 2018 L2-SP** (arXiv 1802.01483) — anchor choice
+    matters more than Fisher weighting. L2-SP (anchored to pretrained
+    θ₀) beats plain weight decay (anchored to 0) by 0.8-8.6 points
+    on ResNet-101 transfer.
+
+**Consolidated estimate:** at ≥100M pretrained-transformer scale,
+plain L2 and EWC differ by **0-3 percentage points**, with sign
+frequently favoring L2 or plain FT. CAEM's previous-cycle anchor is
+intermediate between "anchor to 0" and "anchor to pretrained θ₀",
+and almost certainly better than anchor-to-zero.
+
+**RQ2 — model editing methods are NOT a drop-in replacement.**
+- MEND (Mitchell 2022) — degrades catastrophically at k=10 sequential
+  edits (SERAC paper). One cycle of FT is thousands of gradient
+  steps, not 10 edits. Wrong tool.
+- ROME/MEMIT (Meng 2022) — **GPT-only**; no T5/encoder-decoder
+  implementation. Causal-tracing assumes autoregressive structure.
+- GRACE (Hartvigsen 2023) — lifelong, ~5k sequential edits on T5,
+  but edits are ε-ball point patches on a *frozen* base. Cannot
+  absorb a new task distribution.
+- T-Patcher (Huang 2023) — one patch neuron per (x,y) pair.
+  Thousands per cycle, unworkable.
+- Gu et al. 2024 (arXiv 2401.04700) document that even single ROME/
+  MEND/MEMIT edits degrade general performance, and propose an
+  **L2-style penalty (RECT)** to fix it — structurally what CAEM
+  already uses.
+
+**Usable role: GRACE/T-Patcher *on top of* CFT** to pin high-value
+(input→answer) pairs. Not a regularizer replacement.
+
+**RQ3 — Flan-T5 / T5 continual FT: replay alone is empirically
+sufficient.** Strongest evidence for CAEM's defense:
+- **Scialom et al. 2022 EMNLP** (arXiv 2205.12393) — T0_3B (T5-3B
+  backbone) and T0pp-11B, 8 new NLG tasks sequentially, **1%
+  rehearsal and zero explicit regularization**, retained **99.8% of
+  multi-task upper bound** on T0pp and 98% on T0_3B. 0.25%
+  rehearsal already near-perfect. LAMOL-style generative
+  pseudo-replay diverges catastrophically — ground-truth rehearsal
+  is the mechanism. **CAEM's 10% replay is 10× above the
+  proven-sufficient point.**
+- **Jin et al. 2024** (arXiv 2402.01865) — closest match,
+  Flan-T5-Large (840M) specifically. Vanilla sequential FT on 36 P3
+  tasks produces 5.5%/3.3%/4.4% EM drop on Flan-T5-Large. With mini-
+  batch replay (8 examples every 10 steps, far below CAEM's 10%),
+  forgetting falls to <1%.
+- **CITB 2023** (arXiv 2310.14510), **Madotto 2021** (arXiv
+  2012.15504), **Lin 2022 CMR** (arXiv 2205.02014) — all converge
+  on "replay ≥ EWC/L2/LwF" for instruction-tuned T5/BART.
+- **Counterpoint: Wang 2023 TRACE** (arXiv 2310.06762) — LLaMA-2-
+  chat-13B collapses on GSM8K from 28.8% → 2% under sequential FT,
+  but this is **decoder-only RLHF-aligned**. Scialom explicitly
+  shows encoder-decoder T5 variants are markedly more forgetting-
+  resistant. Does not apply to CAEM.
+
+**RQ4 — LoRA/PEFT: the strictly stronger defense, with one caveat.**
+Hardware table for Flan-T5-Large on 5090:
+| Config | Trainable | % base | VRAM | Wall-clock |
+|---|---:|---:|---:|---:|
+| Full FT | 780M | 100% | 12-16 GB | 1.00× |
+| LoRA r=16 (q,v) | 2.4M | 0.3% | 6-9 GB | 0.75× |
+| LoRA r=32 all attn+MLP | 9-16M | 1.2-2% | 7-10 GB | 0.80× |
+| LoRA r=64 all modules | 18-32M | 2.3-4.1% | 7-11 GB | 0.85× |
+
+- **Biderman et al. 2024 TMLR** (arXiv 2405.09673) — LoRA Pareto-
+  dominates weight decay on learning-vs-forgetting frontier on
+  LLaMA-2-7B/13B. Also preserves generation diversity — critical
+  for a self-improvement loop fed by model-generated data.
+- **O-LoRA (Wang 2023 EMNLP Findings)** — tests **T5-Large
+  specifically** on 5-task and 15-task streams. 15-task: vanilla FT
+  7.4%, EWC 45.1%, replay 54.2%, naive LoRA 61.2%, O-LoRA 69.6% vs
+  multi-task UB 76.5%. Rank barely matters on T5 (r=2 ≈ r=16).
+
+**Structural defense argument:** frozen-base LoRA gives
+‖W_t − W_0‖ = 0 as an *identity*. L2 bounds drift softly via λ;
+actual drift is data-dependent and unbounded in the worst case. In
+a viva, LoRA converts forgetting from empirical to mathematical —
+strictly harder to attack.
+
+**The caveat for CAEM's self-improvement framing:** if
+self-improvement = "θ₀ updates via synthetic data", frozen-base
+LoRA **cannot do that** by construction. Three coherent responses:
+1. Redefine self-improvement at deployed-system level (base + current
+   adapter set).
+2. LoRA-merge-and-continue (Biderman mode) — merge A·B into W each
+   cycle, reset LoRA. Full FT constrained to rank-r update per cycle.
+   Base self-improves; forgetting 15-40% lower than full FT.
+3. Keep plain L2 + 90/10 replay on full parameters. Max freedom for
+   base self-improvement; soft drift bound; rely on Scialom/Jin
+   numbers.
+
+**Final verdict for CAEM Phase 1:** green light for plain L2 +
+90/10 replay, **with a named Cycle-2 diagnostic.** Hold out a frozen
+500-example Cycle-0 validation slice; after Cycle 2 training,
+evaluate EM/ROUGE. **If absolute drop >3%**, swap to O-LoRA-style
+stacked orthogonal adapters, merging every 2 cycles. **If drop
+<3%**, we have replicated the Scialom/Jin replay-sufficient regime
+and plain L2 + 90/10 replay is the parsimonious correct choice.
+
+**Three citations to carry into the defense:**
+- Scialom et al. 2022 EMNLP — replay at 1% gives 99.8% UB retention
+  on T0_3B/11B.
+- Jin et al. 2024 — Flan-T5-Large specifically forgets <1% with
+  modest replay.
+- Mehta et al. 2023 JMLR — EWC's Fisher-weighting advantage vanishes
+  at pretrained-transformer scale.
+
+**Implication for CAEM Phase 1 *this session*:** Step 19-20
+continual-FT code keeps plain L2 + 10% replay anchored to previous
+cycle (current default). Add a frozen Cycle-0 500-example validation
+slice hold-out in Step 19 so the Cycle-2 diagnostic fires
+automatically. Swap-to-O-LoRA trigger recorded as a *conditional
+Phase 1 Full deliverable*, not a pre-defense requirement.
+
+### Summary of decisions from this literature-review block
+
+| Topic | Decision | Code change | Thesis change | Timing |
+|---|---|---|---|---|
+| NLI verifier | Path A + Path C | Add `--verifier_model minicheck` adapter; keep RoBERTa as ablation | Ch4 theorem re-frame + Ch3 risk + Ch5 limitation | This session |
+| 9-signal composite | Prune at defense; full 32-config ablation for TMLR | Add Row A singleton + Row D LOO subset to Step 20 report | Ch4 §Unified Verifier note effective-count after pruning; Ch5 add correlation-matrix preview | Phase 1 Full / TMLR |
+| L2 anchoring | Keep plain L2 + 10% replay; add Cycle-2 diagnostic | Freeze 500-example Cycle-0 validation slice, auto-evaluate in Step 19 | Ch4 §Self-Improvement cite Scialom/Jin/Mehta | This session (diagnostic wiring) |
+
+**Expected runtime impact of this session's changes:**
+- Path C (MiniCheck swap + calibration + Step 5 rerun): +4-6 h
+  wall-clock, +$3-4 credit.
+- Cycle-2 diagnostic wiring in Step 19: +15 min eval overhead per
+  cycle = +2.5 h across 10 cycles. Already within Phase 1 budget.
+- Row A/D subset in Step 20: +10 min eval overhead, negligible.
+
+Total Phase 1 schedule impact: **+6-8 h, well within the $200
+post-topup envelope** the user authorized. No schedule risk to the
+pre-defense deadline.

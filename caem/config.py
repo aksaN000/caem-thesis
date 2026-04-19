@@ -150,8 +150,23 @@ class CAEMConfig:
     # should_store() gate with a four-way decision tree (STORE / DEFERRED
     # / ABSTAIN / DISCARD).
 
-    # [LIT] Best open NLI model at this parameter scale.
+    # [LIT] Verifier backend. "minicheck" = MiniCheck-Flan-T5-Large (Tang
+    # 2024 ACL), trained on LM-generated claim-support data -- the right
+    # distribution for judging LM outputs. "roberta_nli" = legacy
+    # roberta-large-mnli, trained on human-written NLI pairs; retained as
+    # an ablation / calibration comparison (see
+    # scripts/calibration_minicheck_vs_roberta.py).
+    # The swap is motivated by HaluEval 2025 / "Semantic Illusion" 2025:
+    # DeBERTa-v3-large-MNLI shows 100% FPR at 95% recall on LM hallucinations,
+    # and RoBERTa-large-MNLI is expected to have the same failure mode.
+    verifier_backend: str = "minicheck"
     nli_model: str = "roberta-large-mnli"
+    minicheck_model: str = "lytang/MiniCheck-Flan-T5-Large"
+    # MiniCheck threshold mapping from unary P(supported) to 3-class NLI
+    # labels, used only by semantic-entropy NLI clustering. See
+    # caem/verification/minicheck.py for the mapping rationale.
+    minicheck_entail_threshold: float = 0.7
+    minicheck_contradict_threshold: float = 0.3
     # [LIT] Farquhar et al. 2024: agglomerative + cosine clustering.
     se_clustering_method: str = "agglomerative"
 

@@ -41,7 +41,7 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import Any, List, Optional
 
 import numpy as np
 import torch
@@ -223,6 +223,7 @@ class CAEMPipeline:
         deferred_buffer: Optional[DeferredBuffer] = None,
         device: Optional[str] = None,
         current_cycle: int = 0,
+        judge: Optional[Any] = None,
     ) -> None:
         self.config = config or CAEMConfig()
         self.current_cycle = current_cycle
@@ -310,6 +311,7 @@ class CAEMPipeline:
             model=model,
             tokenizer=tokenizer,
             sbert_encoder=encoder,
+            judge=judge,
             nli_model=nli_model,
             nli_tokenizer=nli_tokenizer,
             passage_retriever=_verifier_passage_retriever,

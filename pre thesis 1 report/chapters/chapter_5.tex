@@ -268,6 +268,31 @@ an absolute leaderboard number. Absolute MMLU accuracy in
 calibration point and not compared directly to published MMLU
 accuracies.
 
+\paragraph{Verifier backend and the empirical $\alpha$ assumption.}
+The purity, monotonicity, and convergence theorems of
+\cref{sec:theoretical-analysis} hold on any operating point for which
+the verifier balanced accuracy $\alpha$ exceeds one half on the
+distribution of claims actually scored. The distribution of claims
+scored by the \caem{} verifier is language model generations, not
+human written natural language inference pairs; generic NLI models
+such as \texttt{roberta-large-mnli}, trained on MultiNLI and SNLI, have
+been shown to miscalibrate on this shifted distribution, in the worst
+case attaining a one hundred percent false positive rate at ninety
+five percent recall on language model
+hallucinations~\cite{semanticillusion2025}, which corresponds to
+$\alpha \le 0.475$ and falsifies the theorem's premise. \caem{}'s
+primary verifier backend is MiniCheck-Flan-T5-Large~\cite{tang2024minicheck},
+fine tuned on language model generated claim support data rather than
+on human sentence pairs, and the results in this chapter are reported
+under that backend unless otherwise stated. An ablation row comparing
+MiniCheck against legacy \texttt{roberta-large-mnli} is reported as
+part of the verifier calibration diagnostic in
+\cref{sec:verification-balanced-accuracy} and in the Cycle 0 baseline
+table (\cref{tab:sig-test}). The cycle by cycle $\alpha$ trajectory is
+reported alongside $|P_{\text{theory}} - P_{\text{obs}}|$ in
+\cref{tab:purity}, so that the theorem's empirical premise is
+audited per cycle rather than assumed.
+
 \paragraph{Unified efficacy (CAEM Efficacy Score).}
 Because a reviewer must read the seven tables above quickly, we report
 a single composite scalar -- the \emph{\caem{} Efficacy Score} (CES) --

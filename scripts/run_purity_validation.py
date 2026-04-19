@@ -897,21 +897,21 @@ def run_purity_validation(ns: argparse.Namespace) -> None:
         model = cast(Any, model).to(torch.device(profile.device))
         encoder = QueryEncoder(model_name=config.sbert_model, device=profile.device)
 
-        # Load the real NLI model for the smoke path -- same as the full path.
-        nli_model, nli_tokenizer = None, None
+        # Load the verifier judge via the shared loader (MiniCheck by default,
+        # RoBERTa-NLI if config.verifier_backend is overridden).
+        from caem.verification import load_verifier_judge
+        judge, nli_model, nli_tokenizer = None, None, None
         try:
             logger.info(
-                "Loading NLI model (%s) for smoke-test verification ...",
-                config.nli_model,
+                "Loading verifier judge (backend=%s) for smoke-test purity ...",
+                config.verifier_backend,
             )
-            nli_tokenizer = AutoTokenizer.from_pretrained(config.nli_model)
-            nli_model = AutoModelForSequenceClassification.from_pretrained(
-                config.nli_model
-            ).to(profile.device)
-            nli_model.eval()
+            judge, nli_model, nli_tokenizer = load_verifier_judge(
+                config, profile.device, allow_fallback=True,
+            )
         except Exception as exc:
             logger.warning(
-                "Smoke-test NLI load failed (%s); α will exercise the null "
+                "Smoke-test judge load failed (%s); α will exercise the null "
                 "verifier and is not a meaningful verifier-regression signal.",
                 exc,
             )
@@ -920,6 +920,7 @@ def run_purity_validation(ns: argparse.Namespace) -> None:
             model=model,
             tokenizer=tokenizer,
             encoder=encoder,
+            judge=judge,
             nli_model=nli_model,
             nli_tokenizer=nli_tokenizer,
             config=config,
@@ -947,20 +948,21 @@ def run_purity_validation(ns: argparse.Namespace) -> None:
         config = CAEMConfig()
         tokenizer = AutoTokenizer.from_pretrained("google/flan-t5-large")
 
-        nli_model, nli_tokenizer = None, None
+        from caem.verification import load_verifier_judge
+        judge, nli_model, nli_tokenizer = None, None, None
         try:
-            from transformers import AutoModelForSequenceClassification
             logger.info(
-                "Loading NLI model (%s) for purity verification ...",
-                config.nli_model,
+                "Loading verifier judge (backend=%s) for purity verification ...",
+                config.verifier_backend,
             )
-            nli_tokenizer = AutoTokenizer.from_pretrained(config.nli_model)
-            nli_model = AutoModelForSequenceClassification.from_pretrained(
-                config.nli_model
-            ).to(profile.device)
-            nli_model.eval()
+            judge, nli_model, nli_tokenizer = load_verifier_judge(
+                config, profile.device, allow_fallback=True,
+            )
         except Exception as exc:
-            logger.warning("NLI model load failed (%s); continuing without NLI.", exc)
+            logger.warning(
+                "Verifier judge load failed (%s); continuing without judge.",
+                exc,
+            )
 
         passage_store = None
         passage_index_path = Path(ns.passage_index)
@@ -1080,6 +1082,7 @@ def run_purity_validation(ns: argparse.Namespace) -> None:
             encoder = QueryEncoder(model_name=config.sbert_model, device=profile.device)
             pipeline = CAEMPipeline(
                 model=model, tokenizer=tokenizer, encoder=encoder,
+                judge=judge,
                 nli_model=nli_model, nli_tokenizer=nli_tokenizer,
                 passage_store=passage_store,
                 config=config, device=profile.device, current_cycle=cycle_num,

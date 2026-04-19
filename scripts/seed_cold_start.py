@@ -251,20 +251,22 @@ def build_pipeline(config, device: str):
     # -- SBERT encoder --------------------------------------------------- #
     encoder = QueryEncoder(model_name=config.sbert_model)
 
-    # -- NLI model (optional -- improves verification quality) ----------- #
-    # Model name is driven by CAEMConfig.nli_model so seed_cold_start shares
-    # a single source of truth with the verifier and run_experiment.py.
-    nli_model, nli_tokenizer = None, None
+    # -- Verifier judge (optional -- improves verification quality) ----- #
+    # Single source of truth via caem.verification.load_verifier_judge();
+    # driven by CAEMConfig.verifier_backend (default "minicheck").
+    from caem.verification import load_verifier_judge
+    judge, nli_model, nli_tokenizer = None, None, None
     try:
-        logger.info("Loading NLI model (%s) for verification ...", config.nli_model)
-        nli_tokenizer = AutoTokenizer.from_pretrained(config.nli_model)
-        nli_model = cast(Any, AutoModelForSequenceClassification.from_pretrained(
-            config.nli_model
-        )).to(device).eval()
-        logger.info("NLI model loaded.")
+        logger.info(
+            "Loading verifier judge (backend=%s) for seeding verification ...",
+            config.verifier_backend,
+        )
+        judge, nli_model, nli_tokenizer = load_verifier_judge(
+            config, device, allow_fallback=True,
+        )
     except Exception as exc:
         logger.warning(
-            "NLI load failed (%s) -- verification uses SC+SE only.  "
+            "Verifier judge load failed (%s) -- seeding uses SC+SE only.  "
             "Downstream u_stored will not include p_entail, so stored "
             "episodes will have lower verifier confidence than production.",
             exc,
@@ -291,6 +293,7 @@ def build_pipeline(config, device: str):
         model=model,
         tokenizer=tokenizer,
         encoder=encoder,
+        judge=judge,
         nli_model=nli_model,
         nli_tokenizer=nli_tokenizer,
         passage_store=passage_store,

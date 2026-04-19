@@ -486,6 +486,27 @@ Destroy the instance, re-rent with Step 2 and 100 GB allocation.
 **[WHY]** Catch pipeline-integration bugs **before** paying for a
 16–18 h main run.
 
+**[VERIFIER BACKEND]** From 2026-04-19 onward the default verifier
+backend is MiniCheck-Flan-T5-Large (`lytang/MiniCheck-Flan-T5-Large`),
+not `roberta-large-mnli`. The swap is motivated by HaluEval 2025 /
+Semantic Illusion 2025 (100% FPR at 95% recall for generic NLI on LM
+hallucinations; see `VAST_SESSION_LOG.md` Literature-review block
+Topic 1). To confirm:
+
+```bash
+python -c "from caem.config import CAEMConfig; \
+  print('backend:', CAEMConfig().verifier_backend)"  # must print: minicheck
+```
+
+First Step 5 run on a fresh instance will download the MiniCheck
+checkpoint (~1.5 GB bf16) into the HF cache. That download counts
+toward smoke wall-clock; budget an extra ~2 min for it.
+
+To fall back to the legacy RoBERTa-NLI backend (ablation only), add
+`--verifier_backend roberta_nli` to any `run_experiment` /
+`run_ablation` / `run_purity_validation` invocation, or set
+`CAEMConfig.verifier_backend = "roberta_nli"`.
+
 5.1 **[ACTION]** Run the smoke test in its own tmux session (~20 min):
 
 ```bash
@@ -514,6 +535,55 @@ back) and fix before proceeding. Wall-clock savings compound across
 every later step.
 
 **[CHECKPOINT 5]** Pipeline is end-to-end healthy.
+
+---
+
+## Step 5.5 — Verifier calibration diagnostic (MiniCheck vs RoBERTa-NLI)
+
+**[WHY]** The Ch4 purity theorem requires empirical α > ½ on the
+*LM-generated claim* distribution. This step measures α for both
+backends on a stratified 500-pair labelled set and ships the result
+into the Chapter 5 appendix as the empirical justification for
+defaulting to MiniCheck.
+
+5.5.1 **[ACTION]** Build the calibration pair file from cold-start
+outputs (one-time, ~3 min):
+
+```bash
+python scripts/build_calibration_pairs.py \
+    --source_jsonl outputs/cold_start_memory/seed_episodes.jsonl \
+    --n_pairs 500 \
+    --output_jsonl data/calibration/minicheck_pairs_500.jsonl
+```
+
+5.5.2 **[ACTION]** Run the diagnostic (~8 min on 5090 for both
+backends):
+
+```bash
+PYTHONPATH=. python scripts/calibration_minicheck_vs_roberta.py \
+    --pairs_jsonl data/calibration/minicheck_pairs_500.jsonl \
+    --output_json outputs/calibration/minicheck_vs_roberta.json \
+    --device cuda \
+    --backends minicheck roberta_nli
+```
+
+5.5.3 **[VERIFY]** Expected outcomes:
+
+- `outputs/calibration/minicheck_vs_roberta.json` exists with both
+  `minicheck` and `roberta_nli` blocks.
+- `delta_auroc_minicheck_minus_roberta` is positive (MiniCheck > RoBERTa
+  on this distribution) — literature expectation is +10–25 AUROC points.
+- MiniCheck ECE < 0.15 (well calibrated); RoBERTa ECE likely 0.25–0.45
+  (over confident on LM outputs per HaluEval 2025).
+
+5.5.4 **[GATE]** If `minicheck.auroc < 0.70` OR `ece > 0.30`:
+investigate (wrong pair labels, wrong prompt format, wrong tokenizer)
+before continuing. Do NOT fall back to RoBERTa-NLI for the main run;
+that backend is the *weaker* verifier by assumption.
+
+**[CHECKPOINT 5.5]** α > ½ is empirically confirmed on the
+thesis-default backend; Ch4 Remark 4.3 (empirical scope of α) is
+auditable.
 
 ---
 

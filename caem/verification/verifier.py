@@ -385,6 +385,7 @@ class UnifiedVerifier:
         tokenizer,
         sbert_encoder,
         *,
+        judge: Optional[Any] = None,
         nli_bundles: Optional[Sequence[Tuple[Any, Any]]] = None,
         nli_model: Optional[Any] = None,
         nli_tokenizer: Optional[Any] = None,
@@ -406,17 +407,29 @@ class UnifiedVerifier:
             device = str(next(model.parameters()).device)
         self.device = device
 
-        # Build ensemble from explicit bundles or fall back to legacy pair.
-        bundles: List[Tuple[Any, Any]] = []
-        if nli_bundles:
-            bundles.extend(nli_bundles)
-        elif nli_model is not None and nli_tokenizer is not None:
-            bundles.append((nli_model, nli_tokenizer))
-        self.nli = _NLIEnsemble(bundles, device=self.device)
-
-        # Back-compat attributes: some call-sites probe `self.nli_model`.
-        self.nli_model = bundles[0][0] if bundles else None
-        self.nli_tokenizer = bundles[0][1] if bundles else None
+        # Judge selection precedence:
+        #   1. Explicit judge= (MiniCheck or future alternatives)
+        #   2. Legacy nli_bundles (multi-model RoBERTa/DeBERTa ensemble)
+        #   3. Legacy single (nli_model, nli_tokenizer) pair
+        # The judge exposes the same (batch_)entail_prob / contradict_prob /
+        # argmax_label triplet as _NLIEnsemble, so downstream call sites are
+        # backend-agnostic.
+        if judge is not None:
+            self.nli = judge
+            # Back-compat: the RoBERTa bundle-probe attributes are None for
+            # non-NLI judges. Downstream code that probes `self.nli_model`
+            # should migrate to `self.nli` instead.
+            self.nli_model = None
+            self.nli_tokenizer = None
+        else:
+            bundles: List[Tuple[Any, Any]] = []
+            if nli_bundles:
+                bundles.extend(nli_bundles)
+            elif nli_model is not None and nli_tokenizer is not None:
+                bundles.append((nli_model, nli_tokenizer))
+            self.nli = _NLIEnsemble(bundles, device=self.device)
+            self.nli_model = bundles[0][0] if bundles else None
+            self.nli_tokenizer = bundles[0][1] if bundles else None
 
     # ====================================================================== #
     # Public API                                                               #

@@ -109,6 +109,7 @@ def _build_variant_pipeline(
     nli_tokenizer,
     passage_store,
     memory_store,
+    judge=None,
 ):
     """Construct a CAEMPipeline with the variant's mutated config applied."""
     # Fresh mutated config: never share a CAEMConfig across variants.
@@ -117,6 +118,7 @@ def _build_variant_pipeline(
         model=model_obj,
         tokenizer=tokenizer,
         encoder=encoder,
+        judge=judge,
         nli_model=nli_model,
         nli_tokenizer=nli_tokenizer,
         passage_store=passage_store,
@@ -327,12 +329,15 @@ def main(ns: argparse.Namespace) -> None:
     encoder = m["QueryEncoder"](
         model_name=base_config.sbert_model, device=device,
     )
-    from transformers import AutoModelForSequenceClassification
-    logger.info("Loading NLI model (%s) ...", base_config.nli_model)
-    nli_tokenizer = m["AutoTokenizer"].from_pretrained(base_config.nli_model)
-    nli_model = AutoModelForSequenceClassification.from_pretrained(
-        base_config.nli_model
-    ).to(device).eval()
+    # Load verifier judge via the shared loader (MiniCheck or RoBERTa).
+    # Ablation variants share the same judge instance; a per-variant judge
+    # swap would be an orthogonal study not in scope here.
+    from caem.verification import load_verifier_judge
+    logger.info("Loading verifier judge (backend=%s) ...",
+                base_config.verifier_backend)
+    judge, nli_model, nli_tokenizer = load_verifier_judge(
+        base_config, device, allow_fallback=False,
+    )
 
     passage_store = None
     pi_path = Path(ns.passage_index) if ns.passage_index else None
@@ -391,7 +396,7 @@ def main(ns: argparse.Namespace) -> None:
             variant, m, ns,
             model_obj, tokenizer, encoder,
             nli_model, nli_tokenizer, passage_store,
-            memory_store,
+            memory_store, judge=judge,
         )
         harness = m["EvalHarness"](
             pipeline, output_dir=str(output_dir / variant.name), log_every=100,
