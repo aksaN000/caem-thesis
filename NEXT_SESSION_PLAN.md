@@ -12,13 +12,14 @@ downstream.
 
 Phase 1 is split in two funding tranches:
 
-**Phase 1a (self-funded, ~$240 topup on a $25 current balance):**
-Steps 4 → 15 + 19 → 20. Produces the headline result package the
-supervisor needs to see: main 10-cycle CAEM run **at Ch5-declared
-n=5000 SIL pool size** + 7 external baselines + purity-theorem
-validation. Steps 16–18 (ablation sweep) are **deferred**. Runtime
-estimate ~420 GPU-h at 8 s/sample under MiniCheck; credit envelope
-~$265 total after topup. The n=5000 value is what Ch5
+**Phase 1a (self-funded, \$215 topup on a \$25 current balance, total
+budget \$240):** Steps 4 → 15 + 19 → 20. Produces the headline result
+package the supervisor needs to see: main 10-cycle CAEM run **at
+Ch5-declared n=5000 SIL pool size** + 7 external baselines +
+purity-theorem validation. Steps 16–18 (ablation sweep) are
+**deferred**. Runtime estimate ~358 GPU-h = ~14 days wall-clock at
+weighted 5.5 s/sample (Tier 1/2/3 mix growing across cycles). Cost
+~\$230 with ~\$10 slack. The n=5000 value is what Ch5
 §AblationMethodology line 751 declares for the confirmatory pass
 including the reference run; reducing it would deviate from the
 pre-registration.
@@ -107,36 +108,53 @@ Addendum and Chapter 3 §3.5.
 
 ---
 
-## At-a-glance execution order (20 numbered steps)
+## At-a-glance execution order (updated 2026-04-19)
 
-Phase 1 absorbs all of these in one rental cycle. Approximate totals:
-~117–134 h wall-clock, ~USD 50–55 rental (plus ~USD 3 if Step 10B is
-run).
+**Phase 1a** (this rental, self-funded **\$215 topup on \$25 balance,
+total \$240**): ~358 GPU-h ≈ 14 days wall-clock at weighted
+5.5 s/sample under MiniCheck (Tier 1/2/3 mix), ~\$230 cost with ~\$10
+slack. **Phase 1 Full** (post-supervisor-funding): Steps 16–18 only,
+~\$640 additional.
 
-| # | Step | Wall-clock | Cost (RTX 4090) |
-|---|------|-----------:|----------------:|
-| 1 | Pre-flight on local PC                             | 5 min  | $0 |
-| 2 | Rent + connect RTX 4090                             | 10 min | ~$0.07 |
-| 3 | Remote environment setup + HF model cache            | 15 min | ~$0.10 |
-| 3B| Pytest unit-test gate (mandatory)                    | 2 min  | ~$0.02 |
-| 4 | Build passage index                                  | 2–3 h  | ~$1 |
-| 5 | Smoke test (1 cycle, n=50)                           | 20 min | ~$0.14 |
-| 6 | Cold-start memory seeding                            | 15 min | ~$0.10 |
-| 7 | **Main 10-cycle CAEM run** (headline)                | 16–18 h| ~$7 |
-| 8 | FLARE pre-flight smoke test (5 samples)              | 5 min  | ~$0.04 |
-| 9 | B1 Zero-shot                                         | ~15 min| ~$0.10 |
-| 10| B2 Chain-of-Thought                                  | ~20 min| ~$0.14 |
-| 11| B3 DPR-RAG                                           | ~45 min| ~$0.30 |
-| 12| B4 CoT + RAG                                         | ~50 min| ~$0.33 |
-| 13| B5 FLARE                                             | ~90 min| ~$0.60 |
-| 14| B6 Vanilla FT (10 cycles)                            | ~6 h   | ~$2.40 |
-| 15| B7 EWC-only FT (10 cycles)                           | ~6 h   | ~$2.40 |
-| 16| Screening sweep (16 variants × 3 cycles)             | 14–20 h| ~$7 |
-| 17| Aggregate screening + pick top-N                     | 5 min  | ~$0.04 |
-| 18| Confirmatory sweep (top-N + `full`, 10 cycles)       | 50–60 h| ~$22 |
-| 19| Purity theorem validation                            | 30 min | ~$0.20 |
-| 20| Aggregate all Phase 1 outputs + download + stop      | 25 min | ~$0.17 |
-| 20B| **(Optional)** STaR ceiling run (only if budget allows) | 7–8 h | ~$3 |
+Status column legend: ✅ done · 🔄 in progress · ⏳ pending ·
+🟡 deferred to Phase 1 Full.
+
+| # | Step | Phase | Status | Wall-clock | Cost (5090 @ \$0.64/h) |
+|---|------|-------|:---:|-----------:|----------------:|
+| 1 | Pre-flight on local PC | 1a | ✅ | 5 min | \$0 |
+| 2 | Rent + connect RTX 5090 | 1a | ✅ | 10 min | ~\$0.10 |
+| 3 | Remote environment setup + HF model cache | 1a | ✅ | 15 min | ~\$0.15 |
+| 3B | Pytest unit-test gate (95 + 9 MiniCheck tests) | 1a | ✅ | 2 min | ~\$0.02 |
+| 4 | Build passage index (IndexFlatIP, 21M) | 1a | ✅ | ~8 h | ~\$5 |
+| 4.5 | Archive FAISS index to HuggingFace Hub | 1a | ✅ | 10 min | ~\$0.10 |
+| 5 | Smoke test (1 cycle, n=50, MiniCheck) | 1a | ✅ | 36 min | ~\$0.40 |
+| 6 | Cold-start memory seeding (150 ep/bench @ τ=0.35) | 1a | 🔄 | ~2 h | ~\$1.3 |
+| 7.0 | Cycle-0 eval + threshold calibration | 1a | ⏳ | ~1 h | ~\$0.6 |
+| 5.5 | Verifier calibration diagnostic (MiniCheck vs RoBERTa) | 1a | ⏳ | 15 min | ~\$0.15 |
+| 7 | **Main 10-cycle CAEM run** at n_questions=5000 (Ch5 declared) | 1a | ⏳ | ~335 h | **~\$215** |
+| 8 | FLARE pre-flight smoke (5 samples) | 1a | ⏳ | 5 min | ~\$0.05 |
+| 9 | B1 Zero-shot baseline | 1a | ⏳ | 20 min | ~\$0.20 |
+| 10 | B2 Chain-of-Thought baseline | 1a | ⏳ | 50 min | ~\$0.55 |
+| 11 | B3 DPR-RAG baseline | 1a | ⏳ | 1.7 h | ~\$1.1 |
+| 12 | B4 CoT + DPR-RAG baseline | 1a | ⏳ | 2.1 h | ~\$1.3 |
+| 13 | B5 FLARE baseline | 1a | ⏳ | 2.5 h | ~\$1.6 |
+| 14 | B6 Vanilla FT (10 cycles) | 1a | ⏳ | ~5.8 h | ~\$3.7 |
+| 15 | B7 EWC-only FT (10 cycles) | 1a | ⏳ | ~5.8 h | ~\$3.7 |
+| 15.5 | McNemar + bootstrap CI + Holm sig-tests | 1a | ⏳ | 15 min | ~\$0.15 |
+| 19 | Purity theorem validation | 1a | ⏳ | 30 min | ~\$0.30 |
+| 19.2 | Cycle-2 retention diagnostic (advisory flag) | 1a | ⏳ | 10 min | ~\$0.10 |
+| 19.5 | Nine-signal correlation matrix | 1a | ⏳ | 5 min | CPU only |
+| 20 | Aggregate outputs + download + stop instance | 1a | ⏳ | 25 min | ~\$0.25 |
+| **Phase 1a subtotal** | | | | **~358 h** | **~\$230** |
+| 16 | Screening sweep (17 variants × 3 cycles × n_screen=1500) | Full | 🟡 | ~480 h | ~\$306 |
+| 17 | Aggregate screening + pick top-N | Full | 🟡 | 5 min | ~\$0.05 |
+| 18 | Confirmatory sweep (top-N + `full`, 10 cycles × n=5000) | Full | 🟡 | ~520 h | ~\$332 |
+| **Phase 1 Full subtotal** | | | | **~1,000 h** | **~\$638** |
+| 20B | **(Optional)** STaR ceiling run | 20B | 🟡 | 7–8 h | ~\$5 |
+
+Progress today (2026-04-19 session): Steps 1, 2, 3, 3B, 4, 4.5, 5 ✅;
+Step 6 🔄 (FEVER done, TriviaQA in progress, NQ pending).
+Everything else ⏳ pending \$240 topup.
 
 ---
 

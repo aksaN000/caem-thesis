@@ -1934,3 +1934,129 @@ Five commits today: `f4303d3` (MiniCheck swap), `565468a`
 (variant + Ch5), `f26912b` (Topics 2+3 integration + Step 6 fix).
 All on origin/main.
 
+---
+
+## 23:50 BDT — Optimization plan decided (Solution 2 only, 1/3/4 deferred)
+
+User flagged GPU at 18% utilization during Step 6 seeding. CAEM is
+bound not by compute or memory but by **Python orchestration
+overhead** across many sequential small model forward passes.
+Per-sample time budget: GPU active 5.3s / wall-clock 8s =
+66 percent, but observed utilisation is 18 percent because the
+other 2.7s is spent in Python setting up the next call while the
+GPU sits idle. Projected Step 7 wall-clock under current code:
+~33-42 GPU-hours at ~\$21-27 credit cost.
+
+Four acceleration options surveyed:
+
+| Option | Expected speedup | Effort | Risk |
+|---|---|---|---|
+| #2 Fuse MiniCheck calls per-sample | 1.5-2x | ~5 h | low |
+| #4 CUDA graph capture | 1.2x | ~3 h | moderate |
+| #3 Sample-batched pipeline | 2-3x | 2+ days | high |
+| #1 Concurrent async pipeline | 3-4x | 3-5 days | very high |
+
+**Decision: Solution 2 only, right now. Defer 1, 3, 4.**
+
+Rationale:
+- Solution 2 is pure refactor of `UnifiedVerifier.verify()` --
+  collect all MiniCheck pairs into one flat list, one batched
+  forward, demux results back to signals. Unit-testable as
+  bit-identical against current code path on 50 samples.
+  Reversible via git revert.
+- Solution 4 (CUDA graphs) has a poor risk/reward ratio for only
+  1.2x speedup: PyTorch graph capture is brittle, silent capture
+  failures and masked-position leaks are common failure modes.
+  Skip unless Step 7 budget still overshoots after #2.
+- Solution 3 (sample batching) touches `pipeline.answer()`,
+  `eval/harness.py`, memory store, router dispatch -- too many
+  seams, 2+ day refactor. Not defensible on thesis timeline.
+- Solution 1 (async concurrent) has race-condition surface that
+  can't be bounded pre-defense: FAISS is not thread-safe, memory
+  store commits assume sequential, CUDA stream coordination is
+  subtle. Debug time for race issues is 1-5 days with unpredictable
+  tails. Known failure modes I'd hit.
+
+Target for Solution 2:
+- 8s -> 4.5-5s per sample (1.6-1.8x speedup)
+- Step 7 wall-clock back to ~18-22 GPU-h (original budget)
+- Orthogonal to Step 5.5 outcome -- helps whether MiniCheck or
+  RoBERTa ends up as the default backend.
+
+Plan:
+1. Branch-free implementation on main (scope small enough to
+   commit atomically).
+2. Collect all pairs from `_score_p_entail`, `_score_p_ground`,
+   `_score_atomic` in `UnifiedVerifier.verify()` BEFORE any
+   scoring call.
+3. One `self.nli.batch_entail_prob(all_pairs)` call.
+4. Demux result array back to per-signal views via pre-recorded
+   index ranges.
+5. Unit test: pipeline sample through old path + new path, assert
+   numerically equivalent (bit-identical under bf16 tolerance ~1e-5).
+6. Re-run Step 5 smoke on 10 samples: confirm wall-clock drop.
+7. Commit if smoke passes + no regression; revert if any
+   divergence or speedup <20 percent.
+
+Plan does NOT touch:
+- Memory store commit path
+- Router dispatch
+- Retroverify / deferred buffer
+- Self-improvement loop
+- Eval harness
+
+Implementation starts now alongside Step 6 seeding (no resource
+conflict: Step 6 runs on GPU while I work on CPU file edits +
+unit tests).
+
+---
+
+## 00:20 BDT — Phase 1a budget finalized at \$215 topup (2026-04-20)
+
+After honest re-audit the Solution-2 speedup estimate collapsed from
+1.5x to 2.5 percent, so all optimization deferred. Kept the Ch5
+thesis-declared n_questions=5000 for Step 7 (the alternative would
+have been a silent scope reduction, flagged and rejected).
+
+Phase 1a budget finalized using empirical Step 6 data:
+- FEVER pure-Tier-3: 7.74 s/sample (380 samples / 49 min)
+- TriviaQA pure-Tier-3: 8.83 s/sample (120 samples / 17.6 min)
+- Average Step 6 rate: 8.2 s/sample
+
+Step 7 weighted average estimate accounting for tier mix growth:
+- Cycle 0: all Tier 3 at 8 s -> 39 h per cycle
+- Cycle 10: 38 percent Tier 1 + 20 percent Tier 2 + 42 percent Tier 3
+  at weighted 4.8 s/sample -> 24 h per cycle
+- Transfer benchmarks (TruthfulQA, StrategyQA, ARC) stay mostly Tier
+  3 due to u_pre<0.60 safety override on reasoning benchmarks
+- Total Step 7: ~335 GPU-h = 14 days wall-clock = \$215
+
+Full Phase 1a breakdown:
+
+| Component | GPU-h | Cost |
+|---|---:|---:|
+| Step 6 remaining | 1 | \$0.6 |
+| Step 5.5 + 7.0 | 1.5 | \$1 |
+| Step 7 main | 335 | \$215 |
+| Baselines 8-15 | 19 | \$12 |
+| Closeout | 1 | \$1 |
+| **Total Phase 1a** | **~358** | **~\$230** |
+
+User authorized \$215 topup on current \$25 balance = \$240 total
+budget = ~\$10 slack for overshoots. This replaces the earlier (wrong)
+\$240-topup and \$170-topup estimates both of which were based on
+incorrect Tier dispatch assumptions.
+
+Phase 1 Full (Steps 16-18) cost at MiniCheck 8 s/sample: ~\$640,
+deferred to supervisor-funded tranche after Phase 1a results secure
+approval.
+
+Execution model: manual-per-step through Step 7 launch, then Step 7
+unattended tmux for ~14 days (Vast Stop/Start supported,
+--resume_from_cycle works), then manual-scripted closeout via
+run_baselines.sh + run_closeout.sh after Step 7 completes.
+
+Commits today (10 total, all on origin/main):
+f4303d3 · 565468a · 817081e · b688e0f · 3ba1654 · f26912b · d93e426 ·
+01ae26a · b3818bd · 461239d · 31239a4
+
