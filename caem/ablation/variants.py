@@ -215,6 +215,26 @@ def _mut_no_recency_decay(cfg: CAEMConfig) -> None:
     cfg.value_importance_weight = 1.0
 
 
+def _mut_roberta_nli_backend(cfg: CAEMConfig) -> None:
+    """Swap the verifier judge from MiniCheck back to legacy roberta-large-MNLI.
+
+    The main CAEM run uses MiniCheck-Flan-T5-Large (Tang 2024 ACL), trained
+    on LM-generated claim-support data. This ablation tests the counterfactual:
+    does CAEM still meet the Ch4 purity premise (alpha > 1/2) and the Ch5
+    acceptance criteria under a generic NLI model trained on human-written
+    MultiNLI / SNLI sentence pairs?
+
+    Literature prior: HaluEval 2025 / Semantic Illusion 2025 report ~100 percent
+    false positive rate at 95 percent recall for DeBERTa-v3-large-MNLI on LM
+    hallucinations. RoBERTa-large-MNLI is from the same training distribution
+    and is expected to exhibit the same miscalibration. This variant produces
+    per-cycle EM / EPI / CES trajectories under the weaker verifier so the
+    swap can be defended with trajectory evidence in addition to the one-shot
+    calibration diagnostic (scripts/calibration_minicheck_vs_roberta.py).
+    """
+    cfg.verifier_backend = "roberta_nli"
+
+
 def _mut_equal_signal_weights(cfg: CAEMConfig) -> None:
     """Flatten the six composite u_stored signal weights (Ch3 Eq 3.5) to 1/6 each.
 
@@ -378,6 +398,14 @@ _ALL_VARIANTS: Tuple[AblationVariant, ...] = (
         mutation=_mut_aggressive_store,
         mechanism_tag="verification",
         needs_cyclic_rerun=True,
+    ),
+    # -- Verifier backend ablation ------------------------------------------
+    AblationVariant(
+        name="roberta_nli_backend",
+        description="Swap verifier backend MiniCheck -> legacy roberta-large-MNLI",
+        mutation=_mut_roberta_nli_backend,
+        mechanism_tag="verification",
+        needs_cyclic_rerun=True,    # different alpha/p_ground distribution -> different stored set
     ),
 )
 
