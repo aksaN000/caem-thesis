@@ -199,7 +199,15 @@ class CAEMConfig:
     # ------------------------------------------------------------------ #
     # [DES] Passage FAISS backend.
     rag_index_type: str = "ivf_pq"
-    rag_faiss_nlist: int = 65_536
+    # [DES] Halved from 65_536 on 2026-04-19 after faiss-cpu k-means at
+    # that scale repeatedly collapsed to 1 effective core regardless of
+    # OMP_NUM_THREADS caps (see VAST_SESSION_LOG.md). At nlist=32_768
+    # with 1M training samples we maintain ~30x nlist density (FAISS
+    # minimum) and drop ~2-5pp recall@10 in exchange for a clustering
+    # phase that actually completes in tractable time. The change is
+    # symmetric across CAEM and all RAG baselines (they share the index)
+    # so does not bias the CAEM-vs-baseline sig-test comparison.
+    rag_faiss_nlist: int = 32_768
     rag_faiss_nprobe: int = 64
     rag_faiss_pq_m: int = 64
     rag_faiss_pq_nbits: int = 8

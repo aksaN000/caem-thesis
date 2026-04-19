@@ -64,6 +64,25 @@ from caem.config import CAEMConfig
 
 logger = logging.getLogger(__name__)
 
+# Defensive FAISS thread cap -- belt-and-suspenders for
+# OMP_NUM_THREADS/MKL_NUM_THREADS env vars. FAISS-CPU's internal
+# OpenMP thread pool sometimes ignores environment variables if they
+# were set after FAISS was already imported. Calling
+# faiss.omp_set_num_threads() explicitly guarantees FAISS respects the
+# cap regardless of when env vars were set. Value matches the caps in
+# NEXT_SESSION_PLAN.md Step 3.2B. 16 threads is the sweet spot for
+# IVF k-means on EPYC (memory-bandwidth-bound beyond that). Applied
+# once at module import time so every FAISS call in the process is
+# capped.
+try:
+    cast(Any, faiss).omp_set_num_threads(16)
+    logger.info("faiss.omp_set_num_threads(16) applied at rag.py import.")
+except Exception as _exc:
+    logger.warning(
+        "faiss.omp_set_num_threads(16) failed (%s); relying on OMP env vars.",
+        _exc,
+    )
+
 
 # -----------------------------------------------------------------------------
 # PassageStore

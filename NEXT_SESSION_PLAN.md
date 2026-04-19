@@ -398,10 +398,23 @@ a tmux session and launch the build:
 tmux new-session -s build
 python scripts/build_passage_index.py \
     --max_passages 21000000 \
-    --train_sample_size 2000000 \
+    --index_type flat_ip \
     --enable_checkpoint \
     --output_dir data/passage_index
 ```
+
+**[WHY `--index_type flat_ip`]** The canonical 21M-passage RAG
+configuration (DPR, Contriever, FiD) uses IndexFlatIP — not IVF-PQ.
+Session 1 2026-04-18/19 spent ~15 hours stuck on IVF-PQ k-means due to
+the nested OpenMP × BLAS thread-explosion bug in pip `faiss-cpu`
+wheels (FAISS issue #3700 + #2477; `threadpoolctl.threadpool_info()`
+confirms three duplicated OpenMP/BLAS runtimes that make
+`OMP_NUM_THREADS` caps partially ineffective). FlatIP sidesteps this
+entirely by skipping k-means. Build time: ~2-3 minutes vs ~15+ hours
+for IVF-PQ. Full incident report in `VAST_SESSION_LOG.md` at
+19:35 BDT on 2026-04-19. Trade-off: index size 61 GB (vs ~1.5 GB
+for IVF-PQ) and query latency ~50-100ms (vs ~5ms for IVF-PQ).
+Recall is 100% (ground truth). Memory footprint at runtime ~65 GB.
 
 **[WHY `--enable_checkpoint`]** Writes `_checkpoint.pkl` every
 `CHECKPOINT_EVERY=100_000` passages (~once every ~1.5 min on 5090).

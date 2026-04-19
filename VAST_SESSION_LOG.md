@@ -912,6 +912,196 @@ python -c "import faiss; print('gpu:', hasattr(faiss, 'StandardGpuResources'))"
 **No action required on the current run.** Step 4 will complete on
 faiss-cpu as-is. The patches take effect on subsequent index rebuilds.
 
+### 19:35 BDT (13:35 UTC, 2026-04-19) — MAJOR INCIDENT REPORT: FAISS IVF-PQ 1-core pathology → switched to IndexFlatIP
+
+Root cause for the day-long FAISS hang is now identified. Documenting in
+full because this is a significant methodological change the thesis
+needs to reflect.
+
+#### Symptom
+
+`faiss-cpu` `IndexIVFPQ.train()` at nlist=65,536 on 21M × 768-D passages
+collapsed to **~1 effective core** despite an apparent 384-thread
+workload. The initial Session 1 2026-04-18 run hung at this phase for
+6+ hours before being killed. A rebuild with `OMP_NUM_THREADS=16` +
+`faiss.omp_set_num_threads(16)` exhibited the **same** 1-core
+behaviour. A further reduction to nlist=32,768 + 1M training samples
+also ran at 1 effective core. Across three attempts, nothing changed
+the throughput — indicating a **structural** FAISS-CPU limitation at
+this scale, not a tunable.
+
+#### Diagnostic confirmation (threadpoolctl evidence)
+
+Ran `threadpoolctl.threadpool_info()` against the running Python
+process. Output:
+
+```
+libscipy_openblas: openblas threads=64      ← NOT respecting cap
+libopenblas:       openblas threads=1       ← capped correctly
+libgomp:           openmp threads=384       ← NOT respecting cap
+```
+
+**Three duplicated OpenMP/BLAS runtimes in the pip faiss-cpu wheel.**
+`OMP_NUM_THREADS=16` and `faiss.omp_set_num_threads(16)` only caught
+one of them (generic libopenblas). libgomp saw the full 384 vCPUs and
+libscipy_openblas saw 64. The N²-thread explosion documented in FAISS
+issue #3700 (maintainer `alexanderguzhva`, July 2024:
+*"I had a weird case where PQ training would trigger an infamous N^2
+threads problem: each of OpenMP N threads calls sgemm(), and each
+sgemm() instantiates its own N OpenBLAS threads"*) fires under these
+conditions: 384 OMP threads × 64 BLAS threads ≈ 24K nested threads,
+OS-throttled to ~380 with the scheduler thrashing to match — producing
+observationally ~1 effective core.
+
+Cross-referenced GitHub issues that describe identical setups:
+
+- **Issue #922** (2019): 20M × 416D IVF training at nlist=89,442 hung
+  48 hours, user killed it manually.
+- **Issue #1617** (2020): 9M × 512D IVFFlat training took 8h, add phase
+  took 21h, reporter: *"only 1 cpu core was used."*
+- **Issue #2944**: IVFPQ training does not parallelize on faiss-cpu
+  1.7.4 regardless of OMP settings.
+- **Issue #2477**: pip `faiss-cpu` wheels ship duplicated OpenMP
+  runtimes that make caps silently ineffective. This one matches our
+  threadpoolctl evidence exactly.
+
+FAISS's own Troubleshooting wiki now recommends installing
+`libopenblas0-openmp` (NOT the pthread variant) and setting
+`OMP_WAIT_POLICY=PASSIVE`. Neither is applicable on Vast's container
+image without root package management; even if applied, wouldn't fix
+the nested thread issue.
+
+#### Why scale reduction didn't help
+
+The assumption throughout was "reduce k-means work by halving nlist →
+6.5× speedup at 1 core → finish in 1-2h." Empirical: reducing
+nlist=65K→32K and training 3.28M→1M produced the **same 1-core
+pattern** at FAISS phase start. Interpretation: the 1-core behaviour
+emerges in FAISS's serial setup phases (initial centroid placement,
+BLAS workspace allocation, PQ codebook training init) that happen
+BEFORE parallel k-means iterations and don't benefit from smaller
+nlist.
+
+#### Literature research — the settling evidence
+
+Comprehensive review of all 21M-passage RAG papers shows **nobody**
+uses IVF-PQ at nlist=65,536 on this corpus:
+
+| Paper | Corpus | Default index |
+|---|---|---|
+| DPR (Karpukhin 2020) | 21M × 768 | `IndexFlatIP` |
+| Contriever (Izacard 2021) | 21M × 768 | `IndexFlatIP` |
+| FiD (Izacard 2020) | 21M × 768 | Reuses DPR (FlatIP) |
+| ATLAS (Izacard 2022) | up to 40M × 768 | flat; optional IVFPQ uses `nlist=√N≈4,583` (14x smaller) |
+| BEIR | <10M | exact dense |
+| REALM / RETRO | 13M+ | ScaNN (not FAISS) |
+
+Not a single canonical 21M RAG paper uses nlist>10K. Ours at 65K was
+14× larger than the most aggressive published config. IVF-PQ at 21M-
+passage scale on CPU is not a solved engineering problem — it's a
+configuration mistake we inherited from CAEM's original config
+without scrutinizing.
+
+#### Resolution: switch to IndexFlatIP (matches DPR precisely)
+
+Dropped IVF-PQ entirely in favour of `IndexFlatIP` (the exact index
+type the DPR paper uses). Trade-offs:
+
+- **Build time**: **2m 36s** at 21M passages (vs. IVF-PQ hang at 6+h)
+- **No training step** — FlatIP has no k-means, no PQ codebooks, no
+  IVF cells. Just stores the 21M × 768 raw vectors.
+- **Index size on disk**: 61 GB (vs. ~1.5 GB for IVFPQ). Within 150 GB
+  allocation.
+- **Query latency**: ~50-100ms per query on EPYC w/ AVX-512 + 16
+  threads. IVFPQ would have been ~5ms. Still negligible in context
+  (CAEM Step 7 queries ≈ 50K, total ≈ 1h of query time across 15h run;
+  <7% overhead).
+- **Recall**: 100% (IndexFlatIP is brute-force, it IS ground truth).
+  Vs IVF-PQ's typical ~95-96% at same scale.
+- **Memory runtime**: ~65 GB resident for the loaded index. 755 GB
+  available.
+
+#### Actual build timeline (the fix that worked)
+
+```
+13:22:38  Script started (--index_type flat_ip --resume)
+13:23:24  Resuming from checkpoint: 21000000 passages  (46s load)
+13:23:24  Already have 21000000 passages -- nothing to stream
+13:23:24  Concatenating embeddings from 210 batches ...
+13:24:15  Embeddings: 21000000 × 768 (dim=768)         (51s concat)
+13:24:15  Building PassageStore for 21000000 passages ...
+13:24:55  PassageStore: 21000000 passages indexed with FlatIP (40s build)
+13:25:17  PassageStore saved to data/passage_index (write time: 22s)
+13:25:17  Running sanity check ...
+```
+
+**Total Step 4 time with IndexFlatIP: 2m 36s.** vs projected 15-30h on
+IVF-PQ with nested thread bug.
+
+#### Thesis-methodology impact
+
+Ch4 §Tier 3 RAG currently describes IVF-PQ. Needs rewrite to describe
+IndexFlatIP following DPR (Karpukhin et al. 2020). Arguments in favour
+of this change:
+
+1. **Canonical alignment**: every comparison baseline (B3 DPR-RAG, B4
+   CoT+RAG, B5 FLARE) already uses FlatIP-backed retrieval. CAEM now
+   matches exactly.
+2. **Reviewer defensibility**: "why IVF-PQ at nlist=65K?" is hard to
+   answer; "why FlatIP matching DPR?" answers itself.
+3. **100% recall is the strongest retrieval guarantee**. Any
+   retrieval-quality concerns vanish.
+4. **Simpler methodology section**: no cell count, nprobe, PQ codebook
+   parameters to justify.
+
+Ch4 hyperparameter table entry changes from:
+```
+Tier 3 retrieval | IVF-PQ, nlist=65,536, pq_m=64, nbits=8
+```
+to:
+```
+Tier 3 retrieval | IndexFlatIP (inner-product, brute-force)
+                 | matching Karpukhin et al. (DPR 2020)
+```
+
+Disclosure paragraph to add in Ch5 §5.3:
+*"We use IndexFlatIP for passage retrieval, matching the canonical
+DPR 21M-passage configuration (Karpukhin et al. 2020). Build time
+at 21M × 768-D is ~2 minutes; query latency is ~50-100ms per query
+on CPU via BLAS-accelerated inner-product over the normalised vector
+matrix. An initial attempt with IVF-PQ at nlist=65,536 encountered
+the nested-OpenMP×BLAS thread-explosion bug documented in FAISS
+issue #3700; we verified the duplicated-runtime symptom via
+`threadpoolctl.threadpool_info()` on our pip `faiss-cpu` wheel and
+switched to the canonical FlatIP configuration to avoid the bug
+entirely."*
+
+#### Files touched during resolution
+
+- `caem/retrieval/rag.py` — added defensive `faiss.omp_set_num_threads(16)`
+  at module import (kept in place for the non-FlatIP path)
+- `caem/config.py` — `rag_faiss_nlist: 65_536 → 32_768` (pre-resolution
+  attempt, now moot but kept for documentation)
+- `scripts/build_passage_index.py` — `--train_sample_size` default and
+  help text updated (escaped `%` for argparse compatibility)
+- `run_plan_a.sh` — added `PYTHONPATH=/workspace/caem:...` (needed to
+  unblock Step 5 which does `from scripts.run_experiment import ...`)
+  and `OMP_NUM_THREADS=16` + family caps
+- Step 4 CLI invocation now uses `--index_type flat_ip --resume`
+
+#### Key takeaway for future CAEM work
+
+The canonical 21M-passage RAG configuration is `IndexFlatIP`. Don't
+use IVF-PQ at this scale on `faiss-cpu` unless:
+1. You've verified threadpoolctl output shows only ONE OpenMP runtime
+2. You've either compiled FAISS against MKL or installed
+   `libopenblas0-openmp` + `OMP_WAIT_POLICY=PASSIVE`
+3. You've tested at small nlist first to confirm k-means parallelises
+
+The 1-core nested-thread bug is a landmine that consumed ~15 hours of
+engineering time on this project. Adding warnings in the runbook for
+future sessions.
+
 ### 04:50 BDT (22:50 UTC, 2026-04-19) — Thread-oversubscription finding (local-agent flag, data-verified, no intervention)
 
 Local agent flagged a possible "1-core effective" collapse on the

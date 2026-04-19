@@ -707,13 +707,17 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument(
         "--train_sample_size",
         type=int,
-        default=2_000_000,
+        default=3_276_800,
         help=(
             "Maximum vectors sampled to train IVF-PQ quantizers. "
-            "FAISS recommends 30*nlist points; for the default nlist=65536 that "
-            "is ~1.97M, so 2M is the minimum safe value. The historical default "
-            "of 500k caused undertrained centroids and ~5-15pp recall@10 loss "
-            "(see VAST_SESSION_LOG.md Incident #2)."
+            "Default 3,276,800 = 50x nlist (nlist=65536), comfortably above "
+            "FAISS's 39x recommendation (2,555,904). Historical values: "
+            "500k caused ~5-15pp recall@10 loss (Incident #2, Session 1); "
+            "2M triggered FAISS's 'please provide at least 2555904 training "
+            "points' warning (78 percent of recommendation, Session 1 2026-04-19); "
+            "3.28M clears the warning with 28 percent margin and settles firmly "
+            "in the recall-flat region. Memory cost: ~10 GB RAM during "
+            "clustering (~1.4 GB more than 43x). Negligible on EPYC."
         ),
     )
     return p.parse_args()

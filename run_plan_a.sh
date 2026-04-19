@@ -7,6 +7,21 @@ set -u
 cd /workspace/caem
 export HF_HOME=/workspace/caem/hf_cache
 
+# PYTHONPATH ensures `python scripts/X.py` invocations can still import
+# `from scripts.Y import Z` (needed by run_cyclic_ablation.py which imports
+# from run_experiment). Without this, Step 5 hard-gate fails with
+# ModuleNotFoundError: No module named 'scripts'.
+export PYTHONPATH=/workspace/caem:${PYTHONPATH:-}
+
+# OMP thread caps (belt-and-suspenders for faiss-cpu's nested OMP*BLAS bug
+# documented in issue #3700; see VAST_SESSION_LOG.md). Threadpoolctl shows
+# pip faiss-cpu ships duplicated OpenMP runtimes so these caps only cover
+# one of three pools -- the real fix was switching to IndexFlatIP.
+export OMP_NUM_THREADS=16
+export MKL_NUM_THREADS=16
+export OPENBLAS_NUM_THREADS=16
+export FAISS_NUM_THREADS=16
+
 RUNNER_LOG=/workspace/caem/plan_a_runner.log
 mkdir -p outputs/smoke outputs/baselines outputs/baselines_smoke outputs/full_run outputs/purity_validation outputs/ablation
 
