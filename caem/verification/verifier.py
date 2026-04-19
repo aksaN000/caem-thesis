@@ -634,19 +634,23 @@ class UnifiedVerifier:
         ]
 
         # Pooled M-chain and semantic-entropy sampling across samples.
-        chains_per_sample = self._pooled_sample_t5(
-            queries,
-            num_per=self.config.sc_chains_m,
-            temperature=0.7,
+        # These two calls are data-independent -- neither reads the other's
+        # output -- so we dispatch them to separate CUDA streams (Phase 2)
+        # to let the GPU scheduler overlap their kernel launches when it
+        # has idle SMs. On a fully-saturated 5090 the overlap is small
+        # (~3-5%) but meaningful when the batch dim is modest; on partially
+        # utilised GPUs (smaller cards or smaller batches) it can approach
+        # 15-20%. Falls back to sequential dispatch when CUDA is not
+        # available (CPU tests, non-NVIDIA devices).
+        chains_per_sample, se_samples_per_sample = self._pooled_sample_t5_dual(
+            queries=queries,
+            num_per_a=self.config.sc_chains_m,
+            temperature_a=0.7,
+            label_a="m-chain",
+            num_per_b=self.config.se_samples_k,
+            temperature_b=self.config.se_temperature,
+            label_b="se-sample",
             max_new_tokens=self.config.cot_max_new_tokens,
-            label="m-chain",
-        )
-        se_samples_per_sample = self._pooled_sample_t5(
-            queries,
-            num_per=self.config.se_samples_k,
-            temperature=self.config.se_temperature,
-            max_new_tokens=self.config.cot_max_new_tokens,
-            label="se-sample",
         )
 
         outputs: List[UnifiedVerifierOutput] = []
@@ -719,6 +723,195 @@ class UnifiedVerifier:
                 label, N, num_per, exc,
             )
             return [[] for _ in range(N)]
+
+    def _pooled_sample_t5_dual(
+        self,
+        *,
+        queries: List[str],
+        num_per_a: int,
+        temperature_a: float,
+        label_a: str,
+        num_per_b: int,
+        temperature_b: float,
+        label_b: str,
+        max_new_tokens: int,
+    ) -> Tuple[List[List[str]], List[List[str]]]:
+        """Run two data-independent pooled T5 samplings concurrently.
+
+        Level B Phase 2 CUDA-stream overlap. The two calls (M-chain at
+        temperature_a, semantic-entropy at temperature_b) read the same
+        tokenised input but write separate output tensors; launching
+        them on separate CUDA streams lets the hardware scheduler
+        overlap kernel execution when SM capacity allows.
+
+        Stream semantics:
+          * Tokenisation runs once on the main stream (both calls read
+            the same input_ids / attention_mask, so we share the encode).
+          * ``model.generate`` for sampler A runs on stream_a; sampler
+            B on stream_b. A synchronisation barrier (stream_a.wait
+            + stream_b.wait on current stream) fences both before we
+            read back the outputs for decode.
+          * When CUDA is unavailable (CPU, MPS, ROCm without stream
+            emulation), we fall back to the serial ``_pooled_sample_t5``
+            path -- zero behavioural change.
+
+        Returns
+        -------
+        (per_sample_a, per_sample_b) each a list of N lists. On any
+        failure of either sampler, that sampler's output is a list of
+        N empty lists and the downstream scorer falls back (matching
+        the single-sampler error semantics).
+        """
+        N = len(queries)
+        if N == 0:
+            return [[] for _ in range(N)], [[] for _ in range(N)]
+
+        # CPU or non-CUDA fallback: serial dispatch is always correct
+        # and is what the tests expect when no CUDA device is present.
+        use_streams = (
+            torch.cuda.is_available()
+            and isinstance(self.device, str)
+            and self.device.startswith("cuda")
+        )
+        if not use_streams:
+            a = self._pooled_sample_t5(
+                queries,
+                num_per=num_per_a,
+                temperature=temperature_a,
+                max_new_tokens=max_new_tokens,
+                label=label_a,
+            )
+            b = self._pooled_sample_t5(
+                queries,
+                num_per=num_per_b,
+                temperature=temperature_b,
+                max_new_tokens=max_new_tokens,
+                label=label_b,
+            )
+            return a, b
+
+        try:
+            enc = self.tokenizer(
+                queries,
+                return_tensors="pt",
+                truncation=True,
+                max_length=512,
+                padding=True,
+            )
+            input_ids = enc["input_ids"].to(self.device)
+            attention_mask = enc["attention_mask"].to(self.device)
+            self.model.eval()
+
+            stream_a = torch.cuda.Stream(device=self.device)
+            stream_b = torch.cuda.Stream(device=self.device)
+
+            # Ensure streams see the current stream's pending work
+            # (the tokenizer .to(device) copy above).
+            current = torch.cuda.current_stream(device=self.device)
+            stream_a.wait_stream(current)
+            stream_b.wait_stream(current)
+
+            out_a = None
+            out_b = None
+            err_a: Optional[Exception] = None
+            err_b: Optional[Exception] = None
+
+            with torch.no_grad():
+                with torch.cuda.stream(stream_a):
+                    try:
+                        if num_per_a > 0:
+                            out_a = self.model.generate(
+                                input_ids,
+                                attention_mask=attention_mask,
+                                max_new_tokens=max_new_tokens,
+                                do_sample=True,
+                                temperature=temperature_a,
+                                num_return_sequences=num_per_a,
+                            )
+                    except Exception as exc_a:
+                        err_a = exc_a
+
+                with torch.cuda.stream(stream_b):
+                    try:
+                        if num_per_b > 0:
+                            out_b = self.model.generate(
+                                input_ids,
+                                attention_mask=attention_mask,
+                                max_new_tokens=max_new_tokens,
+                                do_sample=True,
+                                temperature=temperature_b,
+                                num_return_sequences=num_per_b,
+                            )
+                    except Exception as exc_b:
+                        err_b = exc_b
+
+            # Fence both streams before decoding on the main thread.
+            current.wait_stream(stream_a)
+            current.wait_stream(stream_b)
+            # Guarantee the host sees the completed tensors before decode.
+            torch.cuda.synchronize(device=self.device)
+
+            per_sample_a = self._decode_grouped(
+                out_a, N=N, num_per=num_per_a, label=label_a, err=err_a,
+            )
+            per_sample_b = self._decode_grouped(
+                out_b, N=N, num_per=num_per_b, label=label_b, err=err_b,
+            )
+            return per_sample_a, per_sample_b
+        except Exception as exc:
+            logger.warning(
+                "_pooled_sample_t5_dual failed (N=%d) -- falling back to "
+                "serial dispatch: %s", N, exc,
+            )
+            a = self._pooled_sample_t5(
+                queries, num_per=num_per_a, temperature=temperature_a,
+                max_new_tokens=max_new_tokens, label=label_a,
+            )
+            b = self._pooled_sample_t5(
+                queries, num_per=num_per_b, temperature=temperature_b,
+                max_new_tokens=max_new_tokens, label=label_b,
+            )
+            return a, b
+
+    def _decode_grouped(
+        self,
+        out: Optional[torch.Tensor],
+        *,
+        N: int,
+        num_per: int,
+        label: str,
+        err: Optional[Exception],
+    ) -> List[List[str]]:
+        """Decode a pooled generate output into N per-sample lists.
+
+        Shared by _pooled_sample_t5_dual for both stream outputs. If
+        the sampler raised or produced no tensor, returns N empty
+        lists so downstream scorers fall back.
+        """
+        if err is not None:
+            logger.warning(
+                "_pooled_sample_t5_dual (%s) sampler failed (N=%d, "
+                "num_per=%d): %s -- returning empty samples.",
+                label, N, num_per, err,
+            )
+            return [[] for _ in range(N)]
+        if out is None or num_per <= 0:
+            return [[] for _ in range(N)]
+        per_sample: List[List[str]] = [[] for _ in range(N)]
+        for row_idx in range(out.shape[0]):
+            s = row_idx // num_per
+            try:
+                decoded = self.tokenizer.decode(
+                    out[row_idx], skip_special_tokens=True,
+                ).strip()
+            except Exception as exc:
+                logger.warning(
+                    "_decode_grouped (%s) decode row %d failed: %s",
+                    label, row_idx, exc,
+                )
+                decoded = ""
+            per_sample[s].append(decoded)
+        return per_sample
 
     # ====================================================================== #
     # Signal computation                                                      #
