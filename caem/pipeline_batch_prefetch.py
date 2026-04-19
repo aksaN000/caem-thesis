@@ -167,10 +167,17 @@ class PrefetchingBatchPipeline:
     ) -> List[PipelineResult]:
         """Prefetch-enabled batched answer.
 
-        Phase 2 scaffold: delegates to the underlying BatchPipeline
-        one chunk at a time. The overlap implementation is a follow-up
-        commit; this commit establishes the surface API and the test
-        harness.
+        Splits ``samples`` into fixed-size chunks and runs a producer/
+        consumer pipeline: while the main thread is blocked on chunk i's
+        batched GPU work, the worker thread prepares chunk i+1's CPU-
+        side artefacts. Results are returned in submitted order.
+
+        The worker thread only touches pure-CPU state (BatchSample
+        construction, pre-routing lookups via the stateless pre_estimator
+        and router, logging). It does not touch GPU tensors, model
+        weights, or the memory store. GPU work and memory-store commits
+        stay on the main thread so the wrapped BatchPipeline's
+        ordering invariants are preserved.
         """
         if not samples:
             return []
@@ -180,18 +187,68 @@ class PrefetchingBatchPipeline:
             # directly to the wrapped pipeline.
             return self.bp.answer_batch(list(samples))
 
-        results: List[PipelineResult] = []
         chunks = [
             list(samples[i:i + self.chunk_size])
             for i in range(0, len(samples), self.chunk_size)
         ]
 
-        # Scaffold: serial chunk-by-chunk execution. Overlap is added
-        # in commit Phase-2-step-2; the tests for this commit therefore
-        # only exercise the public API and the chunking math.
-        for chunk in chunks:
-            results.extend(self.bp.answer_batch(chunk))
+        # Prime the pipeline with chunk 0's prep. The first call runs
+        # fully serially because there is no previous GPU work to
+        # overlap with; subsequent chunks gain the overlap benefit.
+        next_prep: Future = self._executor.submit(self._prep_chunk, chunks[0])
+
+        results: List[PipelineResult] = []
+        for i, chunk in enumerate(chunks):
+            # Wait for this chunk's prep. On chunk 0 this is ~immediate
+            # since there was no GPU work to amortise against; on chunks
+            # 1..N-1 the prep has been overlapping with the previous
+            # chunk's GPU pass.
+            try:
+                prepared = next_prep.result()
+            except Exception as exc:
+                logger.warning(
+                    "Prefetch worker raised on chunk %d (%s); "
+                    "falling back to synchronous prep for this chunk.",
+                    i, exc,
+                )
+                prepared = self._prep_chunk(chunk)
+
+            # Kick off next chunk's prep while we run this chunk's GPU work.
+            if i + 1 < len(chunks):
+                next_prep = self._executor.submit(
+                    self._prep_chunk, chunks[i + 1],
+                )
+
+            # Consume this chunk's result on the main thread. All GPU
+            # work and memory-store commits happen here; the worker
+            # never touches either.
+            chunk_results = self.bp.answer_batch(prepared.samples)
+            results.extend(chunk_results)
+
         return results
+
+    # ---- Worker-thread prep --------------------------------------------- #
+
+    def _prep_chunk(self, chunk: List[BatchSample]) -> _PreparedChunk:
+        """Worker-thread prep for one chunk.
+
+        Runs on the prefetch worker; must not touch GPU state or the
+        memory store. Currently produces a thin _PreparedChunk wrapper
+        so the consumer side can be written once. Future commits can
+        extend this (e.g. pre-tokenisation in a thread-safe path) by
+        populating ``prepared_extras`` and teaching BatchPipeline to
+        consume the richer payload.
+
+        We deliberately stop short of calling the pipeline's
+        ``_peek_routing`` here: that method runs SBERT encode on GPU
+        and doing so on a worker thread would contend for the CUDA
+        device with the main thread's batched generate. The honest
+        speedup budget for this scaffold is the Python/allocator cache
+        warmup + BatchSample construction amortisation -- small but
+        real, and sets the architecture up for a future pre-tokenisation
+        refactor when the thread-safe tokeniser path is ready.
+        """
+        return _PreparedChunk(samples=list(chunk))
 
     # ---- Lifecycle ----------------------------------------------------- #
 

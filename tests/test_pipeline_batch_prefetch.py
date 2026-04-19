@@ -168,8 +168,116 @@ def test_context_manager_shuts_down_worker():
 
 def test_prepared_chunk_dataclass_shape():
     """Sanity check on the _PreparedChunk dataclass that the worker
-    thread will produce in the next commit."""
+    thread produces."""
     pc = _PreparedChunk(samples=[BatchSample(query="q")])
     assert pc.samples[0].query == "q"
     assert pc.tiers_peek is None
     assert pc.prepared_extras is None
+
+
+# --------------------------------------------------------------------------- #
+# Prefetch dispatch tests (real worker-thread overlap)                        #
+# --------------------------------------------------------------------------- #
+
+def test_prefetch_prep_called_per_chunk_in_order():
+    """Each chunk must receive exactly one _prep_chunk invocation,
+    and the prepped samples must match the original slice."""
+    max_seen: List[int] = []
+    bp = _make_batch_pipeline_stub(max_seen)
+    pp = PrefetchingBatchPipeline(bp, chunk_size=3)
+    prep_calls: List[List[str]] = []
+
+    original_prep = pp._prep_chunk
+
+    def _tracking_prep(chunk):
+        prep_calls.append([s.query for s in chunk])
+        return original_prep(chunk)
+
+    pp._prep_chunk = _tracking_prep  # type: ignore[method-assign]
+
+    try:
+        samples = [BatchSample(query=f"q{i}") for i in range(7)]
+        pp.answer_batch(samples)
+        # 3 chunks: [q0..q2], [q3..q5], [q6]
+        assert prep_calls == [
+            ["q0", "q1", "q2"],
+            ["q3", "q4", "q5"],
+            ["q6"],
+        ]
+    finally:
+        pp.shutdown()
+
+
+def test_prefetch_recovers_from_worker_exception():
+    """If the worker raises during a chunk prep, the consumer must
+    fall back to synchronous prep for that chunk and continue on."""
+    max_seen: List[int] = []
+    bp = _make_batch_pipeline_stub(max_seen)
+    pp = PrefetchingBatchPipeline(bp, chunk_size=4)
+    fail_on_first = {"fired": False}
+
+    original_prep = pp._prep_chunk
+
+    def _flaky_prep(chunk):
+        # Fail the first time the worker is invoked; succeed thereafter.
+        if not fail_on_first["fired"]:
+            fail_on_first["fired"] = True
+            raise RuntimeError("synthetic worker failure for test")
+        return original_prep(chunk)
+
+    pp._prep_chunk = _flaky_prep  # type: ignore[method-assign]
+
+    try:
+        samples = [BatchSample(query=f"q{i}") for i in range(8)]
+        results = pp.answer_batch(samples)
+        assert len(results) == 8
+        # Both chunks still ran through bp.answer_batch despite the
+        # worker exception on chunk 0's prep.
+        assert max_seen == [4, 4]
+    finally:
+        pp.shutdown()
+
+
+def test_prefetch_worker_overlap_observable():
+    """If we inject a deliberate sleep into the worker prep AND a
+    separate sleep into the GPU work, the total wall-clock of the
+    pipelined path should be strictly less than the sum (no overlap
+    would be >= max of the two)."""
+    import time
+
+    prep_wait = 0.05
+    gpu_wait = 0.05
+
+    bp = MagicMock()
+
+    def _slow_answer(samples):
+        time.sleep(gpu_wait)
+        return [_fake_result(i) for i in range(len(samples))]
+
+    bp.answer_batch.side_effect = _slow_answer
+    pp = PrefetchingBatchPipeline(bp, chunk_size=2)
+
+    original_prep = pp._prep_chunk
+
+    def _slow_prep(chunk):
+        time.sleep(prep_wait)
+        return original_prep(chunk)
+
+    pp._prep_chunk = _slow_prep  # type: ignore[method-assign]
+
+    try:
+        samples = [BatchSample(query=f"q{i}") for i in range(8)]
+        t0 = time.perf_counter()
+        pp.answer_batch(samples)  # 4 chunks of 2
+        elapsed = time.perf_counter() - t0
+        # 4 chunks; naive serial = 4 * (prep + gpu) = 0.4s.
+        # With overlap: prep of chunk N+1 hides behind GPU of chunk N,
+        # so total should be close to 4 * gpu + 1 * prep = 0.25s on
+        # the worst case. Assert strictly less than serial-no-overlap.
+        serial_no_overlap = 4 * (prep_wait + gpu_wait)
+        assert elapsed < serial_no_overlap * 0.95, (
+            f"Expected overlap speedup, got {elapsed:.3f}s vs "
+            f"serial-no-overlap {serial_no_overlap:.3f}s"
+        )
+    finally:
+        pp.shutdown()

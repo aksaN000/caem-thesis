@@ -67,6 +67,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from caem.config import CAEMConfig  # noqa: E402
 from caem.pipeline_batch import BatchPipeline, BatchSample  # noqa: E402
+from caem.pipeline_batch_prefetch import PrefetchingBatchPipeline  # noqa: E402
 from scripts.seed_cold_start import build_pipeline  # noqa: E402
 
 
@@ -168,6 +169,19 @@ def _compare(serial_rs, batched_rs) -> dict:
     }
 
 
+def _run_prefetching(
+    prefetching_pipeline: PrefetchingBatchPipeline, queries: List[str],
+):
+    """Run the Phase 2 prefetching path once; return (results, wall)."""
+    samples = [
+        BatchSample(query=q, store_to_memory=False, source_benchmark="smoke")
+        for q in queries
+    ]
+    t0 = time.perf_counter()
+    results = prefetching_pipeline.answer_batch(samples)
+    return results, time.perf_counter() - t0
+
+
 def main() -> int:
     if os.environ.get("RUN_LEVEL_B_SMOKE", "0") != "1":
         logger.warning(
@@ -183,43 +197,89 @@ def main() -> int:
     serial_pipeline = build_pipeline(config, device)
 
     batch_pipeline = BatchPipeline(serial_pipeline)
+    prefetching_pipeline = PrefetchingBatchPipeline(
+        batch_pipeline, chunk_size=8,
+    )
 
     logger.info("Running %d-query serial baseline ...", len(SMOKE_QUERIES))
     serial_rs, serial_wall = _run(serial_pipeline, SMOKE_QUERIES)
     logger.info("Serial wall-clock: %.2fs (%.2fs per sample)",
                 serial_wall, serial_wall / len(SMOKE_QUERIES))
 
-    logger.info("Running %d-query batched Level B path ...", len(SMOKE_QUERIES))
+    logger.info("Running %d-query Phase 1 batched path ...", len(SMOKE_QUERIES))
     batched_rs, batched_wall = _run_batched(batch_pipeline, SMOKE_QUERIES)
     logger.info("Batched wall-clock: %.2fs (%.2fs per sample)",
                 batched_wall, batched_wall / len(SMOKE_QUERIES))
 
-    speedup = serial_wall / batched_wall if batched_wall > 0 else float("inf")
-    comparison = _compare(serial_rs, batched_rs)
+    logger.info("Running %d-query Phase 2 prefetching path ...",
+                len(SMOKE_QUERIES))
+    prefetch_rs, prefetch_wall = _run_prefetching(
+        prefetching_pipeline, SMOKE_QUERIES,
+    )
+    prefetching_pipeline.shutdown()
+    logger.info("Prefetching wall-clock: %.2fs (%.2fs per sample)",
+                prefetch_wall, prefetch_wall / len(SMOKE_QUERIES))
+
+    speedup_p1 = serial_wall / batched_wall if batched_wall > 0 else float("inf")
+    speedup_p2 = serial_wall / prefetch_wall if prefetch_wall > 0 else float("inf")
+    comparison_p1 = _compare(serial_rs, batched_rs)
+    comparison_p2 = _compare(serial_rs, prefetch_rs)
+    # Phase 2 must also match Phase 1 (same numerics, overlap only adds
+    # CPU work on a worker thread).
+    comparison_p2_vs_p1 = _compare(batched_rs, prefetch_rs)
 
     summary = {
         "n": len(SMOKE_QUERIES),
         "serial_wall_s": round(serial_wall, 3),
-        "batched_wall_s": round(batched_wall, 3),
-        "speedup": round(speedup, 3),
-        "batched_fraction_of_serial": round(batched_wall / serial_wall, 3)
-            if serial_wall > 0 else None,
-        "max_u_stored_diff": round(comparison["max_u_stored_diff"], 6),
-        "decision_agreement": round(comparison["decision_agreement"], 3),
+        "phase1_batched_wall_s": round(batched_wall, 3),
+        "phase2_prefetch_wall_s": round(prefetch_wall, 3),
+        "speedup_phase1_vs_serial": round(speedup_p1, 3),
+        "speedup_phase2_vs_serial": round(speedup_p2, 3),
+        "speedup_phase2_vs_phase1": round(
+            batched_wall / prefetch_wall, 3,
+        ) if prefetch_wall > 0 else None,
+        "max_u_stored_diff_p1": round(comparison_p1["max_u_stored_diff"], 6),
+        "max_u_stored_diff_p2": round(comparison_p2["max_u_stored_diff"], 6),
+        "max_u_stored_diff_p2_vs_p1": round(
+            comparison_p2_vs_p1["max_u_stored_diff"], 6,
+        ),
+        "decision_agreement_p1": round(comparison_p1["decision_agreement"], 3),
+        "decision_agreement_p2": round(comparison_p2["decision_agreement"], 3),
+        "decision_agreement_p2_vs_p1": round(
+            comparison_p2_vs_p1["decision_agreement"], 3,
+        ),
         "gates": {
-            "G1_u_stored_tol": comparison["max_u_stored_diff"] <= ATOL_U_STORED,
-            "G2_decision_agreement": comparison["decision_agreement"]
+            "G1_p1_u_stored_tol":
+                comparison_p1["max_u_stored_diff"] <= ATOL_U_STORED,
+            "G1_p2_u_stored_tol":
+                comparison_p2["max_u_stored_diff"] <= ATOL_U_STORED,
+            "G2_p1_decision_agreement":
+                comparison_p1["decision_agreement"]
                 >= MIN_DECISION_AGREEMENT,
-            "G3_speedup": (batched_wall / serial_wall)
+            "G2_p2_decision_agreement":
+                comparison_p2["decision_agreement"]
+                >= MIN_DECISION_AGREEMENT,
+            "G3_p1_speedup":
+                (batched_wall / serial_wall)
                 <= MAX_BATCHED_WALLCLOCK_FRACTION,
+            "G3_p2_speedup":
+                (prefetch_wall / serial_wall)
+                <= MAX_BATCHED_WALLCLOCK_FRACTION,
+            # Phase 2 must not regress against Phase 1 by more than 5%.
+            "G4_p2_not_slower_than_p1":
+                (prefetch_wall / batched_wall) <= 1.05,
         },
-        "per_sample": comparison["per_sample"],
+        "per_sample_p1": comparison_p1["per_sample"],
+        "per_sample_p2": comparison_p2["per_sample"],
     }
     print(json.dumps(summary, indent=2, default=str))
 
     all_pass = all(summary["gates"].values())
     if all_pass:
-        logger.info("Level B smoke PASSED all gates. Batched path is safe to use.")
+        logger.info(
+            "Level B smoke PASSED all gates. Phase 1 + Phase 2 paths "
+            "are both safe to use.",
+        )
         return 0
     logger.error(
         "Level B smoke FAILED: %s",
