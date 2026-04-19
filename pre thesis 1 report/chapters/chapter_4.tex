@@ -1120,6 +1120,45 @@ below one percent per cycle at Flan-T5-Large scale, which is
 comfortably within the $\rho_{\min} = 0.93$ cycle-level retention
 bound of Equation~\ref{eq:forgetting-guard}.
 
+\paragraph{Threshold calibration at Cycle 0.}
+The three decision-tree thresholds ($\tau_{\text{store}}$,
+$\tau_{\text{defer}}$, $\tau_{\text{train}}$) are not fixed
+hyperparameters. Earlier design documents gave canonical values
+(0.65, 0.45, 0.75) that were read off a RoBERTa-MNLI composite
+distribution; under the MiniCheck backend adopted in this thesis the
+composite peaks closer to 0.55 rather than 0.85, so inherited
+threshold values would admit approximately zero storage events in
+Cycle 0 and starve the self-improvement loop. The thesis therefore
+calibrates the three thresholds from data at the Cycle 0 boundary,
+following the same fit-once-hold-fixed pattern used for the
+temperature scalar $T^{*}$ in Section~\ref{sec:pre-route}. The
+design-time hyperparameters are the target quantiles of the
+$\ustored$ distribution rather than the thresholds themselves:
+\begin{equation}
+\tau_{\text{store}} = Q_{\alpha_S}(\ustored), \quad
+\tau_{\text{defer}} = Q_{\alpha_D}(\ustored), \quad
+\tau_{\text{train}} = Q_{\alpha_T}(\ustored),
+\label{eq:threshold-calibration}
+\end{equation}
+where $(\alpha_S, \alpha_D, \alpha_T) = (0.70, 0.40, 0.90)$ encode
+the decision-tree's design commitments: STORE catches the top
+thirty percent of the observed distribution, DEFERRED catches the
+next thirty percent, training-pool admission is reserved for the
+top ten percent, and ABSTAIN / DISCARD absorb the remaining forty
+percent. The quantiles are fit on the pooled 500-sample Cycle 0
+evaluation set (the same calibration fold that fits $T^{*}$) and
+held fixed for cycles one through N so that the decision tree
+operates on stationary thresholds even as the verifier backend,
+the base-model weights, or the composite weights shift between
+cycles. An assertion in the calibration script enforces
+$\tau_{\text{train}} > \tau_{\text{store}} > \tau_{\text{defer}}$;
+if the observed distribution violates this ordering the run is
+aborted rather than silently shipping a broken decision tree.
+Chapter~5 reports the fitted threshold values, the observed
+$\ustored$ quantile summary statistics, and the implied
+STORE/DEFERRED/ABSTAIN/DISCARD admission rates on Cycle 0 data
+alongside the verifier-calibration diagnostics.
+
 \paragraph{Cycle-2 retention diagnostic and structured fallback.}
 The Jin 2024 one-percent forgetting expectation is a prior, not a
 guarantee: CAEM's training pool is drawn from the model's own verified
