@@ -2060,3 +2060,103 @@ Commits today (10 total, all on origin/main):
 f4303d3 · 565468a · 817081e · b688e0f · 3ba1654 · f26912b · d93e426 ·
 01ae26a · b3818bd · 461239d · 31239a4
 
+
+## 04:45 BDT — Viva defense arguments logged (2026-04-20)
+
+Discussed during Level B Phase 1 completion session. To be surfaced at
+Stage 7 launch and rehearsed before the thesis defense.
+
+### Q1: Why not GPT-4 / bigger model as verifier?
+
+1. Reproducibility. GPT-4 endpoints rotate silently (gpt-4-0125 ->
+   gpt-4o -> gpt-4-turbo; deprecated retires). Committee re-running
+   the thesis in 2028+ needs deterministic output. A frozen 770M
+   HuggingFace checkpoint hash-pins exactly.
+2. Cost. ~5M verifier calls across 10 cycles x 17 variants x 2 seeds.
+   At GPT-4 Turbo ~$0.01/call = ~$50K. Out of budget. Local MiniCheck
+   is $0 at inference time.
+3. Latency. GPT-4 API ~1-3 s/call vs MiniCheck local ~200 ms. 5x
+   slowdown on the dominant verifier stage -> Step 7 blows past
+   credit budget.
+4. Empirically, bigger is not better for this task. MiniCheck paper
+   Table 3: MiniCheck-Flan-T5-L (770M) AUROC 0.77 on AggreFact; GPT-4
+   0.74; LLaMA-2-70B 0.72; RoBERTa-large-MNLI 0.61. A 770M
+   task-specialist beats a ~2000x larger generalist because the task
+   has structure (claim-passage alignment) and task-specific
+   fine-tuning on LM-claim-support labels beats scale-at-breadth.
+5. Error-profile independence matters more than size. Using a bigger
+   model from the same training family (e.g. GPT-4 to verify a GPT-4
+   generator) correlates errors -> alpha drops because the verifier
+   inherits the generator's blind spots. MiniCheck is independent by
+   design (different training objective + training corpus).
+6. Methodology. Reviewers push back on "we used GPT-4 to label"
+   because the oracle is closed-source and conflates
+   system-under-test with ground truth. MiniCheck is trained on a
+   published corpus (AggreFact, FactCollect, LLM-AggreFact) with
+   human labels -- auditable and reproducible.
+7. Edge-deployment framing. CAEM is pitched as self-improving with
+   local inference. Wiring to an external API breaks the framing.
+
+### Q2: Is MiniCheck also an LLM that hallucinates? Doesn't that make the thesis pointless?
+
+Task asymmetry. Generation and verification are different output
+spaces.
+  * Generation hallucinations: unbounded output space -> model emits
+    specific novel false facts ("Einstein won the Nobel in 1906").
+    This is the pathology to filter.
+  * Classification errors: bounded output space -> model emits
+    P(support) in [0, 1]. Cannot fabricate claims. Errors are a
+    scalar miscalibration, measurable via ECE / AUROC / alpha.
+Hallucination is a failure mode of unbounded generation. Classification
+is immune to it by construction.
+
+What the thesis claims (and does NOT claim).
+  * NOT claimed: CAEM produces truth. That would require a non-LLM
+    truth oracle, which we do not have.
+  * IS claimed: given a verifier with empirical alpha > 1/2 on the
+    working distribution, stored purity P = alpha*p / (alpha*p +
+    (1-alpha)*(1-p)) exceeds base accuracy p. Iterative fine-tuning
+    on higher-purity stored episodes yields measurable EM gains
+    across cycles.
+This is a SYSTEM claim conditional on an auditable assumption
+(alpha > 1/2), not an ORACLE claim. Step 5.5 empirically measures
+alpha; Ch4 Remark 4.3 declares scope limitation if alpha fails.
+
+Non-LLM alternative is worse. RoBERTa-large-MNLI is a non-generative
+classifier. HaluEval 2025 / Semantic Illusion 2025 document 100% FPR
+at 95% recall on LM-generated claims -- it systematically mistakes
+hallucinations for truth because its training corpus (SNLI, MNLI)
+pre-dates LLM outputs. So the choice is not "LLM judge vs truth
+oracle"; it is "task-specific LLM judge trained on LM claims vs
+classifier trained on wrong distribution". MiniCheck wins.
+
+Composite hedge. MiniCheck contributes 3 of 9 signals (p_entail,
+p_ground_*, p_contra). The other 6 are verifier-independent
+(u_token, u_dropout, s_avg, h_norm, atomic, internal cal). Even if
+MiniCheck miscalls, the composite can still correctly abstain via
+entropy/disagreement signals.
+
+### Q3: Recursion -- doesn't the judge eventually need another judge?
+
+The chain DOES ground out -- at human-annotated labels, which is the
+accepted epistemological floor for ML benchmarks. MiniCheck's training
+corpus (AggreFact, FactCollect, LLM-AggreFact) is human-labeled.
+RoBERTa-MNLI's training (SNLI, MNLI) is human-labeled. Every CAEM
+benchmark (FEVER, TriviaQA, NQ, TruthfulQA, StrategyQA, ARC) is
+human-labeled.
+
+What would break the defense: using another generator to label
+MiniCheck's training data (instruction tuning contamination). Does
+not apply -- MiniCheck's published training set is human-labeled.
+
+### Clean one-paragraph defense framing
+
+"Generation and classification are different output spaces. The
+generator's hallucination failure mode -- confidently asserting
+specific novel false facts -- cannot be reproduced by a classifier
+whose output is a scalar probability. My verifier is auditable
+against human-labeled pairs (Step 5.5), which terminates the regress
+at the standard ML ground-truth floor. The thesis assumes a measured
+alpha > 1/2 on that human-validated distribution and proves purity
+improvement from that assumption. It makes no truth claim beyond the
+calibration."
