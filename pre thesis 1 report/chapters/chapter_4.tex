@@ -1146,18 +1146,18 @@ thirty percent of the observed distribution, DEFERRED catches the
 next thirty percent, training-pool admission is reserved for the
 top ten percent, and ABSTAIN / DISCARD absorb the remaining forty
 percent. The quantiles are fit on the $n_{\text{cal}} = 500$
-calibration fold (Chapter 5 \S Implementation Details; drawn from the
+calibration split (Chapter 5 \S Implementation Details; drawn from the
 training splits of FEVER, TriviaQA, and Natural Questions, disjoint
-from the evaluation fold $n_{\text{eval}}$ that Chapter 5 reports
+from the evaluation split $n_{\text{eval}}$ that Chapter 5 reports
 results on). This is the same fold that fits the temperature scalar
 $T^{*}$ and is therefore already committed at the Cycle 0 boundary
 with no additional compute cost. The fitted thresholds are held
 fixed for cycles one through N so that the decision tree operates on
 stationary thresholds even as the verifier backend, the base-model
 weights, or the composite weights shift between cycles. Fitting
-thresholds on the calibration fold rather than on the evaluation
-fold is a deliberate disjointness guarantee: a quantile tuned on the
-fold that later evaluates metrics would constitute peeking at the
+thresholds on the calibration split rather than on the evaluation
+split is a deliberate disjointness guarantee: a quantile tuned on the
+split that later evaluates metrics would constitute peeking at the
 test set and would invalidate the headline comparisons of
 Chapter 5. An assertion in the calibration script enforces
 $\tau_{\text{train}} > \tau_{\text{store}} > \tau_{\text{defer}}$;
@@ -1495,4 +1495,4 @@ This chapter has operationalised every functional requirement stated in Chapter~
 
 Sections~\ref{sec:verifier} and~\ref{sec:decision} specified the verifier-and-decision block that gates every Tier~2 and Tier~3 output before it can enter memory. The nine-signal verifier composes internal uncertainty, self-consistency, semantic entropy, NLI-based grounding against retrieved passages, and internal entailment into a single composite $\ustored \in [0, 1]$; a confabulation-veto gate fires early when an answer presents as internally confident while failing grounding. Section~\ref{sec:decision} then partitions the $\ustored$ axis into four decisions, \textsc{Store}, \textsc{Deferred}, \textsc{Abstain}, and \textsc{Discard}, and stated the per-cycle distribution over these outcomes as a primary Chapter~5 diagnostic. Sections~\ref{sec:retroverify} and~\ref{sec:deferred-reconsider} are the cycle-boundary counterparts of the verifier: the first re-scores every stored entry under the fine-tuned verifier and prunes, promotes, or keeps it via a three-way cascade on $\tau_{\text{retro}}$; the second re-scores the bounded FIFO of \textsc{Deferred} entries held from the previous cycle and promotes, drops (TTL-aged), or keeps each via a symmetric three-way cascade. Section~\ref{sec:self-improvement} closed the outer loop: a training pool is curated from retrieved-and-useful episodes that clear $\tau_{\text{train}}$, Flan-T5-Large is fine-tuned for $E$~epochs under an L$_2$ anchor approximating EWC, and the cycle is aborted with a weight rollback whenever a held-out MMLU retention probe falls below $\rho_{\min}$. Section~\ref{sec:implementation} then recorded the software substrate (Python~$3.10$, PyTorch, three pretrained components, single-GPU envelope), the code organisation (seven stage-aligned submodules plus a single configuration dataclass), the hyperparameter provenance conventions ([LIT]/[DES]/[CAL]), and the reproducibility layers (fixed seed, serialised config, pinned benchmark manifests). Table~\ref{tab:hparams} consolidates every numeric constant in the system with its category tag.
 
-Chapter~5 reports the experimental trajectory of the system specified here against the acceptance criteria of Chapter~\ref{ch:requirements} (Section~\ref{sec:nfr}) and the Composite Evaluation Score of Section~\ref{sec:ces}, together with the sixteen-variant ablation grid of Section~\ref{sec:ablation-design}. Chapter~6 then discusses those results in light of the catastrophic failure modes enumerated in Section~\ref{sec:risks} and the ethical considerations of Section~\ref{sec:impact}.
+Chapter~5 reports the experimental trajectory of the system specified here against the acceptance criteria of Chapter~\ref{ch:requirements} (Section~\ref{sec:nfr}) and the Composite Evaluation Score of Section~\ref{sec:ces}, together with the seventeen-variant ablation grid of Section~\ref{sec:ablation-design}. Chapter~6 then discusses those results in light of the catastrophic failure modes enumerated in Section~\ref{sec:risks} and the ethical considerations of Section~\ref{sec:impact}.

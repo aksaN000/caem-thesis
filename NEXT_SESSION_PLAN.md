@@ -30,6 +30,20 @@ runs. Runs on the same rental image after Phase 1a headline results
 secure the funding. Populates the Chapter 5 ablation results table.
 Runtime estimate ~1000 GPU-h.
 
+**Terminology mapping to Chapter 5.** Chapter 5
+§AblationMethodology uses "Phase 1" (single-seed, approximately
+\$200) and "Phase 2" (multi-seed post-funding, approximately
+\$700) as the \emph{statistical-power} partition of the ablation
+program. The runbook's Phase 1a and Phase 1 Full are a
+\emph{budget-funding} partition of the same work at single seed;
+together they constitute Ch5's Phase 1. Ch5's Phase 2 (multi-seed
+runs for variance estimation) is post-defense work not covered in
+this runbook. The two terminologies are orthogonal and both are
+retained: Ch5 uses funding-agnostic "Phase 1/2" because variance
+estimation is the thesis-level concern; the runbook uses
+"Phase 1a / Phase 1 Full" because funding acquisition is the
+operational gate.
+
 Defense sequence: Phase 1a complete → supervisor funding → Phase 1 Full
 complete → defense prep → viva.
 
@@ -782,8 +796,8 @@ by proportional scaling:
 
 Transfer-only benchmarks (TruthfulQA/StrategyQA/ARC) use the eval
 split entirely for `n_eval`; they contribute ZERO samples to the
-calibration or purity folds because there are no training splits to
-draw from. This is fine because the calibration/purity folds already
+calibration or purity splits because there are no training splits to
+draw from. This is fine because the calibration/purity splits already
 cover the three in-training benchmarks (FEVER/TriviaQA/NQ) where
 SIL memory population happens; the transfer benchmarks are just
 held-out evaluation.

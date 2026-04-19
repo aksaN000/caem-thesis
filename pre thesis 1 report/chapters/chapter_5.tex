@@ -552,16 +552,16 @@ $\lvert P_{\text{theory}} - P_{\text{obs}} \rvert$ comparison that
 populates Table~\ref{tab:purity}, $n_{\text{MMLU}} = 200$ shuffled
 across the 57 MMLU subjects for the retention guard, and
 $n_{\text{screen}} = 1\,500$ for the Phase~1 screening sweep that
-ranks the sixteen ablation variants before the
+ranks the seventeen ablation variants before the
 confirmatory panel. All five splits are non-overlapping within a
 benchmark and the split assignment is fixed across cycles and across
 all ablation variants. Source disjointness is additionally enforced
-at the dataset-split level: the calibration fold $n_{\text{cal}}$,
-the purity fold $n_{\text{purity}}$, and the training pool for the
+at the dataset-split level: the calibration split $n_{\text{cal}}$,
+the purity split $n_{\text{purity}}$, and the training pool for the
 self-improvement loop are drawn from the \emph{training splits} of
 the three in-training benchmarks (FEVER, TriviaQA, and Natural
 Questions) through \texttt{split\_calibration\_sets} in
-\texttt{scripts/run\_experiment.py}, whereas the evaluation fold
+\texttt{scripts/run\_experiment.py}, whereas the evaluation split
 $n_{\text{eval}}$ is drawn from the \emph{dev or test splits} of all
 six benchmarks (FEVER dev, TriviaQA and Natural Questions validation,
 TruthfulQA single split, StrategyQA test, ARC-Challenge test) through
@@ -569,13 +569,13 @@ TruthfulQA single split, StrategyQA test, ARC-Challenge test) through
 consume disjoint source splits, and the calibration-fold fit for
 $T^{*}$ and for the decision-tree quantile thresholds
 (Section~\ref{sec:self-improvement} threshold-calibration paragraph)
-never observes a question that will later feed the evaluation fold.
+never observes a question that will later feed the evaluation split.
 The MMLU retention probe $n_{\text{MMLU}}$ is drawn from MMLU, which
 is not in either loader. The screening fold $n_{\text{screen}}$
 samples from the training pool only and is disjoint from the
-per-cycle calibration and purity folds within that pool. The three
+per-cycle calibration and purity splits within that pool. The three
 transfer-eval benchmarks (TruthfulQA, StrategyQA, ARC-Challenge)
-contribute zero samples to the calibration or purity folds and are
+contribute zero samples to the calibration or purity splits and are
 evaluated only, which is consistent with the
 transfer-generalisation role assigned to them in Chapter 3.
 
