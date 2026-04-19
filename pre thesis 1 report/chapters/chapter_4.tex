@@ -1284,7 +1284,7 @@ The preceding sections describe CAEM as a set of decision rules, threshold gates
 
 The implementation is written in Python~$3.10$ and runs on PyTorch with the HuggingFace Transformers and Datasets libraries for model loading and tokenisation. Sentence-level embeddings are produced through the \texttt{sentence-transformers} package, nearest-neighbour search is delegated to \texttt{faiss-cpu}, and numerical utilities (temperature calibration fits, exponentially weighted updates, agglomerative clustering for semantic entropy) come from \texttt{numpy}, \texttt{scipy}, and \texttt{scikit-learn}. No custom CUDA kernels are used; every component runs through the public PyTorch API so that the system is portable across any CUDA-capable device that meets the memory requirement below.
 
-CAEM composes three pretrained models that are treated as fixed assets for the duration of an experimental run. Only Flan-T5-Large receives gradient updates in the self-improvement loop described in Section~\ref{sec:self-improvement}; the sentence encoder and the NLI cross-encoder are frozen throughout. Table~\ref{tab:pretrained-components} summarises the three checkpoints, their parameter counts, and their role in the pipeline.
+CAEM composes three pretrained models that are treated as fixed assets for the duration of an experimental run. Only Flan-T5-Large receives gradient updates in the self-improvement loop described in Section~\ref{sec:self-improvement}; the sentence encoder and the verifier backend are frozen throughout. Table~\ref{tab:pretrained-components} summarises the three checkpoints, their parameter counts, and their role in the pipeline.
 
 \begin{table}[htbp]
 \centering
@@ -1297,7 +1297,7 @@ CAEM composes three pretrained models that are treated as fixed assets for the d
 \midrule
 Base model & Flan-T5-Large \citep{JMLR:v25:23-0870} & $780$M & Generation (Tier~2, Tier~3), MC~Dropout, self-consistency, semantic-entropy sampling; trainable. \\
 Sentence encoder & all-mpnet-base-v2 \citep{reimers-gurevych-2019-sentence} & $110$M & $768$-dim embeddings for memory keys, retrieval similarity, and semantic-entropy clustering; frozen. \\
-NLI cross-encoder & RoBERTa-Large-MNLI \citep{liu2019roberta} & $355$M & Entailment and contradiction probabilities for $s_{\mathrm{avg}}$, $p_{\mathrm{entail}}$, $p_{\mathrm{ground}}$, and $p_{\mathrm{contra}}$; frozen. \\
+Verifier backend & MiniCheck-Flan-T5-Large \citep{tang2024minicheck} & $770$M & Entailment and contradiction probabilities for $s_{\mathrm{avg}}$, $p_{\mathrm{entail}}$, $p_{\mathrm{ground}}$, and $p_{\mathrm{contra}}$; frozen. Legacy \texttt{roberta-large-mnli} \citep{liu2019roberta} is retained as an ablation backend; see Remark~\ref{rem:alpha-empirical-scope}. \\
 \bottomrule
 \end{tabular}
 \end{table}
