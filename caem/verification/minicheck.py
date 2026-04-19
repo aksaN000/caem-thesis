@@ -121,19 +121,35 @@ class _MiniCheckJudge:
         self.contradict_threshold = float(contradict_threshold)
         self.max_premise_tokens = int(max_premise_tokens)
 
-        # Cache the single-token ids for "1" and "0" so we don't re-tokenize
-        # every call. Flan-T5 tokenizer emits both as exactly one subword
-        # (id list length 1 without special tokens).
+        # Cache the decoder-step-0 target token ids for supported / unsupported.
+        #
+        # Flan-T5 / T5 SentencePiece handles bare digits asymmetrically:
+        # tokenizer("1", add_special_tokens=False) -> [209]          ("▁1" as one merge)
+        # tokenizer("0", add_special_tokens=False) -> [3, 632]       ("▁" + "0")
+        #
+        # Empirical verification on lytang/MiniCheck-Flan-T5-Large confirms
+        # the model emits id 209 at decoder step 0 for supported claims and
+        # id 3 at step 0 for unsupported claims (with 632 as the step-1
+        # continuation). A two-way softmax between these two step-0 tokens
+        # recovers MiniCheck's native P(supported) / P(unsupported) and
+        # matches the reference implementation in the Liyan06/MiniCheck
+        # package. We therefore take the FIRST token id from each tokenization
+        # rather than requiring a single-token form, which the previous
+        # stricter check rejected.
         ids_yes = tokenizer("1", add_special_tokens=False).input_ids
         ids_no = tokenizer("0", add_special_tokens=False).input_ids
-        if len(ids_yes) != 1 or len(ids_no) != 1:
+        if not ids_yes or not ids_no:
             raise RuntimeError(
-                f"MiniCheck tokenizer produced multi-token ids for '1' / '0': "
-                f"yes={ids_yes} no={ids_no}. Verifier cannot derive a clean "
-                f"two-way probability."
+                f"MiniCheck tokenizer produced empty id sequence for '1' / '0': "
+                f"yes={ids_yes!r} no={ids_no!r}."
             )
         self._yes_id = int(ids_yes[0])
         self._no_id = int(ids_no[0])
+        if self._yes_id == self._no_id:
+            raise RuntimeError(
+                f"MiniCheck tokenizer maps '1' and '0' to the same step-0 id "
+                f"{self._yes_id}; two-way softmax would be degenerate."
+            )
 
     # ---- Identity helpers ------------------------------------------------- #
 
@@ -201,7 +217,8 @@ class _MiniCheckJudge:
             dim=-1,
         )  # (N, 2) -- [P(0), P(1)]
         probs = F.softmax(two_way, dim=-1)[:, 1]  # P(supported)
-        return probs.detach().cpu().numpy().astype(np.float32)
+        # Cast to float32 before numpy — bf16 is not a supported numpy dtype.
+        return probs.detach().float().cpu().numpy()
 
     # ---- Public NLI-shaped API ------------------------------------------ #
 
