@@ -1332,15 +1332,25 @@ Benchmark & EM & $\mathrm{EM}_{T_1}$ & $\mathrm{EM}_{T_2}$ & $\mathrm{EM}_{T_3}$
 
 \begin{table}[t]
 \centering
-\caption{Calibration: ECE, Brier score, and AUROC on pooled
-$(\ustored, \mathrm{correct})$ pairs per cycle. Populated from
+\caption{Calibration trajectory. $T^{*}_c$ is the per-cycle fitted
+temperature scalar (L-BFGS on NLL over the $n_{\text{cal}} = 500$
+calibration split; re-fit every cycle boundary per Chapter 4
+\S~Per-cycle calibration protocol). Pre-scaling
+ECE is computed on raw $u_{\text{pre}}$ logits before $T^{*}_c$
+is applied; post-scaling ECE, Brier, and AUROC are computed on
+$T^{*}_c$-scaled probabilities over pooled
+$(\ustored, \mathrm{correct})$ pairs. $\Delta T^{*}$ tracks
+drift across cycles: a healthy trajectory shows $T^{*}$ stabilising
+as fine-tuning plateaus, and post-scaling ECE staying below the
+$0.05$ floor the Chapter 3 NFR requires. Populated from
+\texttt{outputs/full\_run/calibrated\_config\_cycle<N>.json} and
 \texttt{eval/metrics.\{ece,brier,auroc\}}.}
 \label{tab:calibration}
-\begin{tabular}{lrrr}
+\begin{tabular}{lrrrrrr}
 \toprule
-Cycle & ECE & Brier & AUROC \\
+Cycle & $T^{*}_c$ & $\Delta T^{*}$ & ECE$_{\text{pre}}$ & ECE$_{\text{post}}$ & Brier & AUROC \\
 \midrule
-\multicolumn{4}{c}{\emph{[To be populated from confirmatory-pass outputs.]}}\\
+\multicolumn{7}{c}{\emph{[To be populated from confirmatory-pass outputs, 11 rows for Cycles 0--10.]}}\\
 \bottomrule
 \end{tabular}
 \end{table}
