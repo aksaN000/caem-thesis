@@ -44,6 +44,16 @@ with its own batched forward. The verifier (Stage 5) is called
 on the combined post-generation set (Tier 2 + Tier 3), which
 maximises batch size on the MiniCheck/RoBERTa forward pass.
 
+Backend-agnosticism
+-------------------
+Level B's batched-verifier logic calls the polymorphic
+``batch_entail_prob / batch_contradict_prob / batch_argmax_label``
+methods that both ``_NLIEnsemble`` (RoBERTa) and ``_MiniCheckJudge``
+(MiniCheck) expose. A future ``_HybridJudge`` would expose the same
+interface. This means ~95 percent of Level B code is agnostic to the
+Step 5.5 backend decision; only the small interface-call layer is
+backend-aware, and even that uses a polymorphic contract.
+
 Memory-store commits
 --------------------
 EpisodicMemoryStore writes serialize naturally at batch end. Any
@@ -75,23 +85,29 @@ Built incrementally, commit by commit:
    serial ``answer()`` in a loop. Interface works, no speedup yet.
    Validates integration with the harness and memory store.
 
-2. **Batched SBERT + FAISS** (next): pre-compute embeddings and
-   nearest-neighbour results for the whole batch in one forward,
-   pass them to a thin per-sample wrapper that reuses the serial
-   tier dispatch. Small speedup (~5%) but low risk.
+2. **Batched Tier 2 generate (this commit)**: ``_batch_tier2_generate``
+   helper builds N Tier-2 prompts, tokenises with padding, runs a
+   single batched ``model.generate`` call, and returns the decoded
+   answers in input order. Not yet wired into ``answer_batch`` —
+   that happens in commit 3. Backend-agnostic (just T5).
 
-3. **Batched T5 generate** (for Tier 2 + Tier 3 buckets): replace
-   per-sample ``self.model.generate()`` with a batched call on
-   padded input IDs. Moderate speedup (~15-20%) because T5 generate
-   is one of the dominant forward passes.
+3. **Wire Tier 2 batching into answer_batch (next)**: per-sample
+   Stages 1-3 (encode, search, route) then tier-bucket split, then
+   batched Tier 2 generate for Tier 2 samples, per-sample Tier 3,
+   per-sample verify.
 
-4. **Batched verifier** (``_verify_batch``): new method on
+4. **Batched T5 generate for K-chain self-consistency and atomic
+   decomposition (next)**: these are the two other dominant T5
+   forwards; each currently runs once per sample, so cross-sample
+   batching amortises launch overhead.
+
+5. **Batched verifier** (``_verify_batch``): new method on
    UnifiedVerifier that accepts a list of (query, answer, passages)
    tuples and runs the nine-signal pipeline with all pairs pooled
    into a single MiniCheck forward. Biggest single speedup (~30-40%)
    because the MiniCheck call is the dominant GPU work.
 
-5. **Cross-sample K-chain pooling** (stretch): the K=10
+6. **Cross-sample K-chain pooling** (stretch): the K=10
    self-consistency chain generation currently does K samples *per
    input*; a batched version does K * N samples in one call. Small
    additional gain on top of #4.
@@ -113,6 +129,8 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from typing import List, Optional, Sequence
+
+import torch
 
 from caem.pipeline import CAEMPipeline, PipelineResult
 
@@ -149,6 +167,77 @@ class BatchPipeline:
         # Batch execution writes to the same memory_store / deferred_buffer
         # that the serial pipeline holds. Commit ordering is preserved:
         # within a batch, commits run in submitted-sample order.
+
+    # ---- Batched generation helpers ------------------------------------- #
+
+    def batch_tier2_generate(self, queries: Sequence[str]) -> List[str]:
+        """Generate N Tier-2 answers in one batched T5 forward pass.
+
+        Equivalent to calling ``self.p._tier2(q, pre_conf)[0]`` in a
+        loop but runs a single ``model.generate`` with padded input IDs
+        of shape ``(N, max_prompt_len)``. The output is decoded row by
+        row; positions that hit a decoder failure fall back to an
+        empty string (caller escalates that to Tier 3).
+
+        Parameters
+        ----------
+        queries : sequence of str
+            N Tier-2 queries in the order their answers should be
+            returned.
+
+        Returns
+        -------
+        list of str, length N, same order as ``queries``. Empty
+        string at position i signals Tier 2 failed for that query and
+        the caller should escalate to Tier 3.
+        """
+        if not queries:
+            return []
+
+        cfg = self.p.config
+        prompts = [self.p._build_tier2_prompt(q) for q in queries]
+
+        enc = self.p.tokenizer(
+            prompts,
+            return_tensors="pt",
+            truncation=True,
+            max_length=512,
+            padding=True,
+        )
+        input_ids = enc["input_ids"].to(self.p.device)
+        attention_mask = enc["attention_mask"].to(self.p.device)
+
+        try:
+            self.p.model.eval()
+            with torch.no_grad():
+                output_ids = self.p.model.generate(
+                    input_ids,
+                    attention_mask=attention_mask,
+                    max_new_tokens=cfg.cot_max_new_tokens,
+                    do_sample=False,
+                )
+        except Exception as exc:
+            logger.error(
+                "batch_tier2_generate failed (N=%d): %s -- returning "
+                "empty strings so caller escalates each to Tier 3.",
+                len(queries), exc,
+            )
+            return [""] * len(queries)
+
+        # Decode each row. Empty decodes become empty strings so the
+        # caller can route them to Tier 3 the same way the serial
+        # path does.
+        decoded: List[str] = []
+        for i in range(output_ids.shape[0]):
+            try:
+                s = self.p.tokenizer.decode(
+                    output_ids[i], skip_special_tokens=True,
+                ).strip()
+            except Exception as exc:
+                logger.warning("batch_tier2_generate decode %d failed: %s", i, exc)
+                s = ""
+            decoded.append(s)
+        return decoded
 
     # ---- Public API ------------------------------------------------------ #
 
