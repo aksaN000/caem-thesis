@@ -804,8 +804,36 @@ p_{\text{ground}}^{\text{atomic}} \;=\; \min_{k} g_{k},
 \end{equation}
 so that the addition of a single unsupported claim suppresses the signal. When decomposition fails (parsing error, empty list, or the atomic path is disabled in configuration), the atomic signal falls back to $p_{\text{ground}}^{\text{mean}}$ rather than to zero; this prevents the composite from silently penalising answers whose decomposition simply happened to fail for tokenisation reasons, while ensuring that atomic decomposition adds information when it succeeds.
 
-\paragraph{NLI ensemble aggregation.}
-Every NLI-based signal in this section is computed over an ensemble of two pretrained MNLI models (RoBERTa-Large-MNLI and DeBERTa-v3-Large-MNLI), with two aggregation rules chosen to be consistently conservative. Entailment probabilities are aggregated by minimum across the ensemble ($\mathrm{NLI}_{\min}$): both models must agree that a premise entails a hypothesis before the signal is allowed to be high. Contradiction probabilities are aggregated by maximum ($\mathrm{NLI}_{\max}^{\,\text{contra}}$): any model flagging a contradiction is enough to raise the veto. The rule is asymmetric because it consistently biases toward not storing a verified answer when the ensemble disagrees, which is the direction the composite is defended against. A single-model fallback is supported in configurations where only one NLI bundle is available, in which case the min and max reduce to that bundle's own probability; no fallback signal is returned in the zero-model case, and the verifier's output on those signals defaults to $0.5$ for entailment and $0.0$ for contradiction so that the composite neither rewards nor punishes in the absence of evidence.
+\paragraph{Claim-support judge and ensemble fallback.}
+The verifier's entailment and grounding signals are computed by a
+claim-support judge selected at pipeline construction via the
+\texttt{verifier\_backend} configuration setting. The default backend
+is MiniCheck-Flan-T5-Large \citep{tang2024minicheck}: a
+Flan-T5-Large checkpoint fine-tuned on synthetically decomposed
+language-model-generated claim-support data, whose training
+distribution matches CAEM's runtime distribution (the verifier is
+scoring LM-generated answers against retrieved Wikipedia passages).
+MiniCheck is binary (supported versus not supported) rather than
+three-class NLI; its supported probability is used directly as the
+entailment signal, and the contradiction veto $p_{\text{contra}}$
+receives a dead-signal of zero under this backend because binary
+judges cannot distinguish refuted claims from neutral or
+unverifiable ones (Section~\ref{sec:decision}). The generic-NLI
+backend, retained for the Chapter 5 ablation variant
+\texttt{roberta\_nli\_backend}, is an ensemble of two pretrained
+three-class MNLI models (RoBERTa-Large-MNLI \cite{liu2019roberta}
+and DeBERTa-v3-Large-MNLI); under that backend, entailment
+probabilities are aggregated by minimum across the ensemble so that
+both models must agree before the signal is allowed to be high, and
+contradiction probabilities are aggregated by maximum so that any
+model flagging a contradiction raises the veto. Under both backends,
+a single-model fallback is supported in configurations where only
+one judge bundle is available, in which case the min and max reduce
+to that bundle's own probability; no fallback signal is returned in
+the zero-model case, and the verifier's output on those signals
+defaults to $0.5$ for entailment and $0.0$ for contradiction so that
+the composite neither rewards nor punishes in the absence of
+evidence.
 
 \paragraph{Composite score.}
 The six non-redundant signals from the nine (the three internal collapse to $u_{\text{internal}}$, the three sample-set contribute separately, the three grounding contribute separately) are combined into the composite $u_{\text{stored}}$ of Equation~\ref{eq:ustored}, reproduced here in the form the verifier actually evaluates:

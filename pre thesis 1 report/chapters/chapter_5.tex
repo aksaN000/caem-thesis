@@ -516,14 +516,21 @@ embeddings for episodic memory keys, retrieval similarity, and
 semantic-entropy clustering are produced by the frozen
 \texttt{all-mpnet-base-v2} sentence
 encoder~(\cite{reimers-gurevych-2019-sentence}, $110$M parameters,
-$768$-dim output). NLI entailment and contradiction probabilities
+$768$-dim output). Claim-support probabilities
 feeding the verifier's nine-signal composite are produced by the
-frozen \texttt{roberta-large-mnli} cross-encoder~(\cite{liu2019roberta},
-$355$M parameters). The same three checkpoints are used by every
-\caem{} variant and by every retrieval-family baseline (B3 DPR-RAG,
-B4 CoT+RAG, B5 FLARE); backbone identity is held constant across the
-comparison panel so that score differences isolate architectural
-contributions rather than capacity differences.
+frozen MiniCheck-Flan-T5-Large checkpoint
+(\texttt{lytang/MiniCheck-Flan-T5-Large}~\citep{tang2024minicheck},
+$770$M parameters), selected via the \texttt{verifier\_backend}
+setting. The legacy generic-NLI ensemble
+(\texttt{roberta-large-mnli}~\cite{liu2019roberta}, $355$M
+parameters) is retained as the \texttt{roberta\_nli\_backend}
+ablation variant (Chapter 5 \S\ref{sec:ablation}) and is not part of
+the default configuration. The same frozen checkpoints (Flan-T5-Large
+base, SBERT, MiniCheck) are used by every \caem{} variant and by
+every retrieval-family baseline (B3 DPR-RAG, B4 CoT+RAG, B5 FLARE);
+backbone identity is held constant across the comparison panel so
+that score differences isolate architectural contributions rather
+than capacity differences.
 
 \paragraph{Hardware.}
 Cycle-level training and evaluation run on a single NVIDIA
