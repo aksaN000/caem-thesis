@@ -1775,3 +1775,162 @@ Phase 1 Full deliverable*, not a pre-defense requirement.
 Total Phase 1 schedule impact: **+6-8 h, well within the $200
 post-topup envelope** the user authorized. No schedule risk to the
 pre-defense deadline.
+
+---
+
+## Full-afternoon execution narrative (16:00-17:30 BDT, 2026-04-19)
+
+### 16:00 BDT — Literature-review Topic 1 (NLI verifier) implemented
+
+Full integration of the NLI verifier swap:
+
+**Code (3 commits)**
+
+- `f4303d3` Swap default verifier backend to MiniCheck-Flan-T5-Large.
+  New `caem/verification/minicheck.py` with `_MiniCheckJudge`
+  adapter; `load_verifier_judge()` single-source-of-truth in
+  `caem/verification/__init__.py`; CAEMConfig adds `verifier_backend
+  = "minicheck"` default + `minicheck_model` + thresholds; four
+  script call sites migrated; `--verifier_backend` CLI flag;
+  `tests/test_minicheck_judge.py` with 9 mocked tests (all pass);
+  existing 95 verifier/pipeline tests unaffected.
+- `565468a` Fix MiniCheck step-0 token id resolution + bf16→numpy.
+  Flan-T5 tokenizes "1"→[209] but "0"→[3, 632]; single-token check
+  was too strict and fell back to RoBERTa. Relaxed to take first
+  token id + added numpy dtype cast for bf16 output.
+- `817081e` MiniCheck contradict_prob=0.0 (binary judge can't
+  separate refuted from neutral). On-device smoke revealed
+  51/51 FEVER samples → DISCARD because `1-entail` mapped to
+  `p_contra > 0.30` on most claims. MiniCheck "not supported"
+  conflates refutation with unverifiable; the correct CAEM semantic
+  is contradict dead-signals. Tests updated accordingly.
+
+**Thesis report** (per-file):
+- Ch3 §Risk Analysis: added 6th risk "verifier distribution
+  mismatch" with HaluEval 2025 / MiniCheck mitigation.
+- Ch4 §Theoretical Analysis: new `\begin{remark}` "Empirical scope
+  of α" framing the purity theorem as conditional on empirical
+  α > ½ on the actual claim distribution.
+- Ch5 §Experimental Setup: added "Verifier backend and the
+  empirical α assumption" paragraph.
+- `references.bib`: added `tang2024minicheck`, `semanticillusion2025`.
+
+### 16:10 BDT — Ablation variant `roberta_nli_backend` registered
+
+`b688e0f` + `3ba1654` Added 17th ablation variant and pre-registered
+expected-effect paragraph in Ch5 §Ablation Methodology. Mutation:
+`verifier_backend = "roberta_nli"`. Marked `needs_cyclic_rerun=True`
+(different α distribution → different stored set). Not invoked by
+current Phase 1 sweep; reserved for Phase 1 Full / TMLR as
+trajectory evidence complementing the one-shot Step 5.5 calibration
+diagnostic. Ch5 "sixteen variant" references bumped to seventeen in
+three places; table caption updated.
+
+### 16:20 BDT — FAISS index backup to HuggingFace
+
+72 GB of passage-index data (64.5 GB `passages.faiss` IndexFlatIP
++ 7.5 GB `passages.pkl`) uploaded to
+`aksaN000/caem-passage-index-21m` (private dataset). Saves ~6 h
+rebuild work + ~$4 of encode time if instance ever fails. Upload
+rate 156 MB/s, ~8 min total. Recorded in `NEXT_SESSION_PLAN.md`
+Step 4 as "SHORTCUT" download path for fresh instances.
+
+### 16:25 BDT — Step 5 smoke under MiniCheck, end-to-end pass
+
+All 6 benchmarks completed; `ces_axes_per_cycle.json` populated;
+MMLU baseline 0.48; no crashes, no OOM. Decision mix
+24 ABSTAIN + 101 DEFERRED + 123 DISCARD + 5 STORE validates all
+four branches fire. Synthetic-data EM expected: FEVER 0.32
+(binary chance), StrategyQA 0.42 (binary chance), others 0.00
+(placeholder data model cannot answer). Early-exit confabulation
+gate did NOT fire because smoke doesn't produce the
+"confident-and-ungrounded" profile; unit tests in
+`tests/test_verifier.py` provide deterministic coverage for that
+branch.
+
+### 17:00 BDT — Literature-review Topics 2 + 3 integrated (commit `f26912b`)
+
+**Topic 3 — L2 anchoring (FULL integration):**
+
+- Ch4 §Self-Improvement Loop: added scoping remark citing Mehta
+  2023 JMLR, Wu 2022 ICLR, Jin 2024 (arXiv 2402.01865), and
+  Scialom 2022 EMNLP establishing that plain L2 + 10% replay
+  expects sub-one-percent forgetting at Flan-T5-Large scale.
+- Ch4: new paragraph "Cycle-2 retention diagnostic and structured
+  fallback". Frozen 500-sample stratified slice of Cycle-0
+  questions re-evaluated on θ^(2); if absolute EM drop > 3
+  percentage points, pipeline logs
+  `STRUCTURED_FALLBACK_TO_OLORA` advisory and remaining cycles
+  should switch to O-LoRA stacked orthogonal adapters
+  (Wang 2023 EMNLP, Biderman 2024 TMLR). Strict tightening of
+  ρ_min = 0.93.
+- `scripts/cycle2_retention_diagnostic.py`: two-mode script
+  (`--make_slice` / `--evaluate`), produces retention report
+  with advisory flag.
+- 6 new bib entries: `mehta2023empirical`, `wu2022pretrained`,
+  `scialom2022fine`, `jin2024forget`, `biderman2024lora`,
+  `wang2023olora`.
+
+**Topic 2 — 9-signal composite (SCAFFOLDING + TMLR placeholder):**
+
+- Ch5 Expected Results: added "Nine-signal correlation structure
+  and effective-count analysis" pre-registration paragraph with
+  three redundancy clusters and three falsification conditions.
+- `scripts/signal_correlation_matrix.py`: dependency-free 9×9
+  Spearman matrix per-benchmark + aggregated + redundancy report
+  via union-find over |ρ| > 0.9. Drop-in for Step 7 eval outputs.
+- 4 new bib entries: `valentin2024hallucination`,
+  `farquhar2024nature`, `vashurin2024polygraph`,
+  `kuhn2023semantic`.
+
+**Step 6 threshold fix (same commit):**
+
+- `scripts/seed_cold_start.py`: `--cold_start_store_threshold`
+  CLI flag. Default CAEMConfig `store_threshold = 0.65` is tuned
+  for RoBERTa's P(entail) distribution; under MiniCheck the
+  composite rarely clears 0.65 pre-calibration. Recommended
+  cold-start value: 0.45 (the DEFERRED-band bar). Safe because
+  cold-start entries feed retrieval only (`τ_train = 0.75`
+  unchanged for training).
+
+### 17:18 BDT — Step 6 first attempt failed (0% STORE at threshold 0.65)
+
+First Step 6 run confirmed the threshold mismatch: 80 FEVER
+samples processed, 0 verified+stored. u_stored range 0.20-0.53;
+no sample cleared 0.65. Killed and restarted at
+`--cold_start_store_threshold 0.45`. Expected STORE rate under
+0.45 bar: ~15-25% based on observed u_stored distribution.
+
+### 17:20 BDT — Step 6 restarted under fixed threshold (in progress)
+
+Running `--cold_start_store_threshold 0.45
+--target_episodes 200 --max_questions 2000` on FEVER / TriviaQA /
+NQ. Real-data STORE rate will size Step 7's `--n_questions`
+parameter.
+
+### Summary of today's work product
+
+| Deliverable | State |
+|---|---|
+| MiniCheck adapter + tests | ✅ committed |
+| Path A thesis text (Ch3 risk, Ch4 remark, Ch5 limitation) | ✅ committed |
+| `roberta_nli_backend` ablation variant + Ch5 pre-registration | ✅ committed |
+| FAISS index HF backup | ✅ uploaded |
+| Step 5 smoke under MiniCheck | ✅ passed |
+| Step 6 threshold fix + restart | ✅ running |
+| Topic 3 thesis integration (L2 anchoring) | ✅ committed |
+| Topic 3 Cycle-2 diagnostic script | ✅ committed |
+| Topic 2 thesis scaffolding (9-signal correlation) | ✅ committed |
+| Topic 2 correlation-matrix script | ✅ committed |
+| Step 5.5 calibration pairs builder | ✅ committed |
+| Step 5.5 calibration diagnostic runner | ✅ committed |
+| Step 6 completion | ⏳ running |
+| Step 7 (main 10-cycle) | pending Step 6 result |
+| Step 19 Cycle-2 advisory wiring in `run_experiment.py` | pending |
+| Step 20 `CH_AUDIT_TRACKING.md` MiniCheck-swap entry | pending |
+
+Five commits today: `f4303d3` (MiniCheck swap), `565468a`
+(token/bf16 fix), `817081e` (veto fix), `b688e0f` + `3ba1654`
+(variant + Ch5), `f26912b` (Topics 2+3 integration + Step 6 fix).
+All on origin/main.
+
