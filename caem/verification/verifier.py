@@ -443,6 +443,8 @@ class UnifiedVerifier:
         *,
         u_token: Optional[float] = None,
         u_dropout: Optional[float] = None,
+        chains: Optional[List[str]] = None,
+        se_samples: Optional[List[str]] = None,
     ) -> UnifiedVerifierOutput:
         """Compute all nine signals, form the composite, and emit a decision.
 
@@ -469,10 +471,18 @@ class UnifiedVerifier:
         u_internal = 0.5 * u_token + 0.5 * (1.0 - u_dropout)
 
         # ---------- sample-set signals (M chains reused) ------------------ #
-        chains = self._generate_m_chains(input_ids)
+        # chains / se_samples may be injected by verify_batch, which pools
+        # T5 sampling across samples in one padded generate call. Semantically
+        # equivalent (i.i.d. samples at the same temperature), but avoids N
+        # sequential kernel launches when called from the batched path.
+        if chains is None:
+            chains = self._generate_m_chains(input_ids)
         s_avg = self._score_s_avg(chains)
         p_entail = self._score_p_entail(chains, answer)
-        h_norm = self._compute_h_norm(input_ids)
+        if se_samples is None:
+            h_norm = self._compute_h_norm(input_ids)
+        else:
+            h_norm = self._h_norm_from_samples(se_samples)
 
         # ---------- external grounding ------------------------------------ #
         top_passages = self._retrieve_and_rerank(query, answer)
@@ -571,21 +581,31 @@ class UnifiedVerifier:
         u_tokens: Optional[List[Optional[float]]] = None,
         u_dropouts: Optional[List[Optional[float]]] = None,
     ) -> List[UnifiedVerifierOutput]:
-        """Run ``verify`` on N (query, answer) pairs and return N outputs.
+        """Run verification on N (query, answer) pairs in one batched pass.
 
-        Level B Phase 1 skeleton: this implementation loops serial
-        ``verify()`` so the API surface is available for BatchPipeline
-        wiring. A follow-up commit replaces the loop with pooled
-        M-chain generation and pooled semantic-entropy sampling across
-        samples (the two dominant T5 costs inside verify).
+        Pools the two dominant per-sample T5 costs across samples:
+
+        1. **M-chain generation** (``_generate_m_chains``): each sample
+           normally draws M=3 i.i.d. chains at T=0.7 via M sequential
+           ``model.generate`` calls. Here we draw N*M chains in a single
+           batched ``model.generate(num_return_sequences=M)`` on padded
+           input_ids, eliminating N*M kernel launches.
+        2. **Semantic-entropy sampling** (``_compute_h_norm``): each
+           sample normally draws K samples at T=``se_temperature`` via
+           one batched ``model.generate(num_return_sequences=K)``. Here
+           we pool N*K samples across the batch dimension in one call.
+
+        All other verifier work (retrieval, NLI scoring, atomic
+        decomposition, composite, decide) runs per-sample; the NLI
+        ensemble already batches within-sample via its
+        ``batch_entail_prob`` / ``batch_contradict_prob`` API, so
+        amortisation there is already maximal.
 
         Parameters
         ----------
         inputs : list of (query, answer) tuples
         u_tokens, u_dropouts : optional per-sample precomputed internal
-            signals from the generation stage. Length must match ``inputs``
-            when provided; ``None`` at position i means recompute that
-            sample's signal inside ``verify``.
+            signals from the generation stage.
 
         Returns
         -------
@@ -603,10 +623,102 @@ class UnifiedVerifier:
             "verify_batch: u_tokens/u_dropouts length must match inputs"
         )
 
+        queries = [q for q, _ in inputs]
+        answers = [a for _, a in inputs]
+
+        # Per-sample tokenisation for the internal-cal forward passes.
+        # These paths expect an unpadded single-row tensor (the model
+        # computes loss/gradients on exactly the prompt tokens).
+        per_sample_input_ids = [
+            self._tokenize(q)["input_ids"] for q in queries
+        ]
+
+        # Pooled M-chain and semantic-entropy sampling across samples.
+        chains_per_sample = self._pooled_sample_t5(
+            queries,
+            num_per=self.config.sc_chains_m,
+            temperature=0.7,
+            max_new_tokens=self.config.cot_max_new_tokens,
+            label="m-chain",
+        )
+        se_samples_per_sample = self._pooled_sample_t5(
+            queries,
+            num_per=self.config.se_samples_k,
+            temperature=self.config.se_temperature,
+            max_new_tokens=self.config.cot_max_new_tokens,
+            label="se-sample",
+        )
+
         outputs: List[UnifiedVerifierOutput] = []
-        for (q, a), ut, ud in zip(inputs, u_tokens, u_dropouts):
-            outputs.append(self.verify(q, a, u_token=ut, u_dropout=ud))
+        for i, (q, a) in enumerate(inputs):
+            outputs.append(self.verify(
+                q, a,
+                input_ids=per_sample_input_ids[i],
+                u_token=u_tokens[i],
+                u_dropout=u_dropouts[i],
+                chains=chains_per_sample[i],
+                se_samples=se_samples_per_sample[i],
+            ))
         return outputs
+
+    def _pooled_sample_t5(
+        self,
+        queries: List[str],
+        *,
+        num_per: int,
+        temperature: float,
+        max_new_tokens: int,
+        label: str,
+    ) -> List[List[str]]:
+        """Draw ``num_per`` i.i.d. T5 samples for each of N queries in one
+        batched ``model.generate(num_return_sequences=num_per)`` call.
+
+        Returns a list of N lists, each of length ``num_per``. On failure
+        returns N empty lists so downstream scorers fall back gracefully
+        (matches the serial ``_generate_m_chains`` / ``_compute_h_norm``
+        error semantics).
+        """
+        N = len(queries)
+        if N == 0 or num_per <= 0:
+            return [[] for _ in range(N)]
+        try:
+            enc = self.tokenizer(
+                queries,
+                return_tensors="pt",
+                truncation=True,
+                max_length=512,
+                padding=True,
+            )
+            input_ids = enc["input_ids"].to(self.device)
+            attention_mask = enc["attention_mask"].to(self.device)
+            self.model.eval()
+            with torch.no_grad():
+                out = self.model.generate(
+                    input_ids,
+                    attention_mask=attention_mask,
+                    max_new_tokens=max_new_tokens,
+                    do_sample=True,
+                    temperature=temperature,
+                    num_return_sequences=num_per,
+                )
+            # HF generate with num_return_sequences=M on batch N produces
+            # (N*M, T) where rows are grouped by input: [s0_c0..s0_cM-1,
+            # s1_c0..s1_cM-1, ...]. Decode row-by-row and regroup.
+            per_sample: List[List[str]] = [[] for _ in range(N)]
+            for row_idx in range(out.shape[0]):
+                s = row_idx // num_per
+                decoded = self.tokenizer.decode(
+                    out[row_idx], skip_special_tokens=True,
+                ).strip()
+                per_sample[s].append(decoded)
+            return per_sample
+        except Exception as exc:
+            logger.warning(
+                "_pooled_sample_t5 (%s) failed (N=%d, num_per=%d): %s -- "
+                "returning empty samples so downstream scorers fall back.",
+                label, N, num_per, exc,
+            )
+            return [[] for _ in range(N)]
 
     # ====================================================================== #
     # Signal computation                                                      #
@@ -734,6 +846,26 @@ class UnifiedVerifier:
 
     # ---- semantic entropy ------------------------------------------------- #
 
+    def _h_norm_from_samples(self, samples: List[str]) -> float:
+        """Compute h_norm from a pre-drawn list of K semantic-entropy samples.
+
+        Shared between the serial ``_compute_h_norm`` (which draws the
+        samples itself) and ``verify_batch`` (which pools the draws
+        across samples). Returns 0.5 on any internal failure so
+        downstream composite/decide always sees a well-formed float.
+        """
+        K = self.config.se_samples_k
+        try:
+            if not samples:
+                return 0.5
+            H = (self._semantic_entropy_nli(samples)
+                 if self.nli else self._semantic_entropy_surface(samples))
+            h_norm = H / math.log2(max(K, 2))
+            return float(np.clip(h_norm, 0.0, 1.0))
+        except Exception as exc:
+            logger.warning("h_norm-from-samples failed: %s -- returning 0.5", exc)
+            return 0.5
+
     def _compute_h_norm(self, input_ids: torch.Tensor) -> float:
         """Normalised semantic entropy via NLI clustering (ensemble argmax).
 
@@ -762,12 +894,7 @@ class UnifiedVerifier:
                         out[i], skip_special_tokens=True
                     ).strip()
                     samples.append(decoded)
-            if not samples:
-                return 0.5
-            H = (self._semantic_entropy_nli(samples)
-                 if self.nli else self._semantic_entropy_surface(samples))
-            h_norm = H / math.log2(max(K, 2))
-            return float(np.clip(h_norm, 0.0, 1.0))
+            return self._h_norm_from_samples(samples)
         except Exception as exc:
             logger.warning("h_norm failed: %s -- returning 0.5", exc)
             return 0.5
