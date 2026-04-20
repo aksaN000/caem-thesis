@@ -18,6 +18,49 @@ Detail belongs in the commit message; the log is for quick rewind.
 
 ## 2026-04-22 (BDT — date rolls based on activity)
 
+### 2026-04-22 11:00 BDT  `[DECISION]`  Initial Phase 1a redefined — Branch C IS the new Phase 1a
+
+- User decision: stop Flan-T5 Phase 1a; Branch C IS Phase 1a; Phase 1 Full = Phase 1a + Steps 16-18
+- Turned out runner had already halted itself at Step 7.0.2 (path bug, see NOTE below)
+- Killed `phase1a` and `watcher` tmux sessions (no-op; already exited)
+- No additional compute burned; Flan-T5 ~$13 already spent bought complete Cycle-0 data
+
+### 2026-04-22 10:50 BDT  `[IMPL]`  Flan-T5 halted state archived to HF
+
+- Uploaded 8.63 MB to `aksaN000/caem-passage-index-21m/phase_1a_flan_t5_halted/`
+- Contents: Step 6 seed (600 episodes), Step 7.0 Cycle-0 eval (6 benches × 500), calibration fold,
+  memory/deferred snapshots, MMLU baseline, run logs, MANIFEST.json
+- Usable as reference for Variant 18 `flan_t5_large_backbone` ablation row (after Branch C
+  main run completes and the revalidation pass re-scores these triples through the 7-family composite)
+
+### 2026-04-22 10:30 BDT  `[NOTE]`  Phase 1a interim interpretation — 6 axes computed
+
+See `branch_C.md` §Why branch C exists and 2026-04-22 entry for full findings. Headlines:
+
+- **Cycle-0 EM dramatically below published Flan-T5 ZS**: FEVER 21.0% (vs 55-60%), TriviaQA 0.0% (vs 40-45%), NQ 0.0% (vs 25-35%), TruthfulQA 13.8% (vs ~20%), StrategyQA 34.6% (vs 55-65%), ARC 26.2% (vs 35-45%). CAEM-scaffolded prompt + Flan-T5 is a broken substrate for the thesis headline. **Reinforces Qwen-3B decision.**
+- **u_stored distribution pooled**: P40=0.421, P70=0.561, P90=0.686 — would be the fitted thresholds. Per-benchmark P70 spread [0.512, 0.652] = 14pp; moderate heterogeneity worth per-benchmark reporting (Addition 2).
+- **Decision mix** at default τ=0.65: STORE rate 5.8-22.2% per bench (design target 30%; confirms calibration is necessary).
+- **ρ(u_stored, EM) ≈ 0**: pooled -0.011; STORE-only +0.106. Below gate threshold 0.3. BUT EM is heavily confounded (loops match labels randomly, 13% label extraction failures, paraphrase answers fail EM). Does NOT refute u_stored — refutes "u_stored predicts EM-match." Real gate needs faithfulness labels on Qwen-3B data.
+- **Loop contamination in STOREs**: FEVER 52.6%, StrategyQA 56.1%, NQ 22.4%, ARC 11.7%, TriviaQA 10.3%, TruthfulQA 9.1%. Pooled 30%. 85/241 STOREs would enter SIL pool. **Goal 4 loop filter empirically justified.**
+- **Non-loop STORE EM**: NQ 0%, TriviaQA 0%, FEVER 8.1%, StrategyQA 16.7%, ARC 22.4%, TruthfulQA 12.5%. Confirms paraphrase-failure-on-open-ended pattern — answers are semantically close but not string-matching gold.
+
+### 2026-04-22 10:00 BDT  `[BUG]`  Runner halted at Step 7.0.2 — path bug
+
+- `run_phase1a.sh:step_7_0_calibrate` passes `--calib_jsons outputs/cycle_0/calibration_fold_samples.json`
+- `run_experiment.py` actually writes the file at `outputs/cycle_0/calibration/calibration_fold_samples.json`
+- `calibrate_thresholds.py` logged `No files match` and exited; main runner exited too
+- Fix: updated path to `outputs/cycle_0/calibration/calibration_fold_samples.json` (commit pending)
+- Net effect on current work: runner stopped at 2026-04-21 03:58 BDT; no additional compute wasted after Step 7.0 complete
+- Lesson for Branch C runner: add pre-flight path-existence checks before invoking each script
+
+### 2026-04-22 09:00 BDT  `[DECISION]`  Prompt style port: ChatML envelope + scaffolded-CoT semantics preserved
+
+- Flan-T5: flat text with forced decoder_input_ids for "Reasoning:" prefix
+- Qwen-3B: ChatML with role tokens (user/assistant/system) + prefill for forced prefix
+- Preserved: scaffolded CoT structure (Reasoning → Answer), per-benchmark label instruction, few-shot pattern
+- Changed: ChatML envelope (required by Qwen), system prompt added (decoder-only benefit), few-shot as separate turn pairs (Qwen-native instruction-tuning format)
+- Thesis framing: "CAEM's scaffolded-CoT design is backbone-agnostic; the ChatML port preserves the design semantically while adapting delivery to decoder-only conventions."
+
 ### 2026-04-21 03:00 BDT  `[DECISION]`  Goal 5 optimal decisions locked
 
 - GPU util target: **70-80% sustained**, 90%+ bursts; not 85%+ target (hurts Tier 1 latency)

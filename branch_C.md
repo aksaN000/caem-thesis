@@ -28,28 +28,47 @@
 
 ## Why branch C exists
 
-Phase 1a (currently running on `main`, Flan-T5-Large) is the architecture proof-of-concept.
-It will finish ~2026-05-07 and produce defensible-but-modest headline numbers on a
-2022-era base model. It is NOT the thesis-as-defended version.
+**Phase 1a redefined 2026-04-21**: Branch C IS the new Phase 1a. The initial Flan-T5-Large
+Phase 1a was halted at Step 7.0.2 (runner path bug + superseded by Branch C decision).
+Phase 1 Full = Phase 1a (Branch C) + Steps 16-18 ablation sweep (supervisor-funded or
+post-defense work).
 
-**Branch C** is the integration branch (`feat/phase-2-all`) where four upgrades merge
+**Branch C** is the integration branch (`feat/phase-2-all`) where five goals merge
 into a publication-grade CAEM:
 
-- **Goal 1** — Qwen2.5-3B-Instruct base generator (replaces Flan-T5-Large)
+- **Goal 1** — Qwen2.5-3B-Instruct base generator (replaces Flan-T5-Large), ChatML prompts
 - **Goal 2** — Question↔answer relevance signal (one new signal, NOT verifier ensemble)
 - **Goal 3** — Retrieval upgrade (DEMOTED — ablation-only, not main-run)
 - **Goal 4** — Memory hygiene (loop filter, consolidation, invalidation)
+- **Goal 5** — Full hardware utilization (cross-cutting performance optimizations)
 
 Each goal is developed on its own feature branch, then integrated on `feat/phase-2-all`.
-Phase 1a's Flan-T5 data becomes the `flan_t5_large_backbone` ablation row — preserved,
-not thrown away.
 
-**Key constraint — Phase 1a data is preserved intact:**
+**Initial Flan-T5 Phase 1a — halted at Step 7.0.2 (2026-04-21 03:58 BDT)**
 
-- `outputs/full_run/` (10-cycle trajectory on Flan-T5-Large) feeds Ch5 Table 5.Z as an
-  ablation row demonstrating CAEM works across base-model generations
-- `outputs/purity_validation/theory_validation.json` is the Flan-T5 α baseline
-- `outputs/cycle_0/calibrated_thresholds.json` is preserved for per-backbone τ comparison
+- Cause: runner looked for `calibration_fold_samples.json` at wrong path level; actual
+  file is at `outputs/cycle_0/calibration/calibration_fold_samples.json`
+- Completed before halt: Step 6 cold-start seed (600 episodes), Step 7.0 Cycle-0 eval
+  (500 × 6 benches), `calibrated_config.json`, `experiment_summary.csv`, memory + deferred
+  snapshots, `mmlu_baseline.json`. Did NOT complete: Step 7.0.2 threshold calibration,
+  Step 5.5 v5, prompt ablation, Level B smoke, retention slice, HF upload, Step 7 main
+- Halted state archived to `aksaN000/caem-passage-index-21m/phase_1a_flan_t5_halted/`
+  (8.63 MB) as reference artefact for potential Variant 18 flan_t5_large_backbone
+  ablation row
+- Compute spent: ~$13 (all pre-Step-7 stages); $0 additional after the halt
+- Runner path bug must be fixed before Branch C runner reuses Step 7.0.2 pattern
+
+**Interim interpretation findings (from halted data, see `branch_C_log.md` 2026-04-21):**
+
+- Cycle-0 EM on Flan-T5 + CAEM-scaffolded-CoT prompt: 0-35% per benchmark (vs published
+  zero-shot 20-60%). Substrate too weak to carry thesis headline. **Reinforces Qwen-3B
+  decision.**
+- Loop contamination in STOREs: 30% pooled, up to 56% on binary-label benches
+  (StrategyQA, FEVER). **Reinforces Goal 4 loop filter.**
+- ρ(u_stored, EM) ≈ 0 pooled, +0.106 for STORE-only. Below the 0.3 epistemic-gate
+  threshold, BUT the signal is heavily confounded by EM metric noise (label extraction
+  failures, paraphrasing, loops). **Does NOT refute u_stored; refutes "u_stored predicts
+  EM-match."** Real epistemic gate needs faithfulness labels on a clean Qwen-3B Cycle-0.
 
 ---
 
@@ -324,25 +343,33 @@ Failures are reverted, not merged. The `outputs/perf_log.csv` is the audit trail
 
 ## Evaluation protocol
 
-### Pre-integration epistemic gate (NEW — mandatory, before any branch-C compute commits)
+### Pre-integration epistemic gate (mandatory, runs on Qwen-3B Cycle-0 with faithfulness labels)
 
 Critical risk flagged from `literature_review_2` §Topic 5 (Moskvoretskii et al. 2025):
 *"downstream success in DRAGIN / SeaKR / Adaptive-RAG correlates poorly with actual
 self-knowledge identification (Spearman near zero on several datasets)."* If CAEM's
 `u_stored` has the same defect, the entire tier-routing novelty claim is cosmetic, not
-load-bearing. Building ~$850 of Branch-C compute on an unvalidated foundation is
-reckless.
+load-bearing. Building Branch-C main-run compute on an unvalidated foundation is reckless.
+
+**Gate revised 2026-04-21** based on Flan-T5 interim findings: the correct reliability
+proxy is a **faithfulness label**, not EM. The Flan-T5 ρ ≈ 0 finding is measurement
+noise (loops + prompt mismatch + paraphrase failures) and cannot validate or refute
+u_stored's load-bearing-ness. The gate runs on Qwen-3B Cycle-0 with proper faithfulness
+labels.
 
 **Protocol**:
 
-1. **Inputs**: existing Phase 1a STOREd episodes from `outputs/full_run/memory_store_cycle_*.meta`
-   (available once Phase 1a completes) + corresponding gold labels from
-   `outputs/cycle_0/eval/*_cycle0.json`. For in-training benchmarks (FEVER, TriviaQA,
-   NQ) gold labels come from the benchmark; EM-match is the reliability proxy.
-2. **Script**: `scripts/phase1a_epistemic_gate.py` (new, ~1 day implementation)
-3. **Computation**: Spearman `ρ(u_stored, is_correct)` per benchmark + pooled, with
+1. **Inputs**: Branch-C Qwen-3B Cycle-0 STOREd episodes (from Goal-1 smoke or early
+   integration run on 500 samples × 3 in-training benchmarks FEVER/TriviaQA/NQ) +
+   **faithfulness labels** — for each (claim, passage) pair in the store, label with
+   a high-quality external judge (MiniCheck on a held-out subset, or cross-check via
+   multiple judges) whether the passage actually supports the claim. This is a
+   faithfulness signal, not an EM signal.
+2. **Script**: `scripts/epistemic_gate.py` (new, ~1 day implementation)
+3. **Computation**: Spearman `ρ(u_stored, is_faithful)` per benchmark + pooled, with
    95% CI via bootstrap (1000 resamples)
-4. **Wall-clock**: ~4 hours (reads existing files, no inference)
+4. **Wall-clock**: ~6 hours (Cycle-0 smoke on Branch C stack + faithfulness labelling
+   + analysis)
 5. **Decision thresholds**:
 
 | Outcome | Action |

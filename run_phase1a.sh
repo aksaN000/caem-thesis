@@ -121,8 +121,13 @@ PY
         return 0
     fi
     band "Step 7.0.2 — fit thresholds (quantile 0.70/0.40/0.90)"
+    # BUGFIX 2026-04-21: run_experiment.py writes calibration_fold_samples.json
+    # under cycle_0/calibration/ (subfolder), NOT at cycle_0/ top level. Path
+    # must match the actual output location or calibrate_thresholds exits with
+    # "No calibration JSONs found." See phase1a_flan_t5_halted snapshot for the
+    # previous run that halted at this step.
     python scripts/calibrate_thresholds.py \
-        --calib_jsons outputs/cycle_0/calibration_fold_samples.json \
+        --calib_jsons outputs/cycle_0/calibration/calibration_fold_samples.json \
         --verifier_backend minicheck \
         --output_json "$out" 2>&1 | tee -a "$RUNNER_LOG"
     python - "$out" <<'PY'
