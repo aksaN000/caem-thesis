@@ -5,26 +5,41 @@ Derive a labelled (document, claim, label) calibration set from CAEM's
 per-sample eval JSONs, to drive the MiniCheck-vs-RoBERTa diagnostic
 (``calibration_minicheck_vs_roberta.py``).
 
-Label convention
-----------------
+Label convention (benchmark-aware)
+----------------------------------
     label = 1  ->  the claim is SUPPORTED by the document
     label = 0  ->  the claim is NOT SUPPORTED (refuted or underivable)
 
-Label source: the evaluation harness records exact-match (``em``) per
-sample against the gold answers. We use EM as a first-order proxy for
-claim-support:
+The claim / label extraction is benchmark-aware because the eval
+harness records predictions in benchmark-specific formats:
 
-    em = 1  ->  treat (top-1 passage, model_answer) as a supported pair
-    em = 0  ->  treat (top-1 passage, model_answer) as an unsupported pair
+  * **FEVER** (3-way entailment task): the "claim" is the FEVER
+    statement itself, extracted from ``question`` after the
+    instruction prefix ("Claim: ..."). Label comes from
+    ``gold_label``: "supports" -> 1, "refutes"/"not enough info" -> 0.
+    This is the correct convention because FEVER's ground truth
+    *is* the support / no-support label; using EM here would conflate
+    "model predicted correctly" with "claim is supported", which are
+    different quantities.
 
-Both classes are drawn from the actual LM-generation distribution
-(the distribution the CAEM verifier is asked to score at run time),
-which is the correct evaluation regime for MiniCheck's claim-support
-training objective. Noise in the label (a correct answer that isn't
-stated in the top-1 passage; a wrong answer that happens to be
-paraphrased in the passage) is expected at ~5-15%% and is acceptable
-for a 500-pair smoke-grade diagnostic -- the thesis appendix Section
-should document this caveat.
+  * **TriviaQA, Natural Questions, TruthfulQA** (open-ended QA):
+    the "claim" is the model's full prediction string (e.g. "the
+    answer is Hamlet"). Label comes from EM: em=1 means the model's
+    answer matches gold and the top-1 retrieved passage should
+    support it; em=0 means the answer is wrong and thus not supported.
+
+  * **StrategyQA, ARC** (multiple-choice / yes-no): skipped for the
+    5.5 diagnostic. The "claim" would need to be reconstructed from
+    (question + predicted option) in a benchmark-specific way; the
+    thesis appendix treats the 5.5 audit as sufficient on FEVER +
+    open-ended QA coverage and documents the multi-choice exclusion
+    as a scope note in §A.3.
+
+Noise budget: open-ended labelling has ~5-15% label noise (a correct
+answer that isn't paraphrased in the top-1 passage; a wrong answer
+that happens to be mentioned) -- acceptable for a 500-pair smoke
+diagnostic. FEVER labelling has near-zero noise because the label is
+FEVER's own ground-truth annotation.
 
 Passages
 --------
@@ -80,21 +95,94 @@ def _load_eval_samples(paths: List[Path]) -> List[Dict[str, Any]]:
     return out
 
 
+# Benchmarks we include in the 5.5 diagnostic. StrategyQA / ARC are
+# multi-choice formats whose "claim" reconstruction is benchmark-
+# specific and is deferred from the Phase 1a 5.5 audit scope.
+SUPPORTED_BENCHMARKS = {"fever", "triviaqa", "natural_questions", "truthfulqa"}
+
+
+def _extract_claim(s: Dict[str, Any]) -> str:
+    """Benchmark-aware extraction of the claim string to score.
+
+    FEVER: parse the ``Claim: ...`` suffix from ``question``.
+    Open-ended QA: return ``prediction`` stripped.
+    Unknown benchmark: return ``prediction`` as a safe default.
+    """
+    bench = str(s.get("benchmark", "")).lower()
+    question = str(s.get("question", ""))
+    prediction = str(s.get("prediction", "")).strip()
+
+    if bench == "fever":
+        idx = question.find("Claim:")
+        if idx >= 0:
+            return question[idx + len("Claim:"):].strip()
+        # Fallback: if the instruction prefix was stripped upstream,
+        # use the whole question as the claim. This path should not
+        # fire on current FEVER eval JSONs.
+        return question.strip()
+
+    return prediction
+
+
+def _extract_label(s: Dict[str, Any]) -> Optional[int]:
+    """Benchmark-aware extraction of the 0/1 support label.
+
+    FEVER: ``gold_label == "supports"`` -> 1, else -> 0.
+    Open-ended QA: ``em >= 0.5`` -> 1, else -> 0.
+    Returns None when the sample has insufficient info to label.
+    """
+    bench = str(s.get("benchmark", "")).lower()
+
+    if bench == "fever":
+        gold_label = str(s.get("gold_label", "")).strip().lower()
+        if not gold_label:
+            return None
+        return 1 if gold_label == "supports" else 0
+
+    em = s.get("em")
+    if em is None:
+        return None
+    return 1 if em >= 0.5 else 0
+
+
+def _extract_retrieval_query(s: Dict[str, Any]) -> str:
+    """Query string passed to the retriever to fetch the top-1 passage.
+
+    For FEVER we use the extracted claim (cleaner retrieval target
+    than the question prefix + claim concatenation). For open-ended
+    QA we use the original question text (which is already a clean
+    retrieval target).
+    """
+    bench = str(s.get("benchmark", "")).lower()
+    if bench == "fever":
+        return _extract_claim(s) or s.get("question", "")
+    return s.get("question", "")
+
+
 def _split_by_em(
     samples: List[Dict[str, Any]],
 ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """Split samples into label=1 / label=0 pools using benchmark-aware
+    labelling. Skips samples from unsupported benchmarks and samples
+    with empty claim or undefined label.
+    """
     pos, neg = [], []
     for s in samples:
-        em = s.get("em")
-        if em is None:
+        bench = str(s.get("benchmark", "")).lower()
+        if bench not in SUPPORTED_BENCHMARKS:
             continue
-        prediction = s.get("prediction")
-        if prediction is None or not str(prediction).strip():
-            # Blank predictions come from ABSTAIN / DISCARD branches that
-            # emitted display_answer="I don't know." or empty; they carry
-            # no claim to score, so they can't go into either class.
+
+        claim = _extract_claim(s)
+        if not claim:
+            # No claim string available (blank prediction on open-ended
+            # QA, missing Claim: on FEVER). Cannot score this pair.
             continue
-        if em >= 0.5:
+
+        label = _extract_label(s)
+        if label is None:
+            continue
+
+        if label == 1:
             pos.append(s)
         else:
             neg.append(s)
@@ -161,9 +249,11 @@ def _build_pairs(
 ) -> List[Dict[str, Any]]:
     out: List[Dict[str, Any]] = []
     for i, s in enumerate(samples):
-        question = s.get("question", "")
-        claim = str(s.get("prediction", "")).strip()
-        passage = retrieve(question)
+        claim = _extract_claim(s)
+        if not claim:
+            continue
+        query = _extract_retrieval_query(s)
+        passage = retrieve(query)
         if not passage:
             continue
         out.append({
@@ -175,6 +265,7 @@ def _build_pairs(
             "em_score": float(s.get("em", 0.0)),
             "u_stored_ref": float(s.get("u_stored", 0.0)),
             "gold_answers_head": (s.get("gold_answers") or ["?"])[0][:120],
+            "gold_label": s.get("gold_label", ""),
         })
     return out
 
