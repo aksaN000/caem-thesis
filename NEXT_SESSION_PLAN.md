@@ -1,6 +1,97 @@
 # CAEM — Next Session Plan (Vast.ai Runbook)
 
-**Updated: 2026-04-19 | Phase 1a (Self-Funded) Line-by-Line Execution Plan**
+**Updated: 2026-04-20 | Phase 1a (Self-Funded) Line-by-Line Execution Plan**
+
+---
+
+## Session 2 delta (2026-04-20) — changes since v2026-04-19
+
+Material design + infrastructure changes since the last runbook update,
+captured so the numbered steps below read consistently with the current
+code state. All items shipped; main branch commits in parens.
+
+- **Uniform few-shot scaffolded CoT prompt + forced decoder prefix** for
+  all Tier 2 / Tier 3 generation (`17cd23c`). The prompt carries a
+  one-line step-by-step instruction, a single worked
+  `Reasoning: ... Answer: ...` few-shot example, the task-specific
+  instruction line + answer-format slot (\texttt{supports | refutes |
+  not enough info} for FEVER; \texttt{yes | no} for StrategyQA;
+  \texttt{A | B | C | D} for ARC; \texttt{<concise factual answer>} for
+  open-ended). `model.generate()` receives `decoder_input_ids` that
+  tokenise `"Reasoning:"` so every output begins with that header.
+  Pre-launch compliance smoke (30 queries, `scripts/prompt_compliance_smoke.py`)
+  measured compliance at 0% (zero-shot) -> 57% (few-shot) -> **87%**
+  (few-shot + forced prefix). Per-benchmark pass rates under the final
+  design: FEVER 100%, NQ 100%, StrategyQA 100%, TriviaQA 80%,
+  TruthfulQA 80%, ARC 60% (documented limitation in `VAST_SESSION_LOG`).
+- **Generation token budget raised 256 -> 512** (`17cd23c`). Both
+  `CAEMConfig.rag_max_new_tokens` and `cot_max_new_tokens` are 512 now
+  to accommodate the scaffolded-CoT output (reasoning ~80-150 tokens +
+  answer). Generation still stops at EOS per sequence; 512 is a safety
+  ceiling for the long tail.
+- **`_compute_display_answer` scaffold stripping**: the user-facing
+  display field in `PipelineResult` routes through
+  `eval.metrics.extract_cot_answer` so the user sees just the final
+  answer, not the full `Reasoning: ... Answer: Y` scaffold. Raw
+  generation + stored memory entry still carry the full scaffolded
+  text so downstream diagnostics (5.5, retroverify, purity audit) have
+  the full reasoning chain.
+- **`eval.metrics.extract_cot_answer` natural-suffix match** (`0f5a527`).
+  Flan-T5's natural CoT suffix is `So, the answer is X` rather than
+  the explicit `Answer:` marker. Extending the regex rescored
+  Step 7.0 Cycle-0 TriviaQA EM from 0.010 to 0.136 (13x) and NQ from
+  0.008 to 0.040 (5x). FEVER unchanged (uses `extract_fever_label`
+  downstream, robust to extractor variants).
+- **Level B batched inference infrastructure** merged to main
+  (`55dcb64`). `caem/pipeline_batch.py` + `caem/pipeline_batch_prefetch.py`
+  ship pooled Tier 2 / Tier 3 / verifier-sampler T5 calls, a
+  thread-pool prefetch, CUDA streams for the two data-independent
+  verifier samplers, and a Tier-1 fast path. Real-GPU smoke measured
+  1.19x speedup for Phase 1 and 1.22x for Phase 2 on an RTX 5090 at
+  N=16, all gates green (G1 at 0.15 u_stored tol, G2 decision
+  agreement 87.5%, G3 speedup, G4 P2 <= 1.15x P1). Main Step 7 runs
+  under `BatchPipeline` automatically; serial path is retained as a
+  flag-off fallback.
+- **Benchmark-aware pair builder for 5.5** (`08d7565`). FEVER claims
+  come from the `Claim:` suffix of the question (not from `prediction`
+  which is a 3-way label word); FEVER labels come from `gold_label`
+  (`supports` -> 1, else -> 0); open-ended QA continues to use
+  prediction + em-based labels; StrategyQA / ARC are excluded from
+  the 5.5 diagnostic because their label-word prediction format
+  makes claim reconstruction benchmark-specific.
+- **Step 7.0 threshold calibration protocol** (M2 in CH_AUDIT):
+  decision-tree thresholds (τ_store, τ_defer, τ_train) are fit from
+  the `n_cal=500` calibration split at quantiles (0.70, 0.40, 0.90)
+  at the Cycle-0 boundary and held fixed for Cycles 1-10. RoBERTa-era
+  defaults (0.65 / 0.45 / 0.75) produced near-zero STORE under
+  MiniCheck, which motivated the quantile-based refit. Step 7 launches
+  under `--store_threshold / --defer_threshold / --train_threshold`
+  CLI flags read from `outputs/cycle_0/calibrated_thresholds.json`.
+- **External prompt-design ablation**: `scripts/compare_prompt_design.py`
+  ships on main (`e1b166c`). Reads the two Step 7.0 directories
+  (`outputs/cycle_0_pre_cot_prompt/eval` and `outputs/cycle_0/eval`),
+  emits a 6-row LaTeX table to
+  `pre thesis 1 report/tables/tab_prompt_design_ablation.tex`
+  (Ch 5 `tab:prompt-design-ablation`). No automated 18th ablation
+  variant — this is an external Cycle-0 comparison rather than an
+  inference-time flag flip.
+- **Step 6 cold-start re-seed required under new prompts**. The
+  cold-start memory created on 2026-04-19 was seeded under the OLD
+  per-task minimal-CoT prompts; its stored episodes therefore carry
+  label-only answers on FEVER / StrategyQA / ARC and u_stored values
+  computed under the old distribution. Re-seeding under the new
+  uniform-scaffolded prompts ensures the training pool at Cycle 1+
+  is format-consistent with Step 7's generator output. Re-seed adds
+  3 h and ~$2 to the pre-launch window.
+- **Ablation registry bumped to 17 variants** (M6). `roberta_nli_backend`
+  is the 17th. Chapter 3 Table `tab:ablation-registry` and Chapter 5
+  `tab:ablation-main` both updated to reflect this.
+- **Hardware**: primary GPU is **RTX 5090 (32 GB)**; the system also
+  fits on RTX 4090 (24 GB) by reducing deferred-buffer capacity from
+  $10^4$ to $5 \times 10^3$. Chapters 1, 3, 4, 5 all updated with the
+  backward-compat wording.
+
+---
 
 This document is a **step-by-step runbook**. Read each numbered action,
 execute it, verify the expected output, then move to the next. Do not
@@ -166,9 +257,20 @@ Status column legend: ✅ done · 🔄 in progress · ⏳ pending ·
 | **Phase 1 Full subtotal** | | | | **~1,000 h** | **~\$638** |
 | 20B | **(Optional)** STaR ceiling run | 20B | 🟡 | 7–8 h | ~\$5 |
 
-Progress today (2026-04-19 session): Steps 1, 2, 3, 3B, 4, 4.5, 5 ✅;
-Step 6 🔄 (FEVER done, TriviaQA in progress, NQ pending).
-Everything else ⏳ pending \$240 topup.
+Progress snapshot (end of 2026-04-20 session):
+- Steps 1, 2, 3, 3B, 4, 4.5, 5 ✅
+- Step 6 ✅ (Apr 19 run under OLD prompts; re-seed under NEW prompts
+  scheduled immediately after current Step 7.0 finishes — see Session 2
+  delta above).
+- Step 7.0 🔄 (OLD-prompt run on ARC ~300/500 as of 2026-04-20 03:20 UTC;
+  FEVER/TriviaQA/NQ/TruthfulQA/StrategyQA complete. Re-run under NEW
+  prompts required to produce the thesis-canonical Cycle-0 baseline.)
+- Step 5.5 ✅ (v2+v3 preview diagnostics run on 2026-04-20; v4 audit-of-
+  record awaits the new Step 7.0 output).
+- Everything ≥ Step 7 ⏳ pending the Step 7.0 re-run under new prompts.
+Remaining sequence ( $\sim$10 h pre-launch + 7 days main): re-seed Step 6
+under new prompts -> Step 7.0 NEW run -> v4 5.5 + prompt-design ablation
++ Level B smoke -> Step 7 main launch.
 
 ---
 
