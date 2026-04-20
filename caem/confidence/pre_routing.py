@@ -13,15 +13,24 @@ Signal 1 -- u_token (geometric mean of per-token log-probabilities)
     Measures how confidently the model assigns probability to each generated
     token. Low u_token = the model is guessing across many alternatives.
 
-Signal 2 -- C_conv (Internal Convergence, adapted from Nandakishor 2025)
-    Original: applied to decoder hidden states in decoder-only models.
-    CAEM adaptation: applied to Flan-T5's *encoder* hidden states to measure
-    how stably the model represents the query *before* generation begins.
+Signal 2 -- C_conv (Internal Convergence, Nandakishor 2025)
+    Measures query-representation stability via the variance ratio of early
+    vs. late transformer-layer hidden states on the query tokens.
 
-    Intuition: if early encoder layers vary much more than late layers, the
-    model has not settled on a stable representation of the query -- it is
-    internally "confused" about what is being asked. High variance ratio =
-    low confidence.
+    Backbone dispatch (Goal 1, Branch C):
+      - Decoder-only (Qwen/Gemma/Llama): run ``self.model(input_ids=...)``
+        on the query tokens directly (no generation) and extract the full
+        hidden-state stack. This matches the original Nandakishor (2025)
+        formulation — the decoder-only path is canonical.
+      - Encoder-decoder (Flan-T5): run ``self.model.encoder(...)`` and extract
+        encoder hidden states. The CAEM adaptation because Flan-T5 has no
+        unified decoder stack to run without generation; the encoder produces
+        the stable query representation we want to measure.
+
+    Intuition: if early layers disagree more than late layers, the model has
+    not settled on a stable representation of the query -- it is internally
+    "confused" about what is being asked. High variance ratio = low
+    confidence.
 
     Formula:  c_conv  = var(early_layers) / (var(late_layers) + ε)
               confidence from c_conv = 1 / (1 + c_conv)
@@ -210,52 +219,83 @@ class PreRoutingConfidenceEstimator:
     # Signal 2 -- C_conv (Internal Convergence)                            #
     # ------------------------------------------------------------------ #
 
+    def _is_encoder_decoder(self) -> bool:
+        """Detect architecture once, from model config.
+
+        Returns True for Flan-T5 family; False for Qwen/Gemma/Llama/Phi/Mistral
+        and other decoder-only families. Used to dispatch the c_conv hidden-
+        state source (encoder-only vs full decoder stack).
+
+        Note on torch.compile wrapping: ``OptimizedModule`` forwards all
+        attribute access (including ``.config``) to the wrapped module, so
+        we do NOT need to reach for ``._orig_mod`` manually — accessing
+        ``self.model.config.is_encoder_decoder`` works through the wrapper.
+        """
+        cfg = getattr(self.model, "config", None)
+        return bool(getattr(cfg, "is_encoder_decoder", False))
+
     def _compute_c_conv(self, inputs: dict) -> float:
-        """Encoder layer variance ratio -- query representation stability.
+        """Layer-variance-ratio query-stability signal; dispatches on architecture.
 
-        Adaptation of Nandakishor (2025) C_conv to encoder-decoder architecture:
-        - Original: decoder hidden states in decoder-only models (GPT-style)
-        - CAEM: encoder hidden states in Flan-T5 (encoder-decoder)
+        Encoder-decoder (Flan-T5) path: runs ``self.model.encoder(...)`` over
+        the query tokens; uses encoder hidden states. CAEM-specific adaptation
+        because T5 has no unified stack to run without generation.
 
-        The encoder processes the query and produces contextual representations.
-        If early layers disagree more than late layers, the model hasn't converged
-        on a stable representation -- a signal of low query comprehension confidence.
+        Decoder-only (Qwen/Gemma/Llama) path: runs ``self.model(...)`` over
+        the query tokens (forward pass only, no generation) and uses the full
+        transformer-stack hidden states. This is the original Nandakishor
+        (2025) formulation; cleaner than the T5 adaptation.
 
-        Formula:
-            early_layers = hidden_states[1 : L//2 + 1]   (layers 1 to L/2)
-            late_layers  = hidden_states[L//2+1 : L+1]   (layers L/2+1 to L)
-            c_conv       = Var(early) / (Var(late) + ε)
+        Both paths apply the identical variance-ratio computation afterward;
+        only the forward-pass source differs. Returns the raw c_conv ratio;
+        conversion to confidence happens in ``estimate()``.
 
-        High c_conv -> early layers more variable than late -> model unsettled.
-        Converted to confidence: 1 / (1 + c_conv).
-
-        Returns raw c_conv ratio (not converted) -- conversion happens in estimate().
-        Returns 0.0 (highest confidence) on error (fail-safe).
+        Returns 0.0 (highest confidence, fail-safe) on any forward-pass error.
         """
         try:
-            encoder_outputs = self.model.encoder(
-                input_ids=inputs["input_ids"],
-                attention_mask=inputs.get("attention_mask"),
-                output_hidden_states=True,
-                return_dict=True,
-            )
+            if self._is_encoder_decoder():
+                outputs = self.model.encoder(
+                    input_ids=inputs["input_ids"],
+                    attention_mask=inputs.get("attention_mask"),
+                    output_hidden_states=True,
+                    return_dict=True,
+                )
+            else:
+                # Decoder-only: direct forward pass on the query tokens. No
+                # generation; we only need the hidden-state stack.
+                outputs = self.model(
+                    input_ids=inputs["input_ids"],
+                    attention_mask=inputs.get("attention_mask"),
+                    output_hidden_states=True,
+                    return_dict=True,
+                )
         except Exception as exc:
-            logger.warning("c_conv: encoder forward pass failed with %s -- returning 0.0.", exc)
+            logger.warning(
+                "c_conv: forward pass failed with %s -- returning 0.0.",
+                exc,
+            )
             return 0.0
 
-        hidden_states = encoder_outputs.hidden_states
-        # hidden_states: tuple of (L+1) tensors, each shape (batch, seq_len, hidden_dim)
-        # Index 0 = embedding layer output; indices 1..L = transformer layer outputs
-        L = len(hidden_states) - 1  # Number of encoder layers (12 for Flan-T5-Large)
+        hidden_states = getattr(outputs, "hidden_states", None)
+        if hidden_states is None:
+            logger.warning(
+                "c_conv: model output has no hidden_states attr -- returning 0.0. "
+                "The model may not support output_hidden_states=True on this path."
+            )
+            return 0.0
+
+        # hidden_states: tuple of (L+1) tensors, shape (batch, seq_len, hidden_dim)
+        # Index 0 = embedding layer output; indices 1..L = transformer layer outputs.
+        # Flan-T5-Large: L=24 encoder layers. Qwen2.5-3B: L=36 decoder layers.
+        L = len(hidden_states) - 1
 
         if L < 2:
-            # Edge case: model has fewer than 2 layers -- c_conv is undefined.
-            logger.warning("c_conv: only %d encoder layer(s) -- returning 0.0.", L)
+            logger.warning("c_conv: only %d layer(s) in hidden_states -- returning 0.0.", L)
             return 0.0
 
         # Split into early and late halves (excluding embedding layer at index 0).
-        early_layers = hidden_states[1 : L // 2 + 1]   # Layers 1 to L/2
-        late_layers  = hidden_states[L // 2 + 1 : L + 1]  # Layers L/2+1 to L
+        early_layers = hidden_states[1 : L // 2 + 1]
+        late_layers  = hidden_states[L // 2 + 1 : L + 1]
 
         if not early_layers or not late_layers:
             return 0.0

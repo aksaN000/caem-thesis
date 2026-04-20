@@ -239,6 +239,175 @@ class TestCConv:
         assert c == 0.0
 
 
+def make_mock_decoder_only_model(
+    early_var: float = 2.0,
+    late_var: float = 0.5,
+    num_layers: int = 24,
+) -> MagicMock:
+    """Build a mock decoder-only (Qwen-style) model with hidden states on
+    the top-level ``model(...)`` forward (not ``model.encoder(...)``).
+
+    The mock's ``config.is_encoder_decoder=False`` routes ``_compute_c_conv``
+    into the decoder-only dispatch branch.
+    """
+    model = MagicMock()
+    model.parameters.return_value = iter([torch.zeros(1)])
+    # Decoder-only architecture: is_encoder_decoder must be falsy
+    model.config = SimpleNamespace(is_encoder_decoder=False)
+    # forward on the query tokens returns hidden_states directly
+    hidden_states = make_hidden_states(num_layers, SEQ_LEN, HIDDEN_DIM, early_var, late_var)
+    model.return_value = SimpleNamespace(hidden_states=hidden_states)
+    return model
+
+
+class TestCConvDecoderOnlyDispatch:
+    """Tests for Goal 1 Phase C — decoder-only C_conv path (Qwen/Gemma/Llama)."""
+
+    def test_dispatch_uses_model_forward_not_encoder(self):
+        """Decoder-only models route to self.model(...), not self.model.encoder(...)."""
+        model = make_mock_decoder_only_model(early_var=2.0, late_var=0.5)
+        tokenizer = make_mock_tokenizer()
+        est = PreRoutingConfidenceEstimator(model, tokenizer, CAEMConfig(), device="cpu")
+        assert est._is_encoder_decoder() is False
+
+        est._compute_c_conv(est._tokenize("q"))
+        # Confirm the decoder-only path was taken
+        model.assert_called()                       # self.model(...)
+        model.encoder.assert_not_called()           # NOT self.model.encoder(...)
+
+    def test_encoder_decoder_dispatch_preserved(self):
+        """Encoder-decoder models still route to self.model.encoder(...)."""
+        model = make_mock_model()
+        # Explicitly set is_encoder_decoder=True to make dispatch deterministic.
+        # (A bare MagicMock's .config.is_encoder_decoder also happens to be
+        # truthy, which is why existing tests stayed green; we assert
+        # explicitly here.)
+        model.config = SimpleNamespace(is_encoder_decoder=True)
+        tokenizer = make_mock_tokenizer()
+        est = PreRoutingConfidenceEstimator(model, tokenizer, CAEMConfig(), device="cpu")
+        assert est._is_encoder_decoder() is True
+
+        est._compute_c_conv(est._tokenize("q"))
+        model.encoder.assert_called()
+
+    def test_decoder_only_variance_math_identical_to_encoder_decoder(self):
+        """The variance-ratio math is identical across dispatch branches.
+
+        Share the SAME hidden-state tuple between both mocks (decoder-only
+        returns it via ``model(...)``, encoder-decoder via ``model.encoder(...)``)
+        to verify that only the forward-pass source differs — the downstream
+        variance math operates on identical inputs and must return the same
+        c_conv value.
+        """
+        shared_hidden_states = make_hidden_states(
+            num_layers=NUM_LAYERS, seq_len=SEQ_LEN, hidden_dim=HIDDEN_DIM,
+            early_var=5.0, late_var=1.0,
+        )
+
+        dec_model = MagicMock()
+        dec_model.parameters.return_value = iter([torch.zeros(1)])
+        dec_model.config = SimpleNamespace(is_encoder_decoder=False)
+        dec_model.return_value = SimpleNamespace(hidden_states=shared_hidden_states)
+
+        enc_model = MagicMock()
+        enc_model.parameters.return_value = iter([torch.zeros(1)])
+        enc_model.config = SimpleNamespace(is_encoder_decoder=True)
+        enc_model.encoder.return_value = SimpleNamespace(hidden_states=shared_hidden_states)
+
+        tokenizer = make_mock_tokenizer()
+        dec_est = PreRoutingConfidenceEstimator(dec_model, tokenizer, CAEMConfig(), device="cpu")
+        enc_est = PreRoutingConfidenceEstimator(enc_model, tokenizer, CAEMConfig(), device="cpu")
+
+        c_dec = dec_est._compute_c_conv(dec_est._tokenize("q"))
+        c_enc = enc_est._compute_c_conv(enc_est._tokenize("q"))
+
+        # Given identical hidden-state tensors, the variance math must produce
+        # bit-identical c_conv regardless of which forward path produced them.
+        assert abs(c_dec - c_enc) < 1e-6, (
+            f"decoder-only c_conv={c_dec:.6f} diverges from encoder c_conv={c_enc:.6f} "
+            "on identical hidden states — variance math is not dispatch-agnostic."
+        )
+        assert c_dec > 1.0  # early_var > late_var
+
+    def test_decoder_only_no_hidden_states_attr_returns_zero(self):
+        """Fail-safe: if the decoder-only forward doesn't expose hidden_states,
+        we should return 0.0 (highest-confidence fallback), not crash."""
+        model = MagicMock()
+        model.parameters.return_value = iter([torch.zeros(1)])
+        model.config = SimpleNamespace(is_encoder_decoder=False)
+        # forward returns a namespace WITHOUT hidden_states attribute
+        model.return_value = SimpleNamespace(logits=torch.zeros(1, 8, 100))
+        tokenizer = make_mock_tokenizer()
+        est = PreRoutingConfidenceEstimator(model, tokenizer, CAEMConfig(), device="cpu")
+        c = est._compute_c_conv(est._tokenize("q"))
+        assert c == 0.0
+
+    def test_decoder_only_forward_error_returns_zero(self):
+        """Fail-safe: any forward-pass exception returns 0.0 (not a crash)."""
+        model = MagicMock()
+        model.parameters.return_value = iter([torch.zeros(1)])
+        model.config = SimpleNamespace(is_encoder_decoder=False)
+        model.side_effect = RuntimeError("CUDA OOM simulated")
+        tokenizer = make_mock_tokenizer()
+        est = PreRoutingConfidenceEstimator(model, tokenizer, CAEMConfig(), device="cpu")
+        c = est._compute_c_conv(est._tokenize("q"))
+        assert c == 0.0
+
+
+@pytest.mark.slow
+def test_c_conv_live_qwen_3b():
+    """Live integration — load Qwen-3B, compute c_conv + u_pre end-to-end.
+
+    Validates decoder-only dispatch on a real model (Qwen 36-layer stack).
+    Asserts FINITENESS and BOUNDEDNESS only, not signal quality.
+
+    Semantic-quality note (discovered 2026-04-22 during Phase C testing):
+    u_token on Qwen-3B comes out near-zero when the pre-routing estimator is
+    called on RAW text (no ChatML template), because Qwen is instruction-
+    tuned and flails without chat format; predictions scatter across Qwen's
+    151k-token vocab, making per-token probabilities tiny and geomean(probs)
+    collapse to ~1e-9. This is expected behavior pre-integration and is fixed
+    in Phase D when pipeline.py formats pre-routing queries with ChatML before
+    passing to the estimator. This test therefore only validates plumbing
+    (runs-without-crashing + finite outputs); signal quality is validated
+    after Phase D in an integrated smoke test.
+    """
+    if not torch.cuda.is_available():
+        pytest.skip("requires CUDA")
+
+    from caem.model_loader import load_base_generator
+    import gc
+
+    model, tok, is_enc_dec = load_base_generator(
+        "Qwen/Qwen2.5-3B-Instruct",
+        device="cuda",
+        dtype=torch.bfloat16,
+        use_flash_attention_2=False,
+        use_torch_compile=False,
+    )
+    try:
+        assert is_enc_dec is False
+        est = PreRoutingConfidenceEstimator(model, tok, CAEMConfig(), device="cuda")
+        pc = est.estimate("What is the capital of France?")
+
+        # Finite + bounded — plumbing correctness, NOT signal quality (see
+        # semantic-quality note in the docstring above).
+        assert math.isfinite(pc.u_token) and 0.0 <= pc.u_token <= 1.0, \
+            f"u_token out of [0,1] or non-finite: {pc.u_token}"
+        assert math.isfinite(pc.c_conv) and pc.c_conv >= 0.0, \
+            f"c_conv negative or non-finite: {pc.c_conv}"
+        assert math.isfinite(pc.u_pre) and 0.0 <= pc.u_pre <= 1.0, \
+            f"u_pre out of [0,1] or non-finite: {pc.u_pre}"
+
+        # c_conv should be finite and not a complete outlier
+        assert pc.c_conv < 100.0, f"unexpectedly extreme c_conv: {pc.c_conv}"
+    finally:
+        del model, tok
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
+
 # -----------------------------------------------------------------------------
 # Combined estimate()
 # -----------------------------------------------------------------------------
