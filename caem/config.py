@@ -236,11 +236,16 @@ class CAEMConfig:
     # Flan-T5-Large has a 512-token encoder limit; 384 leaves room for the
     # question and instruction prefix.
     rag_max_context_tokens: int = 384
-    # [DES] Max new tokens for RAG generation (longer than Tier 2 because
-    # the model now has supporting context to draw from).
-    rag_max_new_tokens: int = 256
-    # [DES] Max new tokens for CoT (Chain-of-Thought) generation limits
-    cot_max_new_tokens: int = 256
+    # [DES] Max new tokens for RAG generation. Raised from 256 to 512
+    # after the uniform-CoT few-shot prompt was introduced: the few-shot
+    # example + scaffolded Reasoning/Answer fields can consume ~150 tokens
+    # on their own, and we need headroom so Flan-T5 reaches the Answer
+    # slot even on long CoT completions. Flan-T5-Large natural output
+    # rarely exceeds 120 tokens; 512 is a safety ceiling.
+    rag_max_new_tokens: int = 512
+    # [DES] Max new tokens for CoT (Chain-of-Thought) generation limits.
+    # Raised to 512 for the same reason as rag_max_new_tokens above.
+    cot_max_new_tokens: int = 512
     # [DES] Sampling for RAG generation: greedy (do_sample=False) for
     # reproducibility; no temperature needed.
     rag_do_sample: bool = False

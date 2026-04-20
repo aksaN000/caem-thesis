@@ -571,6 +571,134 @@ Chapter hits:
 
 ---
 
+## 2026-04-20 audit additions — final-state coherence sweep
+
+Design changes committed between the MiniCheck swap (M1-M9 block) and
+the Step 7 launch window. Captured for the Phase 1a / Phase 1 Full
+cross-check.
+
+### M10 Few-shot scaffolded CoT + forced decoder prefix for Tier 2/3 generation (Ch4, Ch5)
+DONE. Every Tier 2 and Tier 3 generation call uses a uniform prompt
+template carrying a one-sentence instruction, one worked few-shot
+example in `Reasoning: ... Answer: ...` format, the retrieved context
+(Tier 3 only), the task-specific instruction line, and an explicit
+`Reasoning:` / `Answer:` response scaffold. A forced decoder prefix
+(`decoder_input_ids` = tokenised `Reasoning:`) guarantees every output
+begins with the header even when greedy decoding would short-circuit
+to a direct label.
+
+Empirical motivation (30-query pre-launch compliance smoke):
+- Zero-shot scaffold alone: 0 / 30 compliant (0%).
+- Few-shot one-example: 17 / 30 compliant (~57%).
+- Few-shot + forced prefix: 26 / 30 compliant (~87%).
+
+Per-benchmark pass rates under few-shot + forced prefix:
+FEVER 100%, NQ 100%, StrategyQA 100%, TriviaQA 80%, TruthfulQA 80%,
+ARC-Challenge 60% (multiple-choice template still pressures the
+decoder toward short letter answers).
+
+Chapter hits:
+- Ch4 §Implementation: new `Generator prompt design` paragraph
+  between `Pretrained components` table and `Code organisation`.
+- Ch4 `tab:hparams`: RAG / CoT `max_new_tokens` row updated 256/256 →
+  512/512 with justification.
+- Ch5 §Implementation Details: new `Generator prompt design`
+  paragraph pointing at Ch4, recording the compliance smoke numbers,
+  and noting the 13% scaffold-bypass subset receives reduced-rank
+  composite (Ch6 limitation).
+
+Code: `caem/retrieval/rag.py` `_build_prompt` rewritten + `_few_shot_example`
++ `_build_forced_prefix` helper;
+`caem/pipeline.py` `_build_tier2_prompt` rewritten + `_build_forced_prefix`;
+`caem/pipeline_batch.py` `batch_tier2_generate` wires the forced prefix
+through the pooled T5 call; `_compute_display_answer` strips the
+scaffold via `extract_cot_answer` for user-facing output.
+`scripts/prompt_compliance_smoke.py` pre-launch gate.
+
+### M11 Level B batched inference infrastructure (Ch5)
+DONE (code + smoke validation; production measurement pending Step 7).
+Phase 1 static batching (`caem/pipeline_batch.py`) pools Tier 2, Tier 3,
+and verifier M-chain + semantic-entropy calls across micro-batches.
+Phase 2 adds thread-pool prefetch
+(`caem/pipeline_batch_prefetch.py`), CUDA-stream overlap for the two
+data-independent verifier samplers (`_pooled_sample_t5_dual`), and a
+Tier-1 fast path that threads `_peek_routing` results into the serial
+`answer()` via `_precomputed_routing`.
+
+Real-GPU smoke on RTX 5090 (N=16 queries):
+- Serial baseline: 161.7 s (10.11 s / sample).
+- Phase 1 batched: 135.0 s (1.19x speedup).
+- Phase 2 prefetching: 132.7 s (1.22x speedup).
+- G1 (u_stored tolerance 0.15), G2 (decision agreement ≥ 80%),
+  G3 (speedup ≥ 1.18x), G4 (p2 vs p1 ≤ 1.15x) all pass.
+
+Chapter hits:
+- Ch5 §Implementation Details: new `Batched inference infrastructure
+  (Level B)` paragraph recording the design, the 1.19x / 1.22x
+  wall-clock numbers, and the semantics-preserving contract.
+
+Code: `caem/pipeline_batch.py` + `caem/pipeline_batch_prefetch.py` +
+`caem/verification/verifier.py` verify_batch + `_pooled_sample_t5_dual`
++ `scripts/level_b_smoke.py`.
+
+### M12 Generation token budget 256 → 512 (Ch4)
+DONE. `CAEMConfig.rag_max_new_tokens` and
+`CAEMConfig.cot_max_new_tokens` raised from 256 to 512 to accommodate
+the few-shot scaffolded CoT output (reasoning section can reach
+~80-150 tokens on Flan-T5-Large plus the answer slot). Generation
+remains dynamic per sequence (stops at EOS); the raised ceiling only
+affects the worst-case tail.
+
+Chapter hits:
+- Ch4 `tab:hparams` RAG / CoT max new tokens row.
+
+Code: `caem/config.py`.
+
+### M13 extract_cot_answer extended to match `the answer is X` suffix (Ch5 §A.3 methodology note candidate)
+DONE. Flan-T5's natural CoT suffix is `So, the answer is X` rather
+than the explicit `Answer: X` marker. The original extractor matched
+only the latter, which re-scored TriviaQA Cycle-0 EM at 0.010 and NQ
+at 0.008 despite the raw predictions containing valid answers. After
+extending the regex to cover the natural suffix (case-insensitive,
+non-greedy to the first terminal punctuation), re-scored TriviaQA
+Cycle-0 EM rose to 0.136 (13x) and NQ to 0.040 (5x). FEVER unchanged
+(uses label-scanning `extract_fever_label` downstream, robust to
+extractor variants).
+
+Chapter hits:
+- No chapter text change; this is an implementation-level fix that
+  preserves the Ch3 metric definitions and Ch5 EM/F1 reporting.
+
+Code: `eval/metrics.py` `extract_cot_answer`; 7 new unit tests on the
+`the answer is X` / `So, the answer is X` / `Therefore, the answer is X`
+pattern.
+
+### M14 Benchmark-aware claim / label extraction in the 5.5 calibration pair builder
+DONE. The pair builder `scripts/build_calibration_pairs.py` originally
+used `prediction` as the claim and EM as the label for every
+benchmark, which produced degenerate pairs for FEVER because the
+FEVER prediction is a 3-way label word (`supports`/`refutes`/`NEI`)
+not a natural-language claim. The rewrite is benchmark-aware: FEVER
+claims come from the `Claim: ...` suffix of the question field, and
+FEVER labels come from `gold_label` (`supports` -> 1, else -> 0);
+open-ended QA continues to use `prediction` as the claim and EM as
+the label; StrategyQA and ARC-Challenge are excluded from the 5.5
+diagnostic because their prediction format (yes/no and letter
+respectively) makes claim reconstruction benchmark-specific and
+non-trivial. The 5.5 audit-of-record is therefore scoped to FEVER
+plus the three open-ended benchmarks (TriviaQA, NQ, TruthfulQA).
+
+Chapter hits:
+- No chapter text change; this is scoping and methodology for the
+  Ch5 §A.3 verifier-calibration diagnostic. The scope is documented
+  in the pair-builder script header and in the VAST_SESSION_LOG.
+
+Code: `scripts/build_calibration_pairs.py` new `_extract_claim`,
+`_extract_label`, `_extract_retrieval_query` helpers +
+`SUPPORTED_BENCHMARKS` gate.
+
+---
+
 ## Cross-chapter consistency pass (task #71) - checklist
 When task #71 comes up, walk this file top-to-bottom and resolve each entry.
 Every fix that edits a chapter file should be marked DONE here with the
