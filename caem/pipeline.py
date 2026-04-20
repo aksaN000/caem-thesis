@@ -48,6 +48,7 @@ import torch
 
 from caem.config import CAEMConfig
 from caem.confidence.pre_routing import PreRoutingConfidenceEstimator
+from caem.prompts import build_tier2_prompt
 from caem.memory.entry import (
     EpisodicEntry,
     PostGenerationConfidence,
@@ -576,42 +577,58 @@ class CAEMPipeline:
         return entry.answer, entry.u_stored
 
     def _tier2(self, query: str, pre_conf: PreRoutingConfidence):
-        """Generate a Tier 2 answer with Flan-T5.
+        """Generate a Tier 2 answer on the decoder-only backbone.
+
+        Builds a ChatML scaffolded-CoT prompt via ``caem.prompts.build_tier2_prompt``,
+        appends the ``"Reasoning:"`` forced prefix as prefill, generates, and
+        decodes only the newly-generated continuation. Prepends the forced
+        prefix to the returned answer so the string begins with ``Reasoning:``
+        — the scaffolded-CoT contract the Stage-5 verifier expects.
 
         Post-generation quality gating is handled entirely by UnifiedVerifier
-        (Stage 5); this method returns (answer_str, None, escalated).
+        (Stage 5); this method returns ``(answer_str, None, escalated)``.
 
         Returns
         -------
         (answer_str, post_conf, escalated)
         """
-        prompt = self._build_tier2_prompt(query)
+        prompt_text, forced_prefix = build_tier2_prompt(query, tokenizer=self.tokenizer)
+        full_input = prompt_text + forced_prefix
+
         enc = self.tokenizer(
-            prompt,
+            full_input,
             return_tensors="pt",
             truncation=True,
-            max_length=512,
+            max_length=self.config.cot_max_new_tokens + 2048,
         )
         input_ids = enc["input_ids"].to(self.device)
+        attention_mask = enc.get("attention_mask")
+        if attention_mask is not None:
+            attention_mask = attention_mask.to(self.device)
+        input_len = int(input_ids.shape[1])
 
         try:
             self.model.eval()
             with torch.no_grad():
-                decoder_input_ids = self._build_forced_prefix(input_ids.shape[0])
                 output_ids = self.model.generate(
                     input_ids,
-                    decoder_input_ids=decoder_input_ids,
+                    attention_mask=attention_mask,
                     max_new_tokens=self.config.cot_max_new_tokens,
                     do_sample=False,
+                    pad_token_id=self.tokenizer.pad_token_id,
                 )
-            answer_str = self.tokenizer.decode(
-                output_ids[0], skip_special_tokens=True
+            continuation = self.tokenizer.decode(
+                output_ids[0, input_len:],
+                skip_special_tokens=True,
             ).strip()
+            answer_str = (
+                f"{forced_prefix}{continuation}" if continuation else forced_prefix
+            )
         except Exception as exc:
             logger.error("Tier 2 generation failed: %s -- escalating to Tier 3.", exc)
             return self._tier3(query), None, True
 
-        if not answer_str:
+        if not answer_str or answer_str.strip() == forced_prefix.strip():
             logger.warning("Tier 2 produced empty answer -- escalating to Tier 3.")
             return self._tier3(query), None, True
 
@@ -628,148 +645,13 @@ class CAEMPipeline:
         logger.debug("Tier 3 RAG answer: '%s...'", answer[:80])
         return answer
 
-    def _build_forced_prefix(self, batch_size: int) -> torch.Tensor:
-        """Return decoder_input_ids forcing every output to start with
-        ``Reasoning:``.
-
-        Shared with Tier 2 and Tier 3 (Tier 3 has its own copy on
-        TierThreeRAG because it operates on the shared model without
-        needing pipeline state). Cached per-batch-size so the prefix
-        tensor is not rebuilt per query.
-        """
-        cached = getattr(self, "_forced_prefix_ids", None)
-        if cached is not None and cached.shape[0] == batch_size:
-            return cached
-        start_id = getattr(
-            self.model.config, "decoder_start_token_id",
-            self.tokenizer.pad_token_id,
-        )
-        if start_id is None:
-            start_id = self.tokenizer.pad_token_id or 0
-        prefix_enc = self.tokenizer(
-            "Reasoning:",
-            return_tensors="pt",
-            add_special_tokens=False,
-        )
-        prefix_ids = prefix_enc["input_ids"].to(self.device)
-        start = torch.tensor([[start_id]], device=self.device, dtype=torch.long)
-        row = torch.cat([start, prefix_ids], dim=-1)
-        forced = row.expand(batch_size, -1).contiguous()
-        self._forced_prefix_ids = forced
-        return forced
-
-    @staticmethod
-    def _extract_after_token(query: str, token: str) -> str:
-        """Return substring after token (case-insensitive), else full query."""
-        q_lower = query.lower()
-        t_lower = token.lower()
-        idx = q_lower.find(t_lower)
-        if idx == -1:
-            return query.strip()
-        return query[idx + len(token):].strip()
-
-    @staticmethod
-    def _detect_query_task(query: str) -> str:
-        """Infer benchmark task style from constrained prompt prefixes.
-
-        Returns one of ``"fever"``, ``"strategyqa"``, ``"arc"``, or
-        ``"open"``. ARC-Challenge queries are recognised by the
-        "Choices: (A) ... (B) ..." suffix that
-        ``load_arc_challenge`` builds into the query string.
-        """
-        q = query.lower().strip()
-        if q.startswith("answer with one of: supports, refutes, not enough info."):
-            return "fever"
-        if q.startswith("answer yes or no."):
-            return "strategyqa"
-        if ("choices:" in q) and ("multiple choice letter" in q):
-            return "arc"
-        return "open"
-
-    def _build_tier2_prompt(self, query: str) -> str:
-        """Build Tier 2 generation prompt with few-shot scaffolded CoT.
-
-        Tier 2 has no retrieved passages. The template uses a few-shot
-        example in the same Reasoning/Answer format to bias Flan-T5
-        toward structured output; a zero-shot "You MUST" instruction
-        was empirically insufficient to elicit CoT on short-answer
-        benchmarks like FEVER and ARC (the compliance smoke found 0 of
-        30 outputs contained the Reasoning: header). Few-shot examples
-        demonstrate the structure rather than describe it.
-        """
-        task = self._detect_query_task(query)
-
-        if task == "fever":
-            claim = self._extract_after_token(query, "Claim:")
-            task_line = (
-                f"Claim: {claim}\n"
-                "Determine whether the claim is SUPPORTS, REFUTES, or "
-                "NOT ENOUGH INFO based on your knowledge."
-            )
-            answer_format = "supports | refutes | not enough info"
-            example = (
-                "Claim: Barack Obama was the 44th US President.\n"
-                "Reasoning: Barack Obama served as the 44th "
-                "President of the United States from 2009 to 2017. "
-                "The claim matches this fact.\n"
-                "Answer: supports"
-            )
-        elif task == "strategyqa":
-            q_text = self._extract_after_token(query, "Question:")
-            task_line = (
-                f"Question: {q_text}\n"
-                "Answer the question with yes or no."
-            )
-            answer_format = "yes | no"
-            example = (
-                "Question: Can a pressure cooker cook food faster "
-                "than boiling water?\n"
-                "Reasoning: Boiling water caps at 100 C. A pressure "
-                "cooker reaches 120 C, and higher temperatures speed "
-                "up cooking.\n"
-                "Answer: yes"
-            )
-        elif task == "arc":
-            task_line = (
-                f"{query}\n"
-                "Choose the correct answer from the listed choices."
-            )
-            answer_format = "A | B | C | D"
-            example = (
-                "Question: What process allows plants to make food? "
-                "Choices: (A) digestion (B) photosynthesis (C) "
-                "respiration (D) fermentation\n"
-                "Reasoning: Photosynthesis converts sunlight to "
-                "chemical energy, producing glucose. This is how "
-                "plants make their own food.\n"
-                "Answer: B"
-            )
-        else:
-            task_line = (
-                f"Question: {query}\n"
-                "Answer the question."
-            )
-            answer_format = "<concise factual answer>"
-            example = (
-                "Question: When was most of the Great Wall of China "
-                "built?\n"
-                "Reasoning: Most of the current structure was built "
-                "during the Ming dynasty, which lasted from 1368 to "
-                "1644.\n"
-                "Answer: during the Ming dynasty (1368-1644)"
-            )
-
-        return (
-            "Answer the question using step-by-step reasoning. "
-            "Always write out your reasoning before the answer.\n\n"
-            "Example:\n"
-            f"{example}\n\n"
-            "Now answer the following.\n\n"
-            f"{task_line}\n\n"
-            "Response format (fill in each field):\n"
-            "Reasoning:\n"
-            f"Answer: {answer_format}"
-        )
+    # Legacy prompt-building helpers (_build_tier2_prompt, _build_forced_prefix,
+    # _detect_query_task, _extract_after_token) were removed 2026-04-22 during
+    # the T5-removal refactor. Tier 2 prompt construction and task detection
+    # now live in caem/prompts.py (build_tier2_prompt, detect_query_task),
+    # shared with caem/retrieval/rag.py's Tier 3 path. The forced-prefix
+    # mechanism changed from encoder-decoder ``decoder_input_ids`` to
+    # decoder-only prefill text (see _tier2 implementation above).
 
     # ------------------------------------------------------------------ #
     # Verification (Stage 5)                                               #
