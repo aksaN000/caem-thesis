@@ -206,6 +206,14 @@ class TestPassageStorePersistence:
 # -----------------------------------------------------------------------------
 
 class TestRAGInternals:
+    """Retrieval-side tests.
+
+    Prompt-building and task-detection internals moved to ``caem.prompts``
+    (Goal 1 Phase D, T5-removal refactor 2026-04-22). Those are now tested in
+    ``tests/test_prompts.py`` via the public ``build_tier3_prompt`` and
+    ``detect_query_task`` APIs.
+    """
+
     def test_retrieve_returns_list(self):
         rag, _ = make_rag()
         results = rag._retrieve("Who wrote Hamlet?", k=3)
@@ -222,107 +230,6 @@ class TestRAGInternals:
         rag.passage_encoder.encode.side_effect = RuntimeError("encoder fail")
         results = rag._retrieve("q", k=5)
         assert results == []
-
-    def test_build_prompt_contains_query(self):
-        rag, _ = make_rag()
-        passages = [("Paris is the capital of France.", 0.9),
-                    ("France is in Western Europe.", 0.8)]
-        prompt = rag._build_prompt("What is the capital of France?", passages)
-        assert "What is the capital of France?" in prompt
-        assert "Answer:" in prompt
-
-    def test_build_prompt_numbered_passages(self):
-        rag, _ = make_rag()
-        passages = [("First passage.", 0.9), ("Second passage.", 0.7)]
-        prompt = rag._build_prompt("q?", passages)
-        assert "[1]" in prompt
-        assert "[2]" in prompt
-        assert "First passage." in prompt
-        assert "Second passage." in prompt
-
-    def test_build_prompt_context_header(self):
-        """Prompt must contain a Context: block for Tier 3 RAG (after
-        the few-shot example and the step-by-step instruction). The
-        few-shot example itself contains a nested Context: block; what
-        matters is that the actual Context: for the current query is
-        present with the numbered passage."""
-        rag, _ = make_rag()
-        prompt = rag._build_prompt("q?", [("First passage.", 0.5)])
-        assert "Context:" in prompt
-        assert "[1] First passage." in prompt
-
-    def test_tokenize_prompt_returns_tensor(self):
-        rag, _ = make_rag()
-        ids = rag._tokenize_prompt("Some prompt text.")
-        assert isinstance(ids, torch.Tensor)
-
-    # --- Uniform scaffolded CoT prompt tests ---------------------------- #
-
-    def test_prompt_has_uniform_scaffold_on_open_ended(self):
-        """Open-ended queries get the few-shot scaffolded CoT template
-        with step-by-step reasoning instruction, a worked example, and
-        Reasoning: / Answer: response slots. The forced decoder prefix
-        (injected at generate time) guarantees the output starts with
-        'Reasoning:' regardless of prompt content."""
-        rag, _ = make_rag()
-        prompt = rag._build_prompt("Who wrote Hamlet?", [("p.", 0.5)])
-        assert "step-by-step reasoning" in prompt
-        assert "Example:" in prompt
-        assert "Reasoning:" in prompt
-        assert "Answer:" in prompt
-
-    def test_prompt_fever_detects_and_formats_correctly(self):
-        """FEVER queries trigger supports | refutes | not enough info
-        answer format and extract the claim. The few-shot example
-        also exercises the FEVER branch so the model learns the format."""
-        rag, _ = make_rag()
-        query = (
-            "Answer with one of: supports, refutes, not enough info. "
-            "Claim: Paris is the capital of France."
-        )
-        prompt = rag._build_prompt(query, [("p.", 0.5)])
-        assert "supports | refutes | not enough info" in prompt
-        assert "Paris is the capital of France." in prompt
-        assert "Reasoning:" in prompt
-
-    def test_prompt_strategyqa_detects_and_formats_correctly(self):
-        rag, _ = make_rag()
-        query = "Answer yes or no. Question: Is the sky blue?"
-        prompt = rag._build_prompt(query, [("p.", 0.5)])
-        assert "yes | no" in prompt
-        assert "Is the sky blue?" in prompt
-
-    def test_prompt_arc_detects_and_formats_correctly(self):
-        rag, _ = make_rag()
-        query = (
-            "Question: What is gravity? "
-            "Choices: (A) force (B) mass (C) light (D) heat\n"
-            "Answer with just the multiple choice letter."
-        )
-        prompt = rag._build_prompt(query, [("p.", 0.5)])
-        assert "A | B | C | D" in prompt
-        assert "Reasoning:" in prompt
-
-    def test_detect_query_task_recognises_arc(self):
-        from caem.retrieval.rag import TierThreeRAG
-        arc_query = (
-            "Question: X Choices: (A) a (B) b\n"
-            "Answer with just the multiple choice letter."
-        )
-        assert TierThreeRAG._detect_query_task(arc_query) == "arc"
-
-    def test_detect_query_task_recognises_fever(self):
-        from caem.retrieval.rag import TierThreeRAG
-        q = "Answer with one of: supports, refutes, not enough info. Claim: X"
-        assert TierThreeRAG._detect_query_task(q) == "fever"
-
-    def test_detect_query_task_recognises_strategyqa(self):
-        from caem.retrieval.rag import TierThreeRAG
-        assert TierThreeRAG._detect_query_task("Answer yes or no. Question: X") == "strategyqa"
-
-    def test_detect_query_task_open_fallback(self):
-        from caem.retrieval.rag import TierThreeRAG
-        assert TierThreeRAG._detect_query_task("Who wrote Hamlet?") == "open"
 
 
 # -----------------------------------------------------------------------------

@@ -1,4 +1,4 @@
-﻿"""
+"""
 caem/retrieval/rag.py
 ======================
 Tier 3 RAG -- Stage 6 of the CAEM pipeline.
@@ -61,6 +61,7 @@ import numpy as np
 import torch
 
 from caem.config import CAEMConfig
+from caem.prompts import build_tier3_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -363,7 +364,7 @@ class TierThreeRAG:
     def generate(
         self,
         query: str,
-        input_ids: Optional[torch.Tensor] = None,
+        input_ids: Optional[torch.Tensor] = None,  # noqa: ARG002 — legacy signature compat
     ) -> str:
         """Generate a RAG answer for a Tier 3 query.
 
@@ -371,50 +372,67 @@ class TierThreeRAG:
         ----------
         query : str
             The original query text.
-        input_ids : torch.Tensor or None
-            Pre-tokenized plain query (without context). If None, tokenized
-            internally. Note: the RAG prompt is always re-tokenized with
-            context prepended -- input_ids here is only used as a fallback
-            if retrieval fails completely.
+        input_ids
+            Unused under Branch C (decoder-only generation always re-tokenizes
+            the full ChatML prompt). Retained for signature compatibility
+            with the pre-Branch-C Flan-T5 path callers.
 
         Returns
         -------
         str
-            Decoded answer string. Returns empty string on total failure.
+            Decoded answer string, beginning with the forced ``"Reasoning:"``
+            prefix (prefill). Returns empty string on total failure.
         """
         cfg = self.config
 
-        # Step 1: encode query -> retrieve passages
         passages = self._retrieve(query, k=cfg.rag_top_k)
+        if not passages:
+            logger.warning(
+                "RAG: no passages retrieved for %r -- falling back to query-only ChatML prompt.",
+                query[:80],
+            )
 
-        # Step 2: build the RAG prompt
-        if passages:
-            prompt = self._build_prompt(query, passages)
-        else:
-            # Degenerate: no passages found -- fall back to query-only generation
-            logger.warning("RAG: no passages retrieved -- falling back to query-only.")
-            prompt = query
+        # Build ChatML Tier 3 prompt via the shared prompt builder (caem.prompts).
+        # Returns (prompt_text, forced_prefix). For decoder-only models, we
+        # append the prefix to the prompt as prefill text; the model then
+        # continues generation from "Reasoning:" onwards.
+        prompt_text, forced_prefix = build_tier3_prompt(
+            query, passages, tokenizer=self.tokenizer,
+        )
+        full_input = prompt_text + forced_prefix
 
-        # Step 3: tokenize prompt
-        prompt_ids = self._tokenize_prompt(prompt)
-
-        # Step 4: generate with forced "Reasoning:" decoder prefix
-        # to guarantee scaffold compliance even when Flan-T5's content
-        # prior would otherwise short-circuit to the direct answer.
-        # Few-shot prompting alone caps at ~57% compliance on
-        # Flan-T5-Large; forced decoder prefix pushes this to >=95%
-        # by constraining the first output tokens to "Reasoning:".
         try:
+            enc = self.tokenizer(
+                full_input,
+                return_tensors="pt",
+                truncation=True,
+                max_length=cfg.rag_max_context_tokens * 8 + cfg.rag_max_new_tokens,
+            )
+            input_ids_t = enc["input_ids"].to(self.device)
+            attention_mask = enc.get("attention_mask")
+            if attention_mask is not None:
+                attention_mask = attention_mask.to(self.device)
+            input_len = int(input_ids_t.shape[1])
+
             self.model.eval()
             with torch.no_grad():
-                decoder_input_ids = self._build_forced_prefix(prompt_ids.shape[0])
                 output_ids = self.model.generate(
-                    prompt_ids,
-                    decoder_input_ids=decoder_input_ids,
+                    input_ids_t,
+                    attention_mask=attention_mask,
                     max_new_tokens=cfg.rag_max_new_tokens,
                     do_sample=cfg.rag_do_sample,
+                    pad_token_id=self.tokenizer.pad_token_id,
                 )
-            answer = self.tokenizer.decode(output_ids[0], skip_special_tokens=True).strip()
+
+            # Decode only the newly generated portion (skip the prompt prefix).
+            # Prepend the forced prefix so the returned answer reads as
+            # "Reasoning: <model's continuation>\nAnswer: ..." — matching the
+            # scaffolded-CoT contract the Stage 5 verifier expects.
+            continuation = self.tokenizer.decode(
+                output_ids[0, input_len:],
+                skip_special_tokens=True,
+            ).strip()
+            answer = f"{forced_prefix}{continuation}" if continuation else forced_prefix
             logger.debug("RAG answer (%d passages): %s", len(passages), answer[:120])
             return answer
 
@@ -425,41 +443,6 @@ class TierThreeRAG:
                 exc,
             )
             return ""
-
-    def _build_forced_prefix(self, batch_size: int) -> torch.Tensor:
-        """Build decoder_input_ids that force every output sequence to
-        start with ``Reasoning:``.
-
-        T5's decoder starts with ``decoder_start_token_id`` (which equals
-        ``pad_token_id`` for T5). After that token we inject the tokenised
-        "Reasoning:" prefix. The model then continues generation with
-        actual reasoning content because its attention has already seen
-        the header it is continuing from.
-
-        Shape: (batch_size, 1 + len(reasoning_tokens)).
-        """
-        cached = getattr(self, "_forced_prefix_ids", None)
-        if cached is not None and cached.shape[0] == batch_size:
-            return cached
-
-        start_id = getattr(
-            self.model.config, "decoder_start_token_id",
-            self.tokenizer.pad_token_id,
-        )
-        if start_id is None:
-            start_id = self.tokenizer.pad_token_id or 0
-
-        prefix_enc = self.tokenizer(
-            "Reasoning:",
-            return_tensors="pt",
-            add_special_tokens=False,
-        )
-        prefix_ids = prefix_enc["input_ids"].to(self.device)
-        start = torch.tensor([[start_id]], device=self.device, dtype=torch.long)
-        row = torch.cat([start, prefix_ids], dim=-1)
-        forced = row.expand(batch_size, -1).contiguous()
-        self._forced_prefix_ids = forced
-        return forced
 
     def retrieve(self, query: str, k: Optional[int] = None) -> List[Tuple[str, float]]:
         """Public retrieval endpoint -- returns (passage, score) pairs.
@@ -486,219 +469,19 @@ class TierThreeRAG:
             logger.warning("RAG retrieval failed: %s", exc)
             return []
 
-    def _build_prompt(
-        self,
-        query: str,
-        passages: List[Tuple[str, float]],
-    ) -> str:
-        """Build the uniform scaffolded-CoT RAG prompt for Flan-T5.
-
-        All benchmarks use the same Evidence / Reasoning / Answer template
-        so the verifier's 9-signal composite receives substantive claim
-        text uniformly across tasks. The scaffold compels the model to
-        emit at least 40 words of reasoning before the final answer,
-        which converts classification-style outputs (FEVER / StrategyQA /
-        ARC) from degenerate 1-word labels into propositional statements
-        the passage-grounding signals (p_ground_max, p_ground_mean,
-        p_ground_atomic, p_contra) can score.
-
-        Template (Tier 3 RAG, with passages):
-
-            Context:
-            [1] <passage>
-            [2] <passage>
-            [3] <passage>
-
-            {task_instruction}
-
-            You MUST follow the exact response format below. Your
-            reasoning must be at least 40 words, step by step.
-
-            Evidence: <quote the most relevant sentence from the
-                       context above>
-            Reasoning: <at least 40 words of step-by-step analysis
-                       linking the evidence to the final answer>
-            Answer: {answer_format}
-
-        This matches the Flan instruction-tuning style (Wei et al. 2022)
-        while forcing substantive reasoning output -- Flan-T5 with
-        do_sample=False otherwise short-circuits to the highest-
-        probability single-token continuation on classification tasks.
-        """
-        task = self._detect_query_task(query)
-        task_line, answer_format = self._task_spec(task, query)
-        few_shot = self._few_shot_example(task)
-
-        lines: List[str] = []
-        lines.append(
-            "Answer the question using step-by-step reasoning. "
-            "Always write out your reasoning before the answer.",
-        )
-        lines.append("")
-        lines.append("Example:")
-        lines.append(few_shot)
-        lines.append("")
-        lines.append("Now answer the following.")
-        lines.append("")
-        lines.append("Context:")
-        for i, (passage, _score) in enumerate(passages, start=1):
-            lines.append(f"[{i}] {passage}")
-        lines.append("")
-        lines.append(task_line)
-        lines.append("")
-        lines.append(
-            "Response format (fill in each field):",
-        )
-        lines.append("Reasoning:")
-        lines.append(f"Answer: {answer_format}")
-        return "\n".join(lines)
-
-    def _few_shot_example(self, task: str) -> str:
-        """Return a worked example for the given task in the uniform
-        Reasoning/Answer format. Flan-T5 is more likely to follow a
-        structure it has already seen instantiated than one described
-        in abstract in the same prompt.
-        """
-        if task == "fever":
-            return (
-                "Context:\n"
-                "[1] Barack Obama served as the 44th President of the "
-                "United States from 2009 to 2017.\n"
-                "\n"
-                "Claim: Barack Obama was the 44th US President.\n"
-                "Reasoning: The context directly states that Obama "
-                "served as the 44th President of the United States. "
-                "The claim matches this fact exactly.\n"
-                "Answer: supports"
-            )
-        if task == "strategyqa":
-            return (
-                "Context:\n"
-                "[1] Water boils at 100 degrees Celsius at sea level. "
-                "A pressure cooker can reach 120 degrees Celsius.\n"
-                "\n"
-                "Question: Can a pressure cooker cook food faster than "
-                "boiling water?\n"
-                "Reasoning: Boiling water is capped at 100 C. A "
-                "pressure cooker exceeds this, reaching 120 C, and "
-                "higher temperatures speed up cooking.\n"
-                "Answer: yes"
-            )
-        if task == "arc":
-            return (
-                "Context:\n"
-                "[1] Plants convert sunlight into chemical energy "
-                "through photosynthesis, producing glucose and oxygen.\n"
-                "\n"
-                "Question: What process allows plants to make food? "
-                "Choices: (A) digestion (B) photosynthesis (C) "
-                "respiration (D) fermentation\n"
-                "Answer with just the multiple choice letter.\n"
-                "Reasoning: Photosynthesis converts sunlight to "
-                "chemical energy, producing glucose. This is how "
-                "plants make their own food.\n"
-                "Answer: B"
-            )
-        # Open-ended QA (TriviaQA, NQ, TruthfulQA)
-        return (
-            "Context:\n"
-            "[1] The Great Wall of China was built over several "
-            "centuries, with most of the current structure built "
-            "during the Ming dynasty (1368-1644).\n"
-            "\n"
-            "Question: When was most of the Great Wall of China "
-            "built?\n"
-            "Reasoning: According to the context, most of the current "
-            "structure of the Great Wall was built during the Ming "
-            "dynasty, which lasted from 1368 to 1644.\n"
-            "Answer: during the Ming dynasty (1368-1644)"
-        )
-
-    def _task_spec(self, task: str, query: str) -> Tuple[str, str]:
-        """Return (task_instruction_line, answer_format_spec) per task.
-
-        Shared by Tier 3 (RAG) and caller code that needs the same
-        task framing without the Context block.
-        """
-        if task == "fever":
-            claim = self._extract_after_token(query, "Claim:")
-            return (
-                f"Claim: {claim}\n"
-                "Determine whether the claim is SUPPORTS, REFUTES, or "
-                "NOT ENOUGH INFO based on the context above.",
-                "supports | refutes | not enough info",
-            )
-        if task == "strategyqa":
-            q_text = self._extract_after_token(query, "Question:")
-            return (
-                f"Question: {q_text}\n"
-                "Answer the question with yes or no based on the "
-                "context above.",
-                "yes | no",
-            )
-        if task == "arc":
-            return (
-                f"{query}\n"
-                "Choose the correct answer from the listed choices "
-                "based on the context above.",
-                "A | B | C | D",
-            )
-        # Open-ended QA (TriviaQA, NQ, TruthfulQA): factual short-form
-        # or detailed answer depending on the question. The answer
-        # format slot lets the model decide based on question style.
-        return (
-            f"Question: {query}\n"
-            "Answer the question based on the context above.",
-            "<concise factual answer>",
-        )
-
-    @staticmethod
-    def _extract_after_token(query: str, token: str) -> str:
-        """Return substring after token (case-insensitive), else full query."""
-        q_lower = query.lower()
-        t_lower = token.lower()
-        idx = q_lower.find(t_lower)
-        if idx == -1:
-            return query.strip()
-        return query[idx + len(token):].strip()
-
-    @staticmethod
-    def _detect_query_task(query: str) -> str:
-        """Infer benchmark task style from constrained prompt prefixes.
-
-        Returns one of ``"fever"``, ``"strategyqa"``, ``"arc"``, or
-        ``"open"``. ARC-Challenge queries are recognised by the
-        "Choices: (A) ... (B) ..." suffix that ``load_arc_challenge``
-        builds into the query string.
-        """
-        q = query.lower().strip()
-        if q.startswith("answer with one of: supports, refutes, not enough info."):
-            return "fever"
-        if q.startswith("answer yes or no."):
-            return "strategyqa"
-        if ("choices:" in q) and ("multiple choice letter" in q):
-            return "arc"
-        return "open"
-
-    def _tokenize_prompt(self, prompt: str) -> torch.Tensor:
-        """Tokenize the full RAG prompt, truncating context to fit encoder limit."""
-        enc = self.tokenizer(
-            prompt,
-            return_tensors="pt",
-            truncation=True,
-            max_length=512,          # Flan-T5-Large encoder limit
-        )
-        return enc["input_ids"].to(self.device)
+    # ------------------------------------------------------------------ #
+    # Batched generation (Level B)                                        #
+    # ------------------------------------------------------------------ #
 
     def generate_batch(self, queries: List[str]) -> List[str]:
-        """Generate N Tier 3 RAG answers in one batched T5 forward pass.
+        """Generate N Tier 3 RAG answers in one batched forward pass.
 
-        Used by Level B static batching (BatchPipeline.batch_tier3_generate).
-        Retrieval and prompt construction still run per-query (cheap FAISS
-        + string ops); the expensive T5 ``generate`` call is batched.
+        Used by Level B static batching (``BatchPipeline.batch_tier3_generate``).
+        Retrieval and ChatML prompt construction still run per-query (cheap
+        FAISS + string ops); the expensive ``.generate()`` call is batched.
 
         Returns a list of length N in input order. Empty string at position
-        i signals a failed generation for that query (caller escalates).
+        ``i`` signals a failed generation for that query (caller escalates).
         """
         if not queries:
             return []
@@ -708,32 +491,47 @@ class TierThreeRAG:
         prompts: List[str] = []
         for q in queries:
             passages = self._retrieve(q, k=cfg.rag_top_k)
-            if passages:
-                prompts.append(self._build_prompt(q, passages))
-            else:
-                logger.warning("RAG batch: no passages for query '%s...' -- falling back to query-only.", q[:60])
-                prompts.append(q)
+            if not passages:
+                logger.warning(
+                    "RAG batch: no passages for query '%s...' -- falling back to query-only ChatML prompt.",
+                    q[:60],
+                )
+            prompt_text, forced_prefix = build_tier3_prompt(
+                q, passages, tokenizer=self.tokenizer,
+            )
+            prompts.append(prompt_text + forced_prefix)
 
-        enc = self.tokenizer(
-            prompts,
-            return_tensors="pt",
-            truncation=True,
-            max_length=512,
-            padding=True,
-        )
+        try:
+            # Left-padding is essential for decoder-only batched generation so
+            # the generated continuations align regardless of input length.
+            original_side = getattr(self.tokenizer, "padding_side", None)
+            self.tokenizer.padding_side = "left"
+            enc = self.tokenizer(
+                prompts,
+                return_tensors="pt",
+                truncation=True,
+                max_length=cfg.rag_max_context_tokens * 8 + cfg.rag_max_new_tokens,
+                padding=True,
+            )
+            if original_side is not None:
+                self.tokenizer.padding_side = original_side
+        except Exception as exc:
+            logger.error("RAG generate_batch tokenization failed: %s", exc)
+            return [""] * len(queries)
+
         input_ids = enc["input_ids"].to(self.device)
         attention_mask = enc["attention_mask"].to(self.device)
+        input_len = int(input_ids.shape[1])
 
         try:
             self.model.eval()
             with torch.no_grad():
-                decoder_input_ids = self._build_forced_prefix(input_ids.shape[0])
                 output_ids = self.model.generate(
                     input_ids,
                     attention_mask=attention_mask,
-                    decoder_input_ids=decoder_input_ids,
                     max_new_tokens=cfg.rag_max_new_tokens,
                     do_sample=cfg.rag_do_sample,
+                    pad_token_id=self.tokenizer.pad_token_id,
                 )
         except Exception as exc:
             logger.error(
@@ -742,14 +540,19 @@ class TierThreeRAG:
             )
             return [""] * len(queries)
 
+        # Decode only the newly generated continuations (skip the left-padded
+        # prompt prefix) and prepend the forced "Reasoning:" prefix so each
+        # answer maintains the scaffolded-CoT contract.
         decoded: List[str] = []
         for i in range(output_ids.shape[0]):
             try:
-                s = self.tokenizer.decode(
-                    output_ids[i], skip_special_tokens=True,
+                continuation = self.tokenizer.decode(
+                    output_ids[i, input_len:],
+                    skip_special_tokens=True,
                 ).strip()
+                answer = f"Reasoning:{continuation}" if continuation else "Reasoning:"
             except Exception as exc:
                 logger.warning("RAG generate_batch decode %d failed: %s", i, exc)
-                s = ""
-            decoded.append(s)
+                answer = ""
+            decoded.append(answer)
         return decoded
