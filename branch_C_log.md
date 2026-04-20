@@ -18,6 +18,17 @@ Detail belongs in the commit message; the log is for quick rewind.
 
 ## 2026-04-22 (BDT — date rolls based on activity)
 
+### 2026-04-22 13:00 BDT  `[IMPL]`  Goal 1 Phase B committed on `feat/qwen-3b-goal1` (`9697a7b`)
+
+- `caem/prompts.py` (new, 400 lines): centralizes Tier 2 (no-RAG) + Tier 3 (RAG) prompt construction with `prompt_style` dispatch
+- `chatml_scaffold`: system + example-user + example-assistant + real-user + generation-prompt marker; Reasoning: prefix applied as prefill by caller
+- `flan_t5_scaffold`: bit-identical to legacy `pipeline.py::_build_tier2_prompt` + `rag.py::_build_prompt`; preserved for Variant-18 flan_t5_large_backbone ablation reproducibility
+- Shared internals: `detect_query_task`, `_task_spec` (Tier-2/3 wording switch via `with_passages`), `_few_shot_parts`
+- `tests/test_prompts.py` (new, 16 tests): 4 task-detection + 4 Flan-T5 Tier-2 per-task (incl. bit-identity) + 2 Flan-T5 Tier-3 (incl. bit-identity) + 6 ChatML structure/dispatch
+- pipeline.py / rag.py NOT yet migrated to call prompts.py — that wiring is the next commit, keeping this one independently reviewable
+- **Test results: 16/16 new PASS; 576/576 pass total (560 existing + 16 new); zero regression**
+- Eyeball check: Qwen tokenizer renders correct ChatML (system + Obama-example-turn-pair + real-claim-turn + `<|im_start|>assistant\n`); appending "Reasoning:" and tokenizing → last decoded pair = `'assistant\nReasoning:'` (correct prefill)
+
 ### 2026-04-22 12:15 BDT  `[IMPL]`  Goal 1 Phase A committed on `feat/qwen-3b-goal1` (`2fa08bb`)
 
 - `caem/config.py`: added `base_model_name="Qwen/Qwen2.5-3B-Instruct"`, `prompt_style="chatml_scaffold"`, Goal 5 perf flags (`use_flash_attention_2`, `use_torch_compile`), LoRA config (r=16, alpha=32, dropout=0.05), per-architecture LoRA target-module tuples
