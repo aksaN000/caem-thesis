@@ -245,6 +245,70 @@ class TestRAGInternals:
         ids = rag._tokenize_prompt("Some prompt text.")
         assert isinstance(ids, torch.Tensor)
 
+    # --- Uniform scaffolded CoT prompt tests ---------------------------- #
+
+    def test_prompt_has_uniform_scaffold_on_open_ended(self):
+        """Open-ended queries get the Evidence / Reasoning / Answer
+        scaffold with a min-40-word instruction."""
+        rag, _ = make_rag()
+        prompt = rag._build_prompt("Who wrote Hamlet?", [("p.", 0.5)])
+        assert "Evidence:" in prompt
+        assert "Reasoning:" in prompt
+        assert "Answer:" in prompt
+        assert "at least 40 words" in prompt
+
+    def test_prompt_fever_detects_and_formats_correctly(self):
+        """FEVER queries trigger supports|refutes|not enough info
+        answer format and extract the claim."""
+        rag, _ = make_rag()
+        query = (
+            "Answer with one of: supports, refutes, not enough info. "
+            "Claim: Paris is the capital of France."
+        )
+        prompt = rag._build_prompt(query, [("p.", 0.5)])
+        assert "supports | refutes | not enough info" in prompt
+        assert "Paris is the capital of France." in prompt
+        assert "Evidence:" in prompt
+
+    def test_prompt_strategyqa_detects_and_formats_correctly(self):
+        rag, _ = make_rag()
+        query = "Answer yes or no. Question: Is the sky blue?"
+        prompt = rag._build_prompt(query, [("p.", 0.5)])
+        assert "yes | no" in prompt
+        assert "Is the sky blue?" in prompt
+
+    def test_prompt_arc_detects_and_formats_correctly(self):
+        rag, _ = make_rag()
+        query = (
+            "Question: What is gravity? "
+            "Choices: (A) force (B) mass (C) light (D) heat\n"
+            "Answer with just the multiple choice letter."
+        )
+        prompt = rag._build_prompt(query, [("p.", 0.5)])
+        assert "A | B | C | D" in prompt
+        assert "Evidence:" in prompt
+
+    def test_detect_query_task_recognises_arc(self):
+        from caem.retrieval.rag import TierThreeRAG
+        arc_query = (
+            "Question: X Choices: (A) a (B) b\n"
+            "Answer with just the multiple choice letter."
+        )
+        assert TierThreeRAG._detect_query_task(arc_query) == "arc"
+
+    def test_detect_query_task_recognises_fever(self):
+        from caem.retrieval.rag import TierThreeRAG
+        q = "Answer with one of: supports, refutes, not enough info. Claim: X"
+        assert TierThreeRAG._detect_query_task(q) == "fever"
+
+    def test_detect_query_task_recognises_strategyqa(self):
+        from caem.retrieval.rag import TierThreeRAG
+        assert TierThreeRAG._detect_query_task("Answer yes or no. Question: X") == "strategyqa"
+
+    def test_detect_query_task_open_fallback(self):
+        from caem.retrieval.rag import TierThreeRAG
+        assert TierThreeRAG._detect_query_task("Who wrote Hamlet?") == "open"
+
 
 # -----------------------------------------------------------------------------
 # TierThreeRAG.generate()

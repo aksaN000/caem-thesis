@@ -449,39 +449,103 @@ class TierThreeRAG:
         query: str,
         passages: List[Tuple[str, float]],
     ) -> str:
-        """Build the numbered-context RAG prompt for Flan-T5.
+        """Build the uniform scaffolded-CoT RAG prompt for Flan-T5.
 
-        Format matches the FLAN instruction-tuning style (Wei et al. 2022):
+        All benchmarks use the same Evidence / Reasoning / Answer template
+        so the verifier's 9-signal composite receives substantive claim
+        text uniformly across tasks. The scaffold compels the model to
+        emit at least 40 words of reasoning before the final answer,
+        which converts classification-style outputs (FEVER / StrategyQA /
+        ARC) from degenerate 1-word labels into propositional statements
+        the passage-grounding signals (p_ground_max, p_ground_mean,
+        p_ground_atomic, p_contra) can score.
+
+        Template (Tier 3 RAG, with passages):
+
             Context:
             [1] <passage>
-            ...
-            Question: <query>
-            Answer:
+            [2] <passage>
+            [3] <passage>
+
+            {task_instruction}
+
+            You MUST follow the exact response format below. Your
+            reasoning must be at least 40 words, step by step.
+
+            Evidence: <quote the most relevant sentence from the
+                       context above>
+            Reasoning: <at least 40 words of step-by-step analysis
+                       linking the evidence to the final answer>
+            Answer: {answer_format}
+
+        This matches the Flan instruction-tuning style (Wei et al. 2022)
+        while forcing substantive reasoning output -- Flan-T5 with
+        do_sample=False otherwise short-circuits to the highest-
+        probability single-token continuation on classification tasks.
         """
         lines = ["Context:"]
         for i, (passage, _score) in enumerate(passages, start=1):
             lines.append(f"[{i}] {passage}")
 
         task = self._detect_query_task(query)
+        task_line, answer_format = self._task_spec(task, query)
+
+        lines.append("")
+        lines.append(task_line)
+        lines.append("")
+        lines.append(
+            "You MUST follow the exact response format below. Your "
+            "reasoning must be at least 40 words, step by step.",
+        )
+        lines.append("")
+        lines.append(
+            "Evidence: <quote the most relevant sentence from the "
+            "context above>",
+        )
+        lines.append(
+            "Reasoning: <at least 40 words of step-by-step analysis "
+            "linking the evidence to the final answer>",
+        )
+        lines.append(f"Answer: {answer_format}")
+        return "\n".join(lines)
+
+    def _task_spec(self, task: str, query: str) -> Tuple[str, str]:
+        """Return (task_instruction_line, answer_format_spec) per task.
+
+        Shared by Tier 3 (RAG) and caller code that needs the same
+        task framing without the Context block.
+        """
         if task == "fever":
             claim = self._extract_after_token(query, "Claim:")
-            lines.append("")
-            lines.append("Determine whether the claim is supports, refutes, or not enough info using the context above.")
-            lines.append(f"Claim: {claim}")
-            lines.append("Reasoning: <short explanation>")
-            lines.append("Answer: supports|refutes|not enough info")
-        elif task == "strategyqa":
+            return (
+                f"Claim: {claim}\n"
+                "Determine whether the claim is SUPPORTS, REFUTES, or "
+                "NOT ENOUGH INFO based on the context above.",
+                "supports | refutes | not enough info",
+            )
+        if task == "strategyqa":
             q_text = self._extract_after_token(query, "Question:")
-            lines.append("")
-            lines.append("Answer the question using the context above.")
-            lines.append(f"Question: {q_text}")
-            lines.append("Reasoning: <short explanation>")
-            lines.append("Answer: yes|no")
-        else:
-            lines.append(f"\nQuestion: {query}")
-            lines.append("Think step by step.")
-            lines.append("Answer:")
-        return "\n".join(lines)
+            return (
+                f"Question: {q_text}\n"
+                "Answer the question with yes or no based on the "
+                "context above.",
+                "yes | no",
+            )
+        if task == "arc":
+            return (
+                f"{query}\n"
+                "Choose the correct answer from the listed choices "
+                "based on the context above.",
+                "A | B | C | D",
+            )
+        # Open-ended QA (TriviaQA, NQ, TruthfulQA): factual short-form
+        # or detailed answer depending on the question. The answer
+        # format slot lets the model decide based on question style.
+        return (
+            f"Question: {query}\n"
+            "Answer the question based on the context above.",
+            "<concise factual answer>",
+        )
 
     @staticmethod
     def _extract_after_token(query: str, token: str) -> str:
@@ -495,12 +559,20 @@ class TierThreeRAG:
 
     @staticmethod
     def _detect_query_task(query: str) -> str:
-        """Infer benchmark task style from constrained prompt prefixes."""
+        """Infer benchmark task style from constrained prompt prefixes.
+
+        Returns one of ``"fever"``, ``"strategyqa"``, ``"arc"``, or
+        ``"open"``. ARC-Challenge queries are recognised by the
+        "Choices: (A) ... (B) ..." suffix that ``load_arc_challenge``
+        builds into the query string.
+        """
         q = query.lower().strip()
         if q.startswith("answer with one of: supports, refutes, not enough info."):
             return "fever"
         if q.startswith("answer yes or no."):
             return "strategyqa"
+        if ("choices:" in q) and ("multiple choice letter" in q):
+            return "arc"
         return "open"
 
     def _tokenize_prompt(self, prompt: str) -> torch.Tensor:
