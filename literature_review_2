@@ -1,0 +1,137 @@
+# CAEM related-work review: pre-emption risks and positioning
+
+This review surveys 2024–2026 work relevant to CAEM (Confidence-Aware Episodic Memory with Self-Improvement). Across 7 topics and ~40 candidate papers, **no published work fully pre-empts CAEM's full pipeline**, but three contributions come uncomfortably close and must be explicitly differentiated in the thesis. The thickest competitive pressure lies in topics 4 (self-improvement) and 7 (verifier theory); the clearest novelty is in topic 3/5 (insertion-time stored confidence on memory entries driving tiered routing).
+
+---
+
+## 🚩 Red flags — papers that partially pre-empt CAEM contributions
+
+**RF-1. Das, Dhillon, Epasto et al., 2025, ICML 2025 — "Retraining with Predicted Hard Labels Provably Increases Model Accuracy"** — https://arxiv.org/abs/2406.11206. Proves, in a linearly-separable binary classification setting with randomly corrupted labels, that retraining on self-predicted hard labels strictly increases population accuracy, and that "consensus-based retraining" (keep samples where prediction agrees with given label) sharpens the bound. The mechanism is structurally isomorphic to CAEM's verifier-filter-retrain loop and **is the closest published analogue of the P > p theorem**. Differentiate on: (i) external multi-signal verifier vs. self-prediction, (ii) open-ended generation vs. binary classification, (iii) 3 recursive cycles vs. single round, (iv) explicit α > ½ threshold.
+
+**RF-2. Huang, Block, Foster et al., 2025, ICLR 2025 — "Self-Improvement in Language Models: The Sharpening Mechanism"** — https://arxiv.org/abs/2412.01951. Formalizes LLM self-improvement as using the model itself as a verifier to concentrate mass on high-quality sequences; gives amortization-via-self-training bounds. Identical spirit to CAEM's verifier-filter-retrain, but gives convergence-style bounds rather than a per-round purity inequality, and treats verification as internal (self-sharpening).
+
+**RF-3. Jeong et al., 2024, NAACL 2024 — "Adaptive-RAG"** — https://arxiv.org/abs/2403.14403. Trains a T5-Large classifier to route queries among **3 retrieval strategies** (no retrieval / single-step / multi-step IRCoT). Shares CAEM's "3-tier" surface structure and the Flan-T5-Large backbone family. **Critical difference**: the routing signal is query-time complexity prediction, not per-entry stored confidence written at insertion. CAEM must foreground this distinction — same tier count, fundamentally different routing signal and semantics (tiers partition *memory quality*, not *retrieval depth*).
+
+**RF-4. Fu et al., 2025 — "Escaping Model Collapse via Synthetic Data Verification"** — https://arxiv.org/abs/2510.16657. Proves theoretically that a verifier filter over synthetic data prevents model collapse in self-consuming training loops, with near-term improvement and long-term convergence guarantees. This is the strongest published **safety argument** for CAEM's design, and should be cited as an upstream theoretical anchor rather than a competitor.
+
+**RF-5. Song et al., 2025 — "Hierarchical Layer-Wise and Element-Wise Regularization"** — https://arxiv.org/abs/2501.13669. Uses L2-norm element-wise parameter importance regularization to preserve general knowledge during LLM fine-tuning — **near-identical mechanism to CAEM's L2 anchor**. Differs in that the setting is single-shot domain tuning, not recursive self-improvement across cycles.
+
+No paper found (a) proves an α > ½ ⇒ P > p inequality for LLM training data, (b) uses CAEM's full 5-signal verifier ensemble, or (c) uses confidence values stored with memory entries to route queries. **The core CAEM contributions survive.**
+
+---
+
+## Topic 1 — Uncertainty quantification for LLM generation
+
+Activity in this area is intense, with 2024–2025 producing multiple semantic-entropy successors. CAEM's SE signal is a single component within a broader ensemble, so these are mostly substitutable primitives rather than competitors.
+
+**Nikitin et al., 2024, NeurIPS 2024 — Kernel Language Entropy** (https://arxiv.org/abs/2405.20003) generalizes Farquhar's semantic entropy with positive semidefinite kernels and von Neumann entropy, capturing graded rather than hard semantic similarity. **Upstream primitive** — a drop-in upgrade for CAEM's SE component at negligible extra cost.
+
+**Kossen et al., 2024 — Semantic Entropy Probes** (https://arxiv.org/abs/2406.15927) trains linear probes on a single forward pass's hidden states to approximate SE, eliminating 5–10× sampling overhead. **Gap-filler / latency primitive** — directly relevant if CAEM needs to meet a real-time tier-router latency budget.
+
+**Chen et al., 2024, ICLR 2024 — INSIDE / EigenScore** (https://arxiv.org/abs/2402.03744) uses covariance eigen-analysis of internal embeddings plus test-time feature clipping. **Upstream primitive**; a candidate 6th signal or a replacement for MC dropout.
+
+**Nguyen, Payani & Mirzasoleiman, 2025, Findings of ACL 2025 — SNNE** (https://aclanthology.org/2025.findings-acl.234/) is a nearest-neighbor semantic-entropy estimator that uses both intra- and inter-cluster similarity; proven to generalize SE and improves AUROC on Phi-3 / Llama-3 across QA, summarization, and MT. **Competitor** — a strong 2025 baseline for long single-sentence responses where vanilla SE degrades.
+
+**Vashurin et al., 2025, TACL — LM-Polygraph** (https://doi.org/10.1162/tacl_a_00737) benchmarks 14 UQ methods across 11 datasets and 7 LLMs with prediction-rejection curves. **Evaluation protocol / gap-filler** — the standard harness CAEM should report against; prediction-rejection curves align directly with CAEM's tier-router abstention behavior.
+
+**Wen et al., 2025, TACL — "Know Your Limits" abstention survey** (https://aclanthology.org/2025.tacl-1.26/) provides a taxonomy of abstention methods across pretraining, alignment, and inference stages. **Theoretical precedent** — supplies the AUACC vocabulary for framing CAEM's tier-router as an inference-stage abstention mechanism.
+
+## Topic 2 — Hallucination mitigation via verification
+
+This area is **thick with recent activity** and contains CAEM's most-cited upstream primitive (MiniCheck). Several 2025 works push the cost–accuracy frontier.
+
+**Tang, Laban & Durrett, 2024, EMNLP 2024 — MiniCheck** (https://arxiv.org/abs/2404.10774) introduces a Flan-T5-Large fact-checker trained on synthetic C2D/D2C data, matching GPT-4 on LLM-AggreFact at ~400× lower cost; Bespoke-MiniCheck-7B is the 2024 strong variant. **Core upstream primitive** — CAEM's entailment signal is exactly this model.
+
+**Wei et al., 2024, NeurIPS 2024 — SAFE / LongFact** (https://arxiv.org/abs/2403.18802) decomposes long-form outputs into atomic facts and verifies each via Google Search, beating crowd annotators at 20× lower cost. **Competitor** — defines the dominant *retrieval-grounded* verification paradigm; CAEM's closed-book entailment should be benchmarked against this open-web approach.
+
+**Tan et al., 2025, ICLR 2025 — JudgeBench** (https://arxiv.org/abs/2410.12784) shows GPT-4o judges barely beat random on hard factual/logical items. **Theoretical precedent** — empirically justifies CAEM's use of a specialist entailment model over generic LLM-as-judge, and supports the α > ½ assumption.
+
+**Valentin, Fu, Detommaso et al., 2024, KDD GenAI Workshop — "Cost-Effective Hallucination Detection for LLMs"** (https://arxiv.org/abs/2407.21424) combines token-probability, LLM self-assessment, NLI entailment, and multi-sample self-consistency; calibrates each signal with multicalibration and fuses via logistic regression. **Closest competitor to CAEM's verifier architecture** — 4 of 5 CAEM signals (missing MC dropout) with calibrated weighted fusion, but purely empirical, no recursive self-improvement, and no theoretical purity guarantee. This is the paper CAEM's theoretical contribution most directly extends.
+
+**Rajendhran et al., 2025, Findings of EMNLP 2025 — VeriFastScore** (https://aclanthology.org/2025.findings-emnlp.491/) fine-tunes Llama-3.1-8B for joint claim extraction plus verification in one pass, ~100× faster than pipeline verifiers. **Gap-filler** — addresses the latency bottleneck if CAEM's 3-cycle self-improvement loop needs to scale to long-form outputs.
+
+**Qualifire, 2025 — Paladin-mini** (https://arxiv.org/abs/2506.20384) extends MiniCheck with synthetic data for quantitative reasoning, time/date, and price errors. **Direct MiniCheck successor** — documents the exact failure modes that affect CAEM's empirical α estimate.
+
+## Topic 3 — Episodic / long-term memory for LLMs
+
+Activity is growing but still relatively sparse on the specific dimension CAEM occupies: *scalar quality scores stored with memory entries*.
+
+**Jiménez Gutiérrez et al., 2024, NeurIPS 2024 — HippoRAG** (https://arxiv.org/abs/2405.14831) combines LLM-extracted knowledge graphs with Personalized PageRank for hippocampal-style indexed retrieval; the follow-up HippoRAG 2 (arXiv:2502.14802, ICML 2025) extends to non-parametric continual learning. **Upstream primitive** — PageRank scores are computed at query time over graph topology, not persisted per entry, so CAEM's u_stored is orthogonal.
+
+**Xu, Liang et al., 2025, NeurIPS 2025 — A-MEM** (https://arxiv.org/abs/2502.12110) is Zettelkasten-inspired agentic memory that writes structured notes at insertion and evolves links between memories. **Competitor and closest architectural neighbor** — both write metadata at insertion, but A-MEM's metadata is textual (tags, links) while CAEM's is a scalar quality measure used for tiered routing. A-MEM should be CAEM's primary "insertion-time memory augmentation" baseline.
+
+**Das et al., 2024, ICML 2024 — Larimar** (https://arxiv.org/abs/2403.11901) is an associative key-value episodic memory module (BERT encoder + GPT-2 decoder) enabling one-shot edits, selective forgetting, and 8–10× faster knowledge editing than fine-tuning. **Theoretical precedent** — establishes write-able episodic stores separable from parameters, with deterministic addressing and no quality weighting. CAEM's u_stored is the signal Larimar lacks.
+
+**Fountas et al., 2025, ICLR 2025 — EM-LLM** (https://openreview.net/forum?id=BI2int5SAC) provides training-free episodic segmentation via Bayesian surprise + graph-theoretic boundary refinement, with two-stage retrieval combining k-NN similarity and temporal contiguity; scales to 10M tokens. **Upstream primitive** — strongest 2025 architecture but retrieval uses only similarity + time, no stored quality score.
+
+**Pink et al., 2025 — "Episodic Memory is the Missing Piece"** (https://arxiv.org/abs/2502.06975) surveys and argues episodic memory with contextual binding is essential for long-horizon agents; maps coverage gaps in current methods. **Gap-filler / framing** — CAEM's u_stored fits the "contextual binding" slot this paper identifies as missing.
+
+**Chhikara et al., 2025 — Mem0** (https://arxiv.org/abs/2504.19413) provides production-oriented persistent memory benchmarked against MemGPT, MemoryBank, A-MEM, and ReadAgent on LoCoMo. **Competitor** — industry-scale baseline whose memories are plain text facts without stored quality scalars.
+
+## Topic 4 — Self-improvement / self-training for LLMs
+
+This area is **the thickest competitive zone**. Several 2024–2025 papers propose iterative verifier-filtered self-improvement, though none combine L2 anchoring + episodic memory + multi-signal verification at CAEM's scale.
+
+**Hosseini et al., 2024, COLM 2024 — V-STaR** (https://arxiv.org/abs/2402.06457) trains a DPO verifier on correct and incorrect self-generated solutions and uses it to rank test-time candidates. **Canonical upstream** — CAEM generalizes V-STaR by using the verifier for *training-data admission* rather than just test-time ranking, and adds L2 anchoring plus episodic memory.
+
+**Guan et al., 2025, ICML 2025 — rStar-Math** (https://arxiv.org/abs/2501.04519) shows 1.5B–7B SLMs can reach o1-level math performance via 4 rounds of MCTS-generated, process-reward-filtered self-evolution. **Competitor / existence proof** — demonstrates that small models at Flan-T5-Large scale support multi-cycle verifier-filtered self-training, but uses MCTS + PPM and no L2 anchoring.
+
+**Zhang et al., 2025, Findings of ACL 2025 — Process-based Self-Rewarding** (https://arxiv.org/abs/2503.03746) shows naive self-rewarding *degrades* math reasoning without process-level verification. **Motivation / gap-filler** — cite to justify why CAEM's multi-signal verifier is load-bearing rather than optional.
+
+**Shafayat et al., 2025 — "Can Large Reasoning Models Self-Train?"** (https://arxiv.org/abs/2505.21444) documents reward hacking and sudden collapse in prolonged self-rewarding training, explicitly calling for "additional regularization." **Essential motivation citation** — provides the empirical basis for CAEM's 3-cycle bound plus L2 anchor as a concrete regularization strategy.
+
+**Kazdan et al., 2025, ICLR 2025 — "Collapse or Thrive?"** (https://arxiv.org/abs/2410.16713) proves that *replacing* data with synthetic causes collapse but *accumulating* real + synthetic avoids it. **Theoretical precedent** — frames CAEM's loop as operating in the safe non-collapse regime.
+
+**Wang et al., 2025 — Temporal Self-Rewarding** (https://arxiv.org/abs/2508.06026) introduces "Anchored Rejection," using past-model outputs as anchors to prevent collapse of the preference margin. **Theoretical precedent for anchoring intuition** — shows anchor-based regularization is a 2025 trend for stabilizing self-training, conceptually related to CAEM's L2 parameter anchor.
+
+## Topic 5 — Adaptive / confidence-guided retrieval
+
+**Jeong et al., 2024, NAACL 2024 — Adaptive-RAG** (red-flagged above, https://arxiv.org/abs/2403.14403) — see RF-3. Shares the 3-tier structure but routes on query-time complexity classification, not stored confidence.
+
+**Yao et al., 2025, ACL 2025 — SeaKR** (https://arxiv.org/abs/2406.19215) extracts self-aware uncertainty from LLM internal hidden states (EigenScore) to trigger retrieval and re-rank snippets. **Competitor** — confidence is computed generator-side at query time; CAEM's u_stored is retriever-side and data-side, representing a complementary axis.
+
+**Su et al., 2024, ACL 2024 — DRAGIN** (https://arxiv.org/abs/2403.10081) triggers token-level retrieval via token uncertainty × semantic importance × future-token influence. **Upstream primitive** — standard FLARE successor; supports CAEM's multi-signal framing by empirically showing multi-signal triggers beat single-signal ones.
+
+**Wang et al., 2025, Findings of NAACL 2025 — RAGate** (https://aclanthology.org/2025.findings-naacl.30/) trains a learned binary gate per conversational turn and demonstrates empirical correlation between generation confidence and retrieval relevance. **Upstream primitive** — justifies CAEM's premise that confidence signals are retrieval-predictive, though the gate is binary and query-time.
+
+**Moskvoretskii et al., 2025, ACL 2025 — "Adaptive Retrieval without Self-Knowledge?"** (https://arxiv.org/abs/2501.12835) critically shows that downstream success in DRAGIN / SeaKR / Adaptive-RAG correlates poorly with actual self-knowledge identification (Spearman near zero on several datasets). **Essential risk flag / evaluation protocol** — CAEM must adopt this self-knowledge correlation evaluation alongside EM/F1, or risk the same critique. Positively: this is CAEM's opening to argue that u_stored meaningfully captures entry reliability rather than being a spurious confound.
+
+**Parekh et al., 2025 — Self-Routing RAG** (https://arxiv.org/abs/2504.01018) uses LLM hidden states + nearest-neighbor policy to route between internal knowledge and external retrieval. **Competitor** — similar adaptive-routing spirit, but routes *sources*, not *confidence tiers of a shared memory*.
+
+## Topic 6 — Continual learning in LLMs
+
+**Song et al., 2025** (red-flagged above, https://arxiv.org/abs/2501.13669) — see RF-5. Closest L2-anchor analog; CAEM differentiates on recursive self-improvement dynamics.
+
+**Hoy et al., 2025 — STABLE** (https://arxiv.org/abs/2510.16089) gates continual self-editing by EM drop, bits increase, and KL divergence using LoRA adapters, extending SEAL. **Competitor** — structurally similar gating idea but uses LoRA and KL/EM rather than multi-signal verifier and L2 anchoring.
+
+**Zhang et al., 2025 — GeRe** (https://arxiv.org/abs/2508.04676) uses a small fixed pretraining-replay set with threshold-based margin loss, comparing label-fitting, KL-imitation, and **L1/L2 feature-imitation**. **Upstream primitive** — explicitly validates L2-based feature anchoring as a 2025 state-of-the-art tool.
+
+**Zheng et al., 2025, ICLR 2025 — "Spurious Forgetting in Continual Learning of Language Models"** (https://openreview.net/forum?id=ScI7IlKGdI) introduces "spurious forgetting": early-training drops reflect task-alignment loss, not knowledge loss. **Theoretical precedent** — informs what CAEM's L2 anchor actually preserves (task alignment more than raw knowledge) and supports partial-layer anchoring designs.
+
+**Hazard et al., 2025 — SuRe** (https://arxiv.org/abs/2511.22367) uses dual fast/slow LoRA adapters merged via EMA plus surprise-ranked NLL-based replay, tested on T5-Large and Llama-3.1-8B. **Competitor** — directly tested on T5-Large (CAEM's base family), offering dual-adapter EMA as a parallel anchor mechanism.
+
+**Kang et al., 2025 — MoE-CL** (https://arxiv.org/abs/2509.18133) uses an adversarial Mixture-of-LoRA-Experts for industrial self-evolving continual instruction tuning. **Competitor** — explicitly frames "self-evolution" as CL + self-improvement, the exact design space CAEM occupies, with a different architectural answer (MoE vs. single model + L2 + episodic memory).
+
+## Topic 7 — Verifier ensembles, multi-signal calibration, theoretical purity bounds
+
+This is the area of **highest pre-emption risk** for CAEM's theoretical contribution. Several papers prove adjacent bounds, but none prove the exact α > ½ ⇒ P > p inequality for LLM training data.
+
+**Das et al., 2025, ICML 2025** (red-flagged above, https://arxiv.org/abs/2406.11206) — see RF-1. Closest published analogue of the P > p theorem in a binary classification setting.
+
+**Huang et al., 2025, ICLR 2025** (red-flagged above, https://arxiv.org/abs/2412.01951) — see RF-2. Sharpening-mechanism theory.
+
+**Song et al., 2024 — "Mind the Gap: Self-Improvement Capabilities of LLMs"** (https://arxiv.org/abs/2412.02674) formalizes the **generation–verification gap** and empirically shows iterative self-improvement succeeds iff the verifier is more accurate than the generator — the continuous analogue of CAEM's α > ½ condition. **Theoretical precedent** — lays the conceptual groundwork without proving a sharp finite-round purity inequality.
+
+**Lang, Vijayaraghavan & Sontag, 2024, NeurIPS 2024 — "Theoretical Analysis of Weak-to-Strong Generalization"** (https://arxiv.org/abs/2405.16043) gives an expansion-based bound for when a strong student trained on weak-teacher pseudolabels outperforms the teacher. **Theoretical precedent / upstream primitive** — closest "weak labels → better model" bound, but requires expansion assumptions rather than a verifier-accuracy threshold. Complementary to CAEM's simpler data-purity formulation.
+
+**Fu et al., 2025** (red-flagged above, https://arxiv.org/abs/2510.16657) — see RF-4. Proves verifier-filtered self-training converges rather than collapses; the strongest published safety argument for CAEM's design.
+
+**Vashurin et al., 2025, NeurIPS 2025 — CoCoA** (https://arxiv.org/abs/2502.04964) is a minimum-Bayes-risk framework combining information-based uncertainty (token probability) with consistency-based uncertainty (semantic clustering via NLI). **Direct competitor** — rigorous 2-signal ensemble of two of CAEM's five signals; CAEM must benchmark against it to justify the 5-signal extension.
+
+**Shteingart et al., 2020 — "Majority Voting and Condorcet's Jury Theorem"** (https://arxiv.org/abs/2002.03153) provides a compact modern proof of Condorcet: independent voters with accuracy > ½ yield strictly better majority-vote accuracy converging to 1. **Foundational upstream** — the canonical α > ½ theorem CAEM's purity result descends from. The independence assumption is also the theoretical basis for CAEM's ensemble decorrelation claim.
+
+---
+
+## Positioning summary
+
+CAEM faces **thickest competitive pressure in topics 2, 4, and 7** — hallucination verification, self-improvement, and verifier theory. Valentin et al. 2024 already builds a 4-signal calibrated verifier (missing only MC dropout), rStar-Math and V-STaR establish multi-cycle verifier-filtered self-training at small-model scale, and Das et al. 2025 proves a structurally similar self-training purity theorem in binary classification. Song et al. 2025 also comes close on the L2-anchor component. CAEM's theoretical novelty rests on three specific axes not jointly covered: (i) *external multi-signal* verifier (not self-prediction), (ii) *generative* LLM setting (not binary classification), (iii) explicit finite-round α > ½ ⇒ P > p inequality. **The quietest zones — and CAEM's clearest novelty — lie in topics 3 and 5**: no surveyed paper uses scalar confidence values stored with memory entries at insertion time, combined multiplicatively with semantic similarity, to route queries across three reliability tiers. Adaptive-RAG shares only the "3-tier" surface form; A-MEM shares insertion-time augmentation but uses textual metadata. CAEM's tier router appears genuinely under-explored and is the strongest defensible novelty claim, provided differentiation from Adaptive-RAG, A-MEM, and SeaKR is made explicit and the Moskvoretskii 2025 self-knowledge-correlation evaluation is adopted to positively demonstrate that u_stored captures real entry reliability.
