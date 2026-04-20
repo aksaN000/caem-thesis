@@ -18,6 +18,14 @@ Detail belongs in the commit message; the log is for quick rewind.
 
 ## 2026-04-22 (BDT — date rolls based on activity)
 
+### 2026-04-22 12:15 BDT  `[IMPL]`  Goal 1 Phase A committed on `feat/qwen-3b-goal1` (`2fa08bb`)
+
+- `caem/config.py`: added `base_model_name="Qwen/Qwen2.5-3B-Instruct"`, `prompt_style="chatml_scaffold"`, Goal 5 perf flags (`use_flash_attention_2`, `use_torch_compile`), LoRA config (r=16, alpha=32, dropout=0.05), per-architecture LoRA target-module tuples
+- `caem/model_loader.py` (new, 180 lines): `load_base_generator()` architecture-dispatching loader (AutoModelForCausalLM vs AutoModelForSeq2SeqLM via `HfConfig.is_encoder_decoder`), Flash Attention 2 opt-in w/ graceful fallback, torch.compile opt-in (skipped for encoder-decoder), `tokenizer.pad_token = eos_token` for decoder-only, import-time `RAYON_NUM_THREADS` hook (prevents Rust-tokenizer panic on high-core-count hosts), `dtype=` kwarg w/ `torch_dtype=` legacy fallback
+- `tests/test_model_loader.py` (new, 95 lines): 4 tests covering rayon-thread hook, Qwen-3B decoder-only live load + forward-pass + greedy ("capital of France is" → " Paris"), Flan-T5-Large encoder-decoder legacy-path load + generate, CAEMConfig Branch-C defaults
+- Live smoke on RTX 5090: Qwen-3B loads in 3.0s / 6.29 GB VRAM / 3.08B params ✓; Flan-T5-Large loads in 1.7s / 1.62 GB VRAM / 783M params ✓
+- **Test results: 4/4 new tests PASS; 560/560 existing tests PASS; zero regression**
+
 ### 2026-04-22 11:00 BDT  `[DECISION]`  Initial Phase 1a redefined — Branch C IS the new Phase 1a
 
 - User decision: stop Flan-T5 Phase 1a; Branch C IS Phase 1a; Phase 1 Full = Phase 1a + Steps 16-18
