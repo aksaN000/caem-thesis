@@ -232,9 +232,65 @@ class CAEMConfig:
     # k=5 is standard in DPR (Karpukhin et al. 2020); gives good recall
     # without overloading the Flan-T5 context window.
     rag_top_k: int = 5
+    # ------------------------------------------------------------------ #
+    # Base generator (Goal 1, Branch C — 2026-04-21 decision)              #
+    # ------------------------------------------------------------------ #
+    # [DES] HuggingFace model name. Branch-C default is Qwen/Qwen2.5-3B-Instruct
+    # (decoder-only, 3B params, Apache 2.0, ChatML format, ~99% label compliance
+    # and <2% loop rate per modern instruction tuning). Legacy Flan-T5-Large path
+    # retained for Variant 18 `flan_t5_large_backbone` ablation; architecture is
+    # auto-detected via ``HfConfig.is_encoder_decoder`` so both paths coexist.
+    base_model_name: str = "Qwen/Qwen2.5-3B-Instruct"
+
+    # [DES] Prompt template style. One of:
+    #   "chatml_scaffold"  — ChatML envelope + scaffolded Reasoning/Answer (Qwen,
+    #                         Gemma, Llama-3.x); forced prefix via prefill.
+    #   "flan_t5_scaffold" — Flat-text few-shot + forced ``decoder_input_ids``
+    #                         "Reasoning:" prefix (Flan-T5 encoder-decoder).
+    # Must match ``base_model_name``'s architecture family; a mismatch raises at
+    # pipeline construction time.
+    prompt_style: str = "chatml_scaffold"
+
+    # ------------------------------------------------------------------ #
+    # Goal 5 — hardware-utilization optimizations (Branch C)               #
+    # ------------------------------------------------------------------ #
+    # [DES] Enable Flash Attention 2 if the `flash_attn` library is installed on
+    # the rental. Gracefully falls back to eager attention (with log warning) on
+    # unavailable. Typically yields 10-15% generator throughput on 5090.
+    use_flash_attention_2: bool = True
+
+    # [DES] torch.compile on the generator forward pass. Nondeterminism risk
+    # (~1e-4 logit drift) is below u_stored composite's grounding-signal noise
+    # floor per Branch-C analysis. Start False during port+smoke; enable after
+    # regression gate validation on perf_log.csv.
+    use_torch_compile: bool = False
+
+    # [DES] LoRA SIL training (Qwen-3B won't fit full FT in 32 GB VRAM even with
+    # bf16 mixed precision and 8-bit AdamW; full FT needs ~48 GB). Promotes the
+    # Ch4 §Cycle-2 retention O-LoRA structured-fallback from fallback to primary
+    # training strategy.
+    use_lora_training: bool = True
+    lora_r: int = 16
+    lora_alpha: int = 32
+    lora_dropout: float = 0.05
+    # [DES] Target modules by architecture. Decoder-only models use the full
+    # attention+MLP family (Qwen/Llama convention). Encoder-decoder narrows to
+    # q/v projections (standard PEFT default for Flan-T5). Selected at train time
+    # based on ``model.config.is_encoder_decoder``.
+    lora_target_modules_decoder_only: Tuple[str, ...] = (
+        "q_proj", "k_proj", "v_proj", "o_proj",
+        "gate_proj", "up_proj", "down_proj",
+    )
+    lora_target_modules_encoder_decoder: Tuple[str, ...] = ("q", "v")
+
+    # ------------------------------------------------------------------ #
+    # Context window (shared across backbones)                             #
+    # ------------------------------------------------------------------ #
     # [DES] Max tokens allocated for retrieved context in the model prompt.
-    # Flan-T5-Large has a 512-token encoder limit; 384 leaves room for the
-    # question and instruction prefix.
+    # Flan-T5-Large has a 512-token encoder limit; Qwen-2.5-3B supports 32k+,
+    # but CAEM caps at 384 for parity with the Flan-T5 baseline and to keep the
+    # KV cache per-query memory predictable. Raise after Goal 5 profiling shows
+    # a clear latency benefit from longer context.
     rag_max_context_tokens: int = 384
     # [DES] Max new tokens for RAG generation. Raised from 256 to 512
     # after the uniform-CoT few-shot prompt was introduced: the few-shot
