@@ -18,6 +18,28 @@ Detail belongs in the commit message; the log is for quick rewind.
 
 ## 2026-04-22 (BDT — date rolls based on activity)
 
+### 2026-04-22 14:45 BDT  `[DECISION]`  Dual-backbone doctrine — Qwen primary, Flan-T5 preserved legacy
+
+- User question: "keep both or remove T5?" — answered: **keep both, dispatched at single points with shared logic**
+- Qwen-3B = primary path (thesis-defended, tested, target of new features)
+- Flan-T5 = preserved legacy path (Variant 18 ablation, halted Phase 1a data reuse, regression safety, rollback option)
+- Total dispatch overhead ~5-10 lines per file × ~8 files ≈ 100-200 lines across the codebase
+- In exchange: Variant 18 enabled, $13 Phase 1a reusable, 560 existing tests stay green, Qwen mid-run issues have immediate fallback
+- Discipline: new features Qwen-first; T5 retrofitted only if Variant 18 needs; only blocking T5 bugs get fixed
+- Documented in branch_C.md §Dual-backbone doctrine
+
+### 2026-04-22 14:30 BDT  `[IMPL]`  Goal 1 Phase C committed on `feat/qwen-3b-goal1` (`7680885`)
+
+- `caem/confidence/pre_routing.py::_compute_c_conv` dispatches on `model.config.is_encoder_decoder`:
+  - Encoder-decoder (Flan-T5): `self.model.encoder(...)` → encoder hidden_states (CAEM-specific adaptation)
+  - Decoder-only (Qwen/Gemma/Llama): `self.model(...)` direct forward on query tokens → full decoder-stack hidden_states (canonical Nandakishor 2025 formulation)
+- Variance-ratio math identical across both branches; shared-hidden-states unit test proves dispatch is math-agnostic to 1e-6
+- `_is_encoder_decoder` helper simplified (removed `_orig_mod` unwrap — unnecessary; also broke MagicMock dispatch)
+- Module docstring updated to frame decoder-only as the canonical path, Flan-T5 as the adaptation
+- `tests/test_pre_routing.py::TestCConvDecoderOnlyDispatch` (5 mock tests) + `test_c_conv_live_qwen_3b` (live CUDA smoke)
+- Live finding documented: raw-text queries to Qwen-3B produce near-zero u_token (~1e-9) because instruction-tuned Qwen expects ChatML; predictions scatter across 151k vocab. Not a bug — Phase D fix (format pre-routing queries with ChatML). Test asserts finiteness + boundedness only, not signal quality.
+- **Test results: 6/6 new PASS; 582/582 pass total; zero regression**
+
 ### 2026-04-22 13:00 BDT  `[IMPL]`  Goal 1 Phase B committed on `feat/qwen-3b-goal1` (`9697a7b`)
 
 - `caem/prompts.py` (new, 400 lines): centralizes Tier 2 (no-RAG) + Tier 3 (RAG) prompt construction with `prompt_style` dispatch

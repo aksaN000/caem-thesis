@@ -116,6 +116,35 @@ which are jointly covered by prior work (RF-1 through RF-5):
 
 ## Design decisions
 
+### Dual-backbone doctrine — Qwen is primary, Flan-T5 is preserved legacy
+
+**Decision 2026-04-22**: keep both Qwen-3B (decoder-only) and Flan-T5-Large
+(encoder-decoder) code paths, dispatched at runtime on
+``model.config.is_encoder_decoder``. Qwen-3B is the **primary** path —
+thesis-defended, extensively tested, target of new-feature work. Flan-T5 is
+**preserved legacy** — retained specifically for:
+
+- **Variant 18 `flan_t5_large_backbone` ablation** (explicit thesis claim:
+  "architecture generalizes across base-model generations")
+- **Halted Phase 1a data reuse** (~$13 spent; revalidation pass re-scores
+  existing Flan-T5 triples through the new 7-family composite)
+- **Regression safety** (560 existing tests use T5 mocks; dropping T5 forces
+  rewriting them)
+- **Rollback option** if Qwen surfaces unforeseen mid-run issues
+
+Discipline applied:
+
+- **Dispatch at single points, share logic**: `model_loader`, `prompts`,
+  `pre_routing`, `pipeline`, `verifier`, `rag` each have ONE architecture-
+  dispatch point; task detection / few-shot content / variance math are
+  shared. Total dispatch overhead ~5-10 lines per file at completion.
+- **New features go Qwen-first**: Flan-T5 gets retrofitted only if Variant 18
+  ablation needs it.
+- **Only blocking T5 bugs get fixed**: cosmetic issues in the T5 path are
+  accepted; ablation-reproducibility bugs are fixed.
+- **Tests cover both but emphasize Qwen**: existing T5 mock tests serve as
+  regression tier; new Qwen integration tests are the primary coverage.
+
 ### Goal 1 — Qwen2.5-3B-Instruct base generator
 
 **Choice**: Qwen2.5-3B-Instruct (Apache 2.0, decoder-only, 3B parameters, ~99% label
