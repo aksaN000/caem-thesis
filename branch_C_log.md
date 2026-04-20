@@ -18,6 +18,15 @@ Detail belongs in the commit message; the log is for quick rewind.
 
 ## 2026-04-22 (BDT — date rolls based on activity)
 
+### 2026-04-22 15:15 BDT  `[IMPL]`  Goal 1 Phase C.2 committed on `feat/qwen-3b-goal1` (`4f08d2b`)
+
+- **Bug 1 fixed**: raw-text queries to Qwen collapsed `u_token` to ~1e-9 because instruction-tuned Qwen expects ChatML. `_tokenize` now dispatches on architecture — decoder-only wraps query via `apply_chat_template(add_generation_prompt=True)` (minimal user-turn envelope), encoder-decoder passes through unchanged.
+- **Bug 2 fixed**: `_compute_u_token` token-offset assumed encoder-decoder sequences layout (`sequences[0, t+1]` = generated token t). Decoder-only sequences include full input prompt, so `t+1` landed INSIDE the input, not the generations. Fixed via `gen_start = sequences.shape[1] - len(scores)` which is architecture-agnostic.
+- **Live validation on Qwen-3B**: `u_token` 0.79-0.9999 on factual queries (was ~1e-9); `u_pre` 0.68-0.81 all above safety threshold 0.60 (was 0.18).
+- `test_c_conv_live_qwen_3b` upgraded from plumbing-only to quality-gated (`u_token > 0.5`, `u_pre > safety_u_pre_min`).
+- **Test results**: 49/49 Goal-1 tests PASS; 582/582 full suite PASS; zero regression.
+- Note: this is a C.2 amendment, not Phase D. The ChatML wrap in pre-routing is minimal (bare user turn); Phase D adds full scaffolded-CoT ChatML prompts in `pipeline.py` for Tier 2/3 generation — different artefacts serving different purposes.
+
 ### 2026-04-22 14:45 BDT  `[DECISION]`  Dual-backbone doctrine — Qwen primary, Flan-T5 preserved legacy
 
 - User question: "keep both or remove T5?" — answered: **keep both, dispatched at single points with shared logic**
