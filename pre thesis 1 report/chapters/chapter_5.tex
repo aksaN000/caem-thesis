@@ -1618,6 +1618,53 @@ Cycle & MMLU retention $\rho$ & BWT & FWT \\
 \end{tabular}
 \end{table}
 
+\subsubsection{Verifier calibration and the $\alpha$ audit}
+\label{sec:verification-balanced-accuracy}
+
+The purity theorem (\cref{thm:purity}) requires the verifier balanced
+accuracy $\alpha$ to exceed one half on the distribution of claims
+actually scored. We audit this assumption empirically through a
+pair-level diagnostic run on a labelled 500-pair set derived from the
+Cycle~0 eval JSONs (TriviaQA, Natural Questions, TruthfulQA; see
+\S\ref{sec:impl-details} for the pair-builder protocol). The
+diagnostic scores every pair with \emph{both} MiniCheck-Flan-T5-Large
+(\caem{}'s primary backend) and the legacy RoBERTa-Large-MNLI
+ensemble (the ablation backend \texttt{roberta\_nli\_backend}),
+reporting AUROC, ECE, Brier score, and selective accuracy at the 0.5
+/ 0.8 / 0.95 confidence quantiles. The script is
+\texttt{scripts/calibration\_minicheck\_vs\_roberta.py}; its output is
+\texttt{outputs/calibration/minicheck\_vs\_roberta.json} plus a
+companion per-pair CSV under the same stem.
+Table~\ref{tab:verifier-calibration} reports the head-to-head
+comparison. The primary headline in this table is the delta AUROC
+(MiniCheck minus RoBERTa); a non-negative value confirms the backend
+choice empirically, and the individual $\alpha$ values feed the
+per-cycle purity audit in Table~\ref{tab:purity}.
+
+\begin{table}[t]
+\centering
+\caption{Verifier calibration diagnostic at Cycle~0. MiniCheck-Flan-T5-Large
+(primary backend) versus RoBERTa-Large-MNLI (legacy ablation backend)
+scored pair-wise on a labelled 500-pair set drawn from open-ended-QA
+Cycle~0 predictions. AUROC measures ranking of supported-vs-unsupported
+pairs; ECE measures calibration of the probability output; Brier score
+combines both. $\Delta$ columns are MiniCheck minus RoBERTa; positive
+$\Delta$AUROC and negative $\Delta$ECE / $\Delta$Brier favour MiniCheck.
+Auto-populated from \texttt{outputs/calibration/minicheck\_vs\_roberta.json}.}
+\label{tab:verifier-calibration}
+\begin{tabular}{lrrr}
+\toprule
+Backend & AUROC & ECE & Brier \\
+\midrule
+MiniCheck-Flan-T5-L & \emph{[value]} & \emph{[value]} & \emph{[value]} \\
+RoBERTa-Large-MNLI  & \emph{[value]} & \emph{[value]} & \emph{[value]} \\
+$\Delta$ (MC $-$ Rob) & \emph{[value]} & \emph{[value]} & \emph{[value]} \\
+\midrule
+\multicolumn{4}{c}{\emph{[To be populated from Step 7.0 v3 diagnostic output.]}}\\
+\bottomrule
+\end{tabular}
+\end{table}
+
 \begin{table}[t]
 \centering
 \caption{Data-purity validation (\cref{thm:purity}). Per-cycle
