@@ -686,15 +686,28 @@ class UnifiedVerifier:
         if N == 0 or num_per <= 0:
             return [[] for _ in range(N)]
         try:
+            # ChatML-wrap each query so Qwen sees assistant-turn prompts (same
+            # reasoning as the single-query _tokenize path: raw text collapses
+            # per-token probabilities on instruction-tuned decoder-only models).
+            wrapped = [self._wrap_chatml(q) for q in queries]
+            # Left-padding is required for decoder-only batched generation
+            # alignment — all rows must end at the same position so
+            # autoregression starts from the same index for every sample.
+            original_side = getattr(self.tokenizer, "padding_side", None)
+            self.tokenizer.padding_side = "left"
             enc = self.tokenizer(
-                queries,
+                wrapped,
                 return_tensors="pt",
                 truncation=True,
-                max_length=512,
+                max_length=2048,
                 padding=True,
             )
+            if original_side is not None:
+                self.tokenizer.padding_side = original_side
+
             input_ids = enc["input_ids"].to(self.device)
             attention_mask = enc["attention_mask"].to(self.device)
+            input_len = int(input_ids.shape[1])
             self.model.eval()
             with torch.no_grad():
                 out = self.model.generate(
@@ -704,15 +717,17 @@ class UnifiedVerifier:
                     do_sample=True,
                     temperature=temperature,
                     num_return_sequences=num_per,
+                    pad_token_id=self.tokenizer.pad_token_id,
                 )
             # HF generate with num_return_sequences=M on batch N produces
-            # (N*M, T) where rows are grouped by input: [s0_c0..s0_cM-1,
-            # s1_c0..s1_cM-1, ...]. Decode row-by-row and regroup.
+            # (N*M, total_len) with rows grouped by input: [s0_c0..s0_cM-1,
+            # s1_c0..s1_cM-1, ...]. Decode only generated tokens
+            # (out[:, input_len:]) and regroup.
             per_sample: List[List[str]] = [[] for _ in range(N)]
             for row_idx in range(out.shape[0]):
                 s = row_idx // num_per
                 decoded = self.tokenizer.decode(
-                    out[row_idx], skip_special_tokens=True,
+                    out[row_idx, input_len:], skip_special_tokens=True,
                 ).strip()
                 per_sample[s].append(decoded)
             return per_sample
@@ -791,15 +806,24 @@ class UnifiedVerifier:
             return a, b
 
         try:
+            # Decoder-only ChatML wrap + left padding (same reasoning as the
+            # single-sampler path). All rows end at the same position so the
+            # two concurrent streams can use the same input_len for decode.
+            wrapped = [self._wrap_chatml(q) for q in queries]
+            original_side = getattr(self.tokenizer, "padding_side", None)
+            self.tokenizer.padding_side = "left"
             enc = self.tokenizer(
-                queries,
+                wrapped,
                 return_tensors="pt",
                 truncation=True,
-                max_length=512,
+                max_length=2048,
                 padding=True,
             )
+            if original_side is not None:
+                self.tokenizer.padding_side = original_side
             input_ids = enc["input_ids"].to(self.device)
             attention_mask = enc["attention_mask"].to(self.device)
+            input_len = int(input_ids.shape[1])
             self.model.eval()
 
             stream_a = torch.cuda.Stream(device=self.device)
@@ -827,6 +851,7 @@ class UnifiedVerifier:
                                 do_sample=True,
                                 temperature=temperature_a,
                                 num_return_sequences=num_per_a,
+                                pad_token_id=self.tokenizer.pad_token_id,
                             )
                     except Exception as exc_a:
                         err_a = exc_a
@@ -841,6 +866,7 @@ class UnifiedVerifier:
                                 do_sample=True,
                                 temperature=temperature_b,
                                 num_return_sequences=num_per_b,
+                                pad_token_id=self.tokenizer.pad_token_id,
                             )
                     except Exception as exc_b:
                         err_b = exc_b
@@ -853,9 +879,11 @@ class UnifiedVerifier:
 
             per_sample_a = self._decode_grouped(
                 out_a, N=N, num_per=num_per_a, label=label_a, err=err_a,
+                input_len=input_len,
             )
             per_sample_b = self._decode_grouped(
                 out_b, N=N, num_per=num_per_b, label=label_b, err=err_b,
+                input_len=input_len,
             )
             return per_sample_a, per_sample_b
         except Exception as exc:
@@ -881,12 +909,17 @@ class UnifiedVerifier:
         num_per: int,
         label: str,
         err: Optional[Exception],
+        input_len: int = 0,
     ) -> List[List[str]]:
         """Decode a pooled generate output into N per-sample lists.
 
         Shared by _pooled_sample_t5_dual for both stream outputs. If
         the sampler raised or produced no tensor, returns N empty
         lists so downstream scorers fall back.
+
+        ``input_len`` slices out the prompt prefix (decoder-only semantics:
+        sequences = [prompt_tokens..., generated_tokens...]). Defaults to 0
+        for backward compatibility with legacy callers.
         """
         if err is not None:
             logger.warning(
@@ -902,7 +935,7 @@ class UnifiedVerifier:
             s = row_idx // num_per
             try:
                 decoded = self.tokenizer.decode(
-                    out[row_idx], skip_special_tokens=True,
+                    out[row_idx, input_len:], skip_special_tokens=True,
                 ).strip()
             except Exception as exc:
                 logger.warning(
@@ -920,26 +953,56 @@ class UnifiedVerifier:
     # ---- internal calibration --------------------------------------------- #
 
     def _compute_u_token(self, input_ids: torch.Tensor, answer: str) -> float:
-        """Geometric mean of per-token probabilities of the answer under the model."""
+        """Geometric mean of per-token probabilities of the answer under the model.
+
+        Decoder-only causal-LM teacher forcing:
+            1. Tokenize the answer (no special tokens added; answer continues
+               the already-ChatML-wrapped prefix in ``input_ids``).
+            2. Concatenate prefix + answer tokens -> one long sequence.
+            3. Forward pass: ``logits[:, k, :]`` predicts the token at
+               position ``k+1``.
+            4. For answer token ``j`` (at full-sequence position
+               ``prefix_len + j``), the predicting logit is at position
+               ``prefix_len - 1 + j``. Gather log P of each answer token
+               from its predicting position.
+            5. Geometric mean over answer tokens = exp(mean(log_probs)).
+
+        Padding is absent here (batch size 1, no padding), so no mask is
+        needed. Returns 0.5 on any failure (neutral fallback).
+        """
         try:
             self.model.eval()
-            labels = self.tokenizer(
-                answer, return_tensors="pt",
-                truncation=True, max_length=self.config.cot_max_new_tokens,
+            answer_ids = self.tokenizer(
+                answer,
+                return_tensors="pt",
+                truncation=True,
+                max_length=self.config.cot_max_new_tokens,
+                add_special_tokens=False,
             ).input_ids.to(self.device)
+            if answer_ids.shape[1] == 0:
+                return 0.5
+
+            full_ids = torch.cat([input_ids, answer_ids], dim=1)
+            prefix_len = int(input_ids.shape[1])
+
             with torch.no_grad():
-                out = self.model(input_ids=input_ids, labels=labels)
-                logits = out.logits  # (1, T, V)
-            log_probs = F.log_softmax(logits, dim=-1)
-            gathered = log_probs.gather(-1, labels.unsqueeze(-1)).squeeze(-1)
-            pad_id = getattr(self.tokenizer, "pad_token_id", None)
-            if pad_id is None:
-                mean_logp = gathered.mean().item()
-            else:
-                mask = labels != pad_id
-                if mask.sum() == 0:
-                    return 0.5
-                mean_logp = gathered[mask].mean().item()
+                out = self.model(input_ids=full_ids)
+                logits = out.logits  # (1, total_len, V)
+
+            # logits at position k predict token at k+1; so for answer token
+            # j (full-sequence position prefix_len + j), predicting logit is
+            # at position prefix_len - 1 + j.
+            answer_len = int(answer_ids.shape[1])
+            start = prefix_len - 1
+            end = start + answer_len  # slice end exclusive
+            pred_logits = logits[0, start:end, :]  # (answer_len, V)
+            log_probs = F.log_softmax(pred_logits, dim=-1)
+            gathered = log_probs.gather(
+                1, answer_ids[0].unsqueeze(1)
+            ).squeeze(1)  # (answer_len,)
+            if gathered.numel() == 0:
+                return 0.5
+            mean_logp = gathered.mean().item()
             return float(np.clip(math.exp(mean_logp), 0.0, 1.0))
         except Exception as exc:
             logger.warning("u_token failed: %s -- returning 0.5", exc)
@@ -952,21 +1015,34 @@ class UnifiedVerifier:
         composite uses (1 - u_dropout), so a model that stably produces
         the same answer under perturbation scores higher. Proxy metric:
         fraction of K samples that do NOT match the plurality answer.
+
+        Goal-5 pull-forward: K samples drawn in ONE batched
+        ``model.generate(num_return_sequences=K)`` call under train() mode
+        (so dropout is active). Previously this was K sequential calls —
+        ~K× kernel-launch overhead. Now one sustained GPU burst.
         """
         K = getattr(self.config, "mc_dropout_k", 5)
+        prefix_len = int(input_ids.shape[1])
         try:
             self.model.train()  # activate dropout
-            samples: List[str] = []
             with torch.no_grad():
-                for _ in range(K):
-                    out = self.model.generate(
-                        input_ids,
-                        max_new_tokens=self.config.cot_max_new_tokens,
-                        do_sample=True,
-                        temperature=0.7,
-                    )
-                    decoded = self.tokenizer.decode(out[0], skip_special_tokens=True)
-                    samples.append(decoded)
+                out = self.model.generate(
+                    input_ids,
+                    max_new_tokens=self.config.cot_max_new_tokens,
+                    do_sample=True,
+                    temperature=0.7,
+                    num_return_sequences=K,
+                    pad_token_id=self.tokenizer.pad_token_id,
+                )
+            # Decoder-only: slice [prefix_len:] to decode only the newly
+            # generated tokens, not the repeated prompt.
+            samples: List[str] = []
+            for i in range(out.shape[0]):
+                decoded = self.tokenizer.decode(
+                    out[i, prefix_len:],
+                    skip_special_tokens=True,
+                ).strip()
+                samples.append(decoded)
             self.model.eval()
             if len(samples) < 2:
                 return 0.5
@@ -985,21 +1061,33 @@ class UnifiedVerifier:
     # ---- sample-set (M chains shared between s_avg and p_entail) ---------- #
 
     def _generate_m_chains(self, input_ids: torch.Tensor) -> List[str]:
-        """Generate M=3 sampled chains (T=0.7) shared by s_avg and p_entail."""
+        """Generate M=3 sampled chains (T=0.7) shared by s_avg and p_entail.
+
+        Goal-5 pull-forward: M samples drawn in ONE batched
+        ``model.generate(num_return_sequences=M)`` call instead of M
+        sequential kernel launches. Semantically equivalent (M i.i.d.
+        samples at the same temperature).
+        """
         M = self.config.sc_chains_m
+        prefix_len = int(input_ids.shape[1])
         chains: List[str] = []
         try:
             self.model.eval()
             with torch.no_grad():
-                for _ in range(M):
-                    out = self.model.generate(
-                        input_ids,
-                        max_new_tokens=self.config.cot_max_new_tokens,
-                        do_sample=True,
-                        temperature=0.7,
-                    )
-                    decoded = self.tokenizer.decode(out[0], skip_special_tokens=True)
-                    chains.append(decoded)
+                out = self.model.generate(
+                    input_ids,
+                    max_new_tokens=self.config.cot_max_new_tokens,
+                    do_sample=True,
+                    temperature=0.7,
+                    num_return_sequences=M,
+                    pad_token_id=self.tokenizer.pad_token_id,
+                )
+            for i in range(out.shape[0]):
+                decoded = self.tokenizer.decode(
+                    out[i, prefix_len:],
+                    skip_special_tokens=True,
+                ).strip()
+                chains.append(decoded)
         except Exception as exc:
             logger.warning("m-chain generation failed: %s", exc)
         return chains
@@ -1069,6 +1157,7 @@ class UnifiedVerifier:
         """
         K = self.config.se_samples_k
         T = self.config.se_temperature
+        prefix_len = int(input_ids.shape[1])
         try:
             self.model.eval()
             samples: List[str] = []
@@ -1081,10 +1170,12 @@ class UnifiedVerifier:
                     max_new_tokens=self.config.cot_max_new_tokens,
                     do_sample=True, temperature=T,
                     num_return_sequences=K,
+                    pad_token_id=self.tokenizer.pad_token_id,
                 )
                 for i in range(out.shape[0]):
+                    # Decoder-only: slice [prefix_len:] for generated tokens only
                     decoded = self.tokenizer.decode(
-                        out[i], skip_special_tokens=True
+                        out[i, prefix_len:], skip_special_tokens=True
                     ).strip()
                     samples.append(decoded)
             return self._h_norm_from_samples(samples)
@@ -1336,12 +1427,44 @@ class UnifiedVerifier:
     # ====================================================================== #
 
     def _tokenize(self, text: str) -> dict:
+        """Tokenize a query string after wrapping it in ChatML user-turn.
+
+        Mirrors ``PreRoutingConfidenceEstimator._tokenize`` (Goal 1 Phase C.2):
+        instruction-tuned decoder-only models require chat-format inputs to
+        produce well-calibrated predictions. The ChatML envelope puts Qwen
+        into "assistant answering a user" mode so SC-sampling / u_dropout /
+        h_norm generation produces coherent continuations instead of
+        scattering probability across the 151k vocab.
+        """
+        wrapped = self._wrap_chatml(text)
         inputs = self.tokenizer(
-            text,
+            wrapped,
             return_tensors="pt",
-            truncation=True, max_length=512,
+            truncation=True, max_length=2048,
         )
         return {k: v.to(self.device) for k, v in inputs.items()}
+
+    def _wrap_chatml(self, query: str) -> str:
+        """Wrap query in minimal ChatML user turn + generation prompt.
+
+        Falls back to manual ChatML concatenation if the tokenizer lacks
+        ``apply_chat_template`` (rare on modern instruction-tuned models).
+        """
+        messages = [{"role": "user", "content": query}]
+        tok = self.tokenizer
+        if hasattr(tok, "apply_chat_template"):
+            try:
+                return tok.apply_chat_template(
+                    messages,
+                    tokenize=False,
+                    add_generation_prompt=True,
+                )
+            except Exception as exc:  # pragma: no cover
+                logger.debug(
+                    "apply_chat_template failed (%s); falling back to manual ChatML.",
+                    exc,
+                )
+        return f"<|im_start|>user\n{query}<|im_end|>\n<|im_start|>assistant\n"
 
 
 __all__ = [
