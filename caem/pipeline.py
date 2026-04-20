@@ -617,40 +617,71 @@ class CAEMPipeline:
 
     @staticmethod
     def _detect_query_task(query: str) -> str:
-        """Infer benchmark task style from constrained prompt prefixes."""
+        """Infer benchmark task style from constrained prompt prefixes.
+
+        Returns one of ``"fever"``, ``"strategyqa"``, ``"arc"``, or
+        ``"open"``. ARC-Challenge queries are recognised by the
+        "Choices: (A) ... (B) ..." suffix that
+        ``load_arc_challenge`` builds into the query string.
+        """
         q = query.lower().strip()
         if q.startswith("answer with one of: supports, refutes, not enough info."):
             return "fever"
         if q.startswith("answer yes or no."):
             return "strategyqa"
+        if ("choices:" in q) and ("multiple choice letter" in q):
+            return "arc"
         return "open"
 
     def _build_tier2_prompt(self, query: str) -> str:
-        """Build Tier 2 generation prompt with task-specific CoT formatting."""
+        """Build Tier 2 generation prompt with uniform scaffolded CoT.
+
+        Tier 2 has no retrieved passages so the template has no
+        Context / Evidence block; the Reasoning and Answer slots
+        match Tier 3's uniform template so both tiers produce the
+        same substantive claim format for the verifier to score.
+        Forces >= 40 words of reasoning to convert classification-
+        style benchmarks (FEVER / StrategyQA / ARC) from degenerate
+        1-word label outputs into propositional claims scoreable by
+        the 9-signal composite.
+        """
         task = self._detect_query_task(query)
 
         if task == "fever":
             claim = self._extract_after_token(query, "Claim:")
-            return (
-                "Determine whether the claim is supports, refutes, or not enough info.\n"
-                "Provide brief reasoning, then the final label.\n"
-                "Format:\n"
-                "Reasoning: <short explanation>\n"
-                "Answer: supports|refutes|not enough info\n"
-                f"Claim: {claim}"
+            task_line = (
+                f"Claim: {claim}\n"
+                "Determine whether the claim is SUPPORTS, REFUTES, or "
+                "NOT ENOUGH INFO based on your knowledge."
             )
-
-        if task == "strategyqa":
+            answer_format = "supports | refutes | not enough info"
+        elif task == "strategyqa":
             q_text = self._extract_after_token(query, "Question:")
-            return (
-                "Answer the question with brief reasoning and a final yes/no label.\n"
-                "Format:\n"
-                "Reasoning: <short explanation>\n"
-                "Answer: yes|no\n"
-                f"Question: {q_text}"
+            task_line = (
+                f"Question: {q_text}\n"
+                "Answer the question with yes or no."
             )
+            answer_format = "yes | no"
+        elif task == "arc":
+            task_line = (
+                f"{query}\n"
+                "Choose the correct answer from the listed choices."
+            )
+            answer_format = "A | B | C | D"
+        else:
+            task_line = (
+                f"Question: {query}\n"
+                "Answer the question."
+            )
+            answer_format = "<concise factual answer>"
 
-        return f"Question: {query}\nThink step by step:"
+        return (
+            f"{task_line}\n\n"
+            "You MUST follow the exact response format below. Your "
+            "reasoning must be at least 40 words, step by step.\n\n"
+            "Reasoning: <at least 40 words of step-by-step analysis>\n"
+            f"Answer: {answer_format}"
+        )
 
     # ------------------------------------------------------------------ #
     # Verification (Stage 5)                                               #

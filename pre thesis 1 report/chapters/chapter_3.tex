@@ -132,7 +132,7 @@ The most important is the \emph{forgetting bound}. A self improvement system tha
 
 The second is \emph{calibration stability}. After temperature scaling has been fit at the end of Cycle 0, the $\upre$ channel shall maintain ECE at most $0.05$ on the calibration split through the remaining nine cycles. Without this property, the numerical thresholds that define Tier 1, Tier 2, and Tier 3 boundaries cease to correspond to the probabilistic semantics assumed by FR2, and the routing premise collapses.
 
-The third is \emph{single-GPU feasibility}. Every component of the pipeline, at training and at inference, shall fit on a single 24~GB consumer class accelerator (the RTX 4090 class being the reference hardware) under mixed precision arithmetic. This is an operational constraint, not an aspirational target: experiments that cannot be reproduced on this hardware are considered out of scope.
+The third is \emph{single-GPU feasibility}. Every component of the pipeline, at training and at inference, shall fit on a single consumer-grade accelerator with at most 32~GB of VRAM (experiments in this thesis were run on a rented RTX 5090, 32~GB; the same configuration runs unchanged on an RTX 4090 at 24~GB under bfloat16 mixed precision). This is an operational constraint, not an aspirational target: experiments that cannot be reproduced on this hardware are considered out of scope.
 
 The fourth is the \emph{latency envelope}. Tier 1 retrievals shall not invoke the verifier, because the entire justification for storing a verified episode is that future queries close to it can be answered without paying verification cost again. The verifier path is reserved for Tier 2 and Tier 3 and is permitted to be slow; per tier latency distributions are reported in Chapter 5.
 
@@ -151,7 +151,7 @@ Table~\ref{tab:nfr} summarises the five with their quantitative acceptance crite
 \midrule
 Forgetting bound         & Cycle retention ratio $\rho \geq 0.93$; cycles that violate the bound are rolled back to $\theta_{\mathrm{prev}}$. \\
 Calibration stability    & After Cycle 1, temperature scaled $\upre$ achieves ECE at most $0.05$ on the calibration split. \\
-Single-GPU feasibility   & Full pipeline runs on a single 24~GB accelerator at fp16; Wikipedia passage index is memory mapped from disk. \\
+Single-GPU feasibility   & Full pipeline runs on a single consumer-grade accelerator with at most 32~GB VRAM at bfloat16; Wikipedia passage index is memory mapped from disk. Reference runs on an RTX 5090; an RTX 4090 (24~GB) also suffices. \\
 Latency envelope         & Tier 1 bypasses the verifier; verifier path is reserved for Tier 2 and Tier 3. \\
 Reproducibility          & Deterministic registry given a seed; per run manifests contain seed, weights revision, and FAISS parameters. \\
 \bottomrule
@@ -163,7 +163,7 @@ Reproducibility          & Deterministic registry given a seed; per run manifest
 
 Four classes of constraint shape the design space and must be named explicitly, because they render otherwise arbitrary looking design choices intelligible.
 
-\paragraph{Hardware.} The reference deployment target is a single RTX 4090 class accelerator with 24~GB of VRAM. Flan-T5-Large (780M parameters) occupies approximately $1.5$~GB at \texttt{bfloat16}, the sentence embedding encoder (110M) approximately $0.2$~GB and the MiniCheck-Flan-T5-Large verifier (770M) approximately $1.5$~GB at \texttt{bfloat16}, and the Wikipedia passage index in IVF-PQ form approximately $4$ to $6$~GB on disk, memory mapped rather than resident. The legacy \texttt{roberta-large-mnli} verifier (355M, ${\sim}0.7$~GB at fp16) remains available as an ablation backend but is not the primary configuration. Mixed precision arithmetic is used throughout. No multi-GPU training, distributed retrieval, or cluster scheduling is assumed at any stage.
+\paragraph{Hardware.} The reference deployment target is a single consumer-grade accelerator with at most 32~GB of VRAM; the thesis experiments ran on a rented RTX 5090 (32~GB), while the same configuration runs unchanged on an RTX 4090 (24~GB). Flan-T5-Large (780M parameters) occupies approximately $1.5$~GB at \texttt{bfloat16}, the sentence embedding encoder (110M) approximately $0.2$~GB and the MiniCheck-Flan-T5-Large verifier (770M) approximately $1.5$~GB at \texttt{bfloat16}, and the Wikipedia passage index in IVF-PQ form approximately $4$ to $6$~GB on disk, memory mapped rather than resident. The legacy \texttt{roberta-large-mnli} verifier (355M, ${\sim}0.7$~GB at fp16) remains available as an ablation backend but is not the primary configuration. Mixed precision arithmetic is used throughout. No multi-GPU training, distributed retrieval, or cluster scheduling is assumed at any stage.
 
 \paragraph{Compute budget.} The experimental program is planned in two phases so that the full ablation registry remains feasible on a student scale budget. Phase 1 is a screening sweep across all seventeen ablation variants at a reduced per cycle question count and a single seed, intended to rule out variants whose CES is obviously dominated by the reference before the thesis commits compute to variance estimation. Phase 2 promotes the surviving variants to a full ten cycle trajectory across three seeds, so that Chapter 5 can report means with confidence intervals rather than point estimates.
 
@@ -218,7 +218,7 @@ Alongside CES, three diagnostic metrics are reported at every cycle so that a re
 \section{Ablation Study Design}
 \label{sec:ablation-design}
 
-Sixteen ablation variants constitute the study. One is the reference. One, \emph{No self-improvement}, freezes the pipeline at Cycle 0 and thereby isolates the contribution of the self improvement loop at a fraction of the compute of a full run. The remaining fourteen are cyclic lesions that each require their own ten cycle trajectory because each one modifies what is stored in memory or what is trained on, and therefore cannot reuse the reference trajectory's weights or memory. Table~\ref{tab:ablation-registry} lists the registry, distinguishing cyclic from non-cyclic variants.
+Seventeen ablation variants constitute the study. One is the reference. One, \emph{No self-improvement}, freezes the pipeline at Cycle 0 and thereby isolates the contribution of the self improvement loop at a fraction of the compute of a full run. The remaining fifteen are cyclic lesions that each require their own ten cycle trajectory because each one modifies what is stored in memory or what is trained on, and therefore cannot reuse the reference trajectory's weights or memory. Table~\ref{tab:ablation-registry} lists the registry, distinguishing cyclic from non-cyclic variants.
 
 \begin{table}[H]
 \centering
@@ -245,6 +245,7 @@ No Tier 3 RAG                      & Disable Tier 3 retrieval; zero shot fallbac
 No novelty filter                  & Permit near duplicate episodes.                                         & yes  \\
 No recency decay                   & Flatten the recency term in the pruning score.                          & yes  \\
 Aggressive store threshold         & Raise $\tau_{\text{store}}$ from $0.65$ to $0.85$.                      & yes  \\
+\texttt{roberta\_nli\_backend}     & Swap verifier backend from MiniCheck-Flan-T5-L to legacy RoBERTa-Large-MNLI; isolates the MiniCheck-vs-generic-NLI purity gap empirically.  & yes  \\
 \bottomrule
 \end{tabular}
 \end{table}
