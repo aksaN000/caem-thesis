@@ -2160,3 +2160,139 @@ at the standard ML ground-truth floor. The thesis assumes a measured
 alpha > 1/2 on that human-validated distribution and proves purity
 improvement from that assumption. It makes no truth claim beyond the
 calibration."
+
+## 07:15 BDT — Scope + 9-signal architecture analysis (2026-04-20)
+
+Captured during Step 7.0 mid-run discussion (TriviaQA+NQ EM anomaly -> pair
+builder + extractor + prompt-scope debugging chain). Notes for Ch6
+Limitations section and for the viva defense of the "universal-
+applicability" claim.
+
+### What the 9-signal composite catches BY DESIGN
+
+  * u_token, u_dropout, u_internal  -- decoder confidence miscalibration
+  * s_avg                            -- stochastic confabulation (M chains
+                                        diverge)
+  * h_norm                           -- ambiguity / multiple valid answers
+  * p_entail                         -- self-consistency (chains vs answer)
+  * p_ground_max, p_ground_mean     -- factual grounding vs passages
+  * p_ground_atomic                 -- compositional (atomic-fact) grounding
+  * p_contra                        -- active contradiction veto
+
+Design is GENERAL for natural-language QA hallucination detection.
+Each signal targets a distinct failure mode documented in the
+literature (Kadavath 2022 / Farquhar 2024 / MiniCheck 2024 / HaluEval
+2025 / Semantic Illusion 2025).
+
+### Where the 9 signals BREAK (empirical scope bounds)
+
+Signals degrade in specific failure modes:
+
+1. **5-signal degradation on label-only outputs**. Benchmarks whose
+   prediction format is a 1-word label (FEVER "supports", StrategyQA
+   "yes", ARC "A") cause p_ground_* and p_contra to operate on a non-
+   propositional string. In Step 7.0 FEVER, 88.8% of predictions were
+   label-only -> 4 of 9 signals degrade to noise. The composite still
+   discriminates via the remaining 5 (internal cal + sample-set),
+   but at reduced rank.
+   FIX: uniform scaffolded CoT prompt (Option C) converts label
+   outputs into substantive Evidence/Reasoning/Answer text so all 9
+   signals remain informative.
+
+2. **Signals go dead under greedy decoding.** s_avg, h_norm, p_entail
+   rely on M=3 / K=10 stochastic chains. If do_sample=False is used
+   (as in Tier 3 RAG for reproducibility), all chains collapse ->
+   s_avg=1.0 always, h_norm=0.0 always, p_entail=1.0 always. These 3
+   signals provide no information under deterministic generation.
+   CAEM uses do_sample=True for the chain/sample signals even when
+   the primary Tier 3 output is greedy, so this is handled -- but
+   would break on a naive deployment.
+
+3. **NLI model context limit.** MiniCheck / RoBERTa-MNLI cap at ~512
+   input tokens. Long-context QA (NarrativeQA, PubMedQA with 10k+
+   token documents) cannot be scored whole; we see one chunk at a
+   time, losing cross-chunk consistency checks.
+
+4. **English-only training.** All CAEM components (SBERT, Flan-T5,
+   MiniCheck, RoBERTa) are English-trained. Non-English QA produces
+   noisy signals with uncalibrated weights.
+
+5. **Composite weights are distribution-specific.** The 0.30 *
+   p_ground_mean + 0.15 * p_ground_atomic + ... weighting was fitted
+   for English factual QA on passage-grounded retrieval. Math
+   reasoning (GSM8K) or code generation (HumanEval) would need
+   different weights -- grounding is irrelevant for math, non-
+   applicable for code.
+
+### Question types OUT OF SCOPE for the thesis
+
+Reviewers may probe these; be ready to acknowledge them as future
+work, not incidental omissions:
+
+  * Long-form generation (biographies, summaries, essays) --
+    different failure mode distribution (scattered facts across
+    500+ tokens); atomic decomposition dominates over holistic
+    grounding.
+  * Multi-turn dialogue -- no inter-turn coherence signal in the
+    9-signal set; CAEM is strictly single-turn.
+  * Long-context document QA -- architectural cap from NLI model
+    context length.
+  * Multilingual QA -- English-only component stack.
+  * Math / arithmetic reasoning -- derivational correctness is a
+    different hallucination taxonomy; grounding signals irrelevant.
+  * Code generation -- non-natural-language modality; NLI signals
+    undefined.
+  * Ambiguous / temporally-shifting questions -- CAEM's decision
+    tree assumes a single correct answer.
+  * Structured-output tasks (Text2SQL, JSON) -- schema violations
+    are a different hallucination class.
+  * Attribution / source-citation benchmarks -- misattribution
+    failure is distinct from fabrication.
+
+### Defensible thesis claim (target wording)
+
+Narrow (baseline, safest):
+  "CAEM reduces hallucination across six English-language, single-
+   turn, short-to-medium-answer QA benchmarks spanning fact
+   verification (FEVER), open-domain factual QA (TriviaQA, NQ),
+   truthfulness evaluation (TruthfulQA), multi-step reasoning
+   (StrategyQA), and scientific multiple-choice (ARC)."
+
+Strong (conditional on Option C uniform-CoT retrofit):
+  "CAEM's verifier operates uniformly across classification,
+   multiple-choice, yes/no, and open-ended QA formats via a
+   scaffolded chain-of-thought generator prompt and a 9-signal
+   verifier composite. Within the scope of English-language, single-
+   turn QA, CAEM reduces hallucination across six standard
+   benchmarks covering diverse task structures."
+
+Foundational (positions CAEM as framework, not narrow system):
+  "The 9-signal composite is designed to be general across natural-
+   language QA hallucination detection. Empirical validation in this
+   thesis covers six benchmarks spanning classification, multi-step
+   reasoning, multiple-choice, and open-ended formats. Extending the
+   framework to long-form generation, multi-turn dialogue, long-
+   context QA, multilingual queries, and non-QA tasks (code, math,
+   structured output) is architecturally feasible but requires
+   domain-specific validation and per-domain re-calibration of the
+   composite weights."
+
+### Architectural hooks for future extensions
+
+None of the scope limits are redesign-level. The 9-signal architecture
+admits the following principled extensions:
+
+  * Dialogue: add utterance-history consistency signal to the
+    composite (could reuse p_entail between prior turn's answer
+    and current turn's claim).
+  * Long-context: swap the 512-token NLI for a long-context
+    verifier (e.g. hierarchical attention over passage chunks).
+  * Multilingual: replace SBERT/Flan-T5/MiniCheck with multilingual
+    analogues (mE5, mT5, MiniCheck-mT5 if trained).
+  * Math / code: bolt on domain-specific grounding (symbolic
+    solver for math; code-execution sandbox for HumanEval) as
+    additional signals alongside the existing 9.
+
+These hooks are documented in Ch6 as future-work directions with
+concrete implementation paths, preserving CAEM's architectural
+generality claim while bounding the empirical scope claim.
