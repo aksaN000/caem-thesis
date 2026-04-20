@@ -1,4 +1,4 @@
-﻿"""
+"""
 caem/confidence/pre_routing.py
 ===============================
 PreRoutingConfidenceEstimator -- Stage 3 of the CAEM pipeline.
@@ -15,17 +15,10 @@ Signal 1 -- u_token (geometric mean of per-token log-probabilities)
 
 Signal 2 -- C_conv (Internal Convergence, Nandakishor 2025)
     Measures query-representation stability via the variance ratio of early
-    vs. late transformer-layer hidden states on the query tokens.
-
-    Backbone dispatch (Goal 1, Branch C):
-      - Decoder-only (Qwen/Gemma/Llama): run ``self.model(input_ids=...)``
-        on the query tokens directly (no generation) and extract the full
-        hidden-state stack. This matches the original Nandakishor (2025)
-        formulation — the decoder-only path is canonical.
-      - Encoder-decoder (Flan-T5): run ``self.model.encoder(...)`` and extract
-        encoder hidden states. The CAEM adaptation because Flan-T5 has no
-        unified decoder stack to run without generation; the encoder produces
-        the stable query representation we want to measure.
+    vs. late transformer-layer hidden states on the query tokens. Runs
+    ``self.model(input_ids=...)`` on the query (no generation) and extracts
+    the full decoder-stack hidden states -- the canonical Nandakishor (2025)
+    formulation for decoder-only transformers.
 
     Intuition: if early layers disagree more than late layers, the model has
     not settled on a stable representation of the query -- it is internally
@@ -39,8 +32,8 @@ Combined
 --------
     u_pre = 0.60 · u_token + 0.40 · (1 / (1 + c_conv))    [DES]
 
-The 0.60/0.40 split is a design choice (Category 2): token probability is the
-primary reliability signal; c_conv is a secondary prior on query stability.
+The 0.60/0.40 split is a design choice: token probability is the primary
+reliability signal; c_conv is a secondary prior on query stability.
 
 OR-condition
 ------------
@@ -48,9 +41,13 @@ OR-condition
         -> force Tier 3, regardless of memory similarity
 
 This is checked via PreRoutingConfidence.is_safe(), not baked into any formula.
-See: writing-suggestions.md C4-04, C4-10b for thesis framing.
 
-Latency target: < 100 ms on GPU (one encoder forward pass + short greedy decode).
+**Branch C decision (2026-04-22)**: Branch C is decoder-only; Flan-T5 /
+encoder-decoder support has been removed. For the legacy T5 code path, use
+the ``main`` branch.
+
+Latency target: < 100 ms on GPU on Qwen-2.5-3B (one decoder forward pass +
+short greedy decode).
 """
 
 from __future__ import annotations
@@ -73,11 +70,15 @@ class PreRoutingConfidenceEstimator:
 
     Parameters
     ----------
-    model : transformers.T5ForConditionalGeneration
-        Flan-T5-Large (or compatible encoder-decoder). Must already be on
-        the correct device and in eval mode.
-    tokenizer : transformers.T5Tokenizer / AutoTokenizer
-        Matching tokenizer for the model.
+    model : transformers.PreTrainedModel
+        A decoder-only instruction-tuned model (Qwen, Gemma, Llama, Phi,
+        Mistral family). Must already be on the correct device and in eval
+        mode. Encoder-decoder models (Flan-T5) are not supported on this
+        branch.
+    tokenizer : transformers.AutoTokenizer
+        Matching tokenizer for the model. Must implement
+        ``apply_chat_template`` (standard for ChatML-compatible tokenizers)
+        for best results; a manual ChatML fallback is used if not.
     config : CAEMConfig
         Pipeline configuration. Weights and thresholds come from here.
     max_new_tokens : int
@@ -122,7 +123,8 @@ class PreRoutingConfidenceEstimator:
         Parameters
         ----------
         query : str
-            The raw question text.
+            The raw question text. Gets wrapped in ChatML internally for
+            decoder-only generation.
 
         Returns
         -------
@@ -159,6 +161,17 @@ class PreRoutingConfidenceEstimator:
             u_pre=u_pre,
         )
 
+    def estimate_batch(self, queries: list[str]) -> list[PreRoutingConfidence]:
+        """Estimate u_pre for a list of queries sequentially.
+
+        Note: batched generation with ``output_scores=True`` requires careful
+        token alignment (padding complicates log-prob indexing). Sequential
+        is safer and the latency difference is negligible per-query at
+        inference. If Goal 5 profiling shows this is a hotspot, revisit with
+        proper padding-aware log-prob extraction.
+        """
+        return [self.estimate(q) for q in queries]
+
     # ------------------------------------------------------------------ #
     # Signal 1 -- u_token                                                  #
     # ------------------------------------------------------------------ #
@@ -166,13 +179,12 @@ class PreRoutingConfidenceEstimator:
     def _compute_u_token(self, inputs: dict) -> float:
         """Geometric mean of per-token log-probabilities.
 
-        We run a short greedy decode (max_new_tokens=32) with output_scores=True,
-        then collect the log P(chosen token) at each step.
+        Runs a short greedy decode (max_new_tokens=32) with
+        ``output_scores=True``, then collects ``log P(chosen token)`` at
+        each generated step. Geometric mean = ``exp(mean(log_probs))``, the
+        per-token average probability under the model.
 
-        Geometric mean = exp(mean(log_probs)), which equals the per-token
-        average probability under the model -- a natural confidence measure.
-
-        Returns float in [0, 1]. Returns 0.0 on failure (fail-safe to Tier 3).
+        Returns float in [0, 1]. Returns 0.0 on failure (fail-safe -> Tier 3).
         """
         try:
             outputs = self.model.generate(
@@ -193,19 +205,8 @@ class PreRoutingConfidenceEstimator:
             logger.warning("u_token: no scores returned -- returning 0.0.")
             return 0.0
 
-        # Compute generated-token offset architecture-agnostically.
-        #
-        # Encoder-decoder (Flan-T5):
-        #   sequences = [decoder_start, tok_1, ..., tok_n]
-        #   sequences.shape[1] = 1 + n_gen;  gen_start = 1
-        #
-        # Decoder-only (Qwen/Gemma/Llama):
-        #   sequences = [input_0, ..., input_{L_input-1}, tok_1, ..., tok_n]
-        #   sequences.shape[1] = L_input + n_gen;  gen_start = L_input
-        #
-        # In both cases, the last ``len(scores)`` tokens of ``sequences`` are
-        # the generated tokens. Taking ``gen_start = sequences.shape[1] -
-        # len(scores)`` works for both architectures.
+        # For decoder-only models, sequences = [input_tokens..., gen_tokens...].
+        # The last ``len(scores)`` tokens are the generated tokens.
         n_gen = len(scores)
         gen_start = int(sequences.shape[1]) - n_gen
 
@@ -223,7 +224,6 @@ class PreRoutingConfidenceEstimator:
             logger.warning("u_token: no non-EOS tokens scored -- returning 0.0.")
             return 0.0
 
-        # Geometric mean: exp(mean(log_probs))
         u_token = math.exp(sum(log_probs) / len(log_probs))
         return float(np.clip(u_token, 0.0, 1.0))
 
@@ -231,56 +231,25 @@ class PreRoutingConfidenceEstimator:
     # Signal 2 -- C_conv (Internal Convergence)                            #
     # ------------------------------------------------------------------ #
 
-    def _is_encoder_decoder(self) -> bool:
-        """Detect architecture once, from model config.
-
-        Returns True for Flan-T5 family; False for Qwen/Gemma/Llama/Phi/Mistral
-        and other decoder-only families. Used to dispatch the c_conv hidden-
-        state source (encoder-only vs full decoder stack).
-
-        Note on torch.compile wrapping: ``OptimizedModule`` forwards all
-        attribute access (including ``.config``) to the wrapped module, so
-        we do NOT need to reach for ``._orig_mod`` manually — accessing
-        ``self.model.config.is_encoder_decoder`` works through the wrapper.
-        """
-        cfg = getattr(self.model, "config", None)
-        return bool(getattr(cfg, "is_encoder_decoder", False))
-
     def _compute_c_conv(self, inputs: dict) -> float:
-        """Layer-variance-ratio query-stability signal; dispatches on architecture.
+        """Decoder-stack layer-variance-ratio query-stability signal.
 
-        Encoder-decoder (Flan-T5) path: runs ``self.model.encoder(...)`` over
-        the query tokens; uses encoder hidden states. CAEM-specific adaptation
-        because T5 has no unified stack to run without generation.
+        Runs ``self.model(input_ids=...)`` over the query tokens (forward
+        pass only, no generation) and uses the full transformer-stack
+        hidden states. This is the canonical Nandakishor (2025) formulation
+        for decoder-only transformers.
 
-        Decoder-only (Qwen/Gemma/Llama) path: runs ``self.model(...)`` over
-        the query tokens (forward pass only, no generation) and uses the full
-        transformer-stack hidden states. This is the original Nandakishor
-        (2025) formulation; cleaner than the T5 adaptation.
-
-        Both paths apply the identical variance-ratio computation afterward;
-        only the forward-pass source differs. Returns the raw c_conv ratio;
-        conversion to confidence happens in ``estimate()``.
-
-        Returns 0.0 (highest confidence, fail-safe) on any forward-pass error.
+        Returns the raw c_conv ratio; conversion to confidence happens in
+        ``estimate()``. Returns 0.0 (highest confidence, fail-safe) on any
+        forward-pass error.
         """
         try:
-            if self._is_encoder_decoder():
-                outputs = self.model.encoder(
-                    input_ids=inputs["input_ids"],
-                    attention_mask=inputs.get("attention_mask"),
-                    output_hidden_states=True,
-                    return_dict=True,
-                )
-            else:
-                # Decoder-only: direct forward pass on the query tokens. No
-                # generation; we only need the hidden-state stack.
-                outputs = self.model(
-                    input_ids=inputs["input_ids"],
-                    attention_mask=inputs.get("attention_mask"),
-                    output_hidden_states=True,
-                    return_dict=True,
-                )
+            outputs = self.model(
+                input_ids=inputs["input_ids"],
+                attention_mask=inputs.get("attention_mask"),
+                output_hidden_states=True,
+                return_dict=True,
+            )
         except Exception as exc:
             logger.warning(
                 "c_conv: forward pass failed with %s -- returning 0.0.",
@@ -296,9 +265,9 @@ class PreRoutingConfidenceEstimator:
             )
             return 0.0
 
-        # hidden_states: tuple of (L+1) tensors, shape (batch, seq_len, hidden_dim)
+        # hidden_states: tuple of (L+1) tensors, shape (batch, seq_len, hidden_dim).
         # Index 0 = embedding layer output; indices 1..L = transformer layer outputs.
-        # Flan-T5-Large: L=24 encoder layers. Qwen2.5-3B: L=36 decoder layers.
+        # Qwen2.5-3B: L=36 decoder layers.
         L = len(hidden_states) - 1
 
         if L < 2:
@@ -312,7 +281,6 @@ class PreRoutingConfidenceEstimator:
         if not early_layers or not late_layers:
             return 0.0
 
-        # Stack and compute scalar variance across all elements.
         var_early = torch.var(torch.stack(early_layers)).item()
         var_late  = torch.var(torch.stack(late_layers)).item()
 
@@ -326,27 +294,20 @@ class PreRoutingConfidenceEstimator:
     # ------------------------------------------------------------------ #
 
     def _tokenize(self, query: str) -> dict:
-        """Tokenize a query string and move tensors to device.
+        """Tokenize a query after wrapping it in ChatML for decoder-only input.
 
-        Architecture-aware wrapping (Goal 1, Branch C):
-        - Encoder-decoder (Flan-T5): pass query directly to tokenizer. T5 was
-          pretrained on raw text + FLAN instruction tuning; the encoder accepts
-          bare queries without template wrapping.
-        - Decoder-only (Qwen/Gemma/Llama/Phi): wrap query in a minimal ChatML
-          user turn with generation prompt via ``apply_chat_template``. Without
-          this, instruction-tuned decoder-only models flail on raw text —
-          predictions scatter across the ~151k vocab, making per-token
-          probabilities tiny and u_token collapse to ~1e-9 (empirically
-          confirmed 2026-04-22 on Qwen-2.5-3B). Wrapping restores the signal's
-          intended semantic: model confidence when beginning an assistant turn
-          answering the user's question.
+        Instruction-tuned decoder-only models (Qwen, Gemma, Llama-3 etc.)
+        require chat-format inputs to produce well-calibrated predictions.
+        Raw-text queries cause per-token probabilities to scatter across the
+        vocab, collapsing u_token to ~1e-9 (empirically confirmed 2026-04-22
+        on Qwen-2.5-3B). The ChatML envelope puts the model into "assistant
+        answering a user" mode so confidence signals are meaningful.
 
-        The ChatML envelope adds ~20 tokens of fixed structure around the
-        query; c_conv's variance ratio is not materially distorted because
-        the envelope is the same for every query and washes out in the
-        early/late layer comparison.
+        The envelope adds ~20 fixed tokens around the query; c_conv's variance
+        ratio is not materially distorted because the envelope is identical
+        for every query and washes out in the early/late layer comparison.
         """
-        text = self._wrap_query_for_backbone(query)
+        text = self._wrap_chatml(query)
         inputs = self.tokenizer(
             text,
             return_tensors="pt",
@@ -356,20 +317,14 @@ class PreRoutingConfidenceEstimator:
         )
         return {k: v.to(self.device) for k, v in inputs.items()}
 
-    def _wrap_query_for_backbone(self, query: str) -> str:
-        """Wrap the raw query for the backbone's expected input convention.
+    def _wrap_chatml(self, query: str) -> str:
+        """Wrap query in minimal ChatML user turn + generation prompt.
 
-        Returns ``query`` unchanged for encoder-decoder models. Returns a
-        ChatML-formatted user turn + generation prompt for decoder-only
-        models via ``tokenizer.apply_chat_template(add_generation_prompt=True)``
-        when available. Falls back to a manual ChatML concatenation if the
-        tokenizer lacks ``apply_chat_template`` (rare; most modern
-        instruction-tuned tokenizers ship with a chat template).
+        Uses ``tokenizer.apply_chat_template(add_generation_prompt=True)``
+        when available; falls back to manual ChatML syntax (Qwen / Llama /
+        Gemma all use the ``<|im_start|>...<|im_end|>`` convention) if the
+        tokenizer lacks the method.
         """
-        if self._is_encoder_decoder():
-            return query
-
-        # Decoder-only: wrap in minimal ChatML
         messages = [{"role": "user", "content": query}]
         tok = self.tokenizer
         if hasattr(tok, "apply_chat_template"):
@@ -384,7 +339,6 @@ class PreRoutingConfidenceEstimator:
                     "apply_chat_template failed (%s); falling back to manual "
                     "ChatML wrap.", exc,
                 )
-        # Manual ChatML fallback (Qwen/Llama/Gemma all share this syntax)
         return f"<|im_start|>user\n{query}<|im_end|>\n<|im_start|>assistant\n"
 
     def _apply_temperature_scaling(self, prob: float) -> float:
@@ -403,24 +357,3 @@ class PreRoutingConfidenceEstimator:
         scaled = float(np.clip(logit / T, -60.0, 60.0))
         calibrated = 1.0 / (1.0 + math.exp(-scaled))
         return float(np.clip(calibrated, 0.0, 1.0))
-
-    # ------------------------------------------------------------------ #
-    # Batch estimation (for calibration / evaluation harness)             #
-    # ------------------------------------------------------------------ #
-
-    def estimate_batch(self, queries: list[str]) -> list[PreRoutingConfidence]:
-        """Estimate u_pre for a list of queries sequentially.
-
-        Note: batched generation with output_scores=True requires careful
-        token alignment (padding complicates log-prob indexing). Sequential
-        is safer and the latency difference is negligible per-query at inference.
-
-        Parameters
-        ----------
-        queries : list of str
-
-        Returns
-        -------
-        list of PreRoutingConfidence, one per query.
-        """
-        return [self.estimate(q) for q in queries]

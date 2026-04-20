@@ -74,14 +74,24 @@ def make_mock_model(
     eos_token_id: int = 1,
     generate_n_tokens: int = 3,
 ) -> MagicMock:
-    """Build a mock T5ForConditionalGeneration with predictable outputs."""
+    """Build a mock decoder-only generator with predictable outputs.
+
+    Branch C is decoder-only only (T5-removal refactor 2026-04-22). This mock
+    simulates a Qwen/Llama-style model where:
+      - ``model(input_ids=..., output_hidden_states=True)`` returns a namespace
+        with ``hidden_states`` (used by ``_compute_c_conv``)
+      - ``model.generate(...)`` returns sequences + scores (used by
+        ``_compute_u_token``)
+
+    Previous encoder-decoder mock semantics (``model.encoder.return_value``)
+    are removed along with the T5 code path.
+    """
     model = MagicMock()
     model.parameters.return_value = iter([torch.zeros(1)])  # for device detection
 
-    # -- encoder forward pass (c_conv) ----------------------------------
+    # -- direct forward pass (c_conv, decoder-only) ---------------------
     hidden_states = make_hidden_states(num_layers, SEQ_LEN, HIDDEN_DIM, early_var, late_var)
-    encoder_out = SimpleNamespace(hidden_states=hidden_states)
-    model.encoder.return_value = encoder_out
+    model.return_value = SimpleNamespace(hidden_states=hidden_states)
 
     # -- generate (u_token) ----------------------------------------------
     # Produce `generate_n_tokens` steps then EOS.
@@ -97,8 +107,13 @@ def make_mock_model(
 
     scores = tuple(make_score() for _ in range(n))
 
-    # sequences: [decoder_start=0, tok_1=2, tok_2=2, ..., eos=1]
-    seq_tokens = [0] + [chosen_token] * n + [eos_token_id]
+    # Decoder-only sequences layout:
+    #   [input_0, ..., input_{L-1}, gen_1, ..., gen_n, eos]
+    # Our mock input is SEQ_LEN tokens (all zeros), so the full sequence
+    # is [0]*SEQ_LEN + [chosen_token]*n + [eos_token_id]. ``_compute_u_token``
+    # derives gen_start = len(sequence) - len(scores), correctly landing on
+    # the first generated token regardless of input prefix length.
+    seq_tokens = [0] * SEQ_LEN + [chosen_token] * n + [eos_token_id]
     sequences = torch.tensor([seq_tokens])
 
     generate_out = SimpleNamespace(scores=scores, sequences=sequences)
@@ -108,9 +123,24 @@ def make_mock_model(
 
 
 def make_mock_tokenizer(eos_token_id: int = 1) -> MagicMock:
+    """Build a mock tokenizer compatible with the decoder-only ChatML wrapper.
+
+    ``apply_chat_template`` is provided as a stub that returns a plain string
+    (the user message), letting downstream ``tokenizer(text)`` proceed against
+    the standard MagicMock return value.
+    """
     tokenizer = MagicMock()
     tokenizer.eos_token_id = eos_token_id
-    # Return a simple dict of tensors
+
+    def _fake_chat_template(messages, tokenize=False, add_generation_prompt=True):
+        # Return the user message content directly; good enough for unit tests
+        # that don't care about the exact ChatML envelope.
+        content = messages[-1].get("content", "") if messages else ""
+        return str(content)
+
+    tokenizer.apply_chat_template = _fake_chat_template
+
+    # Tokenizer called as function returns a dict of tensors
     tokenizer.return_value = {
         "input_ids": torch.zeros(BATCH, SEQ_LEN, dtype=torch.long),
         "attention_mask": torch.ones(BATCH, SEQ_LEN, dtype=torch.long),
@@ -230,7 +260,7 @@ class TestCConv:
             assert c >= 0.0
 
     def test_single_layer_model_returns_zero(self):
-        """Model with only 1 encoder layer: c_conv undefined -> return 0.0."""
+        """Model with only 1 decoder layer: c_conv undefined -> return 0.0."""
         model = make_mock_model(num_layers=1)
         # Only 2 hidden states (embedding + 1 layer), L=1 -> L//2=0 -> no early layers
         tokenizer = make_mock_tokenizer()
@@ -238,103 +268,10 @@ class TestCConv:
         c = est._compute_c_conv(est._tokenize("q"))
         assert c == 0.0
 
-
-def make_mock_decoder_only_model(
-    early_var: float = 2.0,
-    late_var: float = 0.5,
-    num_layers: int = 24,
-) -> MagicMock:
-    """Build a mock decoder-only (Qwen-style) model with hidden states on
-    the top-level ``model(...)`` forward (not ``model.encoder(...)``).
-
-    The mock's ``config.is_encoder_decoder=False`` routes ``_compute_c_conv``
-    into the decoder-only dispatch branch.
-    """
-    model = MagicMock()
-    model.parameters.return_value = iter([torch.zeros(1)])
-    # Decoder-only architecture: is_encoder_decoder must be falsy
-    model.config = SimpleNamespace(is_encoder_decoder=False)
-    # forward on the query tokens returns hidden_states directly
-    hidden_states = make_hidden_states(num_layers, SEQ_LEN, HIDDEN_DIM, early_var, late_var)
-    model.return_value = SimpleNamespace(hidden_states=hidden_states)
-    return model
-
-
-class TestCConvDecoderOnlyDispatch:
-    """Tests for Goal 1 Phase C — decoder-only C_conv path (Qwen/Gemma/Llama)."""
-
-    def test_dispatch_uses_model_forward_not_encoder(self):
-        """Decoder-only models route to self.model(...), not self.model.encoder(...)."""
-        model = make_mock_decoder_only_model(early_var=2.0, late_var=0.5)
-        tokenizer = make_mock_tokenizer()
-        est = PreRoutingConfidenceEstimator(model, tokenizer, CAEMConfig(), device="cpu")
-        assert est._is_encoder_decoder() is False
-
-        est._compute_c_conv(est._tokenize("q"))
-        # Confirm the decoder-only path was taken
-        model.assert_called()                       # self.model(...)
-        model.encoder.assert_not_called()           # NOT self.model.encoder(...)
-
-    def test_encoder_decoder_dispatch_preserved(self):
-        """Encoder-decoder models still route to self.model.encoder(...)."""
-        model = make_mock_model()
-        # Explicitly set is_encoder_decoder=True to make dispatch deterministic.
-        # (A bare MagicMock's .config.is_encoder_decoder also happens to be
-        # truthy, which is why existing tests stayed green; we assert
-        # explicitly here.)
-        model.config = SimpleNamespace(is_encoder_decoder=True)
-        tokenizer = make_mock_tokenizer()
-        est = PreRoutingConfidenceEstimator(model, tokenizer, CAEMConfig(), device="cpu")
-        assert est._is_encoder_decoder() is True
-
-        est._compute_c_conv(est._tokenize("q"))
-        model.encoder.assert_called()
-
-    def test_decoder_only_variance_math_identical_to_encoder_decoder(self):
-        """The variance-ratio math is identical across dispatch branches.
-
-        Share the SAME hidden-state tuple between both mocks (decoder-only
-        returns it via ``model(...)``, encoder-decoder via ``model.encoder(...)``)
-        to verify that only the forward-pass source differs — the downstream
-        variance math operates on identical inputs and must return the same
-        c_conv value.
-        """
-        shared_hidden_states = make_hidden_states(
-            num_layers=NUM_LAYERS, seq_len=SEQ_LEN, hidden_dim=HIDDEN_DIM,
-            early_var=5.0, late_var=1.0,
-        )
-
-        dec_model = MagicMock()
-        dec_model.parameters.return_value = iter([torch.zeros(1)])
-        dec_model.config = SimpleNamespace(is_encoder_decoder=False)
-        dec_model.return_value = SimpleNamespace(hidden_states=shared_hidden_states)
-
-        enc_model = MagicMock()
-        enc_model.parameters.return_value = iter([torch.zeros(1)])
-        enc_model.config = SimpleNamespace(is_encoder_decoder=True)
-        enc_model.encoder.return_value = SimpleNamespace(hidden_states=shared_hidden_states)
-
-        tokenizer = make_mock_tokenizer()
-        dec_est = PreRoutingConfidenceEstimator(dec_model, tokenizer, CAEMConfig(), device="cpu")
-        enc_est = PreRoutingConfidenceEstimator(enc_model, tokenizer, CAEMConfig(), device="cpu")
-
-        c_dec = dec_est._compute_c_conv(dec_est._tokenize("q"))
-        c_enc = enc_est._compute_c_conv(enc_est._tokenize("q"))
-
-        # Given identical hidden-state tensors, the variance math must produce
-        # bit-identical c_conv regardless of which forward path produced them.
-        assert abs(c_dec - c_enc) < 1e-6, (
-            f"decoder-only c_conv={c_dec:.6f} diverges from encoder c_conv={c_enc:.6f} "
-            "on identical hidden states — variance math is not dispatch-agnostic."
-        )
-        assert c_dec > 1.0  # early_var > late_var
-
-    def test_decoder_only_no_hidden_states_attr_returns_zero(self):
-        """Fail-safe: if the decoder-only forward doesn't expose hidden_states,
-        we should return 0.0 (highest-confidence fallback), not crash."""
+    def test_no_hidden_states_attr_returns_zero(self):
+        """Fail-safe: if forward output lacks hidden_states, return 0.0."""
         model = MagicMock()
         model.parameters.return_value = iter([torch.zeros(1)])
-        model.config = SimpleNamespace(is_encoder_decoder=False)
         # forward returns a namespace WITHOUT hidden_states attribute
         model.return_value = SimpleNamespace(logits=torch.zeros(1, 8, 100))
         tokenizer = make_mock_tokenizer()
@@ -342,11 +279,10 @@ class TestCConvDecoderOnlyDispatch:
         c = est._compute_c_conv(est._tokenize("q"))
         assert c == 0.0
 
-    def test_decoder_only_forward_error_returns_zero(self):
+    def test_forward_error_returns_zero(self):
         """Fail-safe: any forward-pass exception returns 0.0 (not a crash)."""
         model = MagicMock()
         model.parameters.return_value = iter([torch.zeros(1)])
-        model.config = SimpleNamespace(is_encoder_decoder=False)
         model.side_effect = RuntimeError("CUDA OOM simulated")
         tokenizer = make_mock_tokenizer()
         est = PreRoutingConfidenceEstimator(model, tokenizer, CAEMConfig(), device="cpu")
@@ -380,7 +316,7 @@ def test_c_conv_live_qwen_3b():
     from caem.model_loader import load_base_generator
     import gc
 
-    model, tok, is_enc_dec = load_base_generator(
+    model, tok = load_base_generator(
         "Qwen/Qwen2.5-3B-Instruct",
         device="cuda",
         dtype=torch.bfloat16,
@@ -388,7 +324,6 @@ def test_c_conv_live_qwen_3b():
         use_torch_compile=False,
     )
     try:
-        assert is_enc_dec is False
         cfg = CAEMConfig()
         est = PreRoutingConfidenceEstimator(model, tok, cfg, device="cuda")
         pc = est.estimate("What is the capital of France?")
@@ -472,10 +407,11 @@ class TestEstimate:
         assert len(results) == 3
         assert all(isinstance(r, PreRoutingConfidence) for r in results)
 
-    def test_encoder_error_returns_safe_fallback(self):
-        """If encoder raises, c_conv = 0.0 (max confidence -- fail open, not closed)."""
+    def test_forward_error_returns_safe_fallback(self):
+        """If the model's forward (c_conv path) raises, c_conv = 0.0
+        (max confidence -- fail open, not closed)."""
         est = make_estimator()
-        est.model.encoder.side_effect = RuntimeError("CUDA OOM")
+        est.model.side_effect = RuntimeError("CUDA OOM")
         pc = est.estimate("test")
         # c_conv = 0.0, so u_pre = 0.60·u_token + 0.40·1.0
         assert pc.c_conv == 0.0

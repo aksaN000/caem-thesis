@@ -2,44 +2,35 @@
 caem/prompts.py
 =================
 Benchmark-aware prompt builders for Tier 2 (no-RAG) and Tier 3 (RAG)
-generation, dispatching on ``prompt_style`` (Goal 1, Branch C):
+generation on decoder-only ChatML-compatible backbones (Qwen, Gemma,
+Llama, Phi, Mistral instruction-tuned variants).
 
-  - ``"chatml_scaffold"`` — ChatML envelope for decoder-only backbones (Qwen,
-    Gemma, Llama). Uses separate ``user``/``assistant`` turn pairs for the
-    few-shot example; the scaffold semantic (Reasoning → Answer) is preserved
-    exactly. Forced "Reasoning:" prefix is applied via prefill text appended
-    after the generation prompt.
-
-  - ``"flan_t5_scaffold"`` — flat-text single-turn prompt with an inline
-    worked example (legacy Flan-T5 path). Forced "Reasoning:" prefix is
-    applied via ``decoder_input_ids`` by the caller. Preserved bit-identically
-    to the previous inline implementations in ``caem/pipeline.py`` and
-    ``caem/retrieval/rag.py`` so the ``flan_t5_large_backbone`` Variant-18
-    ablation row reproduces pre-Branch-C behavior exactly.
-
-Task detection and few-shot content are shared across styles; only the
-outer framing differs. This is the single source of truth for benchmark-
-specific prompt content; ``pipeline.py`` and ``rag.py`` will dispatch here
-in a follow-up commit.
+**Branch C decision (2026-04-22)**: the ``flan_t5_scaffold`` prompt style
+has been removed. Branch C is decoder-only; ChatML is the sole prompt
+format. For legacy T5-format prompts, check out the ``main`` branch. See
+branch_C.md §"T5 removal (2026-04-22)" for rationale.
 
 Public API
 ----------
-    build_tier2_prompt(query, prompt_style, tokenizer=None) -> (prompt, prefix)
-    build_tier3_prompt(query, passages, prompt_style, tokenizer=None) -> (prompt, prefix)
+    build_tier2_prompt(query, tokenizer) -> (prompt_text, forced_prefix)
+    build_tier3_prompt(query, passages, tokenizer) -> (prompt_text, forced_prefix)
 
 Returns a ``(full_prompt_text, forced_prefix)`` tuple:
-  - ``full_prompt_text``: the prompt as a string. For chatml_scaffold this
-    ends with the ``<|im_start|>assistant`` generation-prompt marker.
-  - ``forced_prefix``: the "Reasoning:" text that must start the generated
-    output. For decoder-only (ChatML): caller appends this to the full prompt
-    and tokenizes the combined string (prefill). For encoder-decoder
-    (Flan-T5): caller tokenizes this separately and passes as
-    ``decoder_input_ids``.
+
+- ``full_prompt_text``: ChatML-assembled prompt ending with the
+  ``<|im_start|>assistant`` generation-prompt marker produced by
+  ``apply_chat_template(add_generation_prompt=True)``.
+- ``forced_prefix``: the ``"Reasoning:"`` text the caller appends as prefill
+  to force the output to begin with scaffolded Chain-of-Thought reasoning.
+
+Scaffolded CoT preserves the pattern proven in the Phase-1a pilot (uniform
+Reasoning → Answer format + single worked example per task). Only the
+envelope changes — ChatML turns + system prompt instead of flat-text.
 """
 
 from __future__ import annotations
 
-from typing import Any, List, Optional, Tuple
+from typing import Any, List, Tuple
 
 
 FORCED_PREFIX = "Reasoning:"
@@ -54,15 +45,13 @@ SYSTEM_PROMPT = (
 
 
 # -------------------------------------------------------------------------- #
-# Task detection + task spec (shared across styles)                            #
+# Task detection + task spec (shared across Tier 2 / Tier 3)                   #
 # -------------------------------------------------------------------------- #
 
 def detect_query_task(query: str) -> str:
     """Infer benchmark task style from the query's constrained prefix.
 
     Returns one of ``"fever"``, ``"strategyqa"``, ``"arc"``, or ``"open"``.
-    Matches the detection logic in ``caem/pipeline.py`` and
-    ``caem/retrieval/rag.py`` — DO NOT diverge; all three paths must agree.
     """
     q = query.lower().strip()
     if q.startswith("answer with one of: supports, refutes, not enough info."):
@@ -87,89 +76,49 @@ def _extract_after_token(query: str, token: str) -> str:
 def _task_spec(task: str, query: str, with_passages: bool) -> Tuple[str, str]:
     """Return ``(task_instruction_line, answer_format_spec)`` per task.
 
-    ``with_passages=True`` uses the Tier 3 instruction wording that references
-    "the context above"; ``False`` uses the Tier 2 wording for no-RAG paths.
-    Both match the legacy rag.py / pipeline.py wordings bit-identically.
+    ``with_passages=True`` uses Tier 3 wording ("based on the context above");
+    ``False`` uses Tier 2 wording ("based on your knowledge").
     """
     if task == "fever":
         claim = _extract_after_token(query, "Claim:")
-        if with_passages:
-            return (
-                f"Claim: {claim}\n"
-                "Determine whether the claim is SUPPORTS, REFUTES, or "
-                "NOT ENOUGH INFO based on the context above.",
-                "supports | refutes | not enough info",
-            )
+        basis = "the context above" if with_passages else "your knowledge"
         return (
             f"Claim: {claim}\n"
-            "Determine whether the claim is SUPPORTS, REFUTES, or "
-            "NOT ENOUGH INFO based on your knowledge.",
+            f"Determine whether the claim is SUPPORTS, REFUTES, or "
+            f"NOT ENOUGH INFO based on {basis}.",
             "supports | refutes | not enough info",
         )
     if task == "strategyqa":
         q_text = _extract_after_token(query, "Question:")
-        if with_passages:
-            return (
-                f"Question: {q_text}\n"
-                "Answer the question with yes or no based on the "
-                "context above.",
-                "yes | no",
-            )
+        basis_suffix = " based on the context above" if with_passages else ""
         return (
             f"Question: {q_text}\n"
-            "Answer the question with yes or no.",
+            f"Answer the question with yes or no{basis_suffix}.",
             "yes | no",
         )
     if task == "arc":
-        if with_passages:
-            return (
-                f"{query}\n"
-                "Choose the correct answer from the listed choices "
-                "based on the context above.",
-                "A | B | C | D",
-            )
+        basis = " based on the context above" if with_passages else ""
         return (
             f"{query}\n"
-            "Choose the correct answer from the listed choices.",
+            f"Choose the correct answer from the listed choices{basis}.",
             "A | B | C | D",
         )
     # Open-ended QA (TriviaQA, NQ, TruthfulQA)
-    if with_passages:
-        return (
-            f"Question: {query}\n"
-            "Answer the question based on the context above.",
-            "<concise factual answer>",
-        )
+    basis = " based on the context above" if with_passages else ""
     return (
         f"Question: {query}\n"
-        "Answer the question.",
+        f"Answer the question{basis}.",
         "<concise factual answer>",
     )
 
 
 # -------------------------------------------------------------------------- #
-# Few-shot example content (shared across styles)                              #
+# Few-shot example content                                                      #
 # -------------------------------------------------------------------------- #
 
 def _few_shot_parts(task: str, with_passages: bool) -> Tuple[str, str, str]:
-    """Return the (context_block, user_instance, assistant_response) parts of
-    the worked example for this task.
-
-    - ``context_block`` is the example's passage context (empty string when
-      ``with_passages=False`` or the task has no passage block).
-    - ``user_instance`` is the claim/question the example is answering.
-    - ``assistant_response`` is the ideal "Reasoning: ...\nAnswer: ..." output.
-
-    These parts are composed differently by the two style builders:
-    - ChatML: context prepended to user_instance in a user turn; assistant
-      turn is the response.
-    - Flan-T5: all three concatenated inline with the task wrapper.
-
-    Content matches the legacy implementations in
-    ``caem/pipeline.py::_build_tier2_prompt`` (with_passages=False) and
-    ``caem/retrieval/rag.py::_few_shot_example`` (with_passages=True) so
-    bit-identical reproduction of the Flan-T5 prompt is preserved for Variant
-    18 ablation.
+    """Return ``(context_block, user_instance, assistant_response)`` for the
+    worked example. ``context_block`` is empty when ``with_passages=False``.
     """
     if task == "fever":
         if with_passages:
@@ -293,73 +242,7 @@ def _few_shot_parts(task: str, with_passages: bool) -> Tuple[str, str, str]:
 
 
 # -------------------------------------------------------------------------- #
-# Flan-T5 builders (legacy, bit-identical to previous inline code)             #
-# -------------------------------------------------------------------------- #
-
-def _flan_t5_few_shot_inline(task: str, with_passages: bool) -> str:
-    """Compose the few-shot example as a single block matching the legacy
-    inline format used by pipeline._build_tier2_prompt and
-    rag._few_shot_example. Used by flan_t5_scaffold paths only.
-    """
-    ctx, user_inst, asst = _few_shot_parts(task, with_passages)
-    if with_passages:
-        # rag.py format:  Context:\n[1] ...\n\n<user_inst>\n<asst>
-        return f"{ctx}\n\n{user_inst}\n{asst}"
-    # pipeline.py format: <user_inst>\n<asst>
-    return f"{user_inst}\n{asst}"
-
-
-def _build_flan_t5_tier2(query: str) -> Tuple[str, str]:
-    task = detect_query_task(query)
-    task_line, answer_format = _task_spec(task, query, with_passages=False)
-    example = _flan_t5_few_shot_inline(task, with_passages=False)
-
-    prompt = (
-        "Answer the question using step-by-step reasoning. "
-        "Always write out your reasoning before the answer.\n\n"
-        "Example:\n"
-        f"{example}\n\n"
-        "Now answer the following.\n\n"
-        f"{task_line}\n\n"
-        "Response format (fill in each field):\n"
-        "Reasoning:\n"
-        f"Answer: {answer_format}"
-    )
-    return prompt, FORCED_PREFIX
-
-
-def _build_flan_t5_tier3(
-    query: str,
-    passages: List[Tuple[str, float]],
-) -> Tuple[str, str]:
-    task = detect_query_task(query)
-    task_line, answer_format = _task_spec(task, query, with_passages=True)
-    example = _flan_t5_few_shot_inline(task, with_passages=True)
-
-    lines: List[str] = [
-        "Answer the question using step-by-step reasoning. "
-        "Always write out your reasoning before the answer.",
-        "",
-        "Example:",
-        example,
-        "",
-        "Now answer the following.",
-        "",
-        "Context:",
-    ]
-    for i, (passage, _score) in enumerate(passages, start=1):
-        lines.append(f"[{i}] {passage}")
-    lines.append("")
-    lines.append(task_line)
-    lines.append("")
-    lines.append("Response format (fill in each field):")
-    lines.append("Reasoning:")
-    lines.append(f"Answer: {answer_format}")
-    return "\n".join(lines), FORCED_PREFIX
-
-
-# -------------------------------------------------------------------------- #
-# ChatML builders (Qwen / Gemma / Llama decoder-only backbones)                #
+# ChatML rendering                                                             #
 # -------------------------------------------------------------------------- #
 
 def _build_chatml(
@@ -368,10 +251,10 @@ def _build_chatml(
 ) -> str:
     """Render a messages list to ChatML text with ``add_generation_prompt=True``.
 
-    Uses the tokenizer's ``apply_chat_template`` when available (standard for
+    Uses ``tokenizer.apply_chat_template`` when available (standard for
     Qwen/Gemma/Llama-3). Falls back to a manual ChatML concatenation if the
-    tokenizer doesn't implement the method — rare; most instruction-tuned
-    models ship with a chat_template.
+    tokenizer lacks the method — rare; most modern instruction-tuned models
+    ship with a chat template.
     """
     if hasattr(tokenizer, "apply_chat_template"):
         try:
@@ -382,7 +265,7 @@ def _build_chatml(
             )
         except Exception:
             pass
-    # Manual fallback — Qwen/ChatML syntax
+    # Manual ChatML fallback (Qwen/Llama/Gemma share this syntax)
     parts: List[str] = []
     for m in messages:
         parts.append(f"<|im_start|>{m['role']}\n{m['content']}<|im_end|>")
@@ -390,10 +273,32 @@ def _build_chatml(
     return "\n".join(parts)
 
 
-def _build_chatml_tier2(
+# -------------------------------------------------------------------------- #
+# Public API                                                                   #
+# -------------------------------------------------------------------------- #
+
+def build_tier2_prompt(
     query: str,
     tokenizer: Any,
 ) -> Tuple[str, str]:
+    """Build a Tier 2 (no-RAG) generation prompt in ChatML format.
+
+    Parameters
+    ----------
+    query
+        The benchmark-style query (e.g. "Answer with one of: ..." for FEVER;
+        see ``detect_query_task``).
+    tokenizer
+        The backbone's tokenizer; used for ``apply_chat_template``.
+
+    Returns
+    -------
+    prompt_text : str
+        ChatML-assembled prompt ending with the ``<|im_start|>assistant``
+        generation-prompt marker.
+    forced_prefix : str
+        ``"Reasoning:"`` — caller appends as prefill.
+    """
     task = detect_query_task(query)
     task_line, answer_format = _task_spec(task, query, with_passages=False)
     _, ex_user, ex_asst = _few_shot_parts(task, with_passages=False)
@@ -410,27 +315,32 @@ def _build_chatml_tier2(
             ),
         },
     ]
-    prompt_text = _build_chatml(messages, tokenizer)
-    return prompt_text, FORCED_PREFIX
+    return _build_chatml(messages, tokenizer), FORCED_PREFIX
 
 
-def _build_chatml_tier3(
+def build_tier3_prompt(
     query: str,
     passages: List[Tuple[str, float]],
     tokenizer: Any,
 ) -> Tuple[str, str]:
+    """Build a Tier 3 (RAG) generation prompt conditioned on retrieved passages.
+
+    ``passages`` is a list of ``(passage_text, score)`` tuples as returned by
+    the PassageStore; scores are kept in the signature for API compatibility
+    but not used in the prompt text.
+    """
     task = detect_query_task(query)
     task_line, answer_format = _task_spec(task, query, with_passages=True)
     ex_ctx, ex_user, ex_asst = _few_shot_parts(task, with_passages=True)
 
-    # Build the actual Context block from retrieved passages
+    # Actual context block from retrieved passages
     ctx_lines = ["Context:"]
     for i, (passage, _score) in enumerate(passages, start=1):
         ctx_lines.append(f"[{i}] {passage}")
     actual_context = "\n".join(ctx_lines)
 
-    # The example's user turn carries the example's context+claim; the real
-    # user turn carries the actual context+task line.
+    # Example's user turn carries example context+claim; real user turn carries
+    # actual context + task line.
     example_user_content = f"{ex_ctx}\n\n{ex_user}" if ex_ctx else ex_user
 
     messages: List[dict] = [
@@ -446,83 +356,7 @@ def _build_chatml_tier3(
             ),
         },
     ]
-    prompt_text = _build_chatml(messages, tokenizer)
-    return prompt_text, FORCED_PREFIX
-
-
-# -------------------------------------------------------------------------- #
-# Public API                                                                   #
-# -------------------------------------------------------------------------- #
-
-def build_tier2_prompt(
-    query: str,
-    prompt_style: str = "chatml_scaffold",
-    tokenizer: Optional[Any] = None,
-) -> Tuple[str, str]:
-    """Build a Tier 2 (no-RAG) generation prompt.
-
-    Parameters
-    ----------
-    query
-        The benchmark-style query (e.g. starting with "Answer with one of: ..."
-        for FEVER; see ``detect_query_task``).
-    prompt_style
-        ``"chatml_scaffold"`` for decoder-only backbones (requires ``tokenizer``),
-        ``"flan_t5_scaffold"`` for the legacy Flan-T5 path.
-    tokenizer
-        Required for ``chatml_scaffold``; ignored for ``flan_t5_scaffold``.
-
-    Returns
-    -------
-    prompt_text : str
-        The assembled prompt. For ``chatml_scaffold`` this ends with the
-        ``<|im_start|>assistant`` generation-prompt marker produced by
-        ``apply_chat_template(add_generation_prompt=True)``. For
-        ``flan_t5_scaffold`` this ends with ``"Answer: <format-spec>"``.
-    forced_prefix : str
-        The ``"Reasoning:"`` text the caller applies either by prefill (ChatML)
-        or ``decoder_input_ids`` (Flan-T5).
-    """
-    if prompt_style == "chatml_scaffold":
-        if tokenizer is None:
-            raise ValueError(
-                "prompt_style='chatml_scaffold' requires a tokenizer (needed "
-                "for apply_chat_template)."
-            )
-        return _build_chatml_tier2(query, tokenizer)
-    if prompt_style == "flan_t5_scaffold":
-        return _build_flan_t5_tier2(query)
-    raise ValueError(
-        f"Unknown prompt_style={prompt_style!r}; expected 'chatml_scaffold' "
-        "or 'flan_t5_scaffold'."
-    )
-
-
-def build_tier3_prompt(
-    query: str,
-    passages: List[Tuple[str, float]],
-    prompt_style: str = "chatml_scaffold",
-    tokenizer: Optional[Any] = None,
-) -> Tuple[str, str]:
-    """Build a Tier 3 (RAG) generation prompt conditioned on retrieved passages.
-
-    See ``build_tier2_prompt`` for parameter semantics. ``passages`` is a list
-    of ``(passage_text, score)`` tuples as returned by the PassageStore; scores
-    are preserved in the signature for API compatibility even though they are
-    not used in the prompt text.
-    """
-    if prompt_style == "chatml_scaffold":
-        if tokenizer is None:
-            raise ValueError(
-                "prompt_style='chatml_scaffold' requires a tokenizer."
-            )
-        return _build_chatml_tier3(query, passages, tokenizer)
-    if prompt_style == "flan_t5_scaffold":
-        return _build_flan_t5_tier3(query, passages)
-    raise ValueError(
-        f"Unknown prompt_style={prompt_style!r}; expected 'chatml_scaffold' "
-        "or 'flan_t5_scaffold'."
-    )
+    return _build_chatml(messages, tokenizer), FORCED_PREFIX
 
 
 __all__ = [

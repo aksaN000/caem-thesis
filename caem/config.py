@@ -233,23 +233,14 @@ class CAEMConfig:
     # without overloading the Flan-T5 context window.
     rag_top_k: int = 5
     # ------------------------------------------------------------------ #
-    # Base generator (Goal 1, Branch C — 2026-04-21 decision)              #
+    # Base generator (Goal 1, Branch C — decoder-only only)                #
     # ------------------------------------------------------------------ #
-    # [DES] HuggingFace model name. Branch-C default is Qwen/Qwen2.5-3B-Instruct
-    # (decoder-only, 3B params, Apache 2.0, ChatML format, ~99% label compliance
-    # and <2% loop rate per modern instruction tuning). Legacy Flan-T5-Large path
-    # retained for Variant 18 `flan_t5_large_backbone` ablation; architecture is
-    # auto-detected via ``HfConfig.is_encoder_decoder`` so both paths coexist.
+    # [DES] HuggingFace model name. Qwen/Qwen2.5-3B-Instruct: Apache 2.0, 3B
+    # params, ChatML format, ~99% label compliance, <2% loop rate per modern
+    # instruction tuning. Encoder-decoder models (Flan-T5 family) are NOT
+    # supported on this branch; see branch_C.md §"T5 removal (2026-04-22)".
+    # For fallback to the legacy T5 codebase, use the ``main`` branch.
     base_model_name: str = "Qwen/Qwen2.5-3B-Instruct"
-
-    # [DES] Prompt template style. One of:
-    #   "chatml_scaffold"  — ChatML envelope + scaffolded Reasoning/Answer (Qwen,
-    #                         Gemma, Llama-3.x); forced prefix via prefill.
-    #   "flan_t5_scaffold" — Flat-text few-shot + forced ``decoder_input_ids``
-    #                         "Reasoning:" prefix (Flan-T5 encoder-decoder).
-    # Must match ``base_model_name``'s architecture family; a mismatch raises at
-    # pipeline construction time.
-    prompt_style: str = "chatml_scaffold"
 
     # ------------------------------------------------------------------ #
     # Goal 5 — hardware-utilization optimizations (Branch C)               #
@@ -273,15 +264,12 @@ class CAEMConfig:
     lora_r: int = 16
     lora_alpha: int = 32
     lora_dropout: float = 0.05
-    # [DES] Target modules by architecture. Decoder-only models use the full
-    # attention+MLP family (Qwen/Llama convention). Encoder-decoder narrows to
-    # q/v projections (standard PEFT default for Flan-T5). Selected at train time
-    # based on ``model.config.is_encoder_decoder``.
-    lora_target_modules_decoder_only: Tuple[str, ...] = (
+    # [DES] Target modules for LoRA on Qwen-2.5-3B (Llama-style attention+MLP
+    # naming convention). Compatible with Gemma/Llama/Phi/Mistral families.
+    lora_target_modules: Tuple[str, ...] = (
         "q_proj", "k_proj", "v_proj", "o_proj",
         "gate_proj", "up_proj", "down_proj",
     )
-    lora_target_modules_encoder_decoder: Tuple[str, ...] = ("q", "v")
 
     # ------------------------------------------------------------------ #
     # Context window (shared across backbones)                             #
