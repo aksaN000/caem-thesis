@@ -790,6 +790,40 @@ class TestExtractCotAnswer:
     def test_empty_input(self):
         assert extract_cot_answer("") == ""
 
+    # --- Flan-T5 "the answer is X" natural-language suffix ----------------- #
+    # These patterns dominate TriviaQA / NQ under CAEM's RAG prompt ("Think
+    # step by step. Answer:" -> model completes with "the answer is X"
+    # rather than another explicit "Answer:" marker).
+
+    def test_so_the_answer_is(self):
+        text = "The relevant info is X. So, the answer is Paris."
+        assert extract_cot_answer(text) == "Paris"
+
+    def test_therefore_the_answer_is(self):
+        text = "Following the reasoning. Therefore, the answer is Paris."
+        assert extract_cot_answer(text) == "Paris"
+
+    def test_plain_the_answer_is(self):
+        assert extract_cot_answer("The answer is Victoria.") == "Victoria"
+
+    def test_multi_word_answer_captured(self):
+        text = "The answer is a jacket with shoulder straps."
+        assert extract_cot_answer(text) == "a jacket with shoulder straps"
+
+    def test_explicit_answer_marker_wins_over_natural_suffix(self):
+        """Priority order: 'Answer:' takes precedence over 'the answer is X'
+        when both are present, because 'Answer:' is the canonical marker."""
+        text = "The answer is foo. Answer: bar"
+        assert extract_cot_answer(text) == "bar"
+
+    def test_natural_suffix_stops_at_sentence_boundary(self):
+        """Non-greedy match: 'The answer is X. Also Y.' captures only X."""
+        text = "The answer is Paris. Also France is a country."
+        assert extract_cot_answer(text) == "Paris"
+
+    def test_case_insensitive_marker(self):
+        assert extract_cot_answer("so, THE ANSWER IS London.") == "London"
+
 
 class TestRougeL:
     def test_perfect_match_is_one(self):

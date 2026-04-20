@@ -86,14 +86,44 @@ def normalise(text: str) -> str:
 
 def extract_cot_answer(text: str) -> str:
     """Extract the final answer from a Chain-of-Thought string.
-    
-    Splits by 'Answer:' and takes the right-most side.
-    If 'Answer:' is not present, returns the full string to avoid breaking
-    fallback or non-CoT outputs.
+
+    Flan-T5 CoT outputs follow several conventions depending on how the
+    prompt was structured. We try them in priority order:
+
+    1. Explicit ``"Answer:"`` marker (seen when the prompt ends with
+       ``"Answer:"``). Split on the last occurrence and return the right
+       side. This was the only pattern the original implementation
+       handled.
+    2. ``"So, the answer is X"`` / ``"the answer is X"`` / ``"Therefore,
+       the answer is X"`` -- Flan-T5's native CoT suffix, seen on ~98%
+       of TriviaQA / NQ predictions when the prompt says ``"Think step
+       by step."``. Before this change, those predictions returned the
+       full CoT unchanged and failed EM against short-form gold
+       aliases.
+    3. Fallback: return the full string stripped.
+
+    The extractor is case-insensitive for markers but preserves the
+    case of the extracted answer (downstream :func:`normalise` handles
+    casing + punctuation + article stripping).
     """
-    marker = "Answer:"
-    if marker in text:
-        return text.split(marker)[-1].strip()
+    # Priority 1: explicit "Answer:" marker.
+    if "Answer:" in text:
+        return text.split("Answer:")[-1].strip()
+
+    # Priority 2: natural-language CoT suffix. Capture everything from
+    # the "answer is" marker up to the first terminal punctuation or
+    # end-of-string. Uses a non-greedy match so "The answer is X. Also
+    # Y." captures only "X".
+    m = re.search(
+        r"(?:^|\W)(?:so|therefore)?,?\s*the\s+answer\s+is[:\s]+(.+?)(?:[.!?](?:\s|$)|$)",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if m:
+        return m.group(1).strip()
+
+    # Priority 3: fallback for non-CoT outputs (e.g. direct short-form
+    # answers, FEVER labels, StrategyQA yes/no).
     return text.strip()
 
 
