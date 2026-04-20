@@ -133,6 +133,7 @@ from typing import List, Optional, Sequence
 import torch
 
 from caem.pipeline import CAEMPipeline, PipelineResult
+from caem.prompts import build_tier2_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -171,19 +172,28 @@ class BatchPipeline:
     # ---- Batched generation helpers ------------------------------------- #
 
     def batch_tier2_generate(self, queries: Sequence[str]) -> List[str]:
-        """Generate N Tier-2 answers in one batched T5 forward pass.
+        """Generate N Tier-2 answers in one batched decoder-only forward pass.
 
         Equivalent to calling ``self.p._tier2(q, pre_conf)[0]`` in a
-        loop but runs a single ``model.generate`` with padded input IDs
-        of shape ``(N, max_prompt_len)``. The output is decoded row by
-        row; positions that hit a decoder failure fall back to an
-        empty string (caller escalates that to Tier 3).
+        loop but runs a single ``model.generate`` with left-padded input
+        IDs of shape ``(N, max_prompt_len)``. Left-padding is required so
+        the last position of each row is always the generation start
+        (decoder-only autoregression generates from the RIGHT side of the
+        input).
+
+        Prompts are built via ``caem.prompts.build_tier2_prompt`` (ChatML
+        scaffolded CoT with system prompt + few-shot turn pair + real
+        user turn + ``<|im_start|>assistant\\n`` generation marker). The
+        forced ``"Reasoning:"`` prefix is appended as prefill text and
+        tokenized as part of the input; after generation, only the newly
+        generated tokens (``output_ids[:, input_len:]``) are decoded, then
+        the forced prefix is prepended to produce the scaffolded-CoT
+        answer string expected by the Stage-5 verifier.
 
         Parameters
         ----------
         queries : sequence of str
-            N Tier-2 queries in the order their answers should be
-            returned.
+            N Tier-2 queries in the order their answers should be returned.
 
         Returns
         -------
@@ -195,28 +205,50 @@ class BatchPipeline:
             return []
 
         cfg = self.p.config
-        prompts = [self.p._build_tier2_prompt(q) for q in queries]
+        tok = self.p.tokenizer
 
-        enc = self.p.tokenizer(
-            prompts,
-            return_tensors="pt",
-            truncation=True,
-            max_length=512,
-            padding=True,
-        )
+        # Build ChatML prompt + forced prefix for each query. Concatenate the
+        # prefix as prefill so the model's generation continues it.
+        full_inputs: List[str] = []
+        for q in queries:
+            prompt_text, forced_prefix = build_tier2_prompt(q, tokenizer=tok)
+            full_inputs.append(prompt_text + forced_prefix)
+
+        try:
+            # Left-padding is mandatory for decoder-only batched generation so
+            # generated tokens align across rows regardless of input length.
+            original_side = getattr(tok, "padding_side", None)
+            tok.padding_side = "left"
+            enc = tok(
+                full_inputs,
+                return_tensors="pt",
+                truncation=True,
+                max_length=cfg.cot_max_new_tokens + 2048,
+                padding=True,
+            )
+            if original_side is not None:
+                tok.padding_side = original_side
+        except Exception as exc:
+            logger.error(
+                "batch_tier2_generate tokenization failed (N=%d): %s -- "
+                "returning empty strings so caller escalates each to Tier 3.",
+                len(queries), exc,
+            )
+            return [""] * len(queries)
+
         input_ids = enc["input_ids"].to(self.p.device)
         attention_mask = enc["attention_mask"].to(self.p.device)
+        input_len = int(input_ids.shape[1])
 
         try:
             self.p.model.eval()
             with torch.no_grad():
-                decoder_input_ids = self.p._build_forced_prefix(input_ids.shape[0])
                 output_ids = self.p.model.generate(
                     input_ids,
                     attention_mask=attention_mask,
-                    decoder_input_ids=decoder_input_ids,
                     max_new_tokens=cfg.cot_max_new_tokens,
                     do_sample=False,
+                    pad_token_id=tok.pad_token_id,
                 )
         except Exception as exc:
             logger.error(
@@ -226,19 +258,21 @@ class BatchPipeline:
             )
             return [""] * len(queries)
 
-        # Decode each row. Empty decodes become empty strings so the
-        # caller can route them to Tier 3 the same way the serial
-        # path does.
+        # Decode only the newly generated continuation (skip the left-padded
+        # prompt prefix) and prepend the forced prefix so the answer begins
+        # with "Reasoning:" per the scaffolded-CoT contract.
         decoded: List[str] = []
         for i in range(output_ids.shape[0]):
             try:
-                s = self.p.tokenizer.decode(
-                    output_ids[i], skip_special_tokens=True,
+                continuation = tok.decode(
+                    output_ids[i, input_len:],
+                    skip_special_tokens=True,
                 ).strip()
+                answer = f"Reasoning:{continuation}" if continuation else ""
             except Exception as exc:
                 logger.warning("batch_tier2_generate decode %d failed: %s", i, exc)
-                s = ""
-            decoded.append(s)
+                answer = ""
+            decoded.append(answer)
         return decoded
 
     def batch_verify(

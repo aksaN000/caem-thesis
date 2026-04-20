@@ -162,75 +162,88 @@ def test_answer_batch_exact_equivalence_with_serial(mock_serial_pipeline):
 
 def _make_mock_pipeline_for_tier2(batch_generated_strings, prompt_tag="PROMPT"):
     """Stand-in CAEMPipeline exposing just the bits batch_tier2_generate
-    touches: tokenizer (callable + .decode), model (.generate), config
-    (.cot_max_new_tokens), device, and _build_tier2_prompt.
+    touches under the Branch-C decoder-only path: tokenizer (callable +
+    .decode + .apply_chat_template + .pad_token_id), model (.generate),
+    config (.cot_max_new_tokens), and device.
 
-    Provides a way to stub out tokenize+generate+decode so the helper
-    can be tested without loading real Flan-T5.
-
-    ``batch_generated_strings``: the exact list of decoded strings the
-    tokenizer should produce when ``.decode`` is called on each row of
-    the model's output. Order must match inputs.
+    ``batch_generated_strings``: list of strings the tokenizer's .decode
+    should produce for each row's generated-tokens slice. Order must match
+    inputs. These are the RAW continuations — the helper prepends
+    "Reasoning:" internally, so the assertion on returned answers should
+    account for that prefix.
     """
     from types import SimpleNamespace
 
-    def build_prompt(q):
-        return f"{prompt_tag}: {q}"
+    # Input-seq length used by the mock. The helper slices
+    # output_ids[:, input_len:] to decode continuations, so the mock's
+    # .generate() must return shape (B, input_len + n_gen).
+    INPUT_L = 4
 
     class _BatchEnc:
-        """Mock HF BatchEncoding: supports dict-style [] access and
-        attribute access, plus .to(device) returning itself (CPU-only)."""
-        def __init__(self, prompts, B, L):
+        """Mock HF BatchEncoding: dict + attribute access, .to(device)=self."""
+        def __init__(self, B, L):
             self.input_ids = torch.zeros((B, L), dtype=torch.long)
             self.attention_mask = torch.ones((B, L), dtype=torch.long)
-            self._prompts = prompts
         def __getitem__(self, key):
             return getattr(self, key)
+        def get(self, key, default=None):
+            return getattr(self, key, default)
+        def to(self, device):  # noqa: ARG002
+            return self
 
-    def tokenizer_call(prompts, **kwargs):
+    def tokenizer_call(prompts, **kwargs):  # noqa: ARG001
         B = len(prompts) if isinstance(prompts, list) else 1
-        L = 4
-        return _BatchEnc(prompts, B, L)
+        return _BatchEnc(B, INPUT_L)
 
-    def tokenizer_decode(row, skip_special_tokens=True):
-        # Map row index back to the pre-specified answer.
-        # Uses row.shape[0] to determine index position is not possible;
-        # we rely on the model generate returning [row_idx] as a scalar
-        # marker so decode can identify the position.
-        idx = int(row[0].item())
+    def tokenizer_decode(row, skip_special_tokens=True):  # noqa: ARG001
+        # The helper calls decode() on output_ids[i, input_len:], which is
+        # a 1-D tensor whose first element encodes the row index.
+        try:
+            idx = int(row[0].item())
+        except (IndexError, RuntimeError):
+            return ""
+        if idx < 0 or idx >= len(batch_generated_strings):
+            return ""
         return batch_generated_strings[idx]
 
     class _Tokenizer:
+        pad_token_id = 0
+        padding_side = "left"
+
         def __call__(self, prompts, **kwargs):
             return tokenizer_call(prompts, **kwargs)
+
         def decode(self, row, **kwargs):
             return tokenizer_decode(row, **kwargs)
 
-    def model_generate(input_ids, attention_mask=None, **kwargs):
-        # Return a tensor of shape (B, 1) where each row carries its
-        # own index so decode can map back to the right answer.
+        def apply_chat_template(self, messages, tokenize=False, add_generation_prompt=True):
+            # Minimal ChatML-shaped string for testing; not parsed.
+            return f"{prompt_tag}: " + " ".join(
+                str(m.get("content", "")) for m in messages
+            )
+
+    def model_generate(input_ids, attention_mask=None, **kwargs):  # noqa: ARG001
+        # Decoder-only: return sequences = [input prefix..., generated tokens...].
+        # Each row's generated portion starts with its index so decode() can
+        # map back to the right answer string.
         B = input_ids.shape[0]
-        out = torch.arange(B, dtype=torch.long).unsqueeze(1)
-        return out
+        prefix = input_ids  # keep the mock input tokens
+        index_markers = torch.arange(B, dtype=torch.long).unsqueeze(1)
+        padding = torch.zeros((B, 2), dtype=torch.long)
+        return torch.cat([prefix, index_markers, padding], dim=1)
 
     class _Model:
         def eval(self): return self
         def generate(self, input_ids, **kwargs):
             return model_generate(input_ids, **kwargs)
 
-    # _build_forced_prefix is called by batch_tier2_generate to inject
-    # the "Reasoning:" decoder prefix. The mock returns a trivial
-    # (batch_size, 1) tensor with the decoder-start token so the
-    # downstream model.generate() call stays shape-consistent.
-    def build_forced_prefix(batch_size):
-        return torch.zeros((batch_size, 1), dtype=torch.long)
-
     return SimpleNamespace(
-        _build_tier2_prompt=build_prompt,
-        _build_forced_prefix=build_forced_prefix,
         tokenizer=_Tokenizer(),
         model=_Model(),
-        config=SimpleNamespace(cot_max_new_tokens=16),
+        config=SimpleNamespace(
+            cot_max_new_tokens=16,
+            rag_max_context_tokens=384,
+        ),
         device="cpu",
     )
 
@@ -243,11 +256,16 @@ def test_batch_tier2_generate_empty_queries():
 
 
 def test_batch_tier2_generate_returns_one_per_query_in_order():
-    expected = ["answer_0", "answer_1", "answer_2"]
-    fake = _make_mock_pipeline_for_tier2(expected)
+    """Branch-C decoder-only path: batch_tier2_generate prepends "Reasoning:"
+    to each continuation per the scaffolded-CoT contract (the forced prefix
+    is applied as prefill so generation continues it, and the helper
+    re-prepends it so the returned answer string starts with it)."""
+    raw = ["answer_0", "answer_1", "answer_2"]
+    fake = _make_mock_pipeline_for_tier2(raw)
     bp = BatchPipeline(fake)
     queries = ["q0", "q1", "q2"]
     got = bp.batch_tier2_generate(queries)
+    expected = [f"Reasoning:{s}" for s in raw]
     assert got == expected
 
 
