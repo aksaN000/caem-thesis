@@ -1196,6 +1196,26 @@ $\ustored$ quantile summary statistics, and the implied
 STORE/DEFERRED/ABSTAIN/DISCARD admission rates on Cycle 0 data
 alongside the verifier-calibration diagnostics.
 
+The P70 / P40 / P90 quantile targets in
+Equation~\ref{eq:threshold-calibration} are design choices motivated
+by the decision tree's semantics (storage reserved for the top third
+of the observed distribution, deferred buffering for the next third,
+training-pool admission for the top decile), not derivations from the
+purity theorem's $\alpha > \tfrac{1}{2}$ premise. Chapter~5 closes
+this gap empirically: \cref{fig:alpha-vs-tau} plots the measured
+$\alpha$ against a grid of candidate $\tau_{\text{store}}$ values at
+Cycle~0 (the calibration-matched distribution the threshold is fit on)
+and at Cycle~$N$ (the converged distribution after self-improvement),
+with the fitted P70 value marked. If $\alpha$ stays above
+$\tfrac{1}{2}$ across $\tau_{\text{store}} \in [P_{60}, P_{80}]$ at
+both endpoints the quantile choice is empirically robust; a crossing
+within that band flags a sensitivity caveat for the narrative. The
+analysis replays the decision tree at candidate $\tau_{\text{store}}$
+values over per-sample scalars already recorded during the
+purity-validation pass that populates Table~\ref{tab:purity}, so the
+robustness check adds no inference compute beyond what the purity
+validation already performs.
+
 \paragraph{Cycle-2 retention diagnostic and structured fallback.}
 The Jin 2024 one-percent forgetting expectation is a prior, not a
 guarantee: CAEM's training pool is drawn from the model's own verified

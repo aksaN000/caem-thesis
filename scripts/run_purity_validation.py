@@ -279,7 +279,8 @@ def measure_base_accuracy(pipeline, purity_samples: List[dict], bm: str) -> floa
 
 
 def measure_verification_balanced_accuracy(
-    pipeline, purity_samples: List[dict], bm: str
+    pipeline, purity_samples: List[dict], bm: str,
+    per_sample_dump_path=None,
 ) -> float:
     """Measure α -- verification BALANCED ACCURACY on the purity validation set.
 
@@ -323,11 +324,21 @@ def measure_verification_balanced_accuracy(
     FIX-6: Uses generation + verifier directly instead of pipeline.answer() so
     measurement does not mutate memory (Stage 7 storage side effects).
 
+    FIX-8 (2026-04-21, Ch4 calibration-sensitivity support): When
+    ``per_sample_dump_path`` is provided, writes a per-sample JSON record of
+    the scalars already computed during the verifier call (u_stored, p_contra,
+    p_ground_max/mean, p_entail, tier, decision, is_correct). This enables
+    post-hoc α(τ_store) replay for sensitivity analysis without re-running
+    inference. Consumed by ``scripts/calibration_alpha_curve.py``.
+    The dump is purely additive — ordinary α computation is unchanged.
+
     Parameters
     ----------
-    pipeline       : CAEMPipeline
-    purity_samples : list of BenchmarkSample
-    bm             : str -- benchmark name
+    pipeline             : CAEMPipeline
+    purity_samples       : list of BenchmarkSample
+    bm                   : str -- benchmark name
+    per_sample_dump_path : Path | None -- optional path to write per-sample
+                           scalar records as JSON. Default None (no dump).
 
     Returns
     -------
@@ -343,6 +354,9 @@ def measure_verification_balanced_accuracy(
     fp = 0  # wrong answer,   passed verification  (false acceptance)
     fn = 0  # correct answer, failed verification  (false rejection)
     total = 0
+
+    # FIX-8: accumulate per-sample scalars for α(τ_store) sensitivity replay.
+    per_sample_records: List[Dict[str, Any]] = []
 
     for sample in purity_samples:
         q = sample["question"]
@@ -372,6 +386,22 @@ def measure_verification_balanced_accuracy(
                 fn += 1
 
             total += 1
+
+            # FIX-8: record scalars already computed inside sc. Zero extra
+            # compute — just a reference-copy into a list. getattr with
+            # defaults makes this resilient to future VerifierOutput schema
+            # additions or field renames.
+            if per_sample_dump_path is not None:
+                per_sample_records.append({
+                    "is_correct":    bool(is_correct),
+                    "u_stored":      float(getattr(sc, "u_stored", float("nan"))),
+                    "p_contra":      float(getattr(sc, "p_contra", 0.0)),
+                    "p_ground_max":  float(getattr(sc, "p_ground_max", float("nan"))),
+                    "p_ground_mean": float(getattr(sc, "p_ground_mean", float("nan"))),
+                    "p_entail":      float(getattr(sc, "p_entail", float("nan"))),
+                    "tier":          int(getattr(sc, "tier", 0) or 0),
+                    "decision":      str(getattr(sc, "decision", "UNKNOWN")),
+                })
         except Exception as exc:
             # Skip failed samples entirely (do not fold into a confusion cell);
             # log at WARNING so batch-wide generation/verifier errors are visible.
@@ -379,6 +409,18 @@ def measure_verification_balanced_accuracy(
                 "measure_verification_balanced_accuracy: skipped sample due to error (%s)",
                 exc,
             )
+
+    # FIX-8: write the accumulated per-sample records. Done after the loop so
+    # a mid-benchmark crash leaves no half-written file that downstream
+    # analysis would mistake for a complete measurement.
+    if per_sample_dump_path is not None and per_sample_records:
+        per_sample_dump_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(per_sample_dump_path, "w") as f:
+            json.dump(per_sample_records, f)
+        logger.info(
+            "  FIX-8 per-sample dump: %d records -> %s",
+            len(per_sample_records), per_sample_dump_path,
+        )
 
     if total == 0:
         logger.warning("No samples evaluated for α -- balanced accuracy cannot be measured.")
@@ -630,7 +672,16 @@ def run_purity_validation_protocol(
             p = measure_base_accuracy(pipeline, bm_samples, bm)
 
             # Step 2: Measure α (verification balanced accuracy)   [FIX-3, FIX-4]
-            alpha = measure_verification_balanced_accuracy(pipeline, bm_samples, bm)
+            # FIX-8: plumb per-sample dump path so the α(τ_store) sensitivity
+            # replay (scripts/calibration_alpha_curve.py) can work against the
+            # full cycle-by-cycle distribution. One JSON per (bench, cycle).
+            per_sample_dump = (
+                output_dir / "per_sample" / f"purity_raw_{bm}_cycle{cycle_num}.json"
+            )
+            alpha = measure_verification_balanced_accuracy(
+                pipeline, bm_samples, bm,
+                per_sample_dump_path=per_sample_dump,
+            )
 
             # Step 3: Compute P_theory
             P_theory = purity_theorem(p, alpha)

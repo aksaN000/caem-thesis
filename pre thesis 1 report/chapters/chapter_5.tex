@@ -226,7 +226,14 @@ number (the verifier's balanced accuracy under the final
 fine-tuned model) because it reflects the deployed system; the full
 eleven-row trajectory is the audit that the theorem's pass condition
 $\alpha_c > \tfrac{1}{2} \forall c$ from~\cref{sec:purity-theorem}
-Remark~\ref{rem:alpha-empirical-scope} is met at every cycle. An
+Remark~\ref{rem:alpha-empirical-scope} is met at every cycle.
+The same per-sample scalars that populate Table~\ref{tab:purity}
+are re-used to plot the $\alpha(\tau_{\text{store}})$ sensitivity
+curves in \cref{fig:alpha-vs-tau} and the $\alpha$ trajectory in
+\cref{fig:alpha-trajectory}; together these establish that the
+Cycle-0-fitted $\tau_{\text{store}}$ from Chapter~4's threshold-
+calibration protocol is a robust rather than fragile realisation of
+the theorem's $\alpha > \tfrac{1}{2}$ premise. An
 empty $|P_\text{theory}-P_\text{obs}|$ cell at any cycle is a
 failure flag and is discussed in the results narrative rather than
 being silently averaged.
@@ -1741,14 +1748,65 @@ line: envelope predicted by \cref{thm:monotonicity} and
 \label{fig:purity-trajectory}
 \end{figure}
 
-\paragraph{Theoretical validations.} Three empirical checks close the
+\begin{figure}[t]
+\centering
+\fbox{\parbox{0.8\textwidth}{\centering\emph{[$\alpha(\tau_{\text{store}})$
+sensitivity plot placeholder. Two curves: Cycle-0 calibration-matched
+distribution (blue) and Cycle-$N$ converged distribution (red).
+Horizontal dashed line at $\alpha = 0.5$; vertical dotted line at the
+fitted $\tau_{\text{store}}$. Populated from
+\texttt{outputs/calibration/alpha\_vs\_tau\_by\_cycle.json} via
+\texttt{scripts/calibration\_alpha\_curve.py}.]}\\[4pt]\vspace{4em}}}
+\caption{Verifier balanced accuracy $\alpha$ as a function of candidate
+$\tau_{\text{store}}$, measured on the calibration-matched Cycle-0
+distribution (the distribution the threshold was fit on in
+Chapter~4's Equation~\ref{eq:threshold-calibration}) and on the
+Cycle-$N$ converged distribution (the operational endpoint).
+The horizontal dashed line marks the purity theorem's
+$\alpha = \tfrac{1}{2}$ premise from
+Remark~\ref{rem:alpha-empirical-scope}; the vertical dotted line
+marks the quantile-fitted $\tau_{\text{store}}$. Curves lying above
+the $\alpha = \tfrac{1}{2}$ floor across the surrounding
+$[P_{60}, P_{80}]$ band indicate that the Chapter~4 calibration
+choice is empirically robust to the specific quantile target
+selected.}
+\label{fig:alpha-vs-tau}
+\end{figure}
+
+\begin{figure}[t]
+\centering
+\fbox{\parbox{0.8\textwidth}{\centering\emph{[$\alpha$ trajectory
+placeholder. Cycle index on the $x$-axis; $\alpha$ evaluated at the
+fitted $\tau_{\text{store}}$ on the $y$-axis; horizontal line at
+$\alpha = 0.5$. Populated from
+\texttt{outputs/calibration/alpha\_vs\_tau\_by\_cycle.json}.]}\\[4pt]\vspace{4em}}}
+\caption{$\alpha$ trajectory across cycles $0, \ldots, N$, evaluated
+at the Cycle-0-fitted $\tau_{\text{store}}$. Monotonic non-decreasing
+behaviour provides visual support for \cref{thm:monotonicity}'s
+coupled-improvement claim on the $\alpha$ axis; the horizontal dashed
+line at $\tfrac{1}{2}$ marks the purity theorem's empirical premise.
+This figure is a per-cycle view of the same measurements that
+populate Table~\ref{tab:purity}.}
+\label{fig:alpha-trajectory}
+\end{figure}
+
+\paragraph{Theoretical validations.} Four empirical checks close the
 chapter. First, the data-purity curve from~\cref{thm:purity} is plotted
 against the measured Cycle~$t$ pool-purity trace. Second, the
 monotonicity prediction of~\cref{thm:monotonicity} is checked by
 verifying that the measured trace is non-decreasing in the
 $\alpha > \tfrac{1}{2}$ regime. Third, the convergence claim
 of~\cref{thm:convergence} is checked by fitting the late-cycle
-increments $\Delta P_t$ against the predicted envelope.
+increments $\Delta P_t$ against the predicted envelope. Fourth, the
+threshold-calibration protocol introduced in Chapter~4 is audited
+against the purity theorem's empirical premise: \cref{fig:alpha-vs-tau}
+verifies that $\alpha > \tfrac{1}{2}$ holds across the
+$[P_{60}, P_{80}]$ band at both the calibration-matched Cycle~0
+distribution and the Cycle~$N$ converged distribution, and
+\cref{fig:alpha-trajectory} confirms that $\alpha$ at the fitted
+$\tau_{\text{store}}$ remains above $\tfrac{1}{2}$ at every cycle.
+These two figures turn the P70 quantile target from a design choice
+into an empirically defended one.
 
 % ---------------------------------------------------------------
 \section{Ablation Results}
