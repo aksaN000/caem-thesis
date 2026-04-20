@@ -495,3 +495,212 @@ class TestVerifyEndToEnd:
         assert out.u_dropout == pytest.approx(0.70)
         v._compute_u_token.assert_not_called()  # type: ignore[attr-defined]
         v._compute_u_dropout.assert_not_called()  # type: ignore[attr-defined]
+
+
+class TestVerifyBatch:
+    """Level B: ``verify_batch`` pools M-chain + semantic-entropy T5
+    sampling across samples. These tests stub out the pooled sampler
+    and per-sample scorers so the batch path can be validated without
+    a real T5."""
+
+    def test_verify_batch_empty_returns_empty(self):
+        v = _blank_verifier()
+        assert v.verify_batch([]) == []
+
+    def test_verify_batch_single_sample_matches_verify(self):
+        """One sample through verify_batch must produce the same decision
+        and composite as a direct verify() call, assuming the same stubbed
+        signals."""
+        v = _blank_verifier()
+        _stub_verifier_signals(
+            v,
+            u_token=0.80, u_dropout=0.10,
+            s_avg=0.85, h_norm=0.10, p_entail=0.80,
+            p_ground_max=0.85, p_ground_mean=0.80, p_ground_atomic=0.75,
+            p_contra=0.05,
+        )
+        v._pooled_sample_t5 = MagicMock(
+            return_value=[["chain a", "chain b", "chain c"]],
+        )
+
+        outs = v.verify_batch([("q0", "a0")])
+        assert len(outs) == 1
+        assert outs[0].decision == "STORE"
+        assert outs[0].u_token == pytest.approx(0.80)
+
+    def test_verify_batch_preserves_order_and_count(self):
+        """Multiple samples: each gets its own per-sample scorers called
+        and the outputs come back in input order."""
+        v = _blank_verifier()
+        _stub_verifier_signals(
+            v,
+            u_token=0.80, u_dropout=0.10,
+            s_avg=0.85, h_norm=0.10, p_entail=0.80,
+            p_ground_max=0.85, p_ground_mean=0.80, p_ground_atomic=0.75,
+            p_contra=0.05,
+        )
+        v._pooled_sample_t5 = MagicMock(
+            return_value=[["c0", "c1", "c2"], ["c0", "c1", "c2"], ["c0", "c1", "c2"]],
+        )
+
+        inputs = [("q0", "a0"), ("q1", "a1"), ("q2", "a2")]
+        outs = v.verify_batch(inputs)
+
+        assert len(outs) == 3
+        # All three produce STORE decisions because stubbed signals are STORE-y.
+        assert all(o.decision == "STORE" for o in outs)
+
+    def test_verify_batch_pooled_sample_called_twice(self):
+        """Pooled sampler must fire exactly twice per batch: once for
+        M-chain (T=0.7) and once for semantic-entropy (T=se_temperature)."""
+        v = _blank_verifier()
+        _stub_verifier_signals(
+            v,
+            u_token=0.80, u_dropout=0.10,
+            s_avg=0.85, h_norm=0.10, p_entail=0.80,
+            p_ground_max=0.85, p_ground_mean=0.80, p_ground_atomic=0.75,
+            p_contra=0.05,
+        )
+        v._pooled_sample_t5 = MagicMock(
+            side_effect=[
+                [["mc0", "mc1", "mc2"], ["mc0", "mc1", "mc2"]],
+                [["se0", "se1", "se2"], ["se0", "se1", "se2"]],
+            ],
+        )
+        v.verify_batch([("q0", "a0"), ("q1", "a1")])
+        assert v._pooled_sample_t5.call_count == 2
+        temps = [kw["temperature"] for _, kw in v._pooled_sample_t5.call_args_list]
+        assert 0.7 in temps
+        assert v.config.se_temperature in temps
+
+    def test_verify_batch_forwards_u_token_u_dropout(self):
+        """Precomputed internal signals should propagate per-sample."""
+        v = _blank_verifier()
+        _stub_verifier_signals(
+            v,
+            u_token=0.99, u_dropout=0.01,
+            s_avg=0.85, h_norm=0.10, p_entail=0.80,
+            p_ground_max=0.85, p_ground_mean=0.80, p_ground_atomic=0.75,
+            p_contra=0.05,
+        )
+        v._pooled_sample_t5 = MagicMock(
+            return_value=[["c"], ["c"]],
+        )
+        outs = v.verify_batch(
+            [("q0", "a0"), ("q1", "a1")],
+            u_tokens=[0.10, 0.20],
+            u_dropouts=[0.30, 0.40],
+        )
+        assert outs[0].u_token == pytest.approx(0.10)
+        assert outs[1].u_token == pytest.approx(0.20)
+        assert outs[0].u_dropout == pytest.approx(0.30)
+        assert outs[1].u_dropout == pytest.approx(0.40)
+
+
+class TestPooledSampleT5Dual:
+    """Level B Phase 2: CUDA-stream dual dispatch for the two
+    data-independent T5 pooled samplings. On CPU (the test env)
+    _pooled_sample_t5_dual falls back to serial ``_pooled_sample_t5``
+    calls; on CUDA the implementation runs them on separate streams."""
+
+    def test_cpu_fallback_to_serial_dispatch(self):
+        v = _blank_verifier()
+        calls: list = []
+
+        def _record(queries, *, num_per, temperature, max_new_tokens, label):
+            calls.append((label, num_per, temperature))
+            return [[f"{label}_{i}_{k}" for k in range(num_per)]
+                    for i in range(len(queries))]
+
+        v._pooled_sample_t5 = MagicMock(side_effect=_record)
+        a, b = v._pooled_sample_t5_dual(
+            queries=["q0", "q1"],
+            num_per_a=3, temperature_a=0.7, label_a="m-chain",
+            num_per_b=2, temperature_b=0.5, label_b="se-sample",
+            max_new_tokens=16,
+        )
+        labels = [c[0] for c in calls]
+        assert labels == ["m-chain", "se-sample"]
+        assert len(a) == 2 and all(len(x) == 3 for x in a)
+        assert len(b) == 2 and all(len(x) == 2 for x in b)
+
+    def test_empty_queries_returns_two_empty_lists(self):
+        v = _blank_verifier()
+        v._pooled_sample_t5 = MagicMock()
+        a, b = v._pooled_sample_t5_dual(
+            queries=[],
+            num_per_a=3, temperature_a=0.7, label_a="m-chain",
+            num_per_b=2, temperature_b=0.5, label_b="se-sample",
+            max_new_tokens=16,
+        )
+        assert a == [] and b == []
+        v._pooled_sample_t5.assert_not_called()
+
+    def test_decode_grouped_error_returns_empty_lists(self):
+        v = _blank_verifier()
+        out = v._decode_grouped(
+            None, N=3, num_per=2, label="m-chain",
+            err=RuntimeError("synthetic CUDA error"),
+        )
+        assert out == [[], [], []]
+
+    def test_decode_grouped_none_output_returns_empty_lists(self):
+        v = _blank_verifier()
+        out = v._decode_grouped(
+            None, N=2, num_per=0, label="noop",
+            err=None,
+        )
+        assert out == [[], []]
+
+    def test_decode_grouped_regroups_by_input(self):
+        """Given a (N*num_per, T) tensor, decode must put rows 0..M-1
+        into sample 0, rows M..2M-1 into sample 1, etc."""
+        v = _blank_verifier()
+
+        class _Tok:
+            def decode(self, row, **kwargs):
+                return f"r{int(row[0].item())}"
+        v.tokenizer = _Tok()
+
+        N, num_per = 3, 2
+        out_tensor = torch.arange(N * num_per).unsqueeze(1)
+        result = v._decode_grouped(
+            out_tensor, N=N, num_per=num_per, label="test", err=None,
+        )
+        assert result == [
+            ["r0", "r1"],
+            ["r2", "r3"],
+            ["r4", "r5"],
+        ]
+
+    def test_verify_batch_uses_dual_pooled_sampler(self):
+        """verify_batch routes through _pooled_sample_t5_dual once
+        (not two separate _pooled_sample_t5 calls) so the CUDA-stream
+        overlap path is actually taken when CUDA is available."""
+        v = _blank_verifier()
+        _stub_verifier_signals(
+            v,
+            u_token=0.80, u_dropout=0.10,
+            s_avg=0.85, h_norm=0.10, p_entail=0.80,
+            p_ground_max=0.85, p_ground_mean=0.80, p_ground_atomic=0.75,
+            p_contra=0.05,
+        )
+        dual_called = {"n": 0}
+
+        def _fake_dual(**kwargs):
+            dual_called["n"] += 1
+            N = len(kwargs["queries"])
+            a = [[f"mc_{i}"] for i in range(N)]
+            b = [[f"se_{i}"] for i in range(N)]
+            return a, b
+
+        v._pooled_sample_t5_dual = _fake_dual
+        v._pooled_sample_t5 = MagicMock(
+            side_effect=AssertionError(
+                "single-sampler must not be called from verify_batch",
+            ),
+        )
+        outs = v.verify_batch([("q0", "a0"), ("q1", "a1")])
+        assert len(outs) == 2
+        assert dual_called["n"] == 1
+        v._pooled_sample_t5.assert_not_called()

@@ -108,6 +108,10 @@ def make_mock_model() -> MagicMock:
     params = [torch.zeros(2, 2)]
     model.parameters.side_effect = lambda: iter(params)
     model.generate.return_value = torch.tensor([[0, 1, 2]])
+    # Flan-T5 uses the pad token as the decoder start; exposing a real
+    # int here avoids MagicMock propagating into torch.tensor() when
+    # _build_forced_prefix builds decoder_input_ids for the scaffold.
+    model.config.decoder_start_token_id = 0
     return model
 
 
@@ -115,6 +119,7 @@ def make_mock_tokenizer(answer: str = "William Shakespeare") -> MagicMock:
     tok = MagicMock()
     tok.return_value = _make_tok_output()
     tok.decode.return_value = answer
+    tok.pad_token_id = 0
     return tok
 
 
@@ -865,7 +870,7 @@ class TestTier2Prompts:
         prompt = p._build_tier2_prompt("Who wrote Hamlet?")
         assert "Reasoning:" in prompt
         assert "Answer:" in prompt
-        assert "at least 40 words" in prompt
+        assert "Example:" in prompt
 
     def test_tier2_prompt_fever_format(self):
         p = self._pipeline_stub()
@@ -873,7 +878,7 @@ class TestTier2Prompts:
         prompt = p._build_tier2_prompt(q)
         assert "supports | refutes | not enough info" in prompt
         assert "Paris is the capital of France." in prompt
-        assert "at least 40 words" in prompt
+        assert "Example:" in prompt
 
     def test_tier2_prompt_strategyqa_format(self):
         p = self._pipeline_stub()
@@ -881,7 +886,7 @@ class TestTier2Prompts:
         prompt = p._build_tier2_prompt(q)
         assert "yes | no" in prompt
         assert "Is the sky blue?" in prompt
-        assert "at least 40 words" in prompt
+        assert "Example:" in prompt
 
     def test_tier2_prompt_arc_format(self):
         p = self._pipeline_stub()
@@ -889,7 +894,7 @@ class TestTier2Prompts:
         prompt = p._build_tier2_prompt(q)
         assert "A | B | C | D" in prompt
         assert "What is gravity?" in prompt
-        assert "at least 40 words" in prompt
+        assert "Example:" in prompt
 
     def test_tier2_prompt_no_context_block(self):
         """Tier 2 has no retrieved passages so the prompt must NOT

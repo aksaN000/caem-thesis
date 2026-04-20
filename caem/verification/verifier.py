@@ -443,6 +443,8 @@ class UnifiedVerifier:
         *,
         u_token: Optional[float] = None,
         u_dropout: Optional[float] = None,
+        chains: Optional[List[str]] = None,
+        se_samples: Optional[List[str]] = None,
     ) -> UnifiedVerifierOutput:
         """Compute all nine signals, form the composite, and emit a decision.
 
@@ -469,10 +471,18 @@ class UnifiedVerifier:
         u_internal = 0.5 * u_token + 0.5 * (1.0 - u_dropout)
 
         # ---------- sample-set signals (M chains reused) ------------------ #
-        chains = self._generate_m_chains(input_ids)
+        # chains / se_samples may be injected by verify_batch, which pools
+        # T5 sampling across samples in one padded generate call. Semantically
+        # equivalent (i.i.d. samples at the same temperature), but avoids N
+        # sequential kernel launches when called from the batched path.
+        if chains is None:
+            chains = self._generate_m_chains(input_ids)
         s_avg = self._score_s_avg(chains)
         p_entail = self._score_p_entail(chains, answer)
-        h_norm = self._compute_h_norm(input_ids)
+        if se_samples is None:
+            h_norm = self._compute_h_norm(input_ids)
+        else:
+            h_norm = self._h_norm_from_samples(se_samples)
 
         # ---------- external grounding ------------------------------------ #
         top_passages = self._retrieve_and_rerank(query, answer)
@@ -564,6 +574,344 @@ class UnifiedVerifier:
     def should_store(self, out: UnifiedVerifierOutput) -> bool:
         """Back-compat: True iff the verifier's decision is STORE."""
         return out.decision == "STORE"
+
+    def verify_batch(
+        self,
+        inputs: List[Tuple[str, str]],
+        u_tokens: Optional[List[Optional[float]]] = None,
+        u_dropouts: Optional[List[Optional[float]]] = None,
+    ) -> List[UnifiedVerifierOutput]:
+        """Run verification on N (query, answer) pairs in one batched pass.
+
+        Pools the two dominant per-sample T5 costs across samples:
+
+        1. **M-chain generation** (``_generate_m_chains``): each sample
+           normally draws M=3 i.i.d. chains at T=0.7 via M sequential
+           ``model.generate`` calls. Here we draw N*M chains in a single
+           batched ``model.generate(num_return_sequences=M)`` on padded
+           input_ids, eliminating N*M kernel launches.
+        2. **Semantic-entropy sampling** (``_compute_h_norm``): each
+           sample normally draws K samples at T=``se_temperature`` via
+           one batched ``model.generate(num_return_sequences=K)``. Here
+           we pool N*K samples across the batch dimension in one call.
+
+        All other verifier work (retrieval, NLI scoring, atomic
+        decomposition, composite, decide) runs per-sample; the NLI
+        ensemble already batches within-sample via its
+        ``batch_entail_prob`` / ``batch_contradict_prob`` API, so
+        amortisation there is already maximal.
+
+        Parameters
+        ----------
+        inputs : list of (query, answer) tuples
+        u_tokens, u_dropouts : optional per-sample precomputed internal
+            signals from the generation stage.
+
+        Returns
+        -------
+        list of UnifiedVerifierOutput of length N, same order as ``inputs``.
+        """
+        if not inputs:
+            return []
+
+        N = len(inputs)
+        if u_tokens is None:
+            u_tokens = [None] * N
+        if u_dropouts is None:
+            u_dropouts = [None] * N
+        assert len(u_tokens) == N and len(u_dropouts) == N, (
+            "verify_batch: u_tokens/u_dropouts length must match inputs"
+        )
+
+        queries = [q for q, _ in inputs]
+        answers = [a for _, a in inputs]
+
+        # Per-sample tokenisation for the internal-cal forward passes.
+        # These paths expect an unpadded single-row tensor (the model
+        # computes loss/gradients on exactly the prompt tokens).
+        per_sample_input_ids = [
+            self._tokenize(q)["input_ids"] for q in queries
+        ]
+
+        # Pooled M-chain and semantic-entropy sampling across samples.
+        # These two calls are data-independent -- neither reads the other's
+        # output -- so we dispatch them to separate CUDA streams (Phase 2)
+        # to let the GPU scheduler overlap their kernel launches when it
+        # has idle SMs. On a fully-saturated 5090 the overlap is small
+        # (~3-5%) but meaningful when the batch dim is modest; on partially
+        # utilised GPUs (smaller cards or smaller batches) it can approach
+        # 15-20%. Falls back to sequential dispatch when CUDA is not
+        # available (CPU tests, non-NVIDIA devices).
+        chains_per_sample, se_samples_per_sample = self._pooled_sample_t5_dual(
+            queries=queries,
+            num_per_a=self.config.sc_chains_m,
+            temperature_a=0.7,
+            label_a="m-chain",
+            num_per_b=self.config.se_samples_k,
+            temperature_b=self.config.se_temperature,
+            label_b="se-sample",
+            max_new_tokens=self.config.cot_max_new_tokens,
+        )
+
+        outputs: List[UnifiedVerifierOutput] = []
+        for i, (q, a) in enumerate(inputs):
+            outputs.append(self.verify(
+                q, a,
+                input_ids=per_sample_input_ids[i],
+                u_token=u_tokens[i],
+                u_dropout=u_dropouts[i],
+                chains=chains_per_sample[i],
+                se_samples=se_samples_per_sample[i],
+            ))
+        return outputs
+
+    def _pooled_sample_t5(
+        self,
+        queries: List[str],
+        *,
+        num_per: int,
+        temperature: float,
+        max_new_tokens: int,
+        label: str,
+    ) -> List[List[str]]:
+        """Draw ``num_per`` i.i.d. T5 samples for each of N queries in one
+        batched ``model.generate(num_return_sequences=num_per)`` call.
+
+        Returns a list of N lists, each of length ``num_per``. On failure
+        returns N empty lists so downstream scorers fall back gracefully
+        (matches the serial ``_generate_m_chains`` / ``_compute_h_norm``
+        error semantics).
+        """
+        N = len(queries)
+        if N == 0 or num_per <= 0:
+            return [[] for _ in range(N)]
+        try:
+            enc = self.tokenizer(
+                queries,
+                return_tensors="pt",
+                truncation=True,
+                max_length=512,
+                padding=True,
+            )
+            input_ids = enc["input_ids"].to(self.device)
+            attention_mask = enc["attention_mask"].to(self.device)
+            self.model.eval()
+            with torch.no_grad():
+                out = self.model.generate(
+                    input_ids,
+                    attention_mask=attention_mask,
+                    max_new_tokens=max_new_tokens,
+                    do_sample=True,
+                    temperature=temperature,
+                    num_return_sequences=num_per,
+                )
+            # HF generate with num_return_sequences=M on batch N produces
+            # (N*M, T) where rows are grouped by input: [s0_c0..s0_cM-1,
+            # s1_c0..s1_cM-1, ...]. Decode row-by-row and regroup.
+            per_sample: List[List[str]] = [[] for _ in range(N)]
+            for row_idx in range(out.shape[0]):
+                s = row_idx // num_per
+                decoded = self.tokenizer.decode(
+                    out[row_idx], skip_special_tokens=True,
+                ).strip()
+                per_sample[s].append(decoded)
+            return per_sample
+        except Exception as exc:
+            logger.warning(
+                "_pooled_sample_t5 (%s) failed (N=%d, num_per=%d): %s -- "
+                "returning empty samples so downstream scorers fall back.",
+                label, N, num_per, exc,
+            )
+            return [[] for _ in range(N)]
+
+    def _pooled_sample_t5_dual(
+        self,
+        *,
+        queries: List[str],
+        num_per_a: int,
+        temperature_a: float,
+        label_a: str,
+        num_per_b: int,
+        temperature_b: float,
+        label_b: str,
+        max_new_tokens: int,
+    ) -> Tuple[List[List[str]], List[List[str]]]:
+        """Run two data-independent pooled T5 samplings concurrently.
+
+        Level B Phase 2 CUDA-stream overlap. The two calls (M-chain at
+        temperature_a, semantic-entropy at temperature_b) read the same
+        tokenised input but write separate output tensors; launching
+        them on separate CUDA streams lets the hardware scheduler
+        overlap kernel execution when SM capacity allows.
+
+        Stream semantics:
+          * Tokenisation runs once on the main stream (both calls read
+            the same input_ids / attention_mask, so we share the encode).
+          * ``model.generate`` for sampler A runs on stream_a; sampler
+            B on stream_b. A synchronisation barrier (stream_a.wait
+            + stream_b.wait on current stream) fences both before we
+            read back the outputs for decode.
+          * When CUDA is unavailable (CPU, MPS, ROCm without stream
+            emulation), we fall back to the serial ``_pooled_sample_t5``
+            path -- zero behavioural change.
+
+        Returns
+        -------
+        (per_sample_a, per_sample_b) each a list of N lists. On any
+        failure of either sampler, that sampler's output is a list of
+        N empty lists and the downstream scorer falls back (matching
+        the single-sampler error semantics).
+        """
+        N = len(queries)
+        if N == 0:
+            return [[] for _ in range(N)], [[] for _ in range(N)]
+
+        # CPU or non-CUDA fallback: serial dispatch is always correct
+        # and is what the tests expect when no CUDA device is present.
+        use_streams = (
+            torch.cuda.is_available()
+            and isinstance(self.device, str)
+            and self.device.startswith("cuda")
+        )
+        if not use_streams:
+            a = self._pooled_sample_t5(
+                queries,
+                num_per=num_per_a,
+                temperature=temperature_a,
+                max_new_tokens=max_new_tokens,
+                label=label_a,
+            )
+            b = self._pooled_sample_t5(
+                queries,
+                num_per=num_per_b,
+                temperature=temperature_b,
+                max_new_tokens=max_new_tokens,
+                label=label_b,
+            )
+            return a, b
+
+        try:
+            enc = self.tokenizer(
+                queries,
+                return_tensors="pt",
+                truncation=True,
+                max_length=512,
+                padding=True,
+            )
+            input_ids = enc["input_ids"].to(self.device)
+            attention_mask = enc["attention_mask"].to(self.device)
+            self.model.eval()
+
+            stream_a = torch.cuda.Stream(device=self.device)
+            stream_b = torch.cuda.Stream(device=self.device)
+
+            # Ensure streams see the current stream's pending work
+            # (the tokenizer .to(device) copy above).
+            current = torch.cuda.current_stream(device=self.device)
+            stream_a.wait_stream(current)
+            stream_b.wait_stream(current)
+
+            out_a = None
+            out_b = None
+            err_a: Optional[Exception] = None
+            err_b: Optional[Exception] = None
+
+            with torch.no_grad():
+                with torch.cuda.stream(stream_a):
+                    try:
+                        if num_per_a > 0:
+                            out_a = self.model.generate(
+                                input_ids,
+                                attention_mask=attention_mask,
+                                max_new_tokens=max_new_tokens,
+                                do_sample=True,
+                                temperature=temperature_a,
+                                num_return_sequences=num_per_a,
+                            )
+                    except Exception as exc_a:
+                        err_a = exc_a
+
+                with torch.cuda.stream(stream_b):
+                    try:
+                        if num_per_b > 0:
+                            out_b = self.model.generate(
+                                input_ids,
+                                attention_mask=attention_mask,
+                                max_new_tokens=max_new_tokens,
+                                do_sample=True,
+                                temperature=temperature_b,
+                                num_return_sequences=num_per_b,
+                            )
+                    except Exception as exc_b:
+                        err_b = exc_b
+
+            # Fence both streams before decoding on the main thread.
+            current.wait_stream(stream_a)
+            current.wait_stream(stream_b)
+            # Guarantee the host sees the completed tensors before decode.
+            torch.cuda.synchronize(device=self.device)
+
+            per_sample_a = self._decode_grouped(
+                out_a, N=N, num_per=num_per_a, label=label_a, err=err_a,
+            )
+            per_sample_b = self._decode_grouped(
+                out_b, N=N, num_per=num_per_b, label=label_b, err=err_b,
+            )
+            return per_sample_a, per_sample_b
+        except Exception as exc:
+            logger.warning(
+                "_pooled_sample_t5_dual failed (N=%d) -- falling back to "
+                "serial dispatch: %s", N, exc,
+            )
+            a = self._pooled_sample_t5(
+                queries, num_per=num_per_a, temperature=temperature_a,
+                max_new_tokens=max_new_tokens, label=label_a,
+            )
+            b = self._pooled_sample_t5(
+                queries, num_per=num_per_b, temperature=temperature_b,
+                max_new_tokens=max_new_tokens, label=label_b,
+            )
+            return a, b
+
+    def _decode_grouped(
+        self,
+        out: Optional[torch.Tensor],
+        *,
+        N: int,
+        num_per: int,
+        label: str,
+        err: Optional[Exception],
+    ) -> List[List[str]]:
+        """Decode a pooled generate output into N per-sample lists.
+
+        Shared by _pooled_sample_t5_dual for both stream outputs. If
+        the sampler raised or produced no tensor, returns N empty
+        lists so downstream scorers fall back.
+        """
+        if err is not None:
+            logger.warning(
+                "_pooled_sample_t5_dual (%s) sampler failed (N=%d, "
+                "num_per=%d): %s -- returning empty samples.",
+                label, N, num_per, err,
+            )
+            return [[] for _ in range(N)]
+        if out is None or num_per <= 0:
+            return [[] for _ in range(N)]
+        per_sample: List[List[str]] = [[] for _ in range(N)]
+        for row_idx in range(out.shape[0]):
+            s = row_idx // num_per
+            try:
+                decoded = self.tokenizer.decode(
+                    out[row_idx], skip_special_tokens=True,
+                ).strip()
+            except Exception as exc:
+                logger.warning(
+                    "_decode_grouped (%s) decode row %d failed: %s",
+                    label, row_idx, exc,
+                )
+                decoded = ""
+            per_sample[s].append(decoded)
+        return per_sample
 
     # ====================================================================== #
     # Signal computation                                                      #
@@ -691,6 +1039,26 @@ class UnifiedVerifier:
 
     # ---- semantic entropy ------------------------------------------------- #
 
+    def _h_norm_from_samples(self, samples: List[str]) -> float:
+        """Compute h_norm from a pre-drawn list of K semantic-entropy samples.
+
+        Shared between the serial ``_compute_h_norm`` (which draws the
+        samples itself) and ``verify_batch`` (which pools the draws
+        across samples). Returns 0.5 on any internal failure so
+        downstream composite/decide always sees a well-formed float.
+        """
+        K = self.config.se_samples_k
+        try:
+            if not samples:
+                return 0.5
+            H = (self._semantic_entropy_nli(samples)
+                 if self.nli else self._semantic_entropy_surface(samples))
+            h_norm = H / math.log2(max(K, 2))
+            return float(np.clip(h_norm, 0.0, 1.0))
+        except Exception as exc:
+            logger.warning("h_norm-from-samples failed: %s -- returning 0.5", exc)
+            return 0.5
+
     def _compute_h_norm(self, input_ids: torch.Tensor) -> float:
         """Normalised semantic entropy via NLI clustering (ensemble argmax).
 
@@ -719,12 +1087,7 @@ class UnifiedVerifier:
                         out[i], skip_special_tokens=True
                     ).strip()
                     samples.append(decoded)
-            if not samples:
-                return 0.5
-            H = (self._semantic_entropy_nli(samples)
-                 if self.nli else self._semantic_entropy_surface(samples))
-            h_norm = H / math.log2(max(K, 2))
-            return float(np.clip(h_norm, 0.0, 1.0))
+            return self._h_norm_from_samples(samples)
         except Exception as exc:
             logger.warning("h_norm failed: %s -- returning 0.5", exc)
             return 0.5

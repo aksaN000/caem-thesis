@@ -364,6 +364,10 @@ class CAEMPipeline:
         query: str,
         store_to_memory: bool = True,
         source_benchmark: Optional[str] = None,
+        _precomputed_tier2_answer: Optional[str] = None,
+        _precomputed_tier3_answer: Optional[str] = None,
+        _precomputed_vout: Optional[UnifiedVerifierOutput] = None,
+        _precomputed_routing: Optional[tuple] = None,
     ) -> PipelineResult:
         """Run the full CAEM pipeline for a single query.
 
@@ -388,19 +392,30 @@ class CAEMPipeline:
         """
         t_start = time.perf_counter()
 
-        # -- Stage 2: Encode query --------------------------------------- #
-        query_embedding = self._encode_query(query)
+        if _precomputed_routing is not None:
+            # Level B Phase 2 Tier-1 fast path: BatchPipeline already ran
+            # Stages 1-3 in _peek_routing when it classified tiers; thread
+            # those results through here to avoid re-encoding + re-searching
+            # + re-routing per sample. Saves ~30-50 ms per Tier-1 sample at
+            # late cycles where Tier-1 fraction is high (38% at Cycle 10).
+            query_embedding, pre_conf, search_with_ids, routing = \
+                _precomputed_routing
+        else:
+            # -- Stage 2: Encode query --------------------------------------- #
+            query_embedding = self._encode_query(query)
 
-        # -- Stage 3a: Pre-routing confidence --------------------------- #
-        pre_conf = self.pre_estimator.estimate(query)
+            # -- Stage 3a: Pre-routing confidence --------------------------- #
+            pre_conf = self.pre_estimator.estimate(query)
 
-        # -- Stage 1: Memory search (k=1 for routing) ------------------- #
-        # Use search_with_ids so Tier-1 stats updates can call back without
-        # scanning private _metadata for the entry ID.
-        search_with_ids = self.memory_store.search_with_ids(query_embedding, k=1)
+            # -- Stage 1: Memory search (k=1 for routing) ------------------- #
+            # Use search_with_ids so Tier-1 stats updates can call back without
+            # scanning private _metadata for the entry ID.
+            search_with_ids = self.memory_store.search_with_ids(
+                query_embedding, k=1,
+            )
 
-        # -- Stage 3b: Route --------------------------------------------- #
-        routing = self.router.route(pre_conf, search_with_ids)
+            # -- Stage 3b: Route --------------------------------------------- #
+            routing = self.router.route(pre_conf, search_with_ids)
 
         logger.debug(
             "Routing: Tier %d | u_pre=%.4f | sim=%.4f | score=%.4f | safety=%s",
@@ -430,13 +445,35 @@ class CAEMPipeline:
             self._update_tier1_stats(search_with_ids=search_with_ids)
 
         elif routing.tier == 2:
-            answer_str, post_conf, escalated = self._tier2(query, pre_conf)
+            if _precomputed_tier2_answer is not None:
+                # Level B batched path: Tier 2 generate was run in a single
+                # batched T5 forward pass by BatchPipeline.batch_tier2_generate;
+                # inject the precomputed string here and skip the individual
+                # _tier2 call. An empty string signals Tier 2 failed in the
+                # batched generate and we escalate to Tier 3 -- matches the
+                # serial _tier2 escalation contract.
+                answer_str = _precomputed_tier2_answer.strip()
+                post_conf = None
+                escalated = False
+                if not answer_str:
+                    logger.warning(
+                        "Tier 2 precomputed answer empty -- escalating to Tier 3.",
+                    )
+                    answer_str = self._tier3(query)
+                    escalated = True
+            else:
+                answer_str, post_conf, escalated = self._tier2(query, pre_conf)
             # -- Stage 5: UnifiedVerifier (nine signals + decision) ---- #
-            # Pass through the already-computed u_token and u_dropout so the
-            # verifier does not pay for a duplicate forward pass.
-            u_tok = getattr(post_conf, "u_token", None) if post_conf else None
-            u_drop = getattr(post_conf, "u_dropout", None) if post_conf else None
-            vout = self._verify(query, answer_str, u_token=u_tok, u_dropout=u_drop)
+            if _precomputed_vout is not None:
+                # Level B batched path: verify_batch was called upstream;
+                # inject the precomputed output and skip the internal call.
+                vout = _precomputed_vout
+            else:
+                # Pass through the already-computed u_token and u_dropout so
+                # the verifier does not pay for a duplicate forward pass.
+                u_tok = getattr(post_conf, "u_token", None) if post_conf else None
+                u_drop = getattr(post_conf, "u_dropout", None) if post_conf else None
+                vout = self._verify(query, answer_str, u_token=u_tok, u_dropout=u_drop)
             u_stored_scalar = vout.u_stored if vout else None
             if store_to_memory:
                 entry_id, stored_flag = self._maybe_store(
@@ -446,11 +483,24 @@ class CAEMPipeline:
                 )
 
         else:  # tier == 3
-            answer_str = self._tier3(query)
+            if _precomputed_tier3_answer is not None:
+                # Level B batched path: Tier 3 RAG generate was run in a single
+                # batched T5 forward pass by BatchPipeline.batch_tier3_generate;
+                # inject the precomputed string here and skip the individual
+                # _tier3 call. An empty string is preserved as-is (same as
+                # serial _tier3 returning "" on total failure).
+                answer_str = _precomputed_tier3_answer
+            else:
+                answer_str = self._tier3(query)
             # -- Stage 5: UnifiedVerifier ------------------------------ #
-            # Tier 3 has no pre-computed internal signals, so the verifier
-            # computes u_token and u_dropout itself.
-            vout = self._verify(query, answer_str)
+            if _precomputed_vout is not None:
+                # Level B batched path: verify_batch was called upstream;
+                # inject the precomputed output and skip the internal call.
+                vout = _precomputed_vout
+            else:
+                # Tier 3 has no pre-computed internal signals, so the verifier
+                # computes u_token and u_dropout itself.
+                vout = self._verify(query, answer_str)
             u_stored_scalar = vout.u_stored if vout else None
             if store_to_memory:
                 entry_id, stored_flag = self._maybe_store(
