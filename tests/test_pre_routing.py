@@ -356,21 +356,23 @@ class TestCConvDecoderOnlyDispatch:
 
 @pytest.mark.slow
 def test_c_conv_live_qwen_3b():
-    """Live integration — load Qwen-3B, compute c_conv + u_pre end-to-end.
+    """Live integration — load Qwen-3B, compute full pre-routing pipeline.
 
-    Validates decoder-only dispatch on a real model (Qwen 36-layer stack).
-    Asserts FINITENESS and BOUNDEDNESS only, not signal quality.
+    Validates decoder-only dispatch on a real model (Qwen 36-layer stack)
+    AND signal quality on easy factual queries.
 
-    Semantic-quality note (discovered 2026-04-22 during Phase C testing):
-    u_token on Qwen-3B comes out near-zero when the pre-routing estimator is
-    called on RAW text (no ChatML template), because Qwen is instruction-
-    tuned and flails without chat format; predictions scatter across Qwen's
-    151k-token vocab, making per-token probabilities tiny and geomean(probs)
-    collapse to ~1e-9. This is expected behavior pre-integration and is fixed
-    in Phase D when pipeline.py formats pre-routing queries with ChatML before
-    passing to the estimator. This test therefore only validates plumbing
-    (runs-without-crashing + finite outputs); signal quality is validated
-    after Phase D in an integrated smoke test.
+    Phase C.2 (2026-04-22) added ChatML query wrapping inside the estimator so
+    Qwen receives chat-format inputs during u_token computation. Before the
+    wrapper, raw-text queries to Qwen collapsed u_token to ~1e-9 (predictions
+    scattering across the 151k-token vocab when the instruction-tuned model
+    has no chat format to anchor on). After the wrapper, u_token recovers to
+    healthy values on factual queries.
+
+    Asserted properties:
+      - Finiteness + boundedness of u_token, c_conv, u_pre
+      - u_token > 0.5 on well-known factual query ("capital of France")
+      - u_pre > safety_u_pre_min (OR-condition should NOT force Tier 3 on
+        easily-answerable queries)
     """
     if not torch.cuda.is_available():
         pytest.skip("requires CUDA")
@@ -387,20 +389,29 @@ def test_c_conv_live_qwen_3b():
     )
     try:
         assert is_enc_dec is False
-        est = PreRoutingConfidenceEstimator(model, tok, CAEMConfig(), device="cuda")
+        cfg = CAEMConfig()
+        est = PreRoutingConfidenceEstimator(model, tok, cfg, device="cuda")
         pc = est.estimate("What is the capital of France?")
 
-        # Finite + bounded — plumbing correctness, NOT signal quality (see
-        # semantic-quality note in the docstring above).
+        # Plumbing: finite + bounded
         assert math.isfinite(pc.u_token) and 0.0 <= pc.u_token <= 1.0, \
             f"u_token out of [0,1] or non-finite: {pc.u_token}"
         assert math.isfinite(pc.c_conv) and pc.c_conv >= 0.0, \
             f"c_conv negative or non-finite: {pc.c_conv}"
         assert math.isfinite(pc.u_pre) and 0.0 <= pc.u_pre <= 1.0, \
             f"u_pre out of [0,1] or non-finite: {pc.u_pre}"
-
-        # c_conv should be finite and not a complete outlier
         assert pc.c_conv < 100.0, f"unexpectedly extreme c_conv: {pc.c_conv}"
+
+        # Signal quality — ChatML wrapping should produce healthy values
+        assert pc.u_token > 0.5, (
+            f"u_token={pc.u_token:.4f} too low on easy factual query; "
+            "ChatML query wrapping may be broken."
+        )
+        assert pc.u_pre > cfg.safety_u_pre_min, (
+            f"u_pre={pc.u_pre:.4f} below safety threshold "
+            f"{cfg.safety_u_pre_min} on 'capital of France' — "
+            "pre-routing would force Tier 3 on a trivially-answerable query."
+        )
     finally:
         del model, tok
         gc.collect()

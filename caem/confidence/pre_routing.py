@@ -186,22 +186,34 @@ class PreRoutingConfidenceEstimator:
             logger.warning("u_token: generate() failed with %s -- returning 0.0.", exc)
             return 0.0
 
-        scores = outputs.scores       # Tuple of (vocab_size,) tensors, one per step
+        scores = outputs.scores       # Tuple of logits tensors, one per generated step
         sequences = outputs.sequences # (1, seq_len) including prompt tokens
 
-        # The generated token IDs start after the decoder prompt (usually <pad>).
-        # outputs.sequences for encoder-decoder: [decoder_start, tok_1, ..., tok_n]
-        # scores[t] = logits at step t before softmax, shape (batch, vocab)
         if not scores:
             logger.warning("u_token: no scores returned -- returning 0.0.")
             return 0.0
+
+        # Compute generated-token offset architecture-agnostically.
+        #
+        # Encoder-decoder (Flan-T5):
+        #   sequences = [decoder_start, tok_1, ..., tok_n]
+        #   sequences.shape[1] = 1 + n_gen;  gen_start = 1
+        #
+        # Decoder-only (Qwen/Gemma/Llama):
+        #   sequences = [input_0, ..., input_{L_input-1}, tok_1, ..., tok_n]
+        #   sequences.shape[1] = L_input + n_gen;  gen_start = L_input
+        #
+        # In both cases, the last ``len(scores)`` tokens of ``sequences`` are
+        # the generated tokens. Taking ``gen_start = sequences.shape[1] -
+        # len(scores)`` works for both architectures.
+        n_gen = len(scores)
+        gen_start = int(sequences.shape[1]) - n_gen
 
         log_probs = []
         for t, step_scores in enumerate(scores):
             # step_scores: (1, vocab_size) logits
             log_softmax = torch.nn.functional.log_softmax(step_scores[0], dim=-1)
-            # Token chosen at step t is at position t+1 in sequences (after bos/pad)
-            token_id = sequences[0, t + 1].item()
+            token_id = sequences[0, gen_start + t].item()
             if token_id == self.tokenizer.eos_token_id:
                 break   # Stop at EOS -- don't include it in the mean
             log_prob = log_softmax[token_id].item()
@@ -314,15 +326,66 @@ class PreRoutingConfidenceEstimator:
     # ------------------------------------------------------------------ #
 
     def _tokenize(self, query: str) -> dict:
-        """Tokenize a query string and move tensors to device."""
+        """Tokenize a query string and move tensors to device.
+
+        Architecture-aware wrapping (Goal 1, Branch C):
+        - Encoder-decoder (Flan-T5): pass query directly to tokenizer. T5 was
+          pretrained on raw text + FLAN instruction tuning; the encoder accepts
+          bare queries without template wrapping.
+        - Decoder-only (Qwen/Gemma/Llama/Phi): wrap query in a minimal ChatML
+          user turn with generation prompt via ``apply_chat_template``. Without
+          this, instruction-tuned decoder-only models flail on raw text —
+          predictions scatter across the ~151k vocab, making per-token
+          probabilities tiny and u_token collapse to ~1e-9 (empirically
+          confirmed 2026-04-22 on Qwen-2.5-3B). Wrapping restores the signal's
+          intended semantic: model confidence when beginning an assistant turn
+          answering the user's question.
+
+        The ChatML envelope adds ~20 tokens of fixed structure around the
+        query; c_conv's variance ratio is not materially distorted because
+        the envelope is the same for every query and washes out in the
+        early/late layer comparison.
+        """
+        text = self._wrap_query_for_backbone(query)
         inputs = self.tokenizer(
-            query,
+            text,
             return_tensors="pt",
             truncation=True,
             max_length=512,
             padding=False,
         )
         return {k: v.to(self.device) for k, v in inputs.items()}
+
+    def _wrap_query_for_backbone(self, query: str) -> str:
+        """Wrap the raw query for the backbone's expected input convention.
+
+        Returns ``query`` unchanged for encoder-decoder models. Returns a
+        ChatML-formatted user turn + generation prompt for decoder-only
+        models via ``tokenizer.apply_chat_template(add_generation_prompt=True)``
+        when available. Falls back to a manual ChatML concatenation if the
+        tokenizer lacks ``apply_chat_template`` (rare; most modern
+        instruction-tuned tokenizers ship with a chat template).
+        """
+        if self._is_encoder_decoder():
+            return query
+
+        # Decoder-only: wrap in minimal ChatML
+        messages = [{"role": "user", "content": query}]
+        tok = self.tokenizer
+        if hasattr(tok, "apply_chat_template"):
+            try:
+                return tok.apply_chat_template(
+                    messages,
+                    tokenize=False,
+                    add_generation_prompt=True,
+                )
+            except Exception as exc:
+                logger.debug(
+                    "apply_chat_template failed (%s); falling back to manual "
+                    "ChatML wrap.", exc,
+                )
+        # Manual ChatML fallback (Qwen/Llama/Gemma all share this syntax)
+        return f"<|im_start|>user\n{query}<|im_end|>\n<|im_start|>assistant\n"
 
     def _apply_temperature_scaling(self, prob: float) -> float:
         """Apply sigmoid(logit(prob)/T) for calibrated confidence.
