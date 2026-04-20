@@ -218,8 +218,16 @@ def _make_mock_pipeline_for_tier2(batch_generated_strings, prompt_tag="PROMPT"):
         def generate(self, input_ids, **kwargs):
             return model_generate(input_ids, **kwargs)
 
+    # _build_forced_prefix is called by batch_tier2_generate to inject
+    # the "Reasoning:" decoder prefix. The mock returns a trivial
+    # (batch_size, 1) tensor with the decoder-start token so the
+    # downstream model.generate() call stays shape-consistent.
+    def build_forced_prefix(batch_size):
+        return torch.zeros((batch_size, 1), dtype=torch.long)
+
     return SimpleNamespace(
         _build_tier2_prompt=build_prompt,
+        _build_forced_prefix=build_forced_prefix,
         tokenizer=_Tokenizer(),
         model=_Model(),
         config=SimpleNamespace(cot_max_new_tokens=16),

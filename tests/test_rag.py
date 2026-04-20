@@ -64,6 +64,10 @@ def make_mock_model() -> MagicMock:
     model.parameters.return_value = iter([torch.zeros(1)])
     # generate() returns a plain (1, seq_len) tensor
     model.generate.return_value = torch.tensor([[0, 2, 3, 1]])   # dummy token ids
+    # Flan-T5 uses the pad token as the decoder start; exposing an int
+    # here avoids MagicMock propagating into torch.tensor() when the
+    # forced-prefix helper builds decoder_input_ids.
+    model.config.decoder_start_token_id = 0
     return model
 
 
@@ -71,6 +75,7 @@ def make_mock_tokenizer() -> MagicMock:
     tok = MagicMock()
     tok.return_value = {"input_ids": torch.zeros(1, 8, dtype=torch.long)}
     tok.decode.return_value = "William Shakespeare"
+    tok.pad_token_id = 0
     return tok
 
 
@@ -236,9 +241,15 @@ class TestRAGInternals:
         assert "Second passage." in prompt
 
     def test_build_prompt_context_header(self):
+        """Prompt must contain a Context: block for Tier 3 RAG (after
+        the few-shot example and the step-by-step instruction). The
+        few-shot example itself contains a nested Context: block; what
+        matters is that the actual Context: for the current query is
+        present with the numbered passage."""
         rag, _ = make_rag()
-        prompt = rag._build_prompt("q?", [("p.", 0.5)])
-        assert prompt.startswith("Context:")
+        prompt = rag._build_prompt("q?", [("First passage.", 0.5)])
+        assert "Context:" in prompt
+        assert "[1] First passage." in prompt
 
     def test_tokenize_prompt_returns_tensor(self):
         rag, _ = make_rag()
@@ -248,18 +259,22 @@ class TestRAGInternals:
     # --- Uniform scaffolded CoT prompt tests ---------------------------- #
 
     def test_prompt_has_uniform_scaffold_on_open_ended(self):
-        """Open-ended queries get the Evidence / Reasoning / Answer
-        scaffold with a min-40-word instruction."""
+        """Open-ended queries get the few-shot scaffolded CoT template
+        with step-by-step reasoning instruction, a worked example, and
+        Reasoning: / Answer: response slots. The forced decoder prefix
+        (injected at generate time) guarantees the output starts with
+        'Reasoning:' regardless of prompt content."""
         rag, _ = make_rag()
         prompt = rag._build_prompt("Who wrote Hamlet?", [("p.", 0.5)])
-        assert "Evidence:" in prompt
+        assert "step-by-step reasoning" in prompt
+        assert "Example:" in prompt
         assert "Reasoning:" in prompt
         assert "Answer:" in prompt
-        assert "at least 40 words" in prompt
 
     def test_prompt_fever_detects_and_formats_correctly(self):
-        """FEVER queries trigger supports|refutes|not enough info
-        answer format and extract the claim."""
+        """FEVER queries trigger supports | refutes | not enough info
+        answer format and extract the claim. The few-shot example
+        also exercises the FEVER branch so the model learns the format."""
         rag, _ = make_rag()
         query = (
             "Answer with one of: supports, refutes, not enough info. "
@@ -268,7 +283,7 @@ class TestRAGInternals:
         prompt = rag._build_prompt(query, [("p.", 0.5)])
         assert "supports | refutes | not enough info" in prompt
         assert "Paris is the capital of France." in prompt
-        assert "Evidence:" in prompt
+        assert "Reasoning:" in prompt
 
     def test_prompt_strategyqa_detects_and_formats_correctly(self):
         rag, _ = make_rag()
@@ -286,7 +301,7 @@ class TestRAGInternals:
         )
         prompt = rag._build_prompt(query, [("p.", 0.5)])
         assert "A | B | C | D" in prompt
-        assert "Evidence:" in prompt
+        assert "Reasoning:" in prompt
 
     def test_detect_query_task_recognises_arc(self):
         from caem.retrieval.rag import TierThreeRAG
@@ -401,7 +416,10 @@ class TestRAGConfig:
         assert CAEMConfig().rag_top_k == 5
 
     def test_rag_max_new_tokens_default(self):
-        assert CAEMConfig().rag_max_new_tokens == 256
+        # Raised from 256 -> 512 to accommodate few-shot scaffolded CoT
+        # output (reasoning section can reach ~80-150 tokens on
+        # Flan-T5-Large) under the forced decoder prefix.
+        assert CAEMConfig().rag_max_new_tokens == 512
 
     def test_rag_do_sample_false_by_default(self):
         assert CAEMConfig().rag_do_sample is False

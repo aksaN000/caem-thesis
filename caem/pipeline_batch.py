@@ -210,9 +210,11 @@ class BatchPipeline:
         try:
             self.p.model.eval()
             with torch.no_grad():
+                decoder_input_ids = self.p._build_forced_prefix(input_ids.shape[0])
                 output_ids = self.p.model.generate(
                     input_ids,
                     attention_mask=attention_mask,
+                    decoder_input_ids=decoder_input_ids,
                     max_new_tokens=cfg.cot_max_new_tokens,
                     do_sample=False,
                 )
