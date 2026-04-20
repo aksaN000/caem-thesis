@@ -534,16 +534,94 @@ than capacity differences.
 
 \paragraph{Hardware.}
 Cycle-level training and evaluation run on a single NVIDIA
-RTX~4090 ($24$~GB VRAM) rented through Vast.ai, paired with a
-Ryzen-class host CPU and $64$~GB of system RAM. The L$_2$ anchor
-$\theta_{\text{prev}}$ co-resides on GPU with the training parameters
-so that the anchor penalty can be computed without host-device
-transfers each step, which doubles the effective weight footprint
-during a cycle and motivates the \texttt{bfloat16} precision choice.
-The episodic-memory FAISS index stays on GPU for vector search and
-spills to CPU only for periodic save; the Wikipedia DPR passage index
-($21$M vectors) is held on CPU throughout because its size exceeds
-what can be co-resident with the generator on a single $24$~GB card.
+RTX~5090 ($32$~GB VRAM) rented through Vast.ai, paired with a
+Ryzen-class host CPU and $64$~GB of system RAM. The same
+configuration runs unchanged on an RTX~4090 ($24$~GB) by reducing
+the deferred-buffer capacity from $10^{4}$ to $5 \times 10^{3}$; no
+other hyperparameter or architectural choice depends on the $32$~GB
+headroom. The L$_2$ anchor $\theta_{\text{prev}}$ co-resides on GPU
+with the training parameters so that the anchor penalty can be
+computed without host-device transfers each step, which doubles the
+effective weight footprint during a cycle and motivates the
+\texttt{bfloat16} precision choice. The episodic-memory FAISS index
+stays on GPU for vector search and spills to CPU only for periodic
+save; the Wikipedia DPR passage index ($21$M vectors) is held on CPU
+throughout because its size exceeds what can be co-resident with the
+generator on the single-GPU budget.
+
+\paragraph{Generator prompt design.}
+Every Tier~2 and Tier~3 generation call uses a uniform few-shot
+scaffolded chain-of-thought prompt with a forced decoder prefix,
+specified formally in Chapter~\ref{ch:methodology} \S\ref{sec:implementation}
+\emph{Generator prompt design}. The design is motivated by a
+pre-launch compliance smoke (30~queries, 5~per benchmark) that
+established three empirical points. First, Flan-T5-Large under
+zero-shot scaffolding alone emits the required \texttt{Reasoning:}
+header in $0\%$ of queries across the six benchmarks: the
+instruction-tuning prior dominates any abstract \textit{``you must
+follow the format below''} directive. Second, adding one worked
+few-shot example in the exact output format lifts compliance to
+$\approx 57\%$ averaged over the six benchmarks, with FEVER and
+TriviaQA at $60\%$ and Natural Questions at $40\%$. Third,
+additionally forcing the decoder to start with the \texttt{Reasoning:}
+prefix via \texttt{decoder\_input\_ids} lifts compliance to
+$\approx 87\%$ averaged over the six benchmarks: FEVER, Natural
+Questions, and StrategyQA reach $100\%$; TriviaQA and TruthfulQA
+reach $80\%$; ARC-Challenge remains at $60\%$ because its
+multiple-choice template pressures the decoder toward short letter
+answers even after the forced prefix.
+The design choice adopted for the results in this chapter is
+\emph{few-shot plus forced decoder prefix}; the raw generated text,
+which always starts with \texttt{Reasoning:} on the $87\%$
+scaffold-compliant subset, is what the nine-signal verifier sees, so
+classification benchmarks whose model predictions were previously
+one-word labels now expose the three external-grounding signals
+($p_{\text{ground}}^{\text{max}}$, $p_{\text{ground}}^{\text{mean}}$,
+$p_{\text{ground}}^{\text{atomic}}$) and the contradiction veto
+$p_{\text{contra}}$ to meaningful claim text. The user-facing
+display string surfaces only the content after the final
+\texttt{Answer:} marker via \texttt{eval.metrics.extract\_cot\_answer};
+the full scaffolded text remains in the episodic memory entry and in
+the eval JSON so that downstream diagnostics and auditing have access
+to the reasoning chain rather than only the distilled answer. The
+$13\%$ of queries that bypass the scaffold (mostly ARC-Challenge
+letter answers, and a minority of TruthfulQA / TriviaQA direct-fact
+responses) receive a reduced-rank composite on the four
+external-grounding signals and are scored by the five remaining
+signals (internal calibration + sample-set consistency); this is a
+recognised limitation documented in Chapter~6.
+
+\paragraph{Batched inference infrastructure (Level~B).}
+Per-query latency is the bottleneck for the full ten-cycle
+trajectory: at the $8$~s/sample baseline reported in
+Table~\ref{tab:step6-time-budget} of the runbook, the main Step 7
+consumes roughly $335$ GPU-hours on a single-GPU budget. The
+results in this chapter are produced by a batched inference path
+(\texttt{caem.pipeline\_batch.BatchPipeline}) that pools per-query
+T5 calls across samples: one padded \texttt{model.generate} for all
+Tier~2 samples in a micro-batch, one padded call for all Tier~3
+samples, and a pooled $N{\times}M$ call inside the verifier that
+replaces the per-sample $M$-chain loop and the per-sample
+semantic-entropy $K$-sample loop. A thread-pool prefetch wrapper
+(\texttt{caem.pipeline\_batch\_prefetch.PrefetchingBatchPipeline})
+additionally overlaps CPU-side chunk preparation with the
+previous chunk's GPU work, and a CUDA-stream dispatcher dispatches
+the two data-independent verifier samplers
+(\texttt{\_pooled\_sample\_t5\_dual}) to separate streams so their
+kernels can overlap on idle SMs. Real-GPU smoke tests on the
+RTX~5090 measure a $1.19 \times$ wall-clock speedup for
+\texttt{BatchPipeline} and $1.22 \times$ for the prefetching
+extension, against the serial per-query baseline; decision-level
+agreement between the serial and batched paths is $\geq 87.5\%$
+within the stochastic tolerance of the pooled-chain signals. The
+batched path is semantics-preserving by design: memory-store
+commits remain sequential in submission order, and the tier-bucket
+dispatch inside \texttt{answer\_batch} injects pre-computed Tier~2 /
+Tier~3 answers and verifier outputs back into the per-sample
+pipeline via dedicated keyword arguments on
+\texttt{CAEMPipeline.answer}, so the per-query contract stated in
+Chapter~\ref{ch:methodology} is satisfied identically on both
+paths.
 
 \paragraph{Cycle structure and sample budgets.}
 \caem{} is trained for $N = 10$ self-improvement cycles following the

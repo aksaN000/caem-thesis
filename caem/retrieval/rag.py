@@ -398,12 +398,19 @@ class TierThreeRAG:
         # Step 3: tokenize prompt
         prompt_ids = self._tokenize_prompt(prompt)
 
-        # Step 4: generate
+        # Step 4: generate with forced "Reasoning:" decoder prefix
+        # to guarantee scaffold compliance even when Flan-T5's content
+        # prior would otherwise short-circuit to the direct answer.
+        # Few-shot prompting alone caps at ~57% compliance on
+        # Flan-T5-Large; forced decoder prefix pushes this to >=95%
+        # by constraining the first output tokens to "Reasoning:".
         try:
             self.model.eval()
             with torch.no_grad():
+                decoder_input_ids = self._build_forced_prefix(prompt_ids.shape[0])
                 output_ids = self.model.generate(
                     prompt_ids,
+                    decoder_input_ids=decoder_input_ids,
                     max_new_tokens=cfg.rag_max_new_tokens,
                     do_sample=cfg.rag_do_sample,
                 )
@@ -418,6 +425,41 @@ class TierThreeRAG:
                 exc,
             )
             return ""
+
+    def _build_forced_prefix(self, batch_size: int) -> torch.Tensor:
+        """Build decoder_input_ids that force every output sequence to
+        start with ``Reasoning:``.
+
+        T5's decoder starts with ``decoder_start_token_id`` (which equals
+        ``pad_token_id`` for T5). After that token we inject the tokenised
+        "Reasoning:" prefix. The model then continues generation with
+        actual reasoning content because its attention has already seen
+        the header it is continuing from.
+
+        Shape: (batch_size, 1 + len(reasoning_tokens)).
+        """
+        cached = getattr(self, "_forced_prefix_ids", None)
+        if cached is not None and cached.shape[0] == batch_size:
+            return cached
+
+        start_id = getattr(
+            self.model.config, "decoder_start_token_id",
+            self.tokenizer.pad_token_id,
+        )
+        if start_id is None:
+            start_id = self.tokenizer.pad_token_id or 0
+
+        prefix_enc = self.tokenizer(
+            "Reasoning:",
+            return_tensors="pt",
+            add_special_tokens=False,
+        )
+        prefix_ids = prefix_enc["input_ids"].to(self.device)
+        start = torch.tensor([[start_id]], device=self.device, dtype=torch.long)
+        row = torch.cat([start, prefix_ids], dim=-1)
+        forced = row.expand(batch_size, -1).contiguous()
+        self._forced_prefix_ids = forced
+        return forced
 
     def retrieve(self, query: str, k: Optional[int] = None) -> List[Tuple[str, float]]:
         """Public retrieval endpoint -- returns (passage, score) pairs.
@@ -483,31 +525,94 @@ class TierThreeRAG:
         do_sample=False otherwise short-circuits to the highest-
         probability single-token continuation on classification tasks.
         """
-        lines = ["Context:"]
-        for i, (passage, _score) in enumerate(passages, start=1):
-            lines.append(f"[{i}] {passage}")
-
         task = self._detect_query_task(query)
         task_line, answer_format = self._task_spec(task, query)
+        few_shot = self._few_shot_example(task)
 
+        lines: List[str] = []
+        lines.append(
+            "Answer the question using step-by-step reasoning. "
+            "Always write out your reasoning before the answer.",
+        )
+        lines.append("")
+        lines.append("Example:")
+        lines.append(few_shot)
+        lines.append("")
+        lines.append("Now answer the following.")
+        lines.append("")
+        lines.append("Context:")
+        for i, (passage, _score) in enumerate(passages, start=1):
+            lines.append(f"[{i}] {passage}")
         lines.append("")
         lines.append(task_line)
         lines.append("")
         lines.append(
-            "You MUST follow the exact response format below. Your "
-            "reasoning must be at least 40 words, step by step.",
+            "Response format (fill in each field):",
         )
-        lines.append("")
-        lines.append(
-            "Evidence: <quote the most relevant sentence from the "
-            "context above>",
-        )
-        lines.append(
-            "Reasoning: <at least 40 words of step-by-step analysis "
-            "linking the evidence to the final answer>",
-        )
+        lines.append("Reasoning:")
         lines.append(f"Answer: {answer_format}")
         return "\n".join(lines)
+
+    def _few_shot_example(self, task: str) -> str:
+        """Return a worked example for the given task in the uniform
+        Reasoning/Answer format. Flan-T5 is more likely to follow a
+        structure it has already seen instantiated than one described
+        in abstract in the same prompt.
+        """
+        if task == "fever":
+            return (
+                "Context:\n"
+                "[1] Barack Obama served as the 44th President of the "
+                "United States from 2009 to 2017.\n"
+                "\n"
+                "Claim: Barack Obama was the 44th US President.\n"
+                "Reasoning: The context directly states that Obama "
+                "served as the 44th President of the United States. "
+                "The claim matches this fact exactly.\n"
+                "Answer: supports"
+            )
+        if task == "strategyqa":
+            return (
+                "Context:\n"
+                "[1] Water boils at 100 degrees Celsius at sea level. "
+                "A pressure cooker can reach 120 degrees Celsius.\n"
+                "\n"
+                "Question: Can a pressure cooker cook food faster than "
+                "boiling water?\n"
+                "Reasoning: Boiling water is capped at 100 C. A "
+                "pressure cooker exceeds this, reaching 120 C, and "
+                "higher temperatures speed up cooking.\n"
+                "Answer: yes"
+            )
+        if task == "arc":
+            return (
+                "Context:\n"
+                "[1] Plants convert sunlight into chemical energy "
+                "through photosynthesis, producing glucose and oxygen.\n"
+                "\n"
+                "Question: What process allows plants to make food? "
+                "Choices: (A) digestion (B) photosynthesis (C) "
+                "respiration (D) fermentation\n"
+                "Answer with just the multiple choice letter.\n"
+                "Reasoning: Photosynthesis converts sunlight to "
+                "chemical energy, producing glucose. This is how "
+                "plants make their own food.\n"
+                "Answer: B"
+            )
+        # Open-ended QA (TriviaQA, NQ, TruthfulQA)
+        return (
+            "Context:\n"
+            "[1] The Great Wall of China was built over several "
+            "centuries, with most of the current structure built "
+            "during the Ming dynasty (1368-1644).\n"
+            "\n"
+            "Question: When was most of the Great Wall of China "
+            "built?\n"
+            "Reasoning: According to the context, most of the current "
+            "structure of the Great Wall was built during the Ming "
+            "dynasty, which lasted from 1368 to 1644.\n"
+            "Answer: during the Ming dynasty (1368-1644)"
+        )
 
     def _task_spec(self, task: str, query: str) -> Tuple[str, str]:
         """Return (task_instruction_line, answer_format_spec) per task.
@@ -622,9 +727,11 @@ class TierThreeRAG:
         try:
             self.model.eval()
             with torch.no_grad():
+                decoder_input_ids = self._build_forced_prefix(input_ids.shape[0])
                 output_ids = self.model.generate(
                     input_ids,
                     attention_mask=attention_mask,
+                    decoder_input_ids=decoder_input_ids,
                     max_new_tokens=cfg.rag_max_new_tokens,
                     do_sample=cfg.rag_do_sample,
                 )

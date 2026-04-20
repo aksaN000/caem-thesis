@@ -159,14 +159,35 @@ def _compute_display_answer(answer_str: str, vout) -> str:
     this function only affects the user-facing display string.
     """
     if vout is None:
-        return answer_str
+        return _strip_scaffold(answer_str)
     decision = getattr(vout, "decision", None)
     if decision == "ABSTAIN":
         return "I do not know."
     if decision == "DISCARD":
         return ""
-    # STORE, DEFERRED, and any unrecognised decision pass through.
-    return answer_str
+    # STORE, DEFERRED, and any unrecognised decision: strip the
+    # forced "Reasoning: ... Answer: Y" scaffold so users see only
+    # the final answer Y. Preserves the raw answer on PipelineResult
+    # for scoring; display_answer is the user-facing view.
+    return _strip_scaffold(answer_str)
+
+
+def _strip_scaffold(answer_str: str) -> str:
+    """Extract just the final answer from a "Reasoning: X Answer: Y"
+    scaffolded output. Returns the input unchanged if no scaffold markers
+    are present (for legacy / natural-CoT / direct-answer outputs).
+
+    Delegates to eval.metrics.extract_cot_answer so user-facing display
+    and EM scoring stay consistent.
+    """
+    if not answer_str:
+        return ""
+    try:
+        from eval.metrics import extract_cot_answer
+        return extract_cot_answer(answer_str)
+    except Exception:
+        # Never let a display-layer transform crash the pipeline.
+        return answer_str
 
 
 # -----------------------------------------------------------------------------
@@ -576,8 +597,10 @@ class CAEMPipeline:
         try:
             self.model.eval()
             with torch.no_grad():
+                decoder_input_ids = self._build_forced_prefix(input_ids.shape[0])
                 output_ids = self.model.generate(
                     input_ids,
+                    decoder_input_ids=decoder_input_ids,
                     max_new_tokens=self.config.cot_max_new_tokens,
                     do_sample=False,
                 )
@@ -604,6 +627,36 @@ class CAEMPipeline:
         answer = self.rag.generate(query)
         logger.debug("Tier 3 RAG answer: '%s...'", answer[:80])
         return answer
+
+    def _build_forced_prefix(self, batch_size: int) -> torch.Tensor:
+        """Return decoder_input_ids forcing every output to start with
+        ``Reasoning:``.
+
+        Shared with Tier 2 and Tier 3 (Tier 3 has its own copy on
+        TierThreeRAG because it operates on the shared model without
+        needing pipeline state). Cached per-batch-size so the prefix
+        tensor is not rebuilt per query.
+        """
+        cached = getattr(self, "_forced_prefix_ids", None)
+        if cached is not None and cached.shape[0] == batch_size:
+            return cached
+        start_id = getattr(
+            self.model.config, "decoder_start_token_id",
+            self.tokenizer.pad_token_id,
+        )
+        if start_id is None:
+            start_id = self.tokenizer.pad_token_id or 0
+        prefix_enc = self.tokenizer(
+            "Reasoning:",
+            return_tensors="pt",
+            add_special_tokens=False,
+        )
+        prefix_ids = prefix_enc["input_ids"].to(self.device)
+        start = torch.tensor([[start_id]], device=self.device, dtype=torch.long)
+        row = torch.cat([start, prefix_ids], dim=-1)
+        forced = row.expand(batch_size, -1).contiguous()
+        self._forced_prefix_ids = forced
+        return forced
 
     @staticmethod
     def _extract_after_token(query: str, token: str) -> str:
@@ -634,16 +687,15 @@ class CAEMPipeline:
         return "open"
 
     def _build_tier2_prompt(self, query: str) -> str:
-        """Build Tier 2 generation prompt with uniform scaffolded CoT.
+        """Build Tier 2 generation prompt with few-shot scaffolded CoT.
 
-        Tier 2 has no retrieved passages so the template has no
-        Context / Evidence block; the Reasoning and Answer slots
-        match Tier 3's uniform template so both tiers produce the
-        same substantive claim format for the verifier to score.
-        Forces >= 40 words of reasoning to convert classification-
-        style benchmarks (FEVER / StrategyQA / ARC) from degenerate
-        1-word label outputs into propositional claims scoreable by
-        the 9-signal composite.
+        Tier 2 has no retrieved passages. The template uses a few-shot
+        example in the same Reasoning/Answer format to bias Flan-T5
+        toward structured output; a zero-shot "You MUST" instruction
+        was empirically insufficient to elicit CoT on short-answer
+        benchmarks like FEVER and ARC (the compliance smoke found 0 of
+        30 outputs contained the Reasoning: header). Few-shot examples
+        demonstrate the structure rather than describe it.
         """
         task = self._detect_query_task(query)
 
@@ -655,6 +707,13 @@ class CAEMPipeline:
                 "NOT ENOUGH INFO based on your knowledge."
             )
             answer_format = "supports | refutes | not enough info"
+            example = (
+                "Claim: Barack Obama was the 44th US President.\n"
+                "Reasoning: Barack Obama served as the 44th "
+                "President of the United States from 2009 to 2017. "
+                "The claim matches this fact.\n"
+                "Answer: supports"
+            )
         elif task == "strategyqa":
             q_text = self._extract_after_token(query, "Question:")
             task_line = (
@@ -662,24 +721,53 @@ class CAEMPipeline:
                 "Answer the question with yes or no."
             )
             answer_format = "yes | no"
+            example = (
+                "Question: Can a pressure cooker cook food faster "
+                "than boiling water?\n"
+                "Reasoning: Boiling water caps at 100 C. A pressure "
+                "cooker reaches 120 C, and higher temperatures speed "
+                "up cooking.\n"
+                "Answer: yes"
+            )
         elif task == "arc":
             task_line = (
                 f"{query}\n"
                 "Choose the correct answer from the listed choices."
             )
             answer_format = "A | B | C | D"
+            example = (
+                "Question: What process allows plants to make food? "
+                "Choices: (A) digestion (B) photosynthesis (C) "
+                "respiration (D) fermentation\n"
+                "Reasoning: Photosynthesis converts sunlight to "
+                "chemical energy, producing glucose. This is how "
+                "plants make their own food.\n"
+                "Answer: B"
+            )
         else:
             task_line = (
                 f"Question: {query}\n"
                 "Answer the question."
             )
             answer_format = "<concise factual answer>"
+            example = (
+                "Question: When was most of the Great Wall of China "
+                "built?\n"
+                "Reasoning: Most of the current structure was built "
+                "during the Ming dynasty, which lasted from 1368 to "
+                "1644.\n"
+                "Answer: during the Ming dynasty (1368-1644)"
+            )
 
         return (
+            "Answer the question using step-by-step reasoning. "
+            "Always write out your reasoning before the answer.\n\n"
+            "Example:\n"
+            f"{example}\n\n"
+            "Now answer the following.\n\n"
             f"{task_line}\n\n"
-            "You MUST follow the exact response format below. Your "
-            "reasoning must be at least 40 words, step by step.\n\n"
-            "Reasoning: <at least 40 words of step-by-step analysis>\n"
+            "Response format (fill in each field):\n"
+            "Reasoning:\n"
             f"Answer: {answer_format}"
         )
 
