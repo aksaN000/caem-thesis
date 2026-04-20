@@ -12,16 +12,17 @@
 1. [Why branch C exists](#why-branch-c-exists)
 2. [Research-contribution spine](#research-contribution-spine)
 3. [Design decisions (what we're changing and why)](#design-decisions)
-4. [Evaluation protocol (new requirements from literature review)](#evaluation-protocol)
-5. [Theoretical framing updates](#theoretical-framing-updates)
-6. [Branch structure and merge discipline](#branch-structure)
-7. [Calibration discipline](#calibration-discipline)
-8. [Chapter edit roadmap](#chapter-edit-roadmap)
-9. [Ablation registry expansion](#ablation-registry-expansion)
-10. [Baseline panel expansion](#baseline-panel-expansion)
-11. [Timeline and cost](#timeline-and-cost)
-12. [Risk register](#risk-register)
-13. [Definition of done](#definition-of-done)
+4. [Goal 5 — full hardware utilization](#goal-5)
+5. [Evaluation protocol (new requirements from literature review)](#evaluation-protocol)
+6. [Theoretical framing updates](#theoretical-framing-updates)
+7. [Branch structure and merge discipline](#branch-structure)
+8. [Calibration discipline](#calibration-discipline)
+9. [Chapter edit roadmap](#chapter-edit-roadmap)
+10. [Ablation registry expansion](#ablation-registry-expansion)
+11. [Baseline panel expansion](#baseline-panel-expansion)
+12. [Timeline and cost](#timeline-and-cost)
+13. [Risk register](#risk-register)
+14. [Definition of done](#definition-of-done)
 
 ---
 
@@ -124,17 +125,32 @@ strategy (not fallback); MMLU retention guard and L2 anchor semantics unchanged.
 **Decision locked 2026-04-21**: keep MiniCheck as the sole entailment judge; add one
 new signal for question↔answer relevance. No Gemma, no AlignScore, no LLM judge.
 
-**Composite (7 signals, weights sum to 1.0):**
+**Composite (7 families covering 10 underlying signals, weights sum to 1.0):**
 
-| Signal | Weight | Source |
-|---|---|---|
-| `p_ground_mean` | 0.28 | grounding, best-passage-avg (unchanged) |
-| `p_ground_atomic` | 0.14 | grounding, per-atomic-fact (unchanged) |
-| `p_entail` | 0.16 | MiniCheck, unchanged — NOT an ensemble |
-| **`q_a_relevance`** | **0.14** | **NEW: BGE cross-encoder question↔answer cosine** |
-| `s_avg` | 0.14 | self-consistency pairwise SBERT (unchanged) |
-| `u_internal` | 0.10 | token-prob + MC-dropout (unchanged) |
-| `h_norm` | 0.04 | 1 − normalized semantic entropy (reduced) |
+**Canonical framing (use this phrasing everywhere — Ch4, Ch5, A3 subsection):**
+
+> "7-family composite; token probability and MC-dropout enter as a fused `u_internal`
+> signal, grounding enters as `p_ground_mean` + `p_ground_atomic`; the composite
+> evaluates ten underlying signals across seven decorrelated axes."
+
+| Family (weighted) | Weight | Underlying signal(s) | Notes |
+|---|---|---|---|
+| `p_ground_mean` | 0.28 | `p_ground_mean` | grounding, best-passage-avg (unchanged) |
+| `p_ground_atomic` | 0.14 | `p_ground_atomic` | grounding, per-atomic-fact (unchanged) |
+| `p_entail` | 0.16 | `p_entail` | MiniCheck, unchanged — NOT an ensemble |
+| **`q_a_relevance`** | **0.14** | **`q_a_relevance`** | **NEW: BGE cross-encoder question↔answer cosine** |
+| `s_avg` | 0.14 | `s_avg` | self-consistency pairwise SBERT (unchanged) |
+| `u_internal` | 0.10 | `u_token` + `u_dropout` (fused) | token-prob + MC-dropout (unchanged) |
+| `h_norm` | 0.04 | `h_norm` | 1 − normalized semantic entropy (reduced) |
+
+**Count reconciliation**: *seven* families are weighted in the composite (the rows
+above). *Ten* underlying signals are computed and logged per sample (the families
+expanded: `u_token`, `u_dropout`, `u_internal`, `s_avg`, `h_norm`, `p_entail`,
+`p_ground_max`, `p_ground_mean`, `p_ground_atomic`, `q_a_relevance`). Plus `p_contra`
+(always 0.0 under MiniCheck by design; counted historically but does not contribute).
+When Ch4 and Ch5 say "9-signal" they mean the pre-Branch-C count; "10-signal" refers
+to the Branch-C addition of `q_a_relevance`. When Ch4 A3 says "decorrelated signal
+families" it means the 7 weighted families.
 
 **What the new signal fixes**: sample ② failure mode observed at Cycle 0 on Phase 1a —
 hallucinated off-topic answer with high `p_entail` (passage matched hallucination) and
@@ -183,6 +199,17 @@ Five fixes, all model-agnostic:
    `caem/training/self_improvement.py` gains `_is_repetitive_loop` check (distinct-4
    n-gram + compression-ratio two-signal). Loops fall back to `entry.answer` field
    rather than chain (matches existing empty/too-short fallback pattern).
+   Thresholds declared as config params, **not hardcoded**:
+   ```python
+   # caem/config.py
+   loop_distinct4_threshold: float = 0.25   # distinct-4-gram ratio below this = loop
+   loop_compression_threshold: float = 0.35  # zlib ratio below this = char-level loop
+   loop_min_tokens: int = 20                 # min tokens to judge (short answers skipped)
+   ```
+   Defaults chosen empirically from Phase 1a Cycle-0 loop distribution analysis
+   (observed loop distinct-4 ≤ 0.13 on 82/241 STOREd samples; clean CoT distinct-4
+   ≥ 0.60). Both thresholds can be re-tuned on a dev set if downstream metrics shift;
+   treated as [DES] not [LIT] constants per hyperparameter-reference.md convention.
 
 2. **Loop filter in retroverify** — same check applied at cycle-boundary retroverify;
    loops get pruned from memory (not just filtered from SIL).
@@ -209,7 +236,136 @@ Five fixes, all model-agnostic:
 
 ---
 
+<a id="goal-5"></a>
+## Goal 5 — full hardware utilization
+
+**Rationale**: current Phase 1a leaves GPU idle (~10% during bs=1 seed/eval, ~40-50%
+sustained during Level B main run) and CPU grossly underutilized (<3% during inference
+phases). Optimal decisions locked 2026-04-21:
+
+### Targets
+
+| Metric | Current | Target |
+|---|---|---|
+| GPU util during main run | ~40-50% | **70-80% sustained**, 90%+ bursts |
+| GPU util during seed/eval | ~10-15% | **60-70% sustained** |
+| Tier 3 weighted latency per query | ~11s | **~5-7s** |
+| Step 7 main 10-cycle wall-clock | ~22 days | **~12-14 days** |
+
+### Optimal-decision principles applied throughout all branches
+
+1. **Batched inference everywhere**: bs=1 is banned except for Tier-1 cache lookups.
+   Seed (Goal 1 port), Step 7.0 eval, and all baselines use bs≥8.
+2. **torch.compile on inference forward passes (generator + verifier), NOT training.**
+   The ~1e-4 logit drift is below u_stored composite's grounding-signal noise floor.
+   Training remains eager for LoRA gradient-accumulation stability.
+3. **Flash Attention 2 explicit**: verified on by module load; asserted at startup.
+4. **KV cache prefix sharing**: K semantic-entropy samples share the same prompt prefix;
+   cached and reused across samples. Explicit cache-reset between queries with assertion.
+5. **Batched semantic-entropy samples**: `num_return_sequences=K` in one `.generate()`
+   call (not K sequential calls).
+6. **Batched atomic-fact verification**: all (fact, passage) pairs in one verifier forward.
+7. **Async retrieval pipelining**: prefetch query N+1's passages while generating N.
+8. **Model keep-alive across pipeline stages**: generator, verifier, embedder loaded once
+   and held across seed→eval→train transitions. Explicit gc + empty_cache at stage
+   boundaries to avoid VRAM leak.
+9. **Thread caps tuned per task**: inference 4 OMP threads (low contention with CUDA
+   streams), BM25/BLAS 32 threads (if used), FAISS 16 threads (IVF k-means sweet spot).
+10. **Adaptive FAISS nprobe**: higher nprobe (64) for Tier 3 full-RAG queries; lower
+    nprobe (16) for Tier 2 memory-hit confirmations.
+11. **8-bit AdamW** (bitsandbytes) for LoRA SIL training → 50% optimizer VRAM saving
+    permits batch_size +25%.
+
+### Cross-cutting optimizations on dedicated `feat/perf-utilization` branch
+
+Merged AFTER Goals 1, 4, 2 but BEFORE `feat/phase-2-all` integration:
+
+- Batching-everywhere rollout: replace bs=1 call sites across scripts/ and caem/
+- Async-retrieval pipeline: scheduler coordinates generation and retrieval threads
+- Model keep-alive across stages: single lifecycle manager
+- NVTX + torch.profiler hooks behind `CAEM_PROFILE` env var
+- `scripts/perf_baseline.py` — perf harness (per-tier latency, throughput @ bs=1/8/16/32,
+  GPU util sampling, VRAM peak tracking, SIL step time, end-to-end 1-cycle × 100-sample
+  synthetic run)
+- `outputs/perf_log.csv` — cumulative log of every optimization's measured impact
+
+### Measurement discipline
+
+**Regression gate**: every Goal 5 optimization must show
+  - **≥10% improvement on its targeted metric**, AND
+  - **no regression >2% on any other tracked metric** (G1-G4 Level B gates, EM, α
+    estimate on smoke samples, MMLU retention on smoke)
+
+Failures are reverted, not merged. The `outputs/perf_log.csv` is the audit trail.
+
+### Profiling modes
+
+| Mode | Env var | Use case | Overhead |
+|---|---|---|---|
+| Production | `CAEM_PROFILE=0` (default) | Main run, baseline runs | 0% |
+| Dev | `CAEM_PROFILE=1` | Smoke tests, integration smoke | ~1% (NVTX only) |
+| Diagnostic | `CAEM_PROFILE=2` | Hotspot hunting, regression investigation | ~10% (full torch.profiler) |
+
+### Integration smoke gates for `feat/perf-utilization` merge
+
+- [ ] All Goal 5 optimizations pass regression gate (≥10% target, ≤2% any-regression)
+- [ ] End-to-end 1-cycle × 100-sample synthetic run sustains GPU util >70%
+- [ ] Level B smoke (N=16, G1-G4 gates) still passes with all optimizations on
+- [ ] Deterministic-correctness check: eager-vs-compiled model forward on 50-sample batch
+  produces matching logits to atol=1e-3, matching argmax labels 100%
+
+### Expected payoff
+
+- **Engineering time**: +4-5 days (Goal 5 branch work + profile-and-tune at integration)
+- **Compute savings**: ~8-10 days on branch-C main run; ~8 days on BGE ablation;
+  ~2-3 days on baselines. **Net ~20 days wall-clock, ~$150 compute cost saved.**
+
+---
+
 ## Evaluation protocol
+
+### Pre-integration epistemic gate (NEW — mandatory, before any branch-C compute commits)
+
+Critical risk flagged from `literature_review_2` §Topic 5 (Moskvoretskii et al. 2025):
+*"downstream success in DRAGIN / SeaKR / Adaptive-RAG correlates poorly with actual
+self-knowledge identification (Spearman near zero on several datasets)."* If CAEM's
+`u_stored` has the same defect, the entire tier-routing novelty claim is cosmetic, not
+load-bearing. Building ~$850 of Branch-C compute on an unvalidated foundation is
+reckless.
+
+**Protocol**:
+
+1. **Inputs**: existing Phase 1a STOREd episodes from `outputs/full_run/memory_store_cycle_*.meta`
+   (available once Phase 1a completes) + corresponding gold labels from
+   `outputs/cycle_0/eval/*_cycle0.json`. For in-training benchmarks (FEVER, TriviaQA,
+   NQ) gold labels come from the benchmark; EM-match is the reliability proxy.
+2. **Script**: `scripts/phase1a_epistemic_gate.py` (new, ~1 day implementation)
+3. **Computation**: Spearman `ρ(u_stored, is_correct)` per benchmark + pooled, with
+   95% CI via bootstrap (1000 resamples)
+4. **Wall-clock**: ~4 hours (reads existing files, no inference)
+5. **Decision thresholds**:
+
+| Outcome | Action |
+|---|---|
+| `ρ > 0.5` | ✅ `u_stored` is load-bearing. Proceed with Branch C confidently. |
+| `0.3 < ρ ≤ 0.5` | ⚠️ Proceed, but add Ch5 §honesty paragraph documenting the correlation strength; position tier routing as "moderately correlated" not "strongly correlated"; commit to improvement in Phase 3 future work |
+| `ρ ≤ 0.3` | 🔴 **STOP**. Do NOT commit Branch-C compute. Diagnose root cause first (composite weight imbalance? specific signal drift? benchmark-specific failure?). Re-examine with per-signal ablations. Only proceed once the correlation problem is understood and mitigated, or the thesis narrative is re-scoped to not depend on it. |
+
+**Timing**: runs after Phase 1a Step 19 purity validation completes (~2026-05-07) and
+BEFORE `feat/phase-2-all` integration starts. Target: 2026-05-08 gate result.
+
+**Gate artifacts**:
+
+```
+outputs/phase1a_epistemic_gate/
+  spearman_rho_per_benchmark.json
+  bootstrap_ci.json
+  correlation_scatter_<benchmark>.pdf
+  GATE_DECISION.txt   # "PROCEED" or "STOP — diagnose" (committed to main)
+```
+
+This gate is mentioned in Ch5 §5.Y as pre-registration evidence that u_stored's
+reliability was validated before scale-up commitment.
 
 ### Mandatory new metrics (from literature review)
 
@@ -274,11 +430,12 @@ outputs/phase_2_all/
 │   ├── per_sample/purity_raw_<bench>_cycle<N>.json  # FIX-8 dumps
 │   └── alpha_vs_tau_by_cycle.json      # FIX-8 replay
 └── figures/
-    ├── alpha_vs_tau_cal_vs_converged.pdf
-    ├── alpha_trajectory.pdf
-    ├── prediction_rejection_curve.pdf
-    ├── u_stored_correlation_scatter.pdf   # M1 visual
-    └── memory_consolidation_trajectory.pdf
+    ├── alpha_sensitivity_curve.pdf         # Addition 1: P vs α at p ∈ {0.4..0.7}
+    ├── alpha_vs_tau_cal_vs_converged.pdf   # FIX-8 α(τ_store) replay
+    ├── alpha_trajectory.pdf                # FIX-8 α across cycles
+    ├── prediction_rejection_curve.pdf      # M2 LM-Polygraph format
+    ├── u_stored_correlation_scatter.pdf    # M1 visual (also pre-integration gate)
+    └── memory_consolidation_trajectory.pdf # Goal 4 evidence
 ```
 
 ---
@@ -319,14 +476,19 @@ Three paragraphs:
    verifier is measurably more accurate than the generator on its task."
 
 3. **Disjoint signal families**: rather than decorrelating via multiple entailment
-   judges, CAEM's 10-signal composite achieves multi-perspective checking through
-   orthogonal signal types: grounding (retrieval-based), entailment (MiniCheck),
-   relevance (question↔answer cross-encoder), self-consistency (pairwise cosine),
-   internal uncertainty (token probabilities + MC-dropout), and semantic entropy.
-   Each family answers a different question about the generated claim, providing
-   independent evidence. Cite Condorcet (Shteingart 2020) for the foundational
-   independent-voter aggregation result; CAEM's signal-family decorrelation is the
-   architectural realization.
+   judges, CAEM's composite achieves multi-perspective checking through orthogonal
+   signal types. Per the canonical framing (§Goal 2): *"7-family composite;
+   token probability and MC-dropout enter as a fused `u_internal` signal, grounding
+   enters as `p_ground_mean` + `p_ground_atomic`; the composite evaluates ten
+   underlying signals across seven decorrelated axes."* The seven families
+   instantiate orthogonal verification axes — grounding (retrieval-based),
+   entailment (MiniCheck), relevance (question↔answer cross-encoder),
+   self-consistency (pairwise SBERT cosine), internal uncertainty (fused token
+   probabilities + MC-dropout), and semantic entropy. Each family answers a
+   different question about the generated claim, providing independent evidence.
+   Cite Condorcet (Shteingart 2020) for the foundational independent-voter
+   aggregation result; CAEM's signal-family decorrelation is the architectural
+   realization.
 
 **Placement**: Ch4 §Verifier composite, between the composite definition and the
 threshold-calibration paragraph.
@@ -527,7 +689,7 @@ Before launching the 22-day main run:
 
 ## Ablation registry expansion
 
-Current registry: 17 variants. Branch C adds:
+Current registry: 17 variants. Branch C adds five:
 
 | # | Variant | Type | Question it answers |
 |---|---|---|---|
@@ -536,14 +698,42 @@ Current registry: 17 variants. Branch C adds:
 | 20 | `no_q_a_relevance` | mechanism | Marginal contribution of the new relevance signal |
 | 21 | `valentin_4signal_verifier` | mechanism | Comparison against Valentin 2024's closest competitor composite |
 | 22 | `kernel_language_entropy_vs_vanilla_se` | mechanism | Primitive upgrade (Nikitin 2024) sensitivity |
-| 23 | `amem_memory_metadata` | architecture | A-MEM-style textual metadata vs CAEM's scalar u_stored |
-| 24 | `adaptive_rag_query_time_routing` | architecture | Query-time complexity routing vs stored-confidence routing |
 
-Variants 18-22 are mechanism/inference-time flips (cheap — single runs at n=5000).
-Variants 23-24 are architecture-level and require implementing the competitor's
-routing/storage logic (more expensive; consider as Phase 3 if timeline tight).
+**Deliberately NOT ablation variants** (these are system-vs-system comparisons, so they
+go in the baselines panel — §Baseline panel expansion — as B8 A-MEM and B9 Adaptive-RAG):
 
-**Total ablation registry**: 17 + 7 = **24 variants**. Register in
+- ~~`amem_memory_metadata`~~ — handled as baseline B8, not ablation Variant 23
+- ~~`adaptive_rag_query_time_routing`~~ — handled as baseline B9, not ablation Variant 24
+
+The distinction matters methodologically: a baseline runs the competitor's complete
+system on Qwen-3B and compares CAEM's performance against theirs (system-vs-system).
+A Variant ablation swaps one CAEM mechanism while keeping the rest (CAEM-with-competitor's-routing).
+These answer different questions and we only need one framing. Keeping as baselines is
+the cleaner answer because A-MEM and Adaptive-RAG are complete systems, not drop-in
+components.
+
+**Implementation cost note**: Variant 21 (Valentin 2024 4-signal verifier) requires
+~3 days of engineering to reproduce their logistic-regression-fused calibrated
+composite before its ablation run can execute. This is additional to the one-off
+n=5000 run itself. Budget tracked separately in §Timeline.
+
+**Phase 1a revalidation pass** (addresses backbone + composite confound in Variant 18):
+
+Phase 1a (current Flan-T5 run) uses the 6-signal pre-Branch-C composite. Variant 18's
+raw numbers therefore confound TWO changes (backbone + composite) relative to the
+Branch-C main run. To isolate the backbone axis cleanly, we re-run Phase 1a's
+**verification stage only** — reuse the existing generated (question, answer, passage)
+triples from `outputs/full_run/cycle_*/eval/` but score them through the new 7-family
+composite including `q_a_relevance`. No re-generation; only verification.
+
+- Wall-clock: ~1 day (reads existing triples, re-runs MiniCheck + BGE-cross-encoder +
+  atomic-fact verification)
+- Compute cost: ~$2
+- Output: `outputs/phase1a_revalidation/` — rewritten cycle_* eval JSONs with Branch-C
+  composite
+- This becomes the clean `flan_t5_large_backbone` Variant 18 row
+
+**Total ablation registry**: 17 + 5 = **22 variants**. Register in
 `caem/ablation/variants.py`.
 
 ---
@@ -579,26 +769,33 @@ empirically defended against the closest competitors.
 | Phase | Work | Wall-clock | Compute cost |
 |---|---|---|---|
 | Finish Phase 1a (current) | Let it run to completion, Flan-T5 data preserved | 16 days | $247 |
+| **Gating checks (before code starts)** | | | |
+| Supervisor briefing on base-model swap | Email / meeting — blocker before Goal 1 | 0-3 days (depends on supervisor) | $0 |
+| **Pre-integration epistemic gate** (Moskvoretskii ρ on Phase 1a STOREd episodes) | script + analysis | 1 day | $0 |
+| Phase 1a revalidation pass (re-score existing triples through 7-family composite) | reuse existing generations | 1 day | $2 |
 | **Branch C port work (no main run)** | | | |
-| `feat/qwen-3b-goal1` port + smoke | Code + tests + smoke | 5 days | $5 |
+| `feat/qwen-3b-goal1` port + smoke (with perf discipline from day 1) | Code + tests + smoke | 5 days | $5 |
 | `feat/memory-hygiene` port + smoke | Code + tests + smoke | 3 days | $2 |
 | `feat/q-a-relevance` port + smoke | Code + tests + smoke | 4 days | $3 |
-| Ch4/5 α-parametric rewrites + A1 figure | Thesis writing | 2 days (parallel) | $0 |
-| Ch2 expansion + 7-topic related work | Thesis writing | 3 days (parallel) | $0 |
+| **`feat/perf-utilization` cross-cutting** (Goal 5) | Batching rollout + async retrieval + model keep-alive + profiler hooks + perf harness | 5 days | $4 |
+| Ch4/5 α-parametric rewrites + A1 figure + A3 subsection | Thesis writing | 3 days (parallel) | $0 |
+| Ch2 expansion + 7-topic related work + RF-1..5 differentiation (25+ new citations) | Thesis writing | 6 days (parallel) | $0 |
 | **Integration on `feat/phase-2-all`** | | | |
 | Merge + conflict resolution | Git work | 1 day | $1 |
 | Integrated smoke | N=50 × 6 benches × 1 cycle | 1 day | $3 |
-| Calibration (n=1500 + bootstrap CI + held-out) | One-time fit | 1 day | $5 |
-| A-MEM + Adaptive-RAG baseline implementation | Code + smoke | 4 days | $5 |
+| Profile-and-tune pass | torch.profiler hotspot hunt + fixes | 2 days | $3 |
+| Valentin 4-signal verifier reimplementation (for Variant 21) | Code + calibration of their logistic regression | 3 days | $3 |
+| Calibration (n=1500 + bootstrap CI + held-out n=200) | One-time fit | 1 day | $5 |
+| A-MEM + Adaptive-RAG baseline implementation (B8, B9, from public repos) | Port + smoke | 4 days | $5 |
 | Vast disk upsize 150→250 GB (before Goal 3 ablation) | Config + restart | 30 min | — |
-| **Branch C main run** | 10-cycle × Qwen-3B + q_a_relevance + memory hygiene | **22 days** | **~$380** |
-| Baselines re-run on Qwen-3B (B1-B9) | DPR baselines on new base model | 3 days | $30 |
-| BGE retrieval ablation (Variant 19, full 10-cycle run) | Ablation-only | 22 days | **~$380** |
-| Other ablations (Variants 18, 20-24, screening mode) | Shorter runs | 5 days | ~$40 |
-| Diagnostics + aggregate + calibration audits | FIX-8, M1-M4 reports | 2 days | $5 |
-| Ch 2-6 rewrites + tables + figures | Thesis integration | 3 weeks (local) | $0 |
-| **Total active compute** | | **~85 days / 12 weeks** | **~$1,100** |
-| Viva prep + buffer | With 5-month (22 week) horizon | **10 weeks buffer** | |
+| **Branch C main run** (Qwen-3B + q_a_relevance + memory hygiene + Goal 5 optimizations) | 10-cycle on DPR retriever | **12-14 days** (Goal 5 payoff) | **~$220** |
+| Baselines re-run on Qwen-3B (B1-B9, DPR) | All baselines on new base | 2 days (batched) | $20 |
+| BGE retrieval ablation (Variant 19, full 10-cycle run) | Ablation-only | **~13 days** (Goal 5 payoff) | **~$220** |
+| Other ablations (Variants 18, 20-22, mostly screening mode) | Shorter runs | 3 days | ~$25 |
+| Diagnostics + aggregate + calibration audits + M1-M4 reports + α-sensitivity figure | FIX-8 + sensitivity analysis | 2 days | $5 |
+| Ch 2-6 rewrites + tables + figures integration | Thesis integration | 3 weeks (local) | $0 |
+| **Total active compute** | | **~62-68 days / 9-10 weeks** | **~$775-800** |
+| Viva prep + buffer | With 5-month (22 week) horizon | **12 weeks buffer** | |
 
 ### Budget summary
 
@@ -708,17 +905,42 @@ Thesis files:
 
 ---
 
-## Appendix C — Confirmations still needed
+## Appendix C — Confirmations (RESOLVED 2026-04-21)
 
-1. **Benchmark list for A2 per-benchmark α** — 6 registry benchmarks + MMLU footnote,
-   or include HotpotQA (thesis-scope expansion)?
-2. **A3 subsection placement** — Ch4 §Verifier composite recommended; confirm
-3. **Thesis files to grep for α-specific derivations** — Ch4 only, or also `caem-unified-plan-v3.tex` etc?
-4. **Supervisor briefing on base-model swap** — drafted or assumed handled?
-5. **A-MEM and Adaptive-RAG baseline implementations** — port from their public repos (~1-2 days each) or skip and cite as future work?
+1. **Benchmark list for A2 per-benchmark α**:
+   → **7 full rows** (FEVER, TriviaQA, NQ, TruthfulQA, StrategyQA, ARC, **MMLU as
+   full row, not footnote**). MMLU is scored differently (multi-choice retention
+   probe rather than open QA), so its α column is annotated with a `*` and a
+   per-row note about scoring method, but it gets equal visibility. HotpotQA is
+   out of thesis scope — deferred to post-defense publication work.
+
+2. **A3 subsection placement**:
+   → **Ch4 §Verifier composite**, placed between the composite-definition paragraph
+   and the threshold-calibration paragraph. Subsection title:
+   *"On specialist verification rather than LLM-as-judge."*
+
+3. **Thesis files to grep for α-specific derivations**:
+   → **Ch4 only**. `caem-unified-plan-v3.tex` is legacy pre-thesis-1 draft and is
+   not updated in Branch C. `caem plan.tex` and `caem-final-plan.tex` are other
+   legacy files that stay as historical records of the project's design evolution.
+
+4. **Supervisor briefing on base-model swap**:
+   → **Blocker before Goal 1 port begins**. User commits to sending a briefing
+   message before any `feat/qwen-3b-goal1` commit. Budget 0-3 days depending on
+   supervisor turnaround. Do NOT assume silent consent — the base-model swap is a
+   material change to the pre-thesis-1 design and must be explicit.
+
+5. **A-MEM and Adaptive-RAG baseline implementations**:
+   → **Port from public repos** (A-MEM: https://github.com/WujiangXu/A-mem,
+   Adaptive-RAG: https://github.com/starsuzi/Adaptive-RAG). Budgeted at ~2 days
+   each in the §Timeline. Both are run on Qwen-3B generator + DPR retriever to
+   match CAEM main-run conditions. If either baseline's public implementation is
+   not portable to our eval harness within 2 days, we cite as limitation and
+   move to Phase 3 future work rather than sinking unbounded time.
 
 ---
 
 *This document is the single source of truth for branch C planning. Update it as
-decisions refine. Do not begin integration on `feat/phase-2-all` until Appendix C
-is fully resolved.*
+decisions refine. All Appendix C items are now resolved; integration on
+`feat/phase-2-all` can begin after Supervisor briefing completes AND
+pre-integration epistemic gate (§Evaluation protocol) returns PROCEED.*
