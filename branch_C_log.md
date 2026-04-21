@@ -18,6 +18,68 @@ Detail belongs in the commit message; the log is for quick rewind.
 
 ## 2026-04-22 (BDT — date rolls based on activity)
 
+### 2026-04-22 06:30 BDT  `[NOTE]`  Claim 5 (cross-improvement allocation test) deferred to Future Work
+
+Sun et al. (ICLR 2026) "Theoretical Modeling of LLM Self-Improvement
+Training Dynamics Through Solver-Verifier Gap" Proposition 5.1
+predicts that **total external data $\sum\eta_t$ matters, not when it's
+introduced** during SIL training. Their Early / Uniform / Late schedule
+variants converge to within 0.5–2 pp of each other in pure SIL.
+
+**Proposed test in CAEM regime:** three allocation schedules of the
+`general_data_ratio = 0.10` mix across 10 cycles:
+
+- Early: 33% in cycles 1–3, 0% in 4–10
+- Uniform (current config): 10% every cycle
+- Late: 0% in 1–7, 33% in cycles 8–10
+
+**Why it matters:** memory augmentation is not in their framework.
+CAEM's episodic memory could **amplify** schedule effects (early
+general data curates a cleaner memory) OR **dampen** them (memory
+averages out timing). Either result is a publishable finding about
+episodic memory × external-data timing interaction.
+
+**Cost analysis (2026-04-21):**
+
+- Full scale (2 extra 10-cycle × n=5000 variants): $164 — matches Sun
+  et al.'s ±2 pp publication precision
+- Reduced scale (2 extra 10-cycle × n=2000 variants): $70 — only
+  resolves effects >5 pp, leaves 0–5 pp range ambiguous
+
+**Decision:** defer to Future Work. Rationale:
+
+1. Core CSE400 thesis (CAEM architecture + 10-cycle headline + 19
+   ablation variants + 5 external baselines + 2 FT baselines + purity
+   validation) is already a full-scope undergraduate thesis. Adding
+   an ICLR-level cross-paper replication is scope creep.
+2. The $164 full-scale cost would consume the entire topup cushion,
+   leaving zero margin for reruns.
+3. Cleaner story: thesis replicates Sun et al.'s **univariate**
+   exponential-saturation form (Upgrades 1–3 land this for free at
+   N=10 via R² on CES(c)), while the **multivariate** Proposition 5.1
+   replication becomes the headline contribution of a follow-up
+   paper converted from the thesis.
+
+**Action items for the Branch-C revision pass of Chapters 1–5:**
+
+- [ ] Ch9 (Future Work): add a paragraph framing Claim 5 as the primary
+      post-thesis follow-up. Include the 3-schedule experimental design
+      and the memory-mechanism hypothesis (amplify vs dampen).
+- [ ] Ch4 §Theoretical Analysis: add a short note after the Convergence
+      Theorem acknowledging Sun et al. (ICLR 2026) as independent
+      empirical validation of the exponential-saturation form, with a
+      forward-pointer to Ch9's Future Work for the schedule-invariance
+      test.
+- [ ] Bibliography: add the Sun et al. entry.
+- [ ] When the thesis is converted to a paper, Claim 5 becomes §Claim
+      3 / §5 of the paper, run at full scale (3 variants × 10 cycles
+      × n=5000, $164 compute).
+
+Also deferred (same rationale): **Claim 4** (solver-verifier gap
+measurement via coupled-ODE fit on held-out probe set, $16 compute +
+~100 LOC new script). Retain in the same Future Work paragraph as a
+secondary post-thesis extension.
+
 ### 2026-04-22 05:30 BDT  `[PERF]`  Deep-batched verifier: 3 pools kept, atomic-pool rejected by equivalence diagnostic
 
 Goal-5 throughput push on the 5090. Pooled four within-`verify_batch`
