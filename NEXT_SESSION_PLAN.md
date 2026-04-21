@@ -4,6 +4,62 @@
 
 ---
 
+## Session 3 delta (2026-04-22) — changes since v2026-04-20
+
+Material design + infrastructure changes since Session 2, captured so
+the numbered steps below read consistently with the current code state.
+
+- **Verifier deep-batching investigation + revert.** Tested four
+  within-`verify_batch` pools (rerank, u_token, u_dropout, atomic) on
+  top of v4's m-chain+SE+rerank baseline. Shipped config = v4
+  (rerank + m-chain + SE pools only). u_token + u_dropout pools
+  correctness-clean but thermal-regressed on 5090 (rerank slowed
+  90s→142s per batch-32); reverted with helpers kept in-tree behind
+  sentinel guards. Atomic-decomp pool **rejected** for +0.23 mean
+  `p_ground_atomic` bias from batched greedy generate truncating
+  Qwen's decomposition 2–3 tokens early. See `branch_C_log.md` 2026-04-22
+  05:30 BDT entry + Ch4 §Implementation "Performance engineering"
+  subsection. Per-query wall-clock: ~10.2 s at v4 on FEVER Tier 3 (21%
+  speedup vs v3 pre-pool baseline). Commits `5750548`, `c8f3693`.
+- **New diagnostic:** `scripts/diff_verify_serial_vs_batch.py` runs
+  serial `verify()` and batched `verify_batch()` on the same (q, a)
+  pairs and diffs every `UnifiedVerifierOutput` field per sample. Pass
+  criterion: `|mean Δ u_stored| < 0.01` AND no uni-directional sign
+  pattern on any stage-isolable signal.
+- **torch.compile drift gate shipped** (prior session's work now
+  documented in thesis): `use_torch_compile = False` default, backed
+  by `scripts/compile_drift_check.py` measuring 5.156 max logit drift
+  on Blackwell sm_120 bf16 — 50,000× the documented 1e-4 envelope.
+- **Automatic stale-CUDA-process reap** in `caem/model_loader.py`
+  (gated on `CAEM_FORCE_GPU_CLEANUP=1`) prevents session-recovery OOMs.
+- **Phase 1a launch config locked (2026-04-22):**
+  - `--n_questions 5000` (canonical, matches Song/Huang/Wang/Sun SIL
+    precedent)
+  - **Early-stop gate active** on Steps 7, 14, 15 — triple signal
+    (CES gradient < 0.002 × 2 consecutive, storage rate < 5% this
+    cycle, MMLU retention at floor × 2 consecutive); 2-of-3 fires →
+    stop. Minimum burn-in 5 cycles. Parametric fit checkpoint at
+    cycle 6. New module `caem/eval/equilibrium.py`.
+  - Sun et al. (ICLR 2026) "Solver-Verifier Gap" cited as independent
+    empirical validation of the exponential-saturation form. Our
+    C4 Corollary extends their finding to memory-augmented SIL.
+  - Budget: $208 (current $102 + committed $106 topup). Typical
+    spend ~$225; worst-case ~$272; moderate overrun risk accepted with
+    live burn-rate check after cycle 2 as the hedge.
+- **Claim 4 (solver-verifier gap) + Claim 5 (cross-improvement
+  allocation test)** deferred to §Future Work; logged as paper-level
+  follow-ups. See `branch_C_log.md` 2026-04-22 06:30 BDT entry.
+- **Thesis updates landed (pre thesis 1 report):**
+  - Ch4 §Implementation new "Performance engineering" subsection with
+    per-pool validation table + profile-sequence table + thermal-
+    regression paragraph + atomic-rejection paragraph + torch.compile
+    rejection + other Goal-5 levers paragraph.
+  - Ch5 §Implementation Details new "Performance envelope" paragraph
+    cross-referencing Ch4 tables.
+  - Branch-C Ch1–Ch5 revision pass TODO: add Ch9 §Future Work
+    paragraph for Claims 4+5; bibliography entry for Sun et al.
+- **Tests:** 735 passing, 2 skipped on `feat/qwen-3b-goal1`.
+
 ## Session 2 delta (2026-04-20) — changes since v2026-04-19
 
 Material design + infrastructure changes since the last runbook update,

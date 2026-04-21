@@ -18,6 +18,57 @@ Detail belongs in the commit message; the log is for quick rewind.
 
 ## 2026-04-22 (BDT — date rolls based on activity)
 
+### 2026-04-22 07:00 BDT  `[DECISION]`  Phase 1a launch: n=5000 locked, early-stop gate active, moderate overrun accepted
+
+After a full cost-and-scope pass on the Branch-C Plan A at Qwen-3B +
+MiniCheck + 9-signal-verifier rates, locked the launch config:
+
+**Locked choices:**
+
+- `--n_questions 5000` (default `questions_per_cycle`) for Steps 7, 14, 15.
+  Per-benchmark pool size → 500 calib + 500 purity + 4000 train → 12,000
+  training samples per cycle at 3 benchmarks. No reduction from the
+  canonical published SIL size.
+- **Early-stop gate active** on Steps 7, 14, 15. Triple-signal gate
+  (CES gradient < 0.002 × 2 consecutive, storage rate < 5% this cycle,
+  MMLU retention at floor in 2 consecutive); 2-of-3 fires = stop.
+  Minimum burn-in 5 cycles. Parametric fit checkpoint at cycle 6
+  (drop C_inf prior, report R² on exponential-saturation form).
+- **Moderate overrun risk accepted**: typical spend ~$225 on $208 budget
+  (−$17), worst case ~$272 (−$64). Live burn-rate check after cycle 2
+  will flag if trajectory heads toward the worst case; can cut n
+  mid-run to 4000 or 3000 if needed.
+- All 5 external baselines (B1–B5) retained.
+- Both FT baselines (B6 Vanilla, B7 EWC-only) retained.
+- Steps 16–18 (ablation sweep) remain deferred.
+
+**Why n=5000 over n=4000 (which would fit $208 cleanly):**
+
+Publication parity — Song et al., Huang et al., Wang et al., and Sun et al.
+(ICLR 2026) all use n ≥ 5000 per benchmark for 10-cycle SIL. Committee
+defensibility benefits from matching canonical protocol size exactly,
+and the per-benchmark CI half-width at n=1667 (5000 − 1000 reserved,
+divided by 3 benchmarks) is ±1.8 pp which is the cleanest precision
+level for any ablation-effect comparison.
+
+**Why early-stop gate matters more than n cut:**
+
+Cutting n is a budget-motivated compromise on statistical power.
+Early-stop is a scientifically-motivated decision backed by Sun et al.
+(ICLR 2026) Theorem on exponential saturation. Reports as "cycle $c^\star$
+predicted at [X] with 95% CI [Y, Z]; 3-signal gate triggered at cycle
+[c]" which is a methodological contribution not present in the
+literature.
+
+**Upgrades 1–3 land with Step 7 launch:**
+
+- New module `caem/eval/equilibrium.py` (~120 LOC)
+- `fit_ces_saturation()` — scipy.optimize.curve_fit NLS fit
+- `predict_ceq_star()` — analytic inversion for $c^\star$
+- `three_signal_gate()` — 2-of-3 early-stop decision
+- Hook point in `scripts/run_experiment.py` cycle loop (TBD when Step 7
+  is about to launch, after Step 6 finishes)
+
 ### 2026-04-22 06:30 BDT  `[NOTE]`  Claim 5 (cross-improvement allocation test) deferred to Future Work
 
 Sun et al. (ICLR 2026) "Theoretical Modeling of LLM Self-Improvement
