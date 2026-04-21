@@ -228,14 +228,38 @@ inherits it.
       by cycle c* (equilibrium via Upgrades 1–3 fit), the thesis
       claim at Table 5.E becomes:
 
-          "Training-pool purity at equilibrium cycle c* is 100% in
-           the N audited sample, with 95% Clopper-Pearson CI
-           [lower-bound, 100%]."
+          "Purity at equilibrium cycle c* is 100% on BOTH the memory
+           store (u_stored ≥ τ_prune = 0.5 after retroverify) and
+           the training pool (u_stored ≥ τ_train = 0.75) subsets,
+           with 95% Clopper-Pearson CI [lower-bound, 100%] on each
+           subset independently."
 
-      At N=200 audited episodes with 200/200 correct:
+      **Why both subsets (added 2026-04-22 19:30 BDT user refinement):**
+      - Training pool ⊂ Memory store (strict-subset via τ_train > τ_prune)
+      - Retroverify at each cycle boundary re-scores every stored
+        episode under the fine-tuned verifier, pruning u_stored <
+        τ_prune = 0.5
+      - At equilibrium, every episode remaining in memory has passed
+        the retroverified threshold → memory-store purity → training-
+        pool purity (as subset)
+      - Auditing BOTH independently gives stronger evidence — two CIs
+        both at [0.985, 1.000] @ N=200 rules out "the 200 sampled for
+        training-pool happened to miss the FPs that the 200 sampled
+        for memory-store would have surfaced."
+
+      At N=200 audited episodes with 200/200 correct (per subset):
          95% CI = [0.985, 1.000] (Clopper-Pearson one-sided)
       At N=200 with 199/200 correct:
          95% CI = [0.972, 0.9999]
+
+      Audit protocol: sample N=200 from memory store (all retained
+      episodes) AND N=200 from training pool (subset with u_stored ≥
+      0.75). Overlap between samples is acceptable since the claim
+      is per-subset. Ideal non-overlap design samples N=100 from the
+      training-pool subset and N=100 from memory-but-NOT-training
+      (those with 0.5 ≤ u_stored < 0.75); this specifically tests
+      whether the three corrective mechanisms cleanly separate
+      retained-but-not-trained from trained at equilibrium.
 
       Both forms are strong. The expected outcome given the
       architectural argument is 200/200. Non-zero defect count would
