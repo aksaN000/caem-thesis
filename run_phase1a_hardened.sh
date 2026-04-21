@@ -30,7 +30,7 @@ export PYTHONMALLOC=malloc                  # route python allocator through gli
 ts() { date -u '+%Y-%m-%dT%H:%M:%SZ'; }
 
 # --- Capture pre-launch cgroup OOM counter + RSS baseline ---
-OOM_BEFORE=$(awk '{print $2}' /sys/fs/cgroup/memory/memory.oom_control 2>/dev/null | head -1 || echo "?")
+OOM_BEFORE=$(awk '/^oom_kill / {print $2; exit}' /sys/fs/cgroup/memory/memory.oom_control 2>/dev/null || echo "?")
 MEM_BEFORE=$(cat /sys/fs/cgroup/memory/memory.usage_in_bytes 2>/dev/null || echo 0)
 LIMIT=$(cat /sys/fs/cgroup/memory/memory.limit_in_bytes 2>/dev/null || echo 0)
 
@@ -49,7 +49,7 @@ heartbeat() {
         local ts_now rss_kb cgroup_use oom_now gpu_mem gpu_util runner_alive
         ts_now=$(ts)
         cgroup_use=$(cat /sys/fs/cgroup/memory/memory.usage_in_bytes 2>/dev/null || echo 0)
-        oom_now=$(awk '{print $2}' /sys/fs/cgroup/memory/memory.oom_control 2>/dev/null | head -1 || echo "?")
+        oom_now=$(awk '/^oom_kill / {print $2; exit}' /sys/fs/cgroup/memory/memory.oom_control 2>/dev/null || echo "?")
         gpu_mem=$(nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits 2>/dev/null | head -1 || echo 0)
         gpu_util=$(nvidia-smi --query-gpu=utilization.gpu --format=csv,noheader,nounits 2>/dev/null | head -1 || echo 0)
         if [[ -f "$PID_FILE" ]] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
@@ -76,7 +76,7 @@ HEARTBEAT_PID=$!
 cleanup() {
     local rc=$?
     local oom_after
-    oom_after=$(awk '{print $2}' /sys/fs/cgroup/memory/memory.oom_control 2>/dev/null | head -1 || echo "?")
+    oom_after=$(awk '/^oom_kill / {print $2; exit}' /sys/fs/cgroup/memory/memory.oom_control 2>/dev/null || echo "?")
     {
         echo "==================== HARDENED WRAPPER EXIT $(ts) ===================="
         echo "exit_code = $rc"
