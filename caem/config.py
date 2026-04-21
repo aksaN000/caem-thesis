@@ -198,6 +198,17 @@ class CAEMConfig:
     verifier_retrieve_k: int = 20
     verifier_rerank_k: int = 3
 
+    # [DES] Branch C cross-encoder used for BOTH (a) passage reranking
+    # top-20 -> top-3 in the verifier's grounding stage, AND (b) the
+    # Goal-2 q_a_relevance signal (question <-> display-answer relevance).
+    # Same CrossEncoder instance, two call sites -- saves ~1 GB VRAM vs
+    # loading two models and keeps both signals calibrated against each
+    # other. BGE-reranker-v2-m3 is the default; set to None in config or
+    # pass cross_encoder=None to CAEMPipeline to disable both roles
+    # (rerank falls back to retriever order, q_a_relevance falls back to
+    # the 0.5 neutral prior).
+    cross_encoder_model: str = "BAAI/bge-reranker-v2-m3"
+
     # --- u_stored composite weights [DES] (must sum to 1.0) ------------- #
     # Branch C (Goal 2, 2026-04-22) rebalanced the Session-42 six-weight
     # composite to make room for q_a_relevance:

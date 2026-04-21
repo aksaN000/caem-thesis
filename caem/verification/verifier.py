@@ -1407,6 +1407,26 @@ class UnifiedVerifier:
         0.5 when their NLI bundle is unavailable: zero would add a false
         penalty, one would add a false reward.
 
+        Output normalisation (sigmoid, 2026-04-21)
+        ------------------------------------------
+        Cross-encoders typically return **raw logits** (BGE-reranker-v2-m3
+        and the default ``sentence_transformers.CrossEncoder.predict``
+        both do), often in [-10, +10] for relevant/irrelevant extremes. A
+        bare ``np.clip`` would truncate the distribution to {0.0, 1.0} with
+        almost nothing in between, turning q_a_relevance into a binary
+        step signal that destroys the composite's graded information. We
+        apply a standard logistic sigmoid so logits map to probabilities,
+        matching the calibrated-probability contract p_entail / p_ground_*
+        already satisfy.
+
+        Consequences for pre-calibrated scorers: if the caller injects a
+        scorer whose ``predict()`` already returns [0, 1] probabilities,
+        sigmoid compresses those to roughly [0.5, 0.73] -- the monotonic
+        squish preserves ranking but shrinks the effective discriminating
+        range. For such scorers wrap the ``predict`` output to multiply
+        by ~10 before injection, or expose a raw-logit version of the
+        scorer. The common BGE / MS-MARCO cases need no wrapping.
+
         Why this signal exists (the sample-② failure mode):
             Phase-1a Cycle 0 produced hallucinated off-topic answers that
             scored high on p_entail and p_ground_max because a retrieved
@@ -1432,12 +1452,17 @@ class UnifiedVerifier:
             return 0.5
         # Accept any array-like with a single scalar in position 0.
         try:
-            score = float(np.asarray(raw).reshape(-1)[0])
+            logit = float(np.asarray(raw).reshape(-1)[0])
         except Exception:
             return 0.5
-        if not math.isfinite(score):
+        if not math.isfinite(logit):
             return 0.5
-        return float(np.clip(score, 0.0, 1.0))
+        # Numerically-stable logistic sigmoid. Clamp the logit to +/-30
+        # first so exp() cannot overflow fp64 on extreme-confidence
+        # cross-encoder outputs (~e^30 is near fp64 max).
+        logit = max(-30.0, min(30.0, logit))
+        prob = 1.0 / (1.0 + math.exp(-logit))
+        return float(np.clip(prob, 0.0, 1.0))
 
     # ====================================================================== #
     # Composite + decision                                                    #

@@ -240,6 +240,32 @@ def build_pipeline(config: Any, ns: Any, m: Dict[str, Any]) -> "CAEMPipeline":
             passage_index_path,
         )
 
+    # -- Cross-encoder (passage reranker + Goal-2 q_a_relevance scorer) ---- #
+    # Single CrossEncoder instance used for TWO roles inside the verifier:
+    #  (a) passage rerank top-20 -> top-3 before grounding NLI
+    #  (b) q_a_relevance signal on (question, display_answer) pairs
+    # Both tasks share the "text-pair relevance scoring" contract.
+    # Co-resident with Qwen + MiniCheck + SBERT on a 32 GB 5090 fits well
+    # within budget (~1 GB additional VRAM for BGE-reranker-v2-m3).
+    cross_encoder = None
+    if getattr(config, "cross_encoder_model", None):
+        try:
+            from sentence_transformers import CrossEncoder
+            logger.info("Loading cross-encoder %s ...", config.cross_encoder_model)
+            cross_encoder = CrossEncoder(config.cross_encoder_model, device=device)
+            logger.info(
+                "Cross-encoder loaded -- used for passage rerank + "
+                "Goal-2 q_a_relevance scoring.",
+            )
+        except Exception as exc:
+            logger.warning(
+                "Cross-encoder load failed (%s); passage rerank falls back to "
+                "retriever order and q_a_relevance defaults to 0.5 neutral prior. "
+                "This degrades Goal 2's sample-(2) closure -- install "
+                "sentence-transformers + ensure HF cache has the model.",
+                exc,
+            )
+
     pipeline = m["CAEMPipeline"](
         model=model,
         tokenizer=tokenizer,
@@ -248,6 +274,7 @@ def build_pipeline(config: Any, ns: Any, m: Dict[str, Any]) -> "CAEMPipeline":
         nli_model=nli_model,
         nli_tokenizer=nli_tokenizer,
         passage_store=passage_store,
+        cross_encoder=cross_encoder,
         config=config,
         current_cycle=0,
     )

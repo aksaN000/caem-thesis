@@ -45,28 +45,56 @@ class _MockScorer:
         return np.array([self.score])
 
 
+def _sigmoid(x: float) -> float:
+    """Reference sigmoid used in assertions, matching _compute_q_a_relevance."""
+    import math as _m
+    x = max(-30.0, min(30.0, x))
+    return 1.0 / (1.0 + _m.exp(-x))
+
+
 class TestComputeQARelevance:
     def test_no_scorer_returns_neutral(self):
         v = _blank_verifier()
         assert v.qa_relevance_scorer is None
         assert v._compute_q_a_relevance("q?", "a") == pytest.approx(0.5)
 
-    def test_scorer_result_propagates(self):
+    def test_logit_passed_through_sigmoid(self):
+        """Branch C 2026-04-21: cross-encoder logit -> sigmoid -> probability.
+        A logit of +2.0 maps to ~0.88 (not 2.0 or 1.0), preserving the
+        graded range for the composite.
+        """
         v = _blank_verifier()
-        v.qa_relevance_scorer = _MockScorer(score=0.87)
-        assert v._compute_q_a_relevance("q?", "a") == pytest.approx(0.87)
+        v.qa_relevance_scorer = _MockScorer(score=2.0)
+        assert v._compute_q_a_relevance("q?", "a") == pytest.approx(
+            _sigmoid(2.0), abs=1e-6,
+        )
 
-    def test_scorer_output_clipped_high(self):
+    def test_negative_logit_maps_to_low_prob(self):
         v = _blank_verifier()
-        v.qa_relevance_scorer = _MockScorer(score=1.5)
-        # Defensive clipping to [0, 1] (BGE / cross-encoders sometimes emit
-        # raw logits outside that range).
-        assert v._compute_q_a_relevance("q?", "a") == pytest.approx(1.0)
+        v.qa_relevance_scorer = _MockScorer(score=-2.0)
+        assert v._compute_q_a_relevance("q?", "a") == pytest.approx(
+            _sigmoid(-2.0), abs=1e-6,
+        )
 
-    def test_scorer_output_clipped_low(self):
+    def test_zero_logit_is_half(self):
         v = _blank_verifier()
-        v.qa_relevance_scorer = _MockScorer(score=-0.3)
-        assert v._compute_q_a_relevance("q?", "a") == pytest.approx(0.0)
+        v.qa_relevance_scorer = _MockScorer(score=0.0)
+        assert v._compute_q_a_relevance("q?", "a") == pytest.approx(0.5)
+
+    def test_extreme_positive_saturates_near_one(self):
+        """+inf-ish logit saturates near 1.0 (sigmoid asymptote) but
+        never exceeds 1.0 due to the defensive clip.
+        """
+        v = _blank_verifier()
+        v.qa_relevance_scorer = _MockScorer(score=100.0)
+        result = v._compute_q_a_relevance("q?", "a")
+        assert result == pytest.approx(1.0, abs=1e-6)
+
+    def test_extreme_negative_saturates_near_zero(self):
+        v = _blank_verifier()
+        v.qa_relevance_scorer = _MockScorer(score=-100.0)
+        result = v._compute_q_a_relevance("q?", "a")
+        assert result == pytest.approx(0.0, abs=1e-6)
 
     def test_scorer_exception_falls_back_to_neutral(self):
         class _Raiser:
@@ -217,8 +245,12 @@ class TestInitAcceptsQAScorer:
         # and is exercised by the integration tests. Here we inject a
         # scorer via the blank-verifier shim and confirm _compute routes to
         # it -- the one contract the rest of the pipeline depends on.
+        # Logit 0.71 -> sigmoid ≈ 0.670 (not 0.71); the assertion tracks
+        # the actual _compute contract post-sigmoid fix.
         scorer = _MockScorer(score=0.71)
         v = _blank_verifier()
         v.qa_relevance_scorer = scorer
-        assert v._compute_q_a_relevance("q?", "a") == pytest.approx(0.71)
+        assert v._compute_q_a_relevance("q?", "a") == pytest.approx(
+            _sigmoid(0.71), abs=1e-6,
+        )
         assert scorer.calls[0] == [("q?", "a")]

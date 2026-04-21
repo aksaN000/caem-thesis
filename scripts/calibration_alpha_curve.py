@@ -60,21 +60,29 @@ logging.basicConfig(
 )
 logger = logging.getLogger("calibration_alpha_curve")
 
-# Hold these fixed at their CAEMConfig values. τ_store is the one we sweep.
-DEFAULT_CONTRA_VETO = 0.30
+# contra_veto removed 2026-04-22 along with the runtime veto (MiniCheck
+# returns p_contra=0 by construction under the default backend). Kept the
+# positional arg in the signatures below for binary compatibility with
+# callers that still pass it; it's ignored internally.
+DEFAULT_CONTRA_VETO = 0.0  # now a no-op sentinel
 
 
 def _replay_stage5(rec: Dict[str, Any], tau_store: float,
-                   tau_defer: float, contra_veto: float) -> str:
+                   tau_defer: float, contra_veto: float = 0.0) -> str:  # noqa: ARG001
     """Replay verifier._decide at the candidate τ_store.
 
-    Mirrors caem/verification/verifier.py:_decide line-for-line. Only
-    τ_store is varied; τ_defer + veto are held fixed at their calibrated /
-    config values per Ch4's "hold other gates fixed while sweeping τ_store"
-    sensitivity design.
+    Mirrors ``caem/verification/verifier.py::_decide`` (post-2026-04-22
+    Branch-C cleanup: the contradiction-veto branch was removed because
+    MiniCheck emits ``p_contra=0`` by construction, so the veto never
+    fired under the default backend). Only τ_store is varied; τ_defer is
+    held fixed at its calibrated / config value per Ch4's
+    "hold other gates fixed while sweeping τ_store" sensitivity design.
+
+    ``contra_veto`` is preserved as a positional arg for back-compat with
+    callers that still pass it; it is ignored. Old-run replays that want
+    to re-apply the legacy veto can set ``rec["u_stored"] = 0`` wherever
+    ``rec["p_contra"] >= 0.30`` in a preprocessing pass.
     """
-    if rec["p_contra"] >= contra_veto:
-        return "DISCARD"
     if rec["u_stored"] >= tau_store:
         return "STORE"
     if rec["u_stored"] >= tau_defer:

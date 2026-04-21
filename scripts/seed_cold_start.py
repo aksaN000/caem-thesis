@@ -292,6 +292,29 @@ def build_pipeline(config, device: str):
             "Continuing with query-only RAG (no retrieved context)."
         )
 
+    # -- Cross-encoder (passage reranker + Goal-2 q_a_relevance) --------- #
+    # Same CrossEncoder used for BOTH passage rerank AND q_a_relevance
+    # inside UnifiedVerifier. See run_experiment.py::build_pipeline for
+    # the equivalent load -- kept in sync across both entry points so
+    # seeded memory carries the same q_a_relevance distribution the main
+    # run expects.
+    cross_encoder = None
+    if getattr(config, "cross_encoder_model", None):
+        try:
+            from sentence_transformers import CrossEncoder
+            logger.info("Loading cross-encoder %s ...", config.cross_encoder_model)
+            cross_encoder = CrossEncoder(config.cross_encoder_model, device=device)
+            logger.info(
+                "Cross-encoder loaded -- passage rerank + "
+                "Goal-2 q_a_relevance scoring.",
+            )
+        except Exception as exc:
+            logger.warning(
+                "Cross-encoder load failed (%s); q_a_relevance defaults to "
+                "the 0.5 neutral prior (degrades Goal-2 sample-2 closure).",
+                exc,
+            )
+
     # -- CAEMPipeline ---------------------------------------------------- #
     pipeline = CAEMPipeline(
         model=model,
@@ -301,6 +324,7 @@ def build_pipeline(config, device: str):
         nli_model=nli_model,
         nli_tokenizer=nli_tokenizer,
         passage_store=passage_store,
+        cross_encoder=cross_encoder,
         config=config,
         current_cycle=0,
     )

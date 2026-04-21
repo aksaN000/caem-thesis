@@ -44,15 +44,16 @@ Fixes applied (audit 2025-04)
 
   FIX-4  Acceptance for theorem α is the full Stage 5 STORE decision,
       not a scalar threshold. Stage 5 STORE gates on
-      (u_stored >= store_threshold) AND (p_contra < contra_veto);
-      reading sc.decision == "STORE" is the single source of truth and
-      automatically tracks any future veto additions. Earlier revisions
-      mistakenly thresholded on sc.u_stored alone (ignoring the
-      p_contra veto, which inflated α) and further used the wrong
-      threshold constant (retroverify_prune_threshold is for cycle-
-      boundary pruning of already-stored episodes; Stage 5 uses
-      store_threshold). Theorem 2 concerns purity of accepted memory
-      episodes, so α must measure whatever Stage 5 actually accepts.
+      ``u_stored >= store_threshold`` (the contradiction veto was
+      removed 2026-04-22 -- MiniCheck returns ``p_contra = 0`` by
+      construction). Reading ``sc.decision == "STORE"`` is the single
+      source of truth and automatically tracks any future gate
+      additions. Earlier revisions mistakenly thresholded on
+      ``sc.u_stored`` alone and used the wrong threshold constant
+      (``retroverify_prune_threshold`` is for cycle-boundary pruning of
+      already-stored episodes; Stage 5 uses ``store_threshold``).
+      Theorem 2 concerns purity of accepted memory episodes, so α must
+      measure whatever Stage 5 actually accepts.
 
   FIX-5  Memory store loading now matches run_experiment.py persistence
       format: outputs/memory_store_cycle_{n}.faiss + .meta. This prevents
@@ -305,21 +306,18 @@ def measure_verification_balanced_accuracy(
 
     FIX-4: The acceptance gate for theorem α is the full Stage 5 STORE
     decision, NOT the u_stored scalar alone. Stage 5 STORE is
-    canonically defined as (u_stored >= store_threshold) AND
-    (p_contra < contra_veto), with p_contra acting as a hard contradiction
-    veto that the u_stored-only gate ignores (see caem/verification/
-    verifier.py:63-64 and _decide_from_signals). Measuring α against the
-    u_stored scalar alone would count samples that clear u_stored but fail
-    the p_contra veto as "passed verification" when Stage 5 actually
-    DISCARDs them -- inflating α relative to the true STORE rate and
-    feeding an incorrect α into the Theorem 2 P > p check. We therefore
-    use ``sc.decision == "STORE"`` directly; this single source of truth
-    automatically tracks the u_stored gate, the p_contra veto, and any
-    future veto additions without this measurement code going stale.
-    The previous implementation's use of retroverify_prune_threshold was
-    also subtly wrong: retroverify is the cycle-boundary pruning gate on
-    already-stored episodes, whereas purity validation measures fresh
-    samples (Stage 5 behaviour), which uses store_threshold.
+    canonically defined as ``u_stored >= store_threshold`` (the
+    contradiction-veto branch was removed 2026-04-22 along with the
+    dead-code sweep; MiniCheck returns p_contra = 0 by construction so
+    the veto could never fire under the default backend). Reading
+    ``sc.decision == "STORE"`` directly remains the single source of
+    truth -- any future gate addition (e.g. q_a_relevance as a hard
+    veto) is automatically tracked without this measurement code going
+    stale. The previous implementation's use of
+    retroverify_prune_threshold was also subtly wrong: retroverify is
+    the cycle-boundary pruning gate on already-stored episodes, whereas
+    purity validation measures fresh samples (Stage 5 behaviour), which
+    uses store_threshold.
 
     FIX-6: Uses generation + verifier directly instead of pipeline.answer() so
     measurement does not mutate memory (Stage 7 storage side effects).

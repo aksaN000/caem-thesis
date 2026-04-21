@@ -249,7 +249,26 @@ class CAEMPipeline:
         device: Optional[str] = None,
         current_cycle: int = 0,
         judge: Optional[Any] = None,
+        cross_encoder: Optional[Any] = None,
     ) -> None:
+        """
+        Parameters
+        ----------
+        cross_encoder : Optional[sentence_transformers.CrossEncoder]
+            Branch C Goal 2 + Stage-5 passage reranker. A single
+            ``CrossEncoder`` instance used for TWO roles inside the
+            verifier: (a) re-ranking retrieved passages top-20 -> top-3
+            before grounding NLI, and (b) scoring the q_a_relevance
+            signal on (question, display_answer) pairs. The two tasks
+            share the same contract (text-pair relevance scoring), so
+            the same model instance saves VRAM and keeps the two paths
+            calibrated against each other. When ``None`` (default),
+            retrieval order is used for rerank and q_a_relevance falls
+            back to the 0.5 neutral prior. ``UnifiedVerifier`` applies
+            sigmoid to the cross-encoder's raw predict() output before
+            clipping to [0, 1] so BGE-style logit-returning models work
+            directly.
+        """
         self.config = config or CAEMConfig()
         self.current_cycle = current_cycle
 
@@ -340,6 +359,8 @@ class CAEMPipeline:
             nli_model=nli_model,
             nli_tokenizer=nli_tokenizer,
             passage_retriever=_verifier_passage_retriever,
+            reranker=cross_encoder,            # passage rerank top-20 -> top-3
+            qa_relevance_scorer=cross_encoder, # Branch C Goal 2: same instance
             config=self.config,
             device=device,
         )
