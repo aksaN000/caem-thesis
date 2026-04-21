@@ -137,18 +137,55 @@ inherits it.
       appear as a figure or side-table in §5.X justifying the
       primary-target claim.
 
+- [ ] Ch5 **Table 5.E "Per-episode-type cycle-resolution trajectory"**
+      — defends the claim "effective verifier accuracy converges to
+      100% at steady state" by tracing ~15 canonical episodes
+      across cycles 1..N. Each row tracks one episode through all
+      three corrective mechanisms (retroverify + deferred buffer +
+      consolidation). Categories sampled:
+        * TP-high (correct, clear): u_stored monotonically rising,
+          stable KEEP across retroverify checkpoints
+        * TP-moderate (correct, hedged): starts below τ_train=0.75,
+          retroverify PROMOTES to training pool by cycle M
+        * TP-low (correct, very low): DEFERRED at cycle 1, reconsidered
+          at cycle M, promoted to STORE
+        * FP-moderate (hallucination, u_stored 0.55-0.70): retroverify
+          DOWNGRADE → PRUNE over 1-2 cycles
+        * FP-high (rare confab scoring 0.75+): retroverify at cycle+1
+          catches and prunes; represents 1-cycle-of-pollution worst case
+        * FN (correct, u_stored < τ_defer): NO TRACE — unrecoverable
+          edge case, documented as honest system limitation
+      Columns: episode-id, category, u_stored by cycle (1..N),
+      retroverify disposition per cycle (KEEP / DOWNGRADE / PRUNE /
+      RECONSIDER-PROMOTE), final fate (TRAINED / STORED-ONLY /
+      PRUNED / CONSOLIDATED-AWAY / LOST).
+      Target: by cycle c* (equilibrium via Upgrades 1–3 fit), all
+      TP categories correctly in training pool AND all FP categories
+      pruned, demonstrating **effective 100% decision accuracy on
+      in-memory episodes at steady state**.
+
+      **Claim discipline for Table 5.E (do NOT overstate):** the
+      claim is "effective 100% at steady state on episodes that
+      reached the memory store" — excludes FN below τ_defer which are
+      unrecoverable (a known limitation of any threshold gate). Thesis
+      explicitly acknowledges this in the claim text.
+
 - [ ] Ch6 §Discussion paragraph integrating the 4-gate architectural
       defense framing (draft in this log above), citing Tables 5.A,
-      5.B, 5.C, AND 5.D as quantitative backing for FOUR thesis
+      5.B, 5.C, 5.D, AND 5.E as quantitative backing for FIVE thesis
       claims:
       (1) "no hallucinated answer propagates to user" (Table 5.A, via
       gate trace), (2) "model monotonically improves per cycle"
       (Table 5.B, via per-cycle EM/purity deltas), (3) "9-signal
       verifier substantially outperforms single-signal baselines"
-      (Table 5.C, via human-gold agreement metrics), and (4) "caught
+      (Table 5.C, via human-gold agreement metrics), (4) "caught
       episodes are predominantly hallucinations in the strict sense,
       not just confidence-filter false-positives" (Table 5.D, via
-      failure-mode subtype breakdown).
+      failure-mode subtype breakdown), AND (5) "effective verifier
+      decision accuracy on in-memory episodes converges to 100% at
+      steady state" (Table 5.E, via per-episode cycle-resolution
+      trajectories demonstrating retroverify + deferred + consolidation
+      as the joint corrective mechanism).
 
 - [ ] Audit data source: after Step 7 completes, read
       `outputs/full_run/cycle_N/memory_store.{faiss,meta}` + the
