@@ -18,6 +18,29 @@ Detail belongs in the commit message; the log is for quick rewind.
 
 ## 2026-04-22 (BDT — date rolls based on activity)
 
+### 2026-04-22 02:50 BDT  `[GATE]`  torch.compile drift — UNSAFE on Blackwell bf16 stack
+
+Live-run drift measurement on the 5090 via the new
+`scripts/compile_drift_check.py`:
+
+- **torch 2.10.0+cu130 / CUDA 13.1 / sm_120 / bf16 / Qwen-2.5-3B-Instruct**
+- `compile_mode="reduce-overhead"` → max |drift| = **5.156** (mean 1.266e-1)
+- `compile_mode="default"` → **identical** max 5.156 (systemic, not mode-specific)
+- Documented envelope: 1e-4. Observed: **~50,000×** worse.
+- Decision: `use_torch_compile: bool = False` stays the Branch C default.
+  The ~10-15% generation speedup is not worth breaking the STORE/DEFERRED
+  boundary by 5 full logit-magnitudes.
+- Root cause candidates: bf16 fused SDPA vs eager attention on Blackwell,
+  Qwen rotary embeddings amplifying mantissa error, sm_120 inductor
+  codegen recency. TF32 warning emitted by compile_fx suggests matmul
+  precision paths differ between eager and compiled.
+- Gate + baseline recorded in `outputs/perf_log.csv`.
+
+**Practical impact**: none (we already default to False). **Documentation
+value**: high — empirical evidence for Ch5 §methodology "why we ship with
+eager attention + no compile". Chapter should cite this row rather than
+the theoretical 1e-4 claim from torch docs.
+
 ### 2026-04-22 21:00 BDT  `[IMPL]`  In-repo consolidation — registry count, label wrapper, Ch5 transition note
 
 Closes the three in-repo follow-ups flagged in the Goal-5-phase-1 log.
