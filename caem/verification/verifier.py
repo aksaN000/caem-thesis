@@ -1299,7 +1299,12 @@ class UnifiedVerifier:
             return list(candidates[:rerank_k])
         try:
             pairs = [(f"{query} {answer}", p) for p in candidates]
-            scores = self.reranker.predict(pairs)
+            # show_progress_bar=False: sentence-transformers defaults to a
+            # tqdm bar per predict() call; that adds hundreds of
+            # "Batches: 100%|..." lines per query to the log and drowns
+            # the useful decision traces. The rerank workload is already
+            # a single forward pass; no progress feedback is needed.
+            scores = self.reranker.predict(pairs, show_progress_bar=False)
             order = np.argsort(scores)[::-1][:rerank_k]
             return [candidates[int(i)] for i in order]
         except Exception as exc:
@@ -1444,7 +1449,9 @@ class UnifiedVerifier:
         if not q or not a:
             return 0.5
         try:
-            raw = scorer.predict([(q, a)])
+            # show_progress_bar=False: see comment in _retrieve_and_rerank
+            # above. Single (q, a) pair; tqdm adds nothing but log noise.
+            raw = scorer.predict([(q, a)], show_progress_bar=False)
         except Exception as exc:
             logger.warning(
                 "q_a_relevance scorer failed (%s) -- falling back to 0.5 "

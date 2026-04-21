@@ -354,6 +354,17 @@ class BatchPipeline:
         if not samples:
             return []
 
+        # Branch C Goal 5 (2026-04-21): track the wall-clock cost of the
+        # whole batch so the per-sample PipelineResult.latency_ms field
+        # reports the AMORTISED per-query latency (``batch_elapsed / N``)
+        # instead of the near-zero bookkeeping time of the per-sample
+        # serial ``answer()`` call that runs after the batched generate +
+        # verify. Perf-harness + eval-harness both read this field, so
+        # distributing the batch cost makes the seeder's log + the
+        # perf_log.csv row report the real speedup curve.
+        import time as _time
+        batch_start = _time.perf_counter()
+
         # Phase 1: per-sample tier determination + routing bundle.
         # Stages 1-3 (encode, search, route) run once per sample here.
         # The full bundle is threaded into answer() via _precomputed_routing
@@ -434,6 +445,18 @@ class BatchPipeline:
                 kwargs["_precomputed_vout"] = precomputed_vouts[i]
             r = self.p.answer(**kwargs)
             results.append(r)
+
+        # Amortise the batch wall-time across samples. The per-sample
+        # latency from ``self.p.answer()`` just now is ~0 because the
+        # heavy work (batched generate + batched verify) ran earlier in
+        # this method; that inner value is useless for measurement.
+        # Overwrite each PipelineResult's latency_ms with the averaged
+        # batch cost so callers (eval harness + perf_baseline + seeder
+        # log) read a number that matches wall-clock per query at bs=N.
+        batch_elapsed_ms = (_time.perf_counter() - batch_start) * 1000.0
+        per_sample_ms = batch_elapsed_ms / max(len(samples), 1)
+        for r in results:
+            r.latency_ms = per_sample_ms
         return results
 
     # ---- Internal helpers ----------------------------------------------- #
