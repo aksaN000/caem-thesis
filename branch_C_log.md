@@ -1986,3 +1986,81 @@ Audit effort (separate from rewrite): 13–16h hand-audit post-Phase-1a.
 - No formal proofs yet — deferred to post-Phase-1a per this decision
 - Ch1–6 rewrite pass TODO list accumulated across log entries
 
+
+### 2026-04-23 00:30 BDT  `[DECISION]`  Ch1-6 is a REDESIGN not a rewrite — chapter purposes shift under the optimality framing
+
+User realization 2026-04-23 00:15 BDT: the new framing isn't an
+incremental rewrite. It's a redesign. Every chapter's organizing
+question changes under the ceiling-attainment framing.
+
+**Chapter-purpose shift:**
+
+| Chapter | Old purpose                      | New purpose (redesign)                           |
+|---------|----------------------------------|--------------------------------------------------|
+| Ch1     | Motivate hallucination problem   | Motivate the CEILING QUESTION (epistemic bound)  |
+| Ch2     | Survey prior work                | Position prior work on ceiling-distance spectrum |
+| Ch3     | Specify requirements             | Specify ceiling-attainment methodology           |
+| Ch4     | Describe CAEM system             | Derive ceiling + CAEM as ceiling-attainer        |
+| Ch5     | Measure CAEM performance         | Measure ceiling attainment empirically           |
+| Ch6     | Discuss implications             | Position CAEM at architectural optimum           |
+
+**Key structural changes (beyond prose):**
+
+1. Ch1 opens with epistemic-bound framing (C9 analogy), not with
+   hallucination problem definition. The question of the thesis IS
+   the ceiling question.
+
+2. Ch4 gains a NEW §4.1 "The theoretical ceiling" that DERIVES
+   C9 + T4 + C7 before describing the system. The system is then
+   presented as an instance that attains what was derived.
+
+3. Ch4 stage-by-stage (§4.2-4.9) prefaces each mechanism with
+   "this exists because [theorem] requires [property]" — mechanisms
+   justified by theoretical needs, not just design choices.
+
+4. Ch5 becomes "Ceiling-Attainment Audit" (not "Experimental
+   Results"). Every metric reported is interpreted as a ceiling
+   measurement.
+
+5. Ch6 positions CAEM as "first system proven + empirically
+   validated to attain the corpus-bounded ceiling." The literature
+   comparison is about ceiling-distance, not incremental percentages.
+
+**Scope estimate (redesign, not rewrite):**
+
+- Ch1 full rewrite: 2 days
+- Ch2 reorganization: 2 days
+- Ch3 reframe: 1 day
+- Ch4 reorganization + §4.1 + §4.10 theorems: 3-4 days
+- Ch5 reinterpretation + audit tables: 2-3 days (audit tables wait
+  for Phase 1a data)
+- Ch6 full rewrite: 2 days
+- Coherence pass (prevent drift per feedback_thesis_coherence memory): 2 days
+
+**Total: 14-16 focused working days, ~2-3 weeks wall-clock.**
+
+Can run in parallel with Phase 1a runner (no compute conflict).
+
+**Sequencing:** Ch4 §4.1 (ceiling derivation) and §4.10 (theorems)
+first, because they set the argument for everything else. Then Ch1
+(opens with the derived ceiling question). Then Ch2-Ch3-Ch5-Ch6 in
+parallel pairs. Final coherence pass integrates.
+
+**Dependency for Ch5 audit tables:** requires Phase 1a Step 7 +
+audit completion. Write Ch5 skeleton during Phase 1a; fill tables
+post-audit.
+
+**Risk mitigation (coherence):**
+- Cross-reference numbering conventions stay stable (all \ref{tab:},
+  \ref{eq:}, \ref{thm:} remain unchanged)
+- Ablation registry counts (19 landed, 23 target) stay unchanged
+- Existing T1/T2/T3 proofs stay unchanged (foundational, already
+  in Ch4)
+- Branch-C hyperparameters stay unchanged (Qwen-3B, τ_store=0.65
+  after Cycle-0 calibration, τ_train=0.75, etc.)
+- Every chapter's final read-through checks for regression against
+  prior chapters
+
+**Primary decision (user, 2026-04-23 00:30 BDT): go with redesign,
+not incremental rewrite.** Full redesign starts after sleep.
+
