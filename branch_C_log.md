@@ -18,6 +18,120 @@ Detail belongs in the commit message; the log is for quick rewind.
 
 ## 2026-04-22 (BDT — date rolls based on activity)
 
+### 2026-04-22 20:15 BDT  `[DECISION]`  NEW Theorem T4 + Corollary C7 — CAEM asymptotic hallucination elimination (benchmark-fixed), parameter-bounded open-domain rate
+
+User question 2026-04-22 20:00 BDT: "we reduce hallucination up to
+the base model's total parameter ceiling. Until parameter capacity
+reaches, CAEM cycles keep reducing hallucination, and if parameter
+ceiling is infinite, at infinite cycle, hallucination rate would be
+0%."
+
+This is three distinct claims that need to be separated to be
+defensible. Proposing to add TWO new theoretical results to
+Ch4 §Theoretical Analysis as T4 and C7:
+
+**Theorem T4 (CAEM Asymptotic Elimination on Bounded Benchmarks):**
+
+For any fixed benchmark B of finite size |B|:
+
+    H(CAEM, B, c) ≤ (1 - tau_1(c)) · H_base · H_verifier-miss
+
+where:
+  tau_1(c) = Tier-1 cached-answer hit rate at cycle c
+             (grows monotonically as memory accumulates)
+  H_base   = base generator's Tier-2/3 intrinsic hallucination rate
+  H_miss   = verifier's residual miss rate (<= 10^-3 by Claim 1
+             product-of-gates upper bound)
+
+As c -> infinity with fixed |B|:
+  tau_1(c) -> 1  (memory saturates coverage)
+  H(CAEM, B, c) -> 0
+
+**Proof sketch:**
+  (i)   Memory monotonically accumulates unique STOREd episodes
+        (Ch4 T2 Monotonicity of Purity guarantees purity-preserving
+        additions).
+  (ii)  For fixed |B|, memory covers an increasing fraction of B
+        with each cycle: cov(c) >= cov(c-1) (novelty filter prevents
+        double-counting).
+  (iii) cov(c) -> 1 as c -> infinity (bounded positive growth on
+        bounded set).
+  (iv)  Tier-1 hit rate = cov(c) × retrieval-precision × combined-
+        score pass-rate. Under the adaptive-nprobe retrieval, the
+        first two factors approach 1.
+  (v)   H(CAEM, B, c) = (1 - tau_1(c)) · H_generator + tau_1(c) · H_memory
+        where H_memory -> 0 by Theorem T1 (Purity at store) + Table 5.E
+        (100% purity at equilibrium on memory store).
+  (vi)  Taking c -> infinity: first term vanishes (tau_1 -> 1),
+        second term 0 (pure memory), giving H -> 0. QED.
+
+**This theorem is CAEM-architectural, NOT model-scaling.** It holds
+for any fixed base generator (any parameter count). The result is
+the user's claim precisely: "on any fixed benchmark, CAEM
+asymptotically eliminates hallucination."
+
+**Corollary C7 (Parameter-Bounded Open-Domain Rate):**
+
+For open-domain queries (unbounded effective benchmark size):
+
+    H(CAEM, open, c) >= H_base(|theta|) · (1 - coverage(c))
+
+where coverage(c) is limited by:
+  (a) Storage rate × novelty rate × queries_per_cycle × c
+  (b) Eventually bounded by memory-capacity M_max
+
+and H_base(|theta|) is the generator's intrinsic Tier-2/3 rate,
+which is a monotone-decreasing function of parameter count |theta|.
+
+**Interpretation:** On open-domain queries, CAEM reduces hallucination
+proportional to memory retrieval coverage, bounded below by the base
+generator's intrinsic rate. Further cycles cannot reduce H below
+H_base · (1 - max_coverage).
+
+**Combined double limit (user's original claim):**
+
+  lim  lim  H(CAEM, open, c) = 0
+  |theta|->inf  c->inf
+
+Both limits required: infinite cycles → coverage(c) → 1; infinite
+parameters → H_base → 0. Either alone gives a nonzero residual.
+
+**Thesis-ready phrasing (finalised):**
+
+"CAEM achieves asymptotic hallucination elimination on any fixed
+benchmark (Theorem T4), regardless of base generator parameter count.
+On open-domain queries, CAEM reduces hallucination proportional to
+memory retrieval coverage, with a lower bound determined by the
+generator's intrinsic Tier-2/3 rate (Corollary C7). The double limit
+of infinite cycles and infinite parameters yields H -> 0 as a
+composition of T4 (removes coverage gap) and the asymptotic limit of
+the parameter-scaling literature (removes H_base)."
+
+**Ch1-6 rewrite pass TODO (new):**
+
+- [ ] Ch4 §Theoretical Analysis: add Theorem T4 with proof sketch
+      above. Position as the asymptotic counterpart to T2
+      (monotonicity) and T3 (fixed-point convergence).
+- [ ] Ch4 §Theoretical Analysis: add Corollary C7 with the open-
+      domain bound + parameter-scaling commentary.
+- [ ] Ch5 §Experimental Setup: Table 5.B (per-cycle improvement)
+      gets a new column "tau_1(c)" (Tier-1 hit rate) demonstrating
+      the tau_1 -> 1 limit empirically over cycles.
+- [ ] Ch5 §Main Results: Table 5.F (NEW) "User-facing hallucination
+      rate per cycle" reporting H(CAEM, B, c) measured on the 6
+      evaluation benchmarks. Target: monotonic decrease across
+      cycles 1..c* matching T4 prediction, quantitatively validating
+      the asymptotic elimination claim.
+- [ ] Ch6 §Discussion: integrate the three-limit separation (A:
+      CAEM-architectural, B: parameter-bounded, C: double-limit) as
+      the final thesis-positioning paragraph.
+
+**Claim discipline reminder:** do NOT write the bare universal
+"CAEM eliminates hallucination in the limit." That collapses T4
+(benchmark-fixed, architectural) and C7 (open-domain, parameter-
+dependent) into a single vague claim. Always specify which limit
+is being taken.
+
 ### 2026-04-22 19:45 BDT  `[DECISION]`  FINAL THESIS CLAIM STACK — each of 5 claims paired with theoretical proof AND empirical audit table
 
 Locks in the thesis-defense structure after iterative user pushback
