@@ -1837,3 +1837,47 @@ See `branch_C.md` §Why branch C exists and 2026-04-22 entry for full findings. 
 - Keep it honest: log blockers and regressions too, not just wins
 - Commit this file to `main` alongside other branch-C work; it's the thesis's
   research diary for the Phase 2 upgrade window
+
+### 2026-04-22 23:30 BDT  `[DECISION]`  Formalization plan — dependency graph first, then empirically-validated proofs only
+
+User decisions 2026-04-22 23:15 BDT (before sleep):
+
+1. **Structure before proofs**: Before writing formal proofs, lay out
+   T1–T4 + C4–C10 as a DEPENDENCY GRAPH. Identify which derives from
+   which. This gives natural thesis flow AND catches missing links.
+   E.g., C8 derives from C4 + T4; C10 derives from T2 + Claim 5; etc.
+   The dependency graph IS the Ch4 §Theoretical Analysis structure.
+
+2. **Data-first formalization**: DEFER formal proofs until Phase 1a
+   completes. Once Tables 5.A–5.F have data, only formalize theorems
+   whose predictions are empirically validated. Drop or weaken
+   theorems that are contradicted by data. This avoids the
+   embarrassing case of proving a theorem the experiment falsifies.
+
+3. **Immediate next session (post-sleep) starts with**:
+   - Dependency graph of 10 theorems/corollaries
+   - Identify which are independent vs derived
+   - Re-order for thesis narrative flow
+   - DO NOT write proofs yet
+
+4. **Formal proofs land after Step 7 + audit complete** (~2–3 weeks),
+   at which point we know which claims are empirically supported.
+
+5. **Collaboration model** (from 2026-04-22 22:45 user offer):
+   - User = ML-research intuition + benchmark/architectural knowledge
+   + pushback mode
+   - Me = formal mathematical structure + proof drafting + gap
+     identification
+   - We iterate back-and-forth on each theorem after data validates
+   - C10 specifically may still benefit from a theorist, but we can
+     get it to semi-formal together first
+
+**Status at session end (pre-sleep 2026-04-22 23:30 BDT):**
+- 20 commits pushed to feat/qwen-3b-goal1
+- 10-theorem stack logged with proof sketches (T1–T4, C4, C5, C7,
+  C8, C9, C10)
+- 5-table audit plan logged (5.A through 5.F)
+- Phase 1a runner autonomous (Step 6 done, Step 7.0 running)
+- No formal proofs yet — deferred to post-Phase-1a per this decision
+- Ch1–6 rewrite pass TODO list accumulated across log entries
+
