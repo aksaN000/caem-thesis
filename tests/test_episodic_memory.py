@@ -20,11 +20,13 @@ Run with:
     python -m pytest tests/test_episodic_memory.py -v
 """
 
+import json
 import math
 import pickle
 import tempfile
 import time
 from pathlib import Path
+from typing import Optional, Tuple
 from unittest.mock import MagicMock
 
 import numpy as np
@@ -33,7 +35,6 @@ import pytest
 from caem.config import CAEMConfig
 from caem.memory.entry import (
     EpisodicEntry,
-    PostGenerationConfidence,
     PreRoutingConfidence,
     RoutingDecision,
 )
@@ -148,19 +149,10 @@ class TestConfidenceDataclasses:
         pc = PreRoutingConfidence(u_token=0.4, c_conv=2.0, u_pre=0.35)
         assert pc.is_safe(0.60) is False
 
-    def test_post_generation_dataclass_constructs(self):
-        # The legacy u_hat gate and its should_accept method were removed
-        # when the UnifiedVerifier nine-signal stage became the single
-        # source of post-generation truth. The PostGenerationConfidence
-        # dataclass is retained as a type-compat shell; we verify only that
-        # its four remaining signal fields construct and round-trip.
-        pgc = PostGenerationConfidence(
-            u_token=0.70, u_dropout=0.65, u_consistency=0.80, u_entropy=0.75,
-        )
-        assert pgc.u_token == 0.70
-        assert pgc.u_dropout == 0.65
-        assert pgc.u_consistency == 0.80
-        assert pgc.u_entropy == 0.75
+    # The PostGenerationConfidence dataclass was removed as dead code on
+    # 2026-04-22 (retired in Session 42, removed in the veto/dead-code
+    # cleanup). Its test_post_generation_dataclass_constructs sibling
+    # is gone with it.
 
     def test_routing_decision_fields(self):
         rd = RoutingDecision(
@@ -497,9 +489,30 @@ class TestRetroVerify:
         assert n_removed == 0
         assert store.get(eid).u_stored > 0.70
 
-    def test_retroverify_does_not_downgrade(self):
-        """If new score is lower (but still above threshold), old u_stored is kept."""
+    def test_retroverify_downgrades_by_default(self):
+        """Branch C Goal 4 item 4: new score below old but above threshold
+        now downgrades stored u_stored + overwrites the nine-signal block
+        (pre-Goal-4 behaviour was raise-only; stale confident entries
+        silently survived).
+        """
         store = make_store()
+        eid = store.add(make_entry(seed=0, u_stored=0.85))
+
+        lower = _make_verifier_output(u_stored=0.73, p_entail=0.70, s_avg=0.75)
+        n_updated, n_removed = store.retroverify(lambda _: lower, threshold=0.50)
+
+        assert n_updated == 1
+        assert n_removed == 0
+        assert math.isclose(store.get(eid).u_stored, 0.73, abs_tol=1e-4)
+        assert store.get(eid).retroverified is True
+
+    def test_retroverify_respects_allow_downgrade_false(self):
+        """When cfg.retroverify_allow_downgrade is False, fall back to the
+        pre-Goal-4 raise-only behaviour so the legacy contract is recoverable
+        for smoke tests or reproductions of pre-2026-04-22 results.
+        """
+        store = make_store()
+        store.config.retroverify_allow_downgrade = False
         eid = store.add(make_entry(seed=0, u_stored=0.85))
 
         lower = _make_verifier_output(u_stored=0.73, p_entail=0.70, s_avg=0.75)
@@ -507,9 +520,7 @@ class TestRetroVerify:
 
         assert n_updated == 0
         assert n_removed == 0
-        # u_stored should be unchanged.
         assert math.isclose(store.get(eid).u_stored, 0.85, abs_tol=1e-4)
-        # But retroverified should be set.
         assert store.get(eid).retroverified is True
 
     def test_retroverify_removes_below_threshold(self):
@@ -584,3 +595,662 @@ class TestRetroVerify:
         # And the composite itself was raised to the new value.
         assert stored.u_stored       == pytest.approx(0.90)
         assert stored.retroverified  is True
+
+    def test_retroverify_loop_prunes_by_default(self):
+        """Branch C Goal 4 item 2: loop-contaminated entries are removed at
+        retroverify time before any verifier forward pass. The verify_fn
+        must NOT be called on the loop-pruned entry.
+        """
+        store = make_store()
+        # Force the entry's chain to trigger the loop filter: repeat "yes"
+        # ~30 times so distinct-4 collapses. u_stored stays high so only
+        # the loop filter can remove it (threshold-prune would not fire).
+        loop_entry = make_entry(seed=0, u_stored=0.90)
+        loop_entry.reasoning_chain = " ".join(["yes"] * 30)
+        store.add(loop_entry)
+
+        # Healthy entry with a clean chain -- should survive.
+        clean_entry = make_entry(
+            question="clean entry", seed=1, u_stored=0.80,
+        )
+        clean_entry.reasoning_chain = (
+            "Reasoning: The capital of France is Paris, a fact established "
+            "as the seat of French government for centuries. Answer: Paris"
+        )
+        clean_eid = store.add(clean_entry)
+
+        calls = {"n": 0}
+
+        def verify_fn(entry):
+            calls["n"] += 1
+            return _make_verifier_output(u_stored=0.90)
+
+        n_updated, n_removed = store.retroverify(verify_fn, threshold=0.50)
+
+        # One loop pruned without a verifier call, one clean entry re-scored.
+        assert n_removed == 1
+        assert calls["n"] == 1
+        # Breakdown diagnostic attribute.
+        assert store._last_retroverify_breakdown == {
+            "loop_pruned": 1,
+            "threshold_pruned": 0,
+        }
+        # Clean entry still in memory.
+        assert store.get(clean_eid) is not None
+
+    def test_retroverify_respects_prune_loops_false(self):
+        """When cfg.retroverify_prune_loops is False, loop entries survive
+        retroverify (they still get re-scored like any other entry). Lets
+        the pre-Goal-4 behaviour be recovered for ablations.
+        """
+        store = make_store()
+        store.config.retroverify_prune_loops = False
+        loop_entry = make_entry(seed=0, u_stored=0.90)
+        loop_entry.reasoning_chain = " ".join(["yes"] * 30)
+        eid = store.add(loop_entry)
+
+        n_updated, n_removed = store.retroverify(
+            lambda _: _make_verifier_output(u_stored=0.85), threshold=0.50,
+        )
+
+        # Not loop-pruned, re-scored normally.
+        assert n_removed == 0
+        assert store.get(eid) is not None
+        assert store._last_retroverify_breakdown == {
+            "loop_pruned": 0,
+            "threshold_pruned": 0,
+        }
+
+    def test_retroverify_loop_prune_counts_separately_from_threshold(self):
+        """Combined loop + threshold prunes: the 2-tuple return sums both,
+        but the breakdown attribute distinguishes them for downstream logs.
+        """
+        store = make_store()
+
+        looped = make_entry(question="loop", seed=0, u_stored=0.90)
+        looped.reasoning_chain = " ".join(["yes"] * 30)
+        store.add(looped)
+
+        clean_good = make_entry(question="clean-good", seed=1, u_stored=0.70)
+        clean_good.reasoning_chain = (
+            "Reasoning: Water boils at 100 C at sea level. Answer: 100."
+        )
+        store.add(clean_good)
+
+        clean_bad = make_entry(question="clean-bad", seed=2, u_stored=0.70)
+        clean_bad.reasoning_chain = (
+            "Reasoning: Paris is the capital of France historically. Answer: Paris."
+        )
+        store.add(clean_bad)
+
+        def verify_fn(entry):
+            if entry.question == "clean-good":
+                return _make_verifier_output(u_stored=0.85)
+            return _make_verifier_output(u_stored=0.30, decision="DISCARD")
+
+        n_updated, n_removed = store.retroverify(verify_fn, threshold=0.50)
+
+        assert n_updated == 1              # clean-good raised
+        assert n_removed == 2              # 1 loop + 1 threshold
+        assert store._last_retroverify_breakdown == {
+            "loop_pruned": 1,
+            "threshold_pruned": 1,
+        }
+
+
+# -----------------------------------------------------------------------------
+# Consolidation (Branch C Goal 4 item 3)
+# -----------------------------------------------------------------------------
+
+def _near_dup_pair(target_sim: float) -> Tuple[np.ndarray, np.ndarray]:
+    """Return a pair of unit vectors with exact pairwise cosine similarity
+    ``target_sim`` (modulo fp32 rounding). Used to construct paraphrase
+    clusters in consolidation tests without depending on a real SBERT
+    encoder.
+
+    Construction: pick a reference ``ref`` and a unit vector ``p``
+    orthogonal to ``ref``. Define
+        a = ref
+        b = target_sim * ref + sqrt(1 - target_sim^2) * p
+    Then ``<a, b> = target_sim`` by construction.
+    """
+    ref = random_unit_vec(0)
+    p = random_unit_vec(1)
+    p = p - float(np.dot(p, ref)) * ref
+    norm = float(np.linalg.norm(p))
+    if norm > 0:
+        p = p / norm
+    a = ref.astype(np.float32)
+    b = (target_sim * ref + (1.0 - target_sim ** 2) ** 0.5 * p).astype(np.float32)
+    b = b / float(np.linalg.norm(b))
+    return a, b
+
+
+def _dup_entry(
+    question: str, u_stored: float, emb: np.ndarray, *,
+    answer: str = "4",
+    retrieval_count: int = 0,
+    success_rate: float = 0.0,
+    source_benchmark: Optional[str] = None,
+) -> EpisodicEntry:
+    """Build an EpisodicEntry with an injected embedding + customisable
+    answer/benchmark fields for the consolidation safety-guard tests.
+    """
+    e = make_entry(
+        question=question, answer=answer, u_stored=u_stored, embedding=emb,
+    )
+    e.retrieval_count = retrieval_count
+    e.success_rate = success_rate
+    if source_benchmark is not None:
+        e.source_benchmark = source_benchmark
+    return e
+
+
+class TestConsolidate:
+    def test_empty_store_noop(self):
+        store = make_store()
+        n_clusters, n_removed = store.consolidate()
+        assert n_clusters == 0
+        assert n_removed == 0
+
+    def test_singletons_untouched(self):
+        store = make_store()
+        store.add(make_entry(question="Q1", seed=101, u_stored=0.80))
+        store.add(make_entry(question="Q2", seed=202, u_stored=0.70))
+        n_clusters, n_removed = store.consolidate()
+        assert n_clusters == 0
+        assert n_removed == 0
+        assert store.size == 2
+
+    def test_near_duplicate_pair_collapses_to_max_u(self):
+        store = make_store()
+        a, b = _near_dup_pair(target_sim=0.95)
+        # Stay within cfg.consolidation_max_u_spread (0.15) so the safety
+        # guard does not fire; it is tested separately in
+        # TestConsolidateSafetyGuards::test_u_spread_guardrail_skips_merge.
+        id_low = store.add(_dup_entry("paraphrase-low", 0.80, a, answer="Paris"))
+        id_high = store.add(_dup_entry("paraphrase-high", 0.90, b, answer="Paris"))
+
+        n_clusters, n_removed = store.consolidate()
+        assert n_clusters == 1
+        assert n_removed == 1
+        assert store.get(id_high) is not None
+        assert store.get(id_low) is None
+
+    def test_retrieval_metadata_merged(self):
+        store = make_store()
+        a, b = _near_dup_pair(target_sim=0.95)
+        # u_stored spread (0.90 - 0.82 = 0.08) stays under the 0.15 guard.
+        e_rep = _dup_entry(
+            "rep", 0.90, a, answer="Paris",
+            retrieval_count=4, success_rate=0.75,   # 3/4
+        )
+        e_mem = _dup_entry(
+            "member", 0.82, b, answer="Paris",
+            retrieval_count=6, success_rate=0.50,   # 3/6
+        )
+        id_rep = store.add(e_rep)
+        store.add(e_mem)
+
+        store.consolidate()
+        rep = store.get(id_rep)
+        assert rep is not None
+        assert rep.retrieval_count == 10
+        # (3 + 3) / (4 + 6) = 0.60
+        assert math.isclose(rep.success_rate, 0.60, abs_tol=1e-9)
+
+    def test_config_gate_disables_pass(self):
+        store = make_store()
+        store.config.enable_consolidation = False
+        a, b = _near_dup_pair(target_sim=0.95)
+        store.add(_dup_entry("Q1", 0.90, a, answer="Paris"))
+        store.add(_dup_entry("Q2", 0.85, b, answer="Paris"))
+        n_clusters, n_removed = store.consolidate()
+        assert n_clusters == 0
+        assert n_removed == 0
+        assert store.size == 2
+
+    def test_breakdown_attribute_populated(self):
+        store = make_store()
+        a, b = _near_dup_pair(target_sim=0.95)
+        store.add(_dup_entry("Q1", 0.90, a, answer="Paris"))
+        store.add(_dup_entry("Q2", 0.85, b, answer="Paris"))
+        store.consolidate()
+        bd = store._last_consolidation_breakdown
+        assert bd["clusters_merged"] == 1
+        assert bd["clusters_skipped_answer_mismatch"] == 0
+        assert bd["clusters_skipped_u_spread"] == 0
+        assert bd["removed"] == 1
+        assert bd["final_size"] == 1
+
+    def test_threshold_override_strict(self):
+        store = make_store()
+        a, b = _near_dup_pair(target_sim=0.93)
+        store.add(_dup_entry("Q1", 0.90, a, answer="Paris"))
+        store.add(_dup_entry("Q2", 0.85, b, answer="Paris"))
+        # Default 0.92 would cluster; tighten to 0.99.
+        n_clusters, n_removed = store.consolidate(similarity_threshold=0.99)
+        assert n_clusters == 0
+        assert n_removed == 0
+        assert store.size == 2
+
+    def test_tiebreak_deterministic_across_runs(self):
+        store = make_store()
+        a, b = _near_dup_pair(target_sim=0.95)
+        id_a = store.add(_dup_entry("A", 0.75, a, answer="Paris"))
+        id_b = store.add(_dup_entry("B", 0.75, b, answer="Paris"))
+        store.consolidate()
+        surviving = id_a if store.get(id_a) is not None else id_b
+        assert surviving == min(id_a, id_b)
+
+
+class TestConsolidateSafetyGuards:
+    """Branch C Goal 4 item 3 design-review safety fixes (2026-04-22)."""
+
+    def test_answer_mismatch_skips_merge(self):
+        """Clusters where the normalised answer field differs across members
+        are NOT merged -- this is the sample-mode fix for "Who directed X"
+        vs "Who starred in X" which score high on SBERT query similarity
+        but have different correct answers.
+        """
+        store = make_store()
+        a, b = _near_dup_pair(target_sim=0.95)
+        id_a = store.add(_dup_entry("directed?", 0.90, a, answer="Coppola"))
+        id_b = store.add(_dup_entry("starred?", 0.80, b, answer="Brando"))
+
+        n_clusters, n_removed = store.consolidate()
+        assert n_clusters == 0
+        assert n_removed == 0
+        # Both entries still present.
+        assert store.get(id_a) is not None
+        assert store.get(id_b) is not None
+        # Breakdown flags the skip reason.
+        bd = store._last_consolidation_breakdown
+        assert bd["clusters_skipped_answer_mismatch"] == 1
+        assert bd["clusters_merged"] == 0
+
+    def test_answer_equality_is_normalised(self):
+        """Surface-form differences (punctuation, case) do not block the
+        merge -- only semantic disagreement does.
+        """
+        store = make_store()
+        a, b = _near_dup_pair(target_sim=0.95)
+        id_a = store.add(_dup_entry("q1", 0.90, a, answer="Paris."))
+        store.add(_dup_entry("q2", 0.85, b, answer="paris "))
+        n_clusters, _ = store.consolidate()
+        assert n_clusters == 1
+        assert store.get(id_a) is not None
+
+    def test_u_spread_guardrail_skips_merge(self):
+        """Clusters with internal u_stored spread > cfg.consolidation_max_u_spread
+        are flagged for audit and NOT merged. Guards against "cluster looks
+        semantically tight but one member is suspiciously unconfident".
+        """
+        store = make_store()
+        # Default spread ceiling is 0.15; 0.92 - 0.70 = 0.22 > ceiling.
+        a, b = _near_dup_pair(target_sim=0.95)
+        id_a = store.add(_dup_entry("q1", 0.92, a, answer="Paris"))
+        id_b = store.add(_dup_entry("q2", 0.70, b, answer="Paris"))
+        n_clusters, n_removed = store.consolidate()
+        assert n_clusters == 0
+        assert n_removed == 0
+        assert store.get(id_a) is not None
+        assert store.get(id_b) is not None
+        bd = store._last_consolidation_breakdown
+        assert bd["clusters_skipped_u_spread"] == 1
+
+    def test_u_spread_guardrail_configurable(self):
+        store = make_store()
+        store.config.consolidation_max_u_spread = 0.25  # allow wider spread
+        a, b = _near_dup_pair(target_sim=0.95)
+        store.add(_dup_entry("q1", 0.92, a, answer="Paris"))
+        store.add(_dup_entry("q2", 0.70, b, answer="Paris"))
+        n_clusters, _ = store.consolidate()
+        assert n_clusters == 1
+
+    def test_merged_source_benchmarks_populated(self):
+        """Consolidating across benchmarks unions the tags onto the
+        representative's ``merged_source_benchmarks``.
+        """
+        store = make_store()
+        a, b = _near_dup_pair(target_sim=0.95)
+        id_rep = store.add(_dup_entry(
+            "q1", 0.90, a, answer="Paris", source_benchmark="fever",
+        ))
+        store.add(_dup_entry(
+            "q2", 0.85, b, answer="Paris", source_benchmark="triviaqa",
+        ))
+        store.consolidate()
+        rep = store.get(id_rep)
+        assert rep is not None
+        assert rep.source_benchmark == "fever"
+        assert rep.merged_source_benchmarks == ("triviaqa",)
+
+    def test_sil_gate_defense_in_depth_on_manually_mixed_entry(self):
+        """Defense-in-depth: if a mixed-pool entry somehow slips past the
+        pre-split (e.g., future code path, storage bug), the SIL
+        _collect_episodes gate still excludes it. Manually inject the
+        cross-pool condition here since the pre-split means consolidation
+        itself will never produce one in production.
+        """
+        from caem.training.self_improvement import SelfImprovementLoop
+        from caem.config import CAEMConfig
+        import tempfile
+
+        store = make_store()
+        # One FEVER entry, merge-tagged with truthfulqa directly on the
+        # EpisodicEntry field (bypassing consolidation).
+        entry = make_entry(
+            question="q1", answer="Paris", u_stored=0.90, seed=0,
+        )
+        entry.source_benchmark = "fever"
+        entry.merged_source_benchmarks = ("truthfulqa",)
+        store.add(entry)
+
+        cfg = CAEMConfig()
+        cfg.min_u_stored_for_training = 0.70
+        with tempfile.TemporaryDirectory() as tmpdir:
+            from tests.test_self_improvement import (
+                make_mock_model, make_mock_tokenizer,
+            )
+            loop = SelfImprovementLoop(
+                make_mock_model(), make_mock_tokenizer(), cfg,
+                device="cpu", output_dir=tmpdir,
+            )
+            pairs = loop._collect_episodes(store)
+        # OOD-contaminated entry excluded from the SIL pool.
+        assert pairs == []
+
+    def test_audit_log_uses_enum_skip_reasons(self, tmp_path):
+        """The audit log's ``outcome``/``reason`` fields come from the
+        module-level SKIP_* / OUTCOME_* constants so Ch1 audits can grep
+        for machine-readable values rather than regex over prose. Covers
+        the merged outcome + at least one skip outcome in the same pass.
+        """
+        from caem.memory.store import (
+            SKIP_ANSWER_MISMATCH,
+            OUTCOME_MERGED,
+        )
+        store = make_store()
+
+        # Merge case: clean cluster.
+        a, b = _near_dup_pair(target_sim=0.95)
+        store.add(_dup_entry("q-merge-1", 0.90, a, answer="Paris"))
+        store.add(_dup_entry("q-merge-2", 0.85, b, answer="Paris"))
+
+        log_path = tmp_path / "consolidation.jsonl"
+        store.consolidate(audit_log_path=log_path)
+
+        assert log_path.exists()
+        lines = log_path.read_text().strip().splitlines()
+        parsed = [json.loads(line) for line in lines]
+        outcomes = {r["outcome"] for r in parsed}
+        reasons = {r.get("reason") for r in parsed}
+        assert OUTCOME_MERGED in outcomes
+        # Exact-enum string (not a free-form synonym).
+        assert OUTCOME_MERGED == "merged"
+        assert SKIP_ANSWER_MISMATCH == "answer_mismatch"
+        # Merged record carries reason == OUTCOME_MERGED too (enum-only).
+        assert OUTCOME_MERGED in reasons
+
+
+class TestConsolidatePreSplitAndCycleGuard:
+    """Branch C Goal 4 item 3 design-review fixes (2026-04-22 round 2):
+    pre-split by training / transfer pool + Cycle-0 protection."""
+
+    def test_cycle_0_is_protected(self):
+        """consolidate(cycle_num=0) is a no-op: cold-start memory stays
+        intentionally diverse. First real pass runs at Cycle 1 -> Cycle 2.
+        """
+        store = make_store()
+        a, b = _near_dup_pair(target_sim=0.95)
+        store.add(_dup_entry("q1", 0.90, a, answer="Paris"))
+        store.add(_dup_entry("q2", 0.85, b, answer="Paris"))
+        n_clusters, n_removed = store.consolidate(cycle_num=0)
+        assert n_clusters == 0
+        assert n_removed == 0
+        assert store.size == 2
+
+    def test_cycle_1_runs(self):
+        store = make_store()
+        a, b = _near_dup_pair(target_sim=0.95)
+        store.add(_dup_entry("q1", 0.90, a, answer="Paris"))
+        store.add(_dup_entry("q2", 0.85, b, answer="Paris"))
+        n_clusters, _ = store.consolidate(cycle_num=1)
+        assert n_clusters == 1
+
+    def test_cycle_num_none_runs(self):
+        """When cycle_num is not supplied, pass runs unconditionally
+        (preserves back-compat for existing tests and single-call scripts).
+        """
+        store = make_store()
+        a, b = _near_dup_pair(target_sim=0.95)
+        store.add(_dup_entry("q1", 0.90, a, answer="Paris"))
+        store.add(_dup_entry("q2", 0.85, b, answer="Paris"))
+        n_clusters, _ = store.consolidate()
+        assert n_clusters == 1
+
+    def test_cross_pool_pair_never_merges(self):
+        """A FEVER (training) entry + a TruthfulQA (transfer) entry at
+        0.95 similarity are NOT merged, even though the query-side SBERT
+        embedding would cluster them. This protects the SIL training pool
+        from OOD leak by construction rather than by the downstream gate.
+        """
+        from caem.memory.store import SKIP_CROSS_POOL
+
+        store = make_store()
+        a, b = _near_dup_pair(target_sim=0.95)
+        id_train = store.add(_dup_entry(
+            "q1", 0.90, a, answer="Paris", source_benchmark="fever",
+        ))
+        id_transfer = store.add(_dup_entry(
+            "q2", 0.85, b, answer="Paris", source_benchmark="truthfulqa",
+        ))
+        n_clusters, n_removed = store.consolidate()
+        assert n_clusters == 0
+        assert n_removed == 0
+        # Both still present.
+        assert store.get(id_train) is not None
+        assert store.get(id_transfer) is not None
+        # Cross-pool rejection logged in the breakdown.
+        bd = store._last_consolidation_breakdown
+        assert bd["clusters_skipped_cross_pool"] >= 1
+
+    def test_within_pool_pair_merges(self):
+        """Two FEVER (training) entries at 0.95 similarity merge normally.
+        The representative's merged_source_benchmarks stays within the
+        training pool (no OOD contamination).
+        """
+        store = make_store()
+        a, b = _near_dup_pair(target_sim=0.95)
+        id_rep = store.add(_dup_entry(
+            "q1", 0.90, a, answer="Paris", source_benchmark="fever",
+        ))
+        store.add(_dup_entry(
+            "q2", 0.85, b, answer="Paris", source_benchmark="triviaqa",
+        ))
+        n_clusters, _ = store.consolidate()
+        assert n_clusters == 1
+        rep = store.get(id_rep)
+        assert rep is not None
+        # Representative carries the merged training-pool benchmark.
+        assert rep.merged_source_benchmarks == ("triviaqa",)
+        # Transfer benchmarks never appear on a within-training-pool rep.
+        from caem.config import TRANSFER_BENCHMARKS
+        for bm in rep.merged_source_benchmarks:
+            assert bm not in TRANSFER_BENCHMARKS
+
+
+class TestConsolidateTiebreaker:
+    def test_tiebreaker_by_u_then_cycle_then_eid(self):
+        """When u_stored ties, older storage_cycle wins; if those tie too,
+        lower entry_id wins. Guards against FAISS-ordering-dependent
+        non-determinism that would break checkpoint reproducibility.
+        """
+        store = make_store()
+        a, b = _near_dup_pair(target_sim=0.95)
+
+        # Two entries with same u_stored, different storage_cycle.
+        e_newer = _dup_entry("newer", 0.85, a, answer="Paris")
+        e_newer.storage_cycle = 3
+        e_older = _dup_entry("older", 0.85, b, answer="Paris")
+        e_older.storage_cycle = 1
+
+        id_newer = store.add(e_newer)
+        id_older = store.add(e_older)
+        store.consolidate()
+
+        # Older cycle wins the tie (most-observed-across-cycles member).
+        assert store.get(id_older) is not None
+        assert store.get(id_newer) is None
+
+    def test_tiebreaker_final_fallback_to_entry_id(self):
+        """All three fields tied -> lowest entry_id wins (insertion order
+        in these tests gives deterministic eids)."""
+        store = make_store()
+        a, b = _near_dup_pair(target_sim=0.95)
+        id_a = store.add(_dup_entry("A", 0.85, a, answer="Paris"))
+        id_b = store.add(_dup_entry("B", 0.85, b, answer="Paris"))
+        # Both at storage_cycle=0 by default.
+        store.consolidate()
+        assert store.get(min(id_a, id_b)) is not None
+        assert store.get(max(id_a, id_b)) is None
+
+
+# -----------------------------------------------------------------------------
+# Hit-counter forced re-verification (Branch C Goal 4 item 5)
+# -----------------------------------------------------------------------------
+
+class TestHitCounter:
+    def test_default_value_is_zero(self):
+        e = make_entry()
+        assert e.hit_counter == 0
+
+    def test_increments_on_tier1_serve(self):
+        """update_retrieval_stats is the Tier-1 serve entry point; each
+        call bumps hit_counter by 1 regardless of accepted/overridden.
+        """
+        store = make_store()
+        eid = store.add(make_entry(seed=0, u_stored=0.85))
+        store.update_retrieval_stats(eid, was_accepted=True)
+        store.update_retrieval_stats(eid, was_accepted=False)
+        store.update_retrieval_stats(eid, was_accepted=True)
+        e = store.get(eid)
+        assert e.hit_counter == 3
+        # retrieval_count also bumps; the two counters move in lockstep
+        # until retroverify resets the hit counter.
+        assert e.retrieval_count == 3
+
+    def test_retroverify_resets_counter_on_upgrade(self):
+        """When retroverify re-scores an entry (either direction), the
+        hit_counter returns to zero for the next cycle's pressure
+        accounting. retrieval_count is cumulative and stays intact.
+        """
+        store = make_store()
+        eid = store.add(make_entry(seed=0, u_stored=0.70))
+        for _ in range(5):
+            store.update_retrieval_stats(eid, was_accepted=True)
+        assert store.get(eid).hit_counter == 5
+
+        improved = _make_verifier_output(u_stored=0.90)
+        store.retroverify(lambda _: improved, threshold=0.50)
+
+        e = store.get(eid)
+        assert e.hit_counter == 0
+        # Cumulative retrieval_count untouched by retroverify.
+        assert e.retrieval_count == 5
+
+    def test_retroverify_resets_counter_on_noop_tie(self):
+        """Even when the new score equals the old (no u_stored update),
+        the retroverified flag flips and hit_counter resets -- the entry
+        WAS re-checked, so "serves since last check" should restart.
+        """
+        store = make_store()
+        eid = store.add(make_entry(seed=0, u_stored=0.80))
+        for _ in range(4):
+            store.update_retrieval_stats(eid, was_accepted=True)
+        assert store.get(eid).hit_counter == 4
+
+        tie = _make_verifier_output(u_stored=0.80)
+        # allow_downgrade=False so the identical-u_stored branch falls to
+        # the no-op tie path (still marks retroverified + resets counter).
+        store.config.retroverify_allow_downgrade = False
+        store.retroverify(lambda _: tie, threshold=0.50)
+
+        assert store.get(eid).hit_counter == 0
+
+    def test_consolidation_sums_hit_counter(self):
+        """Closes the goal-4-item-5 TODO in consolidate(): the merged
+        representative inherits all Tier-1 serve pressure from the cluster.
+        """
+        store = make_store()
+        a, b = _near_dup_pair(target_sim=0.95)
+        e_rep = _dup_entry("rep", 0.90, a, answer="Paris")
+        e_rep.hit_counter = 7
+        e_mem = _dup_entry("member", 0.85, b, answer="Paris")
+        e_mem.hit_counter = 4
+        id_rep = store.add(e_rep)
+        store.add(e_mem)
+
+        store.consolidate()
+        rep = store.get(id_rep)
+        assert rep is not None
+        assert rep.hit_counter == 11
+
+    def test_force_retroverify_queue_returns_crossed_entries(self):
+        """force_retroverify_queue lists entries whose hit_counter >=
+        threshold, sorted by descending pressure with entry_id tie-break.
+        """
+        store = make_store()
+        id_low = store.add(make_entry(question="Q1", seed=0, u_stored=0.80))
+        id_mid = store.add(make_entry(question="Q2", seed=1, u_stored=0.80))
+        id_high = store.add(make_entry(question="Q3", seed=2, u_stored=0.80))
+
+        for _ in range(3):  # below default threshold 10
+            store.update_retrieval_stats(id_low, was_accepted=True)
+        for _ in range(11):  # above threshold
+            store.update_retrieval_stats(id_mid, was_accepted=True)
+        for _ in range(15):  # also above -> highest pressure
+            store.update_retrieval_stats(id_high, was_accepted=True)
+
+        queue = store.force_retroverify_queue()
+        assert queue == [id_high, id_mid]
+
+    def test_force_retroverify_queue_threshold_override(self):
+        store = make_store()
+        eid = store.add(make_entry(seed=0, u_stored=0.80))
+        for _ in range(5):
+            store.update_retrieval_stats(eid, was_accepted=True)
+
+        # Default threshold = 10, entry has 5 hits -> not in queue.
+        assert store.force_retroverify_queue() == []
+        # Tighter threshold -> in queue.
+        assert store.force_retroverify_queue(hit_threshold=3) == [eid]
+        # Zero/negative disables.
+        assert store.force_retroverify_queue(hit_threshold=0) == []
+
+    def test_force_retroverify_queue_respects_config_value(self):
+        store = make_store()
+        store.config.hit_counter_force_retroverify = 4
+        eid = store.add(make_entry(seed=0, u_stored=0.80))
+        for _ in range(4):
+            store.update_retrieval_stats(eid, was_accepted=True)
+        assert store.force_retroverify_queue() == [eid]
+
+    def test_pruning_threshold_path_does_not_keep_hit_counter(self):
+        """Branch check: entries below the retroverify threshold get
+        removed outright; their hit_counter disappears with them. No
+        special semantics needed, but guard against a future "move the
+        counter onto a sibling" regression.
+        """
+        store = make_store()
+        eid = store.add(make_entry(seed=0, u_stored=0.80))
+        for _ in range(6):
+            store.update_retrieval_stats(eid, was_accepted=True)
+
+        # Below-threshold new score -> remove.
+        bad = _make_verifier_output(
+            u_stored=0.30, decision="DISCARD", p_contra=0.05,
+        )
+        store.retroverify(lambda _: bad, threshold=0.50)
+        assert store.get(eid) is None

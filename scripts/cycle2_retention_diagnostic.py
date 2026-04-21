@@ -133,28 +133,73 @@ def _evaluate(
     device: str,
 ) -> None:
     from caem.config import CAEMConfig
+    from caem.model_loader import load_base_generator
     from eval.metrics import exact_match
     import torch
-    from transformers import AutoTokenizer, T5ForConditionalGeneration
 
     config = CAEMConfig()
     rows = _load_slice(slice_path)
     logger.info("Loaded %d hold-out samples", len(rows))
 
-    tokenizer = AutoTokenizer.from_pretrained("google/flan-t5-large")
-    model = T5ForConditionalGeneration.from_pretrained(
-        str(cycle2_checkpoint), torch_dtype=torch.bfloat16,
-    ).to(device).eval()
+    # Load base architecture, then overlay the cycle-2 fine-tuned weights.
+    # Branch C uses a decoder-only backbone (Qwen-3B by default). The
+    # cycle2_checkpoint argument is interpreted as either a HuggingFace
+    # repo id/local path pointing at the overlay weights OR a state_dict
+    # checkpoint — we try the state_dict path first (matches SIL format)
+    # and fall back to treating it as a full-model path.
+    model, tokenizer = load_base_generator(
+        config.base_model_name,
+        device=device,
+        dtype=torch.bfloat16,
+        use_flash_attention_2=False,
+        use_torch_compile=False,
+    )
+    ckpt_path = Path(cycle2_checkpoint)
+    if ckpt_path.is_file():
+        state = torch.load(str(ckpt_path), map_location="cpu", weights_only=True)
+        model.load_state_dict(state)
+        logger.info("Loaded cycle-2 state_dict overlay from %s", ckpt_path)
+    elif ckpt_path.is_dir():
+        # Directory path: SIL checkpoints store model.pt inside the dir.
+        sd_path = ckpt_path / "model.pt"
+        if sd_path.is_file():
+            state = torch.load(str(sd_path), map_location="cpu", weights_only=True)
+            model.load_state_dict(state)
+            logger.info("Loaded cycle-2 state_dict overlay from %s", sd_path)
+        else:
+            logger.warning(
+                "cycle2_checkpoint dir %s has no model.pt; using base weights.",
+                ckpt_path,
+            )
+    model = model.eval()
 
     per_bench: Dict[str, Dict[str, float]] = {}
     for r in rows:
         q = r["question"]
         gold = r["gold_answers"] or ([r["gold_label"]] if r["gold_label"] else [])
-        enc = tokenizer(q, return_tensors="pt", truncation=True,
-                        max_length=512).to(device)
+        # ChatML-wrap for decoder-only; slice generated suffix.
+        if hasattr(tokenizer, "apply_chat_template"):
+            try:
+                prompt = tokenizer.apply_chat_template(
+                    [{"role": "user", "content": q}],
+                    tokenize=False, add_generation_prompt=True,
+                )
+                if not isinstance(prompt, str):
+                    prompt = q
+            except Exception:
+                prompt = q
+        else:
+            prompt = q
+        enc = tokenizer(prompt, return_tensors="pt", truncation=True,
+                        max_length=2048, add_special_tokens=False).to(device)
+        input_len = int(enc["input_ids"].shape[1])
         with torch.no_grad():
-            out = model.generate(**enc, max_new_tokens=128)
-        pred = tokenizer.decode(out[0], skip_special_tokens=True)
+            out = model.generate(
+                **enc, max_new_tokens=128,
+                pad_token_id=tokenizer.pad_token_id,
+            )
+        gen_ids = out[0, input_len:] if out.shape[1] > input_len else out[0]
+        pred = tokenizer.decode(gen_ids, skip_special_tokens=True)
 
         em_now = 1.0 if any(exact_match(pred, str(g)) for g in gold) else 0.0
         em_before = r["cycle0_em"]

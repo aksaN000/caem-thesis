@@ -14,7 +14,7 @@ Coverage:
   - _mix: ratio maths, shuffle, clipping to available general data
   - _l2_penalty: zero when θ unchanged, positive when changed
   - _snapshot_weights / _restore_weights: round-trip fidelity
-  - _forgetting_score: exact-match counting
+  - _mmlu_score: 4-choice MMLU retention probe (the sole forgetting guard)
   - run_cycle: no-episode early exit, normal flow, abort-on-forgetting
   - Checkpoint save / load round-trip
   - all_entries() on EpisodicMemoryStore
@@ -63,33 +63,30 @@ def make_entry(
     *,
     vout: UnifiedVerifierOutput | None = None,
 ) -> EpisodicEntry:
-    """Construct an EpisodicEntry whose nine-signal block is internally consistent.
+    """Construct an EpisodicEntry whose composite-signal block is internally consistent.
 
-    Task #130 (MAJOR-T8) fix: the prior helper set ``u_stored`` from the scalar
-    kwarg but left every signal field at its dataclass default of 0.0 -- an
-    impossible state under the Session-42 composite
+    Originally built against the Session-42 six-weight composite; updated in
+    Branch C Goal 2 (2026-04-22) when q_a_relevance was added as the seventh
+    weighted signal:
 
-        u_stored = 0.30*p_ground_mean + 0.15*p_ground_atomic
-                 + 0.15*p_entail + 0.15*s_avg + 0.15*u_internal
-                 + 0.10*(1 - h_norm)
+        u_stored = 0.28*p_ground_mean + 0.14*p_ground_atomic
+                 + 0.16*p_entail + 0.14*q_a_relevance + 0.14*s_avg
+                 + 0.10*u_internal + 0.04*(1 - h_norm)
 
-    where all-zero signals with h_norm=0.0 give u_stored=0.10, not 0.80. Any
-    SIL test that inspected the individual signals alongside the composite
-    would fire on a contradiction that the code itself would never produce.
+    Setting every positive signal to v and h_norm = 1 - v evaluates to exactly
+    v under this composite (all seven weighted terms contribute ``w_i * v``).
 
     Two modes:
 
       1. ``vout`` is ``None`` (default): derive a canonical self-consistent
-         signal set from the scalar ``u_stored=v``. Setting every positive
-         signal to ``v`` and ``h_norm = 1 - v`` evaluates to exactly ``v``
-         under the default six-weight composite (weights sum to 1.0 and the
-         h_norm term contributes ``0.10 * v``).
+         signal set from the scalar ``u_stored=v``.
 
-      2. ``vout`` provided: mirror the verifier's actual output -- all nine
-         signals plus ``p_contra``, ``decision``, and ``early_exit_triggered``
-         are copied verbatim, and the scalar ``u_stored`` kwarg is ignored
-         in favour of ``vout.u_stored``. This is the realistic path: in
-         production an entry is always built from a UnifiedVerifierOutput.
+      2. ``vout`` provided: mirror the verifier's actual output -- all signals
+         plus ``p_contra``, ``q_a_relevance``, ``decision``, and
+         ``early_exit_triggered`` are copied verbatim, and the scalar
+         ``u_stored`` kwarg is ignored in favour of ``vout.u_stored``. This
+         is the realistic path: in production an entry is always built from
+         a UnifiedVerifierOutput.
     """
     if vout is not None:
         return EpisodicEntry(
@@ -110,6 +107,7 @@ def make_entry(
             p_ground_mean=vout.p_ground_mean,
             p_ground_atomic=vout.p_ground_atomic,
             p_contra=vout.p_contra,
+            q_a_relevance=vout.q_a_relevance,
             decision=vout.decision,
             early_exit_triggered=vout.early_exit_triggered,
             retrieval_count=0,
@@ -144,6 +142,9 @@ def make_entry(
         p_ground_atomic=v,
         # No contradiction implied; decision reflects the scalar band.
         p_contra=0.0,
+        # Branch C Goal 2 seventh composite signal: set to v so the scalar
+        # u_stored = v invariant holds under the seven-weight composite.
+        q_a_relevance=v,
         decision="STORE" if v >= 0.75 else ("DEFERRED" if v >= 0.55 else "DISCARD"),
         early_exit_triggered=False,
         retrieval_count=0,
@@ -160,7 +161,7 @@ def make_store_with_entries(entries) -> EpisodicMemoryStore:
 
 
 class _DictWithTo(dict):
-    """dict subclass with .to(device) so tokenizer output works in _forgetting_score."""
+    """dict subclass with .to(device) so tokenizer output works in SIL fine-tune paths."""
     def to(self, device):
         return self
 
@@ -169,15 +170,23 @@ def make_mock_tokenizer() -> MagicMock:
     tok = MagicMock()
     tok.pad_token_id = 0
     tok.eos_token_id = 1
-    # Return a _DictWithTo so .to(device) works in _forgetting_score
+    tok.padding_side = "right"
+    # Return a _DictWithTo so .to(device) works in the SIL fine-tune paths
     tok.return_value = _DictWithTo({
         "input_ids":      torch.zeros(1, 8, dtype=torch.long),
         "attention_mask": torch.ones(1, 8, dtype=torch.long),
     })
     tok.decode.return_value = "Paris"
-    # as_target_tokenizer context manager
-    tok.as_target_tokenizer.return_value.__enter__ = lambda s: tok
-    tok.as_target_tokenizer.return_value.__exit__ = MagicMock(return_value=False)
+    # apply_chat_template: produce a plausible ChatML-like string so the
+    # decoder-only training/scoring paths exercise the real code branch
+    # (QADataset.__getitem__ and _wrap_chatml_user both feed the result back
+    # into the tokenizer, which always returns the fixed _DictWithTo above).
+    def _apply_chat_template(messages, tokenize=False, add_generation_prompt=False):
+        parts = [f"<|im_start|>{m['role']}\n{m['content']}<|im_end|>" for m in messages]
+        if add_generation_prompt:
+            parts.append("<|im_start|>assistant\n")
+        return "\n".join(parts)
+    tok.apply_chat_template.side_effect = _apply_chat_template
     return tok
 
 
@@ -453,45 +462,13 @@ class TestL2Penalty:
 
 
 # -----------------------------------------------------------------------------
-# _forgetting_score
+# (The TestForgettingScore class was removed 2026-04-22. The deprecated
+# ``SelfImprovementLoop._forgetting_score`` diagnostic -- an in-distribution
+# EM probe -- was cut along with the contradiction-veto dead code. The
+# abort guard is now driven entirely by ``_mmlu_score`` which is covered
+# by TestRunCycle::test_aborted_when_forgetting_fails and
+# test_not_aborted_when_forgetting_passes below.)
 # -----------------------------------------------------------------------------
-
-class TestForgettingScore:
-    def test_empty_eval_returns_one(self):
-        loop, _ = make_loop()
-        score = loop._forgetting_score([])
-        assert score == pytest.approx(1.0)
-
-    def test_all_correct_returns_one(self):
-        loop, _ = make_loop()
-        # tokenizer.decode returns "Paris" by default
-        # Make answer match exactly
-        pairs = [QAPair("Q?", "Paris")]
-        score = loop._forgetting_score(pairs)
-        assert score == pytest.approx(1.0)
-
-    def test_none_correct_returns_zero(self):
-        loop, _ = make_loop()
-        # tokenizer.decode returns "Paris" but answer is different
-        pairs = [QAPair("Q?", "London"), QAPair("Q2?", "Berlin")]
-        score = loop._forgetting_score(pairs)
-        assert score == pytest.approx(0.0)
-
-    def test_partial_correct(self):
-        loop, _ = make_loop()
-        tok = loop.tokenizer
-        decode_responses = ["Paris", "London", "Paris"]
-        tok.decode.side_effect = decode_responses
-        pairs = [QAPair("Q1?", "Paris"), QAPair("Q2?", "Paris"), QAPair("Q3?", "Berlin")]
-        score = loop._forgetting_score(pairs)
-        # "Paris"=="Paris" -> correct, "London"=="Paris" -> wrong, "Paris"=="Berlin" -> wrong
-        assert score == pytest.approx(1/3, abs=0.01)
-
-    def test_score_in_unit_interval(self):
-        loop, _ = make_loop()
-        pairs = [QAPair(f"Q{i}?", "Paris") for i in range(5)]
-        score = loop._forgetting_score(pairs)
-        assert 0.0 <= score <= 1.0
 
 
 # -----------------------------------------------------------------------------

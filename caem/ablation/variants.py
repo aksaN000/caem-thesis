@@ -74,30 +74,62 @@ def _mut_noop(cfg: CAEMConfig) -> None:
     return None
 
 
+# All Branch-C u_stored weight fields. Centralised so ablations that zero
+# one family and rescale the rest stay in sync with config.py when a new
+# signal is added (e.g. q_a_relevance in Goal 2, 2026-04-22).
+_U_STORED_WEIGHT_FIELDS: Tuple[str, ...] = (
+    "u_stored_weight_pground_mean",
+    "u_stored_weight_pground_atomic",
+    "u_stored_weight_nli",
+    "u_stored_weight_q_a_relevance",
+    "u_stored_weight_sc",
+    "u_stored_weight_uinternal",
+    "u_stored_weight_se",
+)
+
+
+def _rescale_u_stored_weights_excluding(
+    cfg: CAEMConfig,
+    *,
+    zeroed: Tuple[str, ...],
+) -> None:
+    """Zero every attribute in ``zeroed`` and rescale the remaining
+    ``_U_STORED_WEIGHT_FIELDS`` so the composite weights sum to 1.0.
+
+    Pathological input (all kept weights zero after the zero-out) falls
+    back to an equal split across the remaining fields so callers never
+    produce an all-zero composite that would silently floor u_stored.
+    """
+    for field in zeroed:
+        setattr(cfg, field, 0.0)
+    kept = [f for f in _U_STORED_WEIGHT_FIELDS if f not in zeroed]
+    remaining = sum(getattr(cfg, f) for f in kept)
+    if remaining <= 0:
+        equal = 1.0 / max(len(kept), 1)
+        for f in kept:
+            setattr(cfg, f, equal)
+        return
+    scale = 1.0 / remaining
+    for f in kept:
+        setattr(cfg, f, getattr(cfg, f) * scale)
+
+
 def _mut_no_grounding(cfg: CAEMConfig) -> None:
-    """Zero EXTERNAL-grounding weights in u_stored; renormalize the rest.
+    """Zero EXTERNAL-grounding weights in u_stored; renormalise the rest.
 
     Grounding in u_stored is carried by ``pground_mean`` and
     ``pground_atomic`` only: both measure whether retrieved Wikipedia
     passages entail the generated answer (passage -> answer entailment).
 
     IMPORTANT: ``u_stored_weight_nli`` is NOT a grounding signal. Per
-    ``caem/config.py:192`` it weights ``p_entail`` (chain -> answer
+    ``caem/config.py`` it weights ``p_entail`` (chain -> answer
     entailment), which is a self-consistency / internal-coherence
     signal — orthogonal to whether external passages support the claim.
     The prior implementation zeroed ``u_stored_weight_nli`` alongside
     the pground fields, which conflated two mechanism removals in one
-    variant and made the ``no_grounding`` ablation measure grounding + NLI
-    self-consistency jointly (not grounding alone). Audit MAJOR-VR1 /
-    Task #114.
-
-    Post-fix: this mutation zeroes ONLY the two pground weights and
-    rescales the other four (nli, sc, uinternal, se) to sum to 1.0.
-    The ``no_grounding`` variant now ablates external grounding cleanly.
-    A companion ``no_chain_answer_entailment`` variant (zeroing nli
-    only) is deferred to future work — adding it pushes the registry
-    from 16 to 17 and would require thesis table updates in Ch5 (see
-    "Sixteen named ablation variants" caption / §5.2).
+    variant (audit MAJOR-VR1 / Task #114). The post-fix behaviour zeroes
+    only the two pground weights and rescales the remaining five signals
+    (nli, q_a_relevance, sc, uinternal, se) to sum to 1.0.
 
     Early-returns when grounding weights are already zero so repeated
     application is bitwise-idempotent (avoiding FP drift in the rescale).
@@ -107,82 +139,59 @@ def _mut_no_grounding(cfg: CAEMConfig) -> None:
         and cfg.u_stored_weight_pground_atomic == 0.0
     ):
         return
-    nli = cfg.u_stored_weight_nli
-    sc = cfg.u_stored_weight_sc
-    ui = cfg.u_stored_weight_uinternal
-    se = cfg.u_stored_weight_se
-    total_keep = nli + sc + ui + se
-    if total_keep <= 0:
-        # Pathological config (all kept weights zero); fall back to
-        # equal split across the four remaining signals.
-        cfg.u_stored_weight_nli = 1 / 4
-        cfg.u_stored_weight_sc = 1 / 4
-        cfg.u_stored_weight_uinternal = 1 / 4
-        cfg.u_stored_weight_se = 1 / 4
-    else:
-        cfg.u_stored_weight_nli = nli / total_keep
-        cfg.u_stored_weight_sc = sc / total_keep
-        cfg.u_stored_weight_uinternal = ui / total_keep
-        cfg.u_stored_weight_se = se / total_keep
-    cfg.u_stored_weight_pground_mean = 0.0
-    cfg.u_stored_weight_pground_atomic = 0.0
+    _rescale_u_stored_weights_excluding(cfg, zeroed=(
+        "u_stored_weight_pground_mean",
+        "u_stored_weight_pground_atomic",
+    ))
 
 
 def _mut_no_internal_calibration(cfg: CAEMConfig) -> None:
     """Zero u_internal weight; rescale the remaining u_stored signals."""
-    ui = cfg.u_stored_weight_uinternal
-    if ui <= 0:
+    if cfg.u_stored_weight_uinternal <= 0:
         return
-    cfg.u_stored_weight_uinternal = 0.0
-    remaining = (
-        cfg.u_stored_weight_pground_mean
-        + cfg.u_stored_weight_pground_atomic
-        + cfg.u_stored_weight_nli
-        + cfg.u_stored_weight_sc
-        + cfg.u_stored_weight_se
-    )
-    if remaining <= 0:
-        return
-    scale = 1.0 / remaining
-    cfg.u_stored_weight_pground_mean *= scale
-    cfg.u_stored_weight_pground_atomic *= scale
-    cfg.u_stored_weight_nli *= scale
-    cfg.u_stored_weight_sc *= scale
-    cfg.u_stored_weight_se *= scale
+    _rescale_u_stored_weights_excluding(cfg, zeroed=("u_stored_weight_uinternal",))
 
 
 def _mut_no_semantic_entropy(cfg: CAEMConfig) -> None:
     """Disable semantic entropy (Farquhar 2024) in u_stored; rescale."""
-    se = cfg.u_stored_weight_se
-    if se <= 0:
+    if cfg.u_stored_weight_se <= 0:
         return
-    cfg.u_stored_weight_se = 0.0
-    remaining = (
-        cfg.u_stored_weight_pground_mean
-        + cfg.u_stored_weight_pground_atomic
-        + cfg.u_stored_weight_nli
-        + cfg.u_stored_weight_sc
-        + cfg.u_stored_weight_uinternal
+    _rescale_u_stored_weights_excluding(cfg, zeroed=("u_stored_weight_se",))
+
+
+def _mut_no_q_a_relevance(cfg: CAEMConfig) -> None:
+    """Zero q_a_relevance weight; redistribute mass to the six legacy signals.
+
+    Branch C Goal 2 ablation: Chapter 5 reports this variant alongside full
+    CAEM to quantify q_a_relevance's marginal contribution. If the delta is
+    statistically indistinguishable, the signal's 0.14 weight is cosmetic
+    and the thesis narrative has to walk the contribution claim back; if
+    the delta is significant, the signal's sample-② closure is load-bearing.
+
+    Mutation semantics:
+      - Zero ``u_stored_weight_q_a_relevance`` (0.14 -> 0.0).
+      - Rescale the six legacy weights (pground_mean, pground_atomic, nli,
+        sc, uinternal, se) **pro-rata** so they sum back to 1.0, preserving
+        their Branch-C Goal-2 relative ratios (the same pattern every
+        other ``_mut_no_*`` variant uses). The rescale does NOT recover
+        the pre-Goal-2 Session-42 ratios — that would require a different
+        mutation that explicitly reassigns each weight. The Ch5 delta is
+        still well-defined: "Goal-2 composite with q_a_relevance axis
+        removed" vs "full Goal-2 composite".
+
+    Idempotent: returns early when the weight is already zero.
+    """
+    if cfg.u_stored_weight_q_a_relevance <= 0:
+        return
+    _rescale_u_stored_weights_excluding(
+        cfg, zeroed=("u_stored_weight_q_a_relevance",),
     )
-    if remaining <= 0:
-        return
-    scale = 1.0 / remaining
-    cfg.u_stored_weight_pground_mean *= scale
-    cfg.u_stored_weight_pground_atomic *= scale
-    cfg.u_stored_weight_nli *= scale
-    cfg.u_stored_weight_sc *= scale
-    cfg.u_stored_weight_uinternal *= scale
 
 
 def _mut_no_early_exit(cfg: CAEMConfig) -> None:
     """Defuse the confabulation gate by setting thresholds that never fire."""
     cfg.early_exit_u_internal = 1.01
     cfg.early_exit_p_ground_max = -0.01
-
-
-def _mut_no_contradiction_veto(cfg: CAEMConfig) -> None:
-    """Neutralise the contradiction veto by setting its threshold > 1.0."""
-    cfg.contradiction_veto_threshold = 1.01
 
 
 def _mut_no_tier1(cfg: CAEMConfig) -> None:
@@ -206,6 +215,19 @@ def _mut_aggressive_store(cfg: CAEMConfig) -> None:
 def _mut_no_novelty_filter(cfg: CAEMConfig) -> None:
     """Permit duplicates in episodic memory by disabling novelty threshold."""
     cfg.novelty_threshold = 1.01
+
+
+def _mut_no_memory_consolidation(cfg: CAEMConfig) -> None:
+    """Disable the Branch C Goal 4 item 3 cycle-boundary consolidation pass.
+
+    Ablation defense: Chapter 5 must be able to quantify consolidation's
+    marginal contribution vs. its risk (clusters that merge different-
+    answer entries despite the answer-consistency guard). If the ablation
+    shows negligible Tier-1 accuracy impact but meaningful memory-size
+    reduction, consolidation is a clean win. If accuracy drops, the
+    threshold / guards need tightening before the main run.
+    """
+    cfg.enable_consolidation = False
 
 
 def _mut_no_recency_decay(cfg: CAEMConfig) -> None:
@@ -236,25 +258,23 @@ def _mut_roberta_nli_backend(cfg: CAEMConfig) -> None:
 
 
 def _mut_equal_signal_weights(cfg: CAEMConfig) -> None:
-    """Flatten the six composite u_stored signal weights (Ch3 Eq 3.5) to 1/6 each.
+    """Flatten composite u_stored signal weights to 1/N each (Ch3 Eq 3.5).
 
-    The full configuration uses deliberately unequal weights --
-        pground_mean=0.30, pground_atomic=0.15, nli=0.15,
-        sc=0.15, uinternal=0.15, se=0.10
-    -- reflecting our prior that grounding-based signals dominate reliability
-    on open-domain QA. This ablation tests the counterfactual: does the
-    designed weighting actually buy anything, or would a flat 1/6 composite
-    achieve comparable calibration / VER / hallucination reduction? The six
-    fields below mirror the composite sum in CAEMConfig exactly; every
-    u_stored weight is clobbered, so no normalisation step is needed.
+    The full configuration uses deliberately unequal weights. Branch C
+    Goal 2 (2026-04-22) extended the composite from six to seven weighted
+    families by adding q_a_relevance; this ablation tests the
+    counterfactual: does the designed weighting actually buy anything, or
+    would a flat 1/N composite achieve comparable calibration / VER /
+    hallucination reduction?
+
+    Weight source is ``_U_STORED_WEIGHT_FIELDS`` so this mutation stays
+    correct if the registry gains additional signals in future phases.
+    Every u_stored weight is clobbered to the uniform value; no
+    normalisation step is needed (sum is exactly 1.0 by construction).
     """
-    equal = 1.0 / 6.0
-    cfg.u_stored_weight_pground_mean = equal
-    cfg.u_stored_weight_pground_atomic = equal
-    cfg.u_stored_weight_nli = equal
-    cfg.u_stored_weight_sc = equal
-    cfg.u_stored_weight_uinternal = equal
-    cfg.u_stored_weight_se = equal
+    equal = 1.0 / len(_U_STORED_WEIGHT_FIELDS)
+    for field in _U_STORED_WEIGHT_FIELDS:
+        setattr(cfg, field, equal)
 
 
 # =============================================================================
@@ -296,13 +316,6 @@ _ALL_VARIANTS: Tuple[AblationVariant, ...] = (
         needs_cyclic_rerun=True,    # u_stored distribution changes -> training picks differ
     ),
     AblationVariant(
-        name="no_contradiction_veto",
-        description="Neutralise p_contra veto in the STORE/DISCARD decision",
-        mutation=_mut_no_contradiction_veto,
-        mechanism_tag="verification",
-        needs_cyclic_rerun=True,    # contradicting episodes now enter the pool
-    ),
-    AblationVariant(
         name="no_store_gate",
         description="Disable u_stored threshold; store every generation",
         mutation=_mut_no_store_gate,
@@ -323,6 +336,13 @@ _ALL_VARIANTS: Tuple[AblationVariant, ...] = (
         mutation=_mut_no_semantic_entropy,
         mechanism_tag="calibration",
         needs_cyclic_rerun=True,
+    ),
+    AblationVariant(
+        name="no_q_a_relevance",
+        description="Zero q_a_relevance weight (Branch C Goal 2 contribution ablation)",
+        mutation=_mut_no_q_a_relevance,
+        mechanism_tag="verification",
+        needs_cyclic_rerun=True,    # u_stored distribution changes -> stored set diverges
     ),
     AblationVariant(
         name="equal_signal_weights",
@@ -390,6 +410,16 @@ _ALL_VARIANTS: Tuple[AblationVariant, ...] = (
         mutation=_mut_no_recency_decay,
         mechanism_tag="retrieval",
         needs_cyclic_rerun=True,    # pruning diverges per cycle
+    ),
+    AblationVariant(
+        name="no_memory_consolidation",
+        description=(
+            "Disable cycle-boundary SBERT cluster consolidation "
+            "(Branch C Goal 4 item 3 marginal-contribution ablation)"
+        ),
+        mutation=_mut_no_memory_consolidation,
+        mechanism_tag="retrieval",
+        needs_cyclic_rerun=True,    # memory composition diverges over cycles
     ),
     # -- Sensitivity sweep companion -----------------------------------------
     AblationVariant(

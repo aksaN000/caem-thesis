@@ -128,7 +128,14 @@ def _parse_args() -> argparse.Namespace:
                    ])
     p.add_argument("--n_train_per_bench", type=int, default=2000)
     p.add_argument("--n_eval_per_bench", type=int, default=500)
-    p.add_argument("--model_name", default="google/flan-t5-large")
+    p.add_argument(
+        "--model_name",
+        default=None,
+        help=(
+            "HF model ID. Defaults to CAEMConfig.base_model_name "
+            "(Qwen/Qwen2.5-3B-Instruct on Branch C)."
+        ),
+    )
     p.add_argument("--device", default="cuda", choices=["cuda", "cpu"])
     p.add_argument("--dtype", default="bfloat16",
                    choices=["float32", "float16", "bfloat16"])
@@ -415,19 +422,39 @@ def _mmlu_accuracy(model, tokenizer, device: str, n: int, seed: int) -> float:
     with torch.no_grad():
         for ex in ds:
             ex_d: dict = ex  # type: ignore[assignment]
-            prompt = (
+            user_content = (
                 f"Question: {ex_d['question']}\n"
                 + "\n".join(f"{L}. {c}" for L, c in zip(letters, ex_d["choices"]))
-                + "\nAnswer:"
+                + "\nAnswer with just the letter (A, B, C, or D)."
             )
+            # ChatML-wrap for decoder-only instruction-tuned backbones
+            # (Qwen/Gemma/Llama). Falls back to raw prompt when the
+            # tokenizer has no chat template.
+            if hasattr(tokenizer, "apply_chat_template"):
+                try:
+                    prompt = tokenizer.apply_chat_template(
+                        [{"role": "user", "content": user_content}],
+                        tokenize=False, add_generation_prompt=True,
+                    )
+                    if not isinstance(prompt, str):
+                        prompt = user_content
+                except Exception:
+                    prompt = user_content
+            else:
+                prompt = user_content
             enc = tokenizer(prompt, return_tensors="pt",
-                            truncation=True, max_length=512).to(device)
-            out = model.generate(enc["input_ids"], max_new_tokens=8,
-                                 do_sample=False)
-            pred = tokenizer.decode(out[0], skip_special_tokens=True).strip()
-            # First A/B/C/D character wins.
+                            truncation=True, max_length=1024,
+                            add_special_tokens=False).to(device)
+            input_ids = enc["input_ids"]
+            input_len = int(input_ids.shape[1])
+            out = model.generate(input_ids, max_new_tokens=8,
+                                 do_sample=False,
+                                 pad_token_id=tokenizer.pad_token_id)
+            # Decoder-only slice: generate() echoes the prompt in out[0].
+            gen_ids = out[0, input_len:] if out.shape[1] > input_len else out[0]
+            pred = tokenizer.decode(gen_ids, skip_special_tokens=True).strip()
             pred_letter = next(
-                (ch for ch in pred if ch in letters),
+                (ch for ch in pred.upper() if ch in letters),
                 "",
             )
             gold_letter = letters[int(ex_d["answer"])]
@@ -490,55 +517,95 @@ def _rationalise_pool(
     out_pairs: list = []
     kept_forward = kept_rationalised = 0
 
-    # --- Pass 1: forward generation with CoT prefix ---
-    for i in range(0, len(pairs), batch_size):
-        batch = pairs[i : i + batch_size]
-        prompts = [f"{_COT_PREFIX}\nQuestion: {p.question}" for p in batch]
-        enc = tokenizer(
-            prompts, return_tensors="pt", padding=True,
-            truncation=True, max_length=512,
-        ).to(device)
-        with torch.no_grad():
-            out_ids = model.generate(
-                enc["input_ids"],
-                attention_mask=enc["attention_mask"],
-                max_new_tokens=max_new_tokens,
-                do_sample=False,
-            )
-        decoded = tokenizer.batch_decode(out_ids, skip_special_tokens=True)
-        for pair, dec in zip(batch, decoded):
-            if _answer_matches(dec, pair.answer):
-                # Keep the model's own rationale-augmented target.
-                out_pairs.append(QAPair(
-                    question=pair.question,
-                    answer=f"{dec.strip()}\nAnswer: {pair.answer}",
-                ))
-                kept_forward += 1
-            else:
-                out_pairs.append(None)  # placeholder -- back-rationalise below
+    def _chatml_user(user_content: str) -> str:
+        if hasattr(tokenizer, "apply_chat_template"):
+            try:
+                rendered = tokenizer.apply_chat_template(
+                    [{"role": "user", "content": user_content}],
+                    tokenize=False, add_generation_prompt=True,
+                )
+                if isinstance(rendered, str):
+                    return rendered
+            except Exception:
+                pass
+        return user_content
 
-    # --- Pass 2: back-rationalise forward-wrong samples ---
-    for i, entry in enumerate(out_pairs):
-        if entry is not None:
-            continue
-        # Skipping batching here keeps the code simple; back-rationalisation
-        # is typically a small fraction of the pool after CoT filtering.
-        pair = pairs[i]
-        prompt = _RATIONALISE_TEMPLATE.format(q=pair.question, a=pair.answer)
-        enc = tokenizer(prompt, return_tensors="pt",
-                        truncation=True, max_length=512).to(device)
-        with torch.no_grad():
-            out_ids = model.generate(
-                enc["input_ids"],
-                max_new_tokens=max_new_tokens,
-                do_sample=False,
+    # --- Pass 1: forward generation with CoT prefix (ChatML-wrapped) ---
+    # Left-padding is mandatory for decoder-only batched generation so the
+    # generated continuations align regardless of input length.
+    original_side = getattr(tokenizer, "padding_side", None)
+    try:
+        tokenizer.padding_side = "left"
+        for i in range(0, len(pairs), batch_size):
+            batch = pairs[i : i + batch_size]
+            prompts = [
+                _chatml_user(f"{_COT_PREFIX}\nQuestion: {p.question}")
+                for p in batch
+            ]
+            enc = tokenizer(
+                prompts, return_tensors="pt", padding=True,
+                truncation=True, max_length=1024,
+                add_special_tokens=False,
+            ).to(device)
+            input_len = int(enc["input_ids"].shape[1])
+            with torch.no_grad():
+                out_ids = model.generate(
+                    enc["input_ids"],
+                    attention_mask=enc["attention_mask"],
+                    max_new_tokens=max_new_tokens,
+                    do_sample=False,
+                    pad_token_id=tokenizer.pad_token_id,
+                )
+            # Slice the generated continuation off each row.
+            gen_ids = (
+                out_ids[:, input_len:]
+                if out_ids.shape[1] > input_len
+                else out_ids
             )
-        rationale = tokenizer.decode(out_ids[0], skip_special_tokens=True).strip()
-        out_pairs[i] = QAPair(
-            question=pair.question,
-            answer=f"{rationale}\nAnswer: {pair.answer}",
-        )
-        kept_rationalised += 1
+            decoded = tokenizer.batch_decode(gen_ids, skip_special_tokens=True)
+            for pair, dec in zip(batch, decoded):
+                if _answer_matches(dec, pair.answer):
+                    out_pairs.append(QAPair(
+                        question=pair.question,
+                        answer=f"{dec.strip()}\nAnswer: {pair.answer}",
+                    ))
+                    kept_forward += 1
+                else:
+                    out_pairs.append(None)  # back-rationalise below
+
+        # --- Pass 2: back-rationalise forward-wrong samples ---
+        for i, entry in enumerate(out_pairs):
+            if entry is not None:
+                continue
+            pair = pairs[i]
+            prompt = _chatml_user(
+                _RATIONALISE_TEMPLATE.format(q=pair.question, a=pair.answer)
+            )
+            enc = tokenizer(prompt, return_tensors="pt",
+                            truncation=True, max_length=1024,
+                            add_special_tokens=False).to(device)
+            input_len = int(enc["input_ids"].shape[1])
+            with torch.no_grad():
+                out_ids = model.generate(
+                    enc["input_ids"],
+                    max_new_tokens=max_new_tokens,
+                    do_sample=False,
+                    pad_token_id=tokenizer.pad_token_id,
+                )
+            gen_ids = (
+                out_ids[0, input_len:]
+                if out_ids.shape[1] > input_len
+                else out_ids[0]
+            )
+            rationale = tokenizer.decode(gen_ids, skip_special_tokens=True).strip()
+            out_pairs[i] = QAPair(
+                question=pair.question,
+                answer=f"{rationale}\nAnswer: {pair.answer}",
+            )
+            kept_rationalised += 1
+    finally:
+        if original_side is not None:
+            tokenizer.padding_side = original_side
 
     logger.info(
         "STaR rationalisation: %d forward-correct + %d back-rationalised = %d / %d kept.",
@@ -578,8 +645,9 @@ def main() -> None:
     )
 
     import torch
-    from transformers import AutoTokenizer, T5ForConditionalGeneration
 
+    from caem.config import CAEMConfig
+    from caem.model_loader import load_base_generator
     from eval.baselines import ZeroShotBaseline
     from eval.benchmarks import load_benchmark
     from eval.harness import EvalHarness
@@ -588,6 +656,10 @@ def main() -> None:
                  "float16": torch.float16,
                  "bfloat16": torch.bfloat16}
     dtype = dtype_map[ns.dtype]
+
+    # Resolve --model_name default from CAEMConfig so simple-FT baselines
+    # track the Branch-C backbone unless the caller overrides.
+    resolved_model_name = ns.model_name or CAEMConfig().base_model_name
 
     out_root = Path(ns.output_dir) / ns.baseline_name
     eval_root = out_root / "eval"
@@ -619,11 +691,14 @@ def main() -> None:
             logger.warning("--caem_splits_path %s not found. Proceeding "
                            "without eval_id filter.", splits_path)
 
-    logger.info("Loading %s ...", ns.model_name)
-    tokenizer = AutoTokenizer.from_pretrained(ns.model_name)
-    model = T5ForConditionalGeneration.from_pretrained(
-        ns.model_name, torch_dtype=dtype
-    ).to(ns.device)
+    logger.info("Loading %s ...", resolved_model_name)
+    model, tokenizer = load_base_generator(
+        resolved_model_name,
+        device=ns.device,
+        dtype=dtype,
+        use_flash_attention_2=False,  # script stays driver-agnostic
+        use_torch_compile=False,
+    )
 
     # Pre-cycle MMLU baseline (needed for retention ratio even if guard off,
     # because the RET axis of CES consumes it).

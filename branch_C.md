@@ -131,13 +131,43 @@ narrative needs headroom.
 training era, still occasional loops. Also slower per-token than Qwen-3B despite being
 larger param count (encoder-decoder dual-pass penalty). Qwen-3B wins on every axis.
 
-**Training strategy**: **LoRA rank-16 on attention + MLP**, merged every 2 cycles.
-Full FT of 3B won't fit 32 GB VRAM (needs ~48 GB); LoRA fits comfortably. This aligns
-with Ch4's existing O-LoRA structured-fallback paragraph — we promote LoRA from
-"fallback" to "primary" training strategy.
+**Training strategy (revised 2026-04-22)**: **Full fine-tune + 8-bit AdamW
+(bitsandbytes) + L2 anchor (λ = 0.01)** is the PRIMARY SIL training path.
+Verified VRAM on the 32 GB 5090: ≈22–25 GB peak at `batch_size=4`, gradient
+checkpointing on, bf16 mixed precision, with MiniCheck co-resident. The earlier
+"LoRA is mandatory because full FT won't fit" read was wrong — it assumed fp32
+AdamW state (needs ~48 GB) rather than 8-bit optimiser state (~24 GB). With the
+optimiser-state compression the Qwen-3B full FT fits comfortably, so LoRA moves
+from primary to first structured fallback.
 
-**Ch4 update**: §Self-improvement paragraph — LoRA becomes the primary SIL training
-strategy (not fallback); MMLU retention guard and L2 anchor semantics unchanged.
+**Fallback cascade (per Ch4 Cycle-2 retention contract):**
+
+1. **Full FT + 8-bit AdamW + L2 anchor** — PRIMARY. Loss formula unchanged:
+   `L = L_task + (λ/2)·||θ − θ_base||²` with `λ = 0.01`. MMLU-only retention
+   guard at 0.93.
+2. **LoRA rank-16 adapters + L2 on base weights** — first structured fallback.
+   Triggered when Full FT hits any of: OOM during `_finetune`, MMLU retention
+   < 0.93 (abort), or convergence failure (non-finite loss after `grad_accum`).
+3. **Memory-only (no weight update)** — terminal fallback. The cycle still runs
+   retroverify + deferred reconsideration but does not fine-tune the base
+   generator. Reached when LoRA also fails.
+
+**Literature grounding for the L2 anchor**: Song 2025 and GeRe validate L2
+anchoring to pretrained weights as a competitive continual-learning regulariser
+in the modern LLM-fine-tuning regime — we cite these in place of the older
+Kirkpatrick 2017 EWC framing to show the choice tracks current practice.
+
+**Retention monitoring simplified**: MMLU (n=200, seed=42, generation-based
+letter-prefix scorer) is the SOLE abort guard. HellaSwag / BoolQ / GSM8K were
+considered but dropped — adding them inflates per-cycle evaluation cost without
+improving the signal (they correlate with MMLU and would only trigger after
+MMLU already had, per Ovadia 2019 / Thulasidasan 2019). MMLU is the right
+probe: out-of-distribution, 4-choice, never in the training pool.
+
+**Ch4 update**: §Self-improvement paragraph — Full FT with 8-bit AdamW + L2
+anchor is the primary SIL training strategy; LoRA and memory-only are the
+structured fallback levels 1 and 2 respectively. MMLU retention guard semantics
+unchanged.
 
 ### Goal 2 — Question↔answer relevance signal (ONE new signal, NO ensemble)
 
@@ -292,8 +322,10 @@ phases). Optimal decisions locked 2026-04-21:
    streams), BM25/BLAS 32 threads (if used), FAISS 16 threads (IVF k-means sweet spot).
 10. **Adaptive FAISS nprobe**: higher nprobe (64) for Tier 3 full-RAG queries; lower
     nprobe (16) for Tier 2 memory-hit confirmations.
-11. **8-bit AdamW** (bitsandbytes) for LoRA SIL training → 50% optimizer VRAM saving
-    permits batch_size +25%.
+11. **8-bit AdamW** (bitsandbytes) is the PRIMARY SIL optimiser (Full FT on
+    Qwen-3B fits 32 GB only with 8-bit optimiser state). ~50% optimizer VRAM
+    saving vs fp32 AdamW; see §Goal 1 training-strategy cascade for the full-
+    FT → LoRA → memory-only fallback order.
 
 ### Cross-cutting optimizations on dedicated `feat/perf-utilization` branch
 
@@ -716,15 +748,19 @@ Before launching the 22-day main run:
 
 ## Ablation registry expansion
 
-Current registry: 17 variants. Branch C adds five:
+Pre-Branch-C registry: 17 variants. Branch C plans SIX additions; two
+are **landed** on `feat/q-a-relevance` + `feat/memory-hygiene`; four
+remain on the Phase-2-all backlog. Live registry count is therefore
+**19** today, rising to **23** at main-run time.
 
-| # | Variant | Type | Question it answers |
-|---|---|---|---|
-| 18 | `flan_t5_large_backbone` | inference-time | Does the architecture generalize across base-model generations? |
-| 19 | `bge_hybrid_retriever` | inference-time | How much of the gain is architectural vs retrieval-quality? |
-| 20 | `no_q_a_relevance` | mechanism | Marginal contribution of the new relevance signal |
-| 21 | `valentin_4signal_verifier` | mechanism | Comparison against Valentin 2024's closest competitor composite |
-| 22 | `kernel_language_entropy_vs_vanilla_se` | mechanism | Primitive upgrade (Nikitin 2024) sensitivity |
+| # | Variant | Type | Status | Question it answers |
+|---|---|---|---|---|
+| 18 | `flan_t5_large_backbone` | inference-time | planned | Does the architecture generalize across base-model generations? |
+| 19 | `bge_hybrid_retriever` | inference-time | planned | How much of the gain is architectural vs retrieval-quality? |
+| 20 | `no_q_a_relevance` | mechanism | ✅ **landed** | Marginal contribution of the new relevance signal |
+| 21 | `no_memory_consolidation` | mechanism | ✅ **landed** | Marginal contribution of Goal-4 cycle-boundary consolidation |
+| 22 | `valentin_4signal_verifier` | mechanism | planned | Comparison against Valentin 2024's closest competitor composite |
+| 23 | `kernel_language_entropy_vs_vanilla_se` | mechanism | planned | Primitive upgrade (Nikitin 2024) sensitivity |
 
 **Deliberately NOT ablation variants** (these are system-vs-system comparisons, so they
 go in the baselines panel — §Baseline panel expansion — as B8 A-MEM and B9 Adaptive-RAG):
@@ -760,8 +796,11 @@ composite including `q_a_relevance`. No re-generation; only verification.
   composite
 - This becomes the clean `flan_t5_large_backbone` Variant 18 row
 
-**Total ablation registry**: 17 + 5 = **22 variants**. Register in
-`caem/ablation/variants.py`.
+**Total ablation registry target**: 17 + 6 = **23 variants** at main-run
+time. Source of truth is `caem/ablation/variants.py::VARIANT_REGISTRY`;
+`len(VARIANT_REGISTRY)` should match the ship-ready count exactly. Use
+`ci:assert-registry-size` to guard against drift if thesis tables hard-
+code the count.
 
 ---
 
@@ -846,7 +885,7 @@ defend as Phase 3 future work instead.
 | Self-knowledge correlation ρ < 0.3 | Medium | High (Moskvoretskii critique lands) | Ch5 acknowledges and frames as Phase 3 direction; thesis still defends tier routing architecturally |
 | BGE ablation shows retrieval explains >80% of CAEM-vs-baseline gap | Low | High (contribution undermined) | Frame CAEM as architecturally orthogonal; retrieval upgrade becomes complementary rather than substitutive |
 | Vast 5090 unavailable during 22-day main run | Medium | High (restart overhead) | HF snapshot recovery already wired; session-split tolerant |
-| LoRA convergence worse than full FT | Low | Medium | Ch4 cites O-LoRA evidence; monitor MMLU retention per cycle |
+| Full FT + 8-bit AdamW OOM or diverges on Qwen-3B | Low | Medium | Structured fallback activates LoRA rank-16 then memory-only (cfg.use_lora_training flip); MMLU retention guard still primary abort trigger |
 | Timeline slippage | Medium | Medium | 10-week viva buffer absorbs up to 6 weeks slip |
 | Supervisor objection to base-model swap | Low | High | Brief supervisor before `feat/phase-2-all` integration; Phase 1a Flan-T5 result provides fallback defense |
 
@@ -857,7 +896,7 @@ defend as Phase 3 future work instead.
 Branch C is complete when all of the following hold:
 
 - [ ] `feat/phase-2-all` merged to `main`
-- [ ] All 24 ablation variants have results (reference row + 17 mechanism + 2 architectural + 4 sensitivity; some may be "screening-only")
+- [ ] All 23 ablation variants have results (reference row + 19 mechanism + 2 architectural + 1 sensitivity; some may be "screening-only")
 - [ ] All 9 baselines (B1-B9) run on Qwen-3B backbone
 - [ ] Ch4 is verifier-agnostic (α-parametric bounds, symbolic theorems)
 - [ ] Ch5 reports pooled α, per-benchmark α, self-knowledge correlation, prediction-rejection curves, and one-sided hypothesis test

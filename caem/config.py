@@ -16,7 +16,7 @@ See: hyperparameter-reference.md for the full three-category breakdown.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Tuple
+from typing import Optional, Tuple
 
 
 # ---------------------------------------------------------------------------
@@ -184,11 +184,13 @@ class CAEMConfig:
     # defer_threshold <= u_stored < store_threshold   -> DEFERRED
     # u_stored < defer_threshold
     #   AND p_ground_max < abstain_pground_ceiling    -> ABSTAIN
-    # any p_contra >= contradiction_veto_threshold    -> DISCARD
+    # (The contradiction veto branch was removed 2026-04-22 -- MiniCheck
+    # returns p_contra = 0 by construction, so the veto never fired under
+    # the default backend. p_contra is kept as a diagnostic in the entry
+    # schema but no decision logic reads it.)
     store_threshold: float = 0.65
     defer_threshold: float = 0.45
     abstain_pground_ceiling: float = 0.20
-    contradiction_veto_threshold: float = 0.30
 
     # --- Grounding retrieval / rerank [DES] ----------------------------- #
     # Retrieve top-k passages from Wikipedia corpus, then rerank to top-N
@@ -197,17 +199,26 @@ class CAEMConfig:
     verifier_rerank_k: int = 3
 
     # --- u_stored composite weights [DES] (must sum to 1.0) ------------- #
-    # Session 42 rebalanced from the legacy three-signal mix
-    # (nli=0.50, sc=0.30, se=0.20). External grounding (pground_mean +
-    # pground_atomic = 0.45) now dominates the prior, reflecting the
-    # Chapter 1 promise that NLI verifies correctness against retrieved
-    # evidence rather than self-consistency alone.
-    u_stored_weight_pground_mean: float = 0.30
-    u_stored_weight_pground_atomic: float = 0.15
-    u_stored_weight_nli: float = 0.15          # p_entail (chain -> answer)
-    u_stored_weight_sc: float = 0.15           # s_avg (pairwise SBERT cosine)
-    u_stored_weight_uinternal: float = 0.15    # 0.5·u_token + 0.5·(1 - u_dropout)
-    u_stored_weight_se: float = 0.10           # applied as (1 - h_norm)
+    # Branch C (Goal 2, 2026-04-22) rebalanced the Session-42 six-weight
+    # composite to make room for q_a_relevance:
+    #   Session 42 (pre-Branch-C): pg_mean=0.30, pg_atom=0.15, nli=0.15,
+    #     sc=0.15, uinternal=0.15, se=0.10 — sum=1.00, six weights.
+    #   Branch C (Goal 2):         pg_mean=0.28, pg_atom=0.14, nli=0.16,
+    #     q_a_relevance=0.14, sc=0.14, uinternal=0.10, se=0.04 — sum=1.00,
+    #     seven weights.
+    # q_a_relevance closes the sample-② failure mode from Phase 1a Cycle 0
+    # (hallucinated off-topic answer with high p_entail + high p_ground_max
+    # because the retrieved passage matched the hallucination rather than the
+    # question). None of the other grounding or entailment signals check the
+    # question↔answer relevance axis; this is CAEM's pipeline-level
+    # contribution for Goal 2. See branch_C.md §"Goal 2".
+    u_stored_weight_pground_mean: float = 0.28
+    u_stored_weight_pground_atomic: float = 0.14
+    u_stored_weight_nli: float = 0.16          # p_entail (chain -> answer)
+    u_stored_weight_q_a_relevance: float = 0.14   # [DES] NEW (Branch C Goal 2)
+    u_stored_weight_sc: float = 0.14           # s_avg (pairwise SBERT cosine)
+    u_stored_weight_uinternal: float = 0.10    # 0.5·u_token + 0.5·(1 - u_dropout)
+    u_stored_weight_se: float = 0.04           # applied as (1 - h_norm)
 
     # ------------------------------------------------------------------ #
     # Tier 3 RAG (Stage 6)                                                 #
@@ -224,6 +235,14 @@ class CAEMConfig:
     # so does not bias the CAEM-vs-baseline sig-test comparison.
     rag_faiss_nlist: int = 32_768
     rag_faiss_nprobe: int = 64
+    # [DES] Branch C Goal 5: adaptive FAISS nprobe. Tier 3 full-RAG queries
+    # want high recall (nprobe_tier3), whereas Tier 2 memory-hit confirmations
+    # only need to verify a known-similar claim and can use a cheaper probe.
+    # When either is None, ``rag_faiss_nprobe`` is used as the fallback (so
+    # pre-Goal-5 behaviour is preserved). Set both to the same value to
+    # disable the adaptive path entirely.
+    rag_faiss_nprobe_tier3: Optional[int] = 64
+    rag_faiss_nprobe_tier2: Optional[int] = 16
     rag_faiss_pq_m: int = 64
     rag_faiss_pq_nbits: int = 8
     rag_faiss_train_sample_size: int = 500_000
@@ -256,16 +275,21 @@ class CAEMConfig:
     # regression gate validation on perf_log.csv.
     use_torch_compile: bool = False
 
-    # [DES] LoRA SIL training (Qwen-3B won't fit full FT in 32 GB VRAM even with
-    # bf16 mixed precision and 8-bit AdamW; full FT needs ~48 GB). Promotes the
-    # Ch4 §Cycle-2 retention O-LoRA structured-fallback from fallback to primary
-    # training strategy.
-    use_lora_training: bool = True
+    # [DES] Full FT + 8-bit AdamW is the PRIMARY SIL training path on Qwen-3B
+    # (verified 2026-04-22 to fit 32 GB 5090 at batch=4, grad checkpointing
+    # on, bf16 mixed precision: ~22-25 GB peak with MiniCheck loaded). LoRA
+    # is the first STRUCTURED FALLBACK (per Ch4 §Cycle-2 retention) if Full
+    # FT fails (OOM, MMLU retention < 0.93, convergence failure). Memory-
+    # only (no weight update) is the last resort.
+    use_8bit_adamw: bool = True
+
+    # [DES] LoRA fallback config. Only consulted when use_lora_training=True
+    # (either set directly, or auto-set by the SIL harness after a full-FT
+    # failure mode is detected per the Ch4 §Cycle-2 retention cascade).
+    use_lora_training: bool = False  # PRIMARY path is full FT; set True only as fallback
     lora_r: int = 16
     lora_alpha: int = 32
     lora_dropout: float = 0.05
-    # [DES] Target modules for LoRA on Qwen-2.5-3B (Llama-style attention+MLP
-    # naming convention). Compatible with Gemma/Llama/Phi/Mistral families.
     lora_target_modules: Tuple[str, ...] = (
         "q_proj", "k_proj", "v_proj", "o_proj",
         "gate_proj", "up_proj", "down_proj",
@@ -324,10 +348,98 @@ class CAEMConfig:
     forgetting_tolerance: float = 0.93
 
     # ------------------------------------------------------------------ #
+    # SIL-pool loop filter (Branch C Goal 4 -- memory hygiene)             #
+    # ------------------------------------------------------------------ #
+    # Two-signal repetitive-loop detector applied inside
+    # ``SelfImprovementLoop._collect_episodes``. When a verified reasoning
+    # chain trips either signal, the training target falls back to
+    # ``entry.answer`` (the short verified answer) rather than the looped
+    # chain -- same fallback branch the empty/too-short chains already
+    # take. Thresholds are [DES]; defaults chosen from Phase 1a Cycle-0
+    # loop-distribution analysis (82/241 STOREd samples had distinct-4
+    # <= 0.13 on Flan-T5; clean scaffolded CoT distinct-4 >= 0.60). See
+    # caem/training/loop_filter.py and branch_C.md Section Goal 4.
+    #
+    # [DES] distinct-4-gram ratio below which the chain is a loop.
+    loop_distinct4_threshold: float = 0.25
+    # [DES] zlib compression ratio below which the chain is a loop.
+    loop_compression_threshold: float = 0.35
+    # [DES] Min whitespace-token count for the filter to be consulted.
+    # Short verified answers (<20 tokens) legitimately score low on
+    # distinct-n and are exempt from the filter by construction.
+    loop_min_tokens: int = 20
+
+    # ------------------------------------------------------------------ #
     # Retroactive re-verification                                          #
     # ------------------------------------------------------------------ #
     # [DES] Remove from memory if updated u_stored drops below this.
     retroverify_prune_threshold: float = 0.50
+
+    # [DES] Branch C Goal 4 item 2: apply the SIL-pool loop filter at
+    # retroverify time as well, pruning loop-contaminated episodes from
+    # memory (not just filtering them from the SIL training pool). Uses
+    # the same distinct-4 + zlib signals as ``is_repetitive_loop``. Set
+    # False to disable and restore the pre-Goal-4 behaviour (threshold-
+    # only pruning). See branch_C.md §"Goal 4".
+    retroverify_prune_loops: bool = True
+
+    # [DES] Branch C Goal 4 item 4: when a re-scored episode has a lower
+    # u_stored than the stored value (but still above the prune threshold),
+    # downgrade the stored value + overwrite the nine-signal block with
+    # the fresh verifier view. Pre-Goal-4 behaviour only RAISED u_stored;
+    # downgrade was silently skipped, which let stale confident entries
+    # linger across cycles without truthfully reflecting the updated
+    # verifier's view. Set False to restore raise-only behaviour.
+    retroverify_allow_downgrade: bool = True
+
+    # ------------------------------------------------------------------ #
+    # Memory consolidation (Branch C Goal 4 item 3)                        #
+    # ------------------------------------------------------------------ #
+    # [DES] Run a cycle-boundary SBERT-similarity clustering pass that
+    # collapses duplicate-meaning episodes into a single representative
+    # (the max-u_stored member of each cluster). Merges retrieval_count and
+    # success_rate from the other cluster members into the representative
+    # so retrieval-feedback history is not lost. Expected to reduce memory
+    # size by ~20-30% over 10 cycles without information loss.
+    enable_consolidation: bool = True
+
+    # [DES] Cosine-similarity threshold that triggers candidate clustering
+    # on the query-side SBERT embedding. Raised from an initial 0.88
+    # proposal to 0.92 after a pre-merge design review (2026-04-22) flagged
+    # that 0.88 is loose enough to group different-answer queries that
+    # happen to share surface form (e.g. "Who directed X" vs "Who starred
+    # in X"). 0.92 tightens the candidate pool; an answer-consistency
+    # post-filter + u_stored-spread guardrail below give additional safety.
+    consolidation_similarity_threshold: float = 0.92
+
+    # [DES] Per-entry FAISS search depth when finding consolidation
+    # neighbours. Above 0.92 similarity is rare in a well-distributed QA
+    # store, so k=20 captures ~all real neighbours. Raise if clusters are
+    # being split because a large group's tail is pushed past top-k.
+    consolidation_search_k: int = 20
+
+    # [DES] No-merge guardrail: clusters whose u_stored spread exceeds
+    # this threshold are NOT merged and are logged for audit. High internal
+    # variance is a tell that the cluster is heterogeneous despite sharing
+    # surface form -- probably different-answer entries that happened to
+    # score above the similarity threshold. Better to keep them separate
+    # and let the next retroverify pass decide than to silently merge.
+    consolidation_max_u_spread: float = 0.15
+
+    # ------------------------------------------------------------------ #
+    # Hit-counter forced re-verification (Branch C Goal 4 item 5)          #
+    # ------------------------------------------------------------------ #
+    # [DES] Each EpisodicEntry tracks a per-entry Tier-1-serve counter
+    # (``hit_counter``). When the counter crosses this threshold, the
+    # entry is queued for forced re-verification on the NEXT cycle
+    # boundary regardless of its age. Motivation: popular-but-wrong
+    # answers compound retrieval harm (Tier 1 serves them unverified
+    # across many queries), so the cost of a forced re-check is worth
+    # catching the failure mode early. Set to 0 to disable the forced
+    # queue (entries still participate in the normal cycle-boundary
+    # retroverify sweep -- this only controls the priority-queue fast
+    # path).
+    hit_counter_force_retroverify: int = 10
 
     # ------------------------------------------------------------------ #
     # Deferred-entry buffer (Stage 7b -- held for cycle-boundary          #

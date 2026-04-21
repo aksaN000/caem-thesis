@@ -51,7 +51,6 @@ from caem.confidence.pre_routing import PreRoutingConfidenceEstimator
 from caem.prompts import build_tier2_prompt
 from caem.memory.entry import (
     EpisodicEntry,
-    PostGenerationConfidence,
     PreRoutingConfidence,
     RoutingDecision,
 )
@@ -88,8 +87,12 @@ class PipelineResult:
         Full routing metadata (tier, scores, safety_override, etc.).
     pre_confidence : PreRoutingConfidence
         u_pre and its components.
-    post_confidence : PostGenerationConfidence or None
-        û and its components -- None if Tier 1 or Tier 3.
+    post_confidence : None
+        Legacy field kept for schema back-compat. The Session-42 redesign
+        retired the 4-signal u_hat gate that once populated this; every
+        pipeline call now returns ``None`` here and the Stage-5 verifier
+        in ``verifier_output`` is the single source of post-generation
+        truth. Downstream readers should consume ``verifier_output``.
     verifier_output : UnifiedVerifierOutput or None
         Full Stage-5 verifier record: all nine signals (u_token, u_dropout,
         u_internal, s_avg, h_norm, p_entail, p_ground_max, p_ground_mean,
@@ -115,7 +118,7 @@ class PipelineResult:
     latency_ms: float = 0.0
     routing_decision: Optional[RoutingDecision] = None
     pre_confidence: Optional[PreRoutingConfidence] = None
-    post_confidence: Optional[PostGenerationConfidence] = None
+    post_confidence: Optional[None] = None
     verifier_output: Optional[UnifiedVerifierOutput] = None
     u_stored: Optional[float] = None
     entry_id: Optional[int] = None
@@ -426,7 +429,7 @@ class CAEMPipeline:
 
         # -- Tier dispatch ---------------------------------------------- #
         answer_str: str
-        post_conf: Optional[PostGenerationConfidence] = None
+        post_conf: Optional[None] = None   # legacy slot; see PipelineResult.post_confidence
         vout: Optional[UnifiedVerifierOutput] = None
         u_stored_scalar: Optional[float] = None
         escalated: bool = False
@@ -857,6 +860,7 @@ class CAEMPipeline:
             p_ground_mean=vout.p_ground_mean,
             p_ground_atomic=vout.p_ground_atomic,
             p_contra=vout.p_contra,
+            q_a_relevance=vout.q_a_relevance,
             decision=vout.decision,
             early_exit_triggered=vout.early_exit_triggered,
         )

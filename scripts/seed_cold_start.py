@@ -214,8 +214,8 @@ def build_pipeline(config, device: str):
     load the base model, tokenizer, SBERT encoder, and optionally NLI.
     """
     import torch
-    from transformers import AutoTokenizer, T5ForConditionalGeneration, AutoModelForSequenceClassification
     from caem.memory.encoder import QueryEncoder
+    from caem.model_loader import load_base_generator
     from caem.retrieval.rag import PassageStore
     from caem.pipeline import CAEMPipeline
 
@@ -234,16 +234,20 @@ def build_pipeline(config, device: str):
         model_dtype = torch.float32
         dtype_str = "fp32"
 
-    # -- Flan-T5-Large --------------------------------------------------- #
-    logger.info("Loading Flan-T5-Large for seeding (dtype=%s) ...", dtype_str)
-    model_name = "google/flan-t5-large"
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
-    model = cast(Any, T5ForConditionalGeneration.from_pretrained(
-        model_name,
-        torch_dtype=model_dtype,
-    )).to(device).eval()
+    # -- Base generator (Qwen-2.5-3B-Instruct by default) -------------- #
     logger.info(
-        "Flan-T5-Large loaded (%.0f M params, %s).",
+        "Loading %s for seeding (dtype=%s) ...",
+        config.base_model_name, dtype_str,
+    )
+    model, tokenizer = load_base_generator(
+        config.base_model_name,
+        device=device,
+        dtype=model_dtype,
+        use_flash_attention_2=config.use_flash_attention_2,
+        use_torch_compile=config.use_torch_compile,
+    )
+    logger.info(
+        "Base generator loaded (%.0f M params, %s).",
         sum(p.numel() for p in model.parameters()) / 1e6,
         dtype_str,
     )

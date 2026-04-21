@@ -199,6 +199,7 @@ def _blank_verifier(cfg: CAEMConfig | None = None) -> UnifiedVerifier:
     v.config = cfg
     v.reranker = None
     v.passage_retriever = None
+    v.qa_relevance_scorer = None  # Branch C Goal 2: neutral 0.5 fallback
     v.enable_atomic = True
     v.device = "cpu"
     v.nli = _NLIEnsemble([], device="cpu")
@@ -217,6 +218,7 @@ class TestComposite:
             + cfg.u_stored_weight_se
             + cfg.u_stored_weight_uinternal
             + cfg.u_stored_weight_nli
+            + cfg.u_stored_weight_q_a_relevance
         )
         assert w_sum == pytest.approx(1.0, abs=1e-6)
 
@@ -224,24 +226,27 @@ class TestComposite:
         v = _blank_verifier()
         u = v._composite(p_ground_mean=1.0, p_ground_atomic=1.0,
                          s_avg=1.0, h_norm=0.0,
-                         u_internal=1.0, p_entail=1.0)
+                         u_internal=1.0, p_entail=1.0,
+                         q_a_relevance=1.0)
         assert u == pytest.approx(1.0)
 
     def test_zero_inputs_land_at_zero(self):
         v = _blank_verifier()
         u = v._composite(p_ground_mean=0.0, p_ground_atomic=0.0,
                          s_avg=0.0, h_norm=1.0,
-                         u_internal=0.0, p_entail=0.0)
+                         u_internal=0.0, p_entail=0.0,
+                         q_a_relevance=0.0)
         assert u == pytest.approx(0.0, abs=1e-6)
 
     def test_monotonic_in_each_signal(self):
         v = _blank_verifier()
         base = dict(p_ground_mean=0.5, p_ground_atomic=0.5,
                     s_avg=0.5, h_norm=0.5,
-                    u_internal=0.5, p_entail=0.5)
+                    u_internal=0.5, p_entail=0.5,
+                    q_a_relevance=0.5)
         u_base = v._composite(**base)
         for k in ("p_ground_mean", "p_ground_atomic", "s_avg",
-                  "u_internal", "p_entail"):
+                  "u_internal", "p_entail", "q_a_relevance"):
             higher = dict(base); higher[k] = 0.9
             assert v._composite(**higher) > u_base, (
                 f"increasing {k} must raise u_stored"
@@ -257,13 +262,7 @@ class TestDecide:
         c.store_threshold = 0.65
         c.defer_threshold = 0.45
         c.abstain_pground_ceiling = 0.20
-        c.contradiction_veto_threshold = 0.30
         return c
-
-    def test_contradiction_veto_overrides_everything(self, cfg):
-        v = _blank_verifier(cfg)
-        d, _ = v._decide(u_stored=0.95, p_contra=0.80, p_ground_max=0.90)
-        assert d == "DISCARD"
 
     def test_store_band(self, cfg):
         v = _blank_verifier(cfg)
@@ -417,19 +416,6 @@ class TestVerifyEndToEnd:
         assert out.early_exit_triggered is True
         assert out.u_stored == pytest.approx(0.0)
 
-    def test_contradiction_veto_discards(self):
-        v = _blank_verifier()
-        _stub_verifier_signals(
-            v,
-            u_token=0.80, u_dropout=0.10,
-            s_avg=0.80, h_norm=0.15, p_entail=0.80,
-            p_ground_max=0.85, p_ground_mean=0.80, p_ground_atomic=0.75,
-            p_contra=0.90,
-        )
-        out = v.verify("q", "a", input_ids=torch.tensor([[1, 2]]))
-        assert out.decision == "DISCARD"
-        assert out.early_exit_triggered is False
-
     def test_deferred_or_discard_mid_band(self):
         v = _blank_verifier()
         _stub_verifier_signals(
@@ -519,7 +505,7 @@ class TestVerifyBatch:
             p_ground_max=0.85, p_ground_mean=0.80, p_ground_atomic=0.75,
             p_contra=0.05,
         )
-        v._pooled_sample_t5 = MagicMock(
+        v._pooled_sample = MagicMock(
             return_value=[["chain a", "chain b", "chain c"]],
         )
 
@@ -539,7 +525,7 @@ class TestVerifyBatch:
             p_ground_max=0.85, p_ground_mean=0.80, p_ground_atomic=0.75,
             p_contra=0.05,
         )
-        v._pooled_sample_t5 = MagicMock(
+        v._pooled_sample = MagicMock(
             return_value=[["c0", "c1", "c2"], ["c0", "c1", "c2"], ["c0", "c1", "c2"]],
         )
 
@@ -561,15 +547,15 @@ class TestVerifyBatch:
             p_ground_max=0.85, p_ground_mean=0.80, p_ground_atomic=0.75,
             p_contra=0.05,
         )
-        v._pooled_sample_t5 = MagicMock(
+        v._pooled_sample = MagicMock(
             side_effect=[
                 [["mc0", "mc1", "mc2"], ["mc0", "mc1", "mc2"]],
                 [["se0", "se1", "se2"], ["se0", "se1", "se2"]],
             ],
         )
         v.verify_batch([("q0", "a0"), ("q1", "a1")])
-        assert v._pooled_sample_t5.call_count == 2
-        temps = [kw["temperature"] for _, kw in v._pooled_sample_t5.call_args_list]
+        assert v._pooled_sample.call_count == 2
+        temps = [kw["temperature"] for _, kw in v._pooled_sample.call_args_list]
         assert 0.7 in temps
         assert v.config.se_temperature in temps
 
@@ -583,7 +569,7 @@ class TestVerifyBatch:
             p_ground_max=0.85, p_ground_mean=0.80, p_ground_atomic=0.75,
             p_contra=0.05,
         )
-        v._pooled_sample_t5 = MagicMock(
+        v._pooled_sample = MagicMock(
             return_value=[["c"], ["c"]],
         )
         outs = v.verify_batch(
@@ -600,7 +586,7 @@ class TestVerifyBatch:
 class TestPooledSampleT5Dual:
     """Level B Phase 2: CUDA-stream dual dispatch for the two
     data-independent T5 pooled samplings. On CPU (the test env)
-    _pooled_sample_t5_dual falls back to serial ``_pooled_sample_t5``
+    _pooled_sample_dual falls back to serial ``_pooled_sample``
     calls; on CUDA the implementation runs them on separate streams."""
 
     def test_cpu_fallback_to_serial_dispatch(self):
@@ -612,8 +598,8 @@ class TestPooledSampleT5Dual:
             return [[f"{label}_{i}_{k}" for k in range(num_per)]
                     for i in range(len(queries))]
 
-        v._pooled_sample_t5 = MagicMock(side_effect=_record)
-        a, b = v._pooled_sample_t5_dual(
+        v._pooled_sample = MagicMock(side_effect=_record)
+        a, b = v._pooled_sample_dual(
             queries=["q0", "q1"],
             num_per_a=3, temperature_a=0.7, label_a="m-chain",
             num_per_b=2, temperature_b=0.5, label_b="se-sample",
@@ -626,15 +612,15 @@ class TestPooledSampleT5Dual:
 
     def test_empty_queries_returns_two_empty_lists(self):
         v = _blank_verifier()
-        v._pooled_sample_t5 = MagicMock()
-        a, b = v._pooled_sample_t5_dual(
+        v._pooled_sample = MagicMock()
+        a, b = v._pooled_sample_dual(
             queries=[],
             num_per_a=3, temperature_a=0.7, label_a="m-chain",
             num_per_b=2, temperature_b=0.5, label_b="se-sample",
             max_new_tokens=16,
         )
         assert a == [] and b == []
-        v._pooled_sample_t5.assert_not_called()
+        v._pooled_sample.assert_not_called()
 
     def test_decode_grouped_error_returns_empty_lists(self):
         v = _blank_verifier()
@@ -674,8 +660,8 @@ class TestPooledSampleT5Dual:
         ]
 
     def test_verify_batch_uses_dual_pooled_sampler(self):
-        """verify_batch routes through _pooled_sample_t5_dual once
-        (not two separate _pooled_sample_t5 calls) so the CUDA-stream
+        """verify_batch routes through _pooled_sample_dual once
+        (not two separate _pooled_sample calls) so the CUDA-stream
         overlap path is actually taken when CUDA is available."""
         v = _blank_verifier()
         _stub_verifier_signals(
@@ -694,8 +680,8 @@ class TestPooledSampleT5Dual:
             b = [[f"se_{i}"] for i in range(N)]
             return a, b
 
-        v._pooled_sample_t5_dual = _fake_dual
-        v._pooled_sample_t5 = MagicMock(
+        v._pooled_sample_dual = _fake_dual
+        v._pooled_sample = MagicMock(
             side_effect=AssertionError(
                 "single-sampler must not be called from verify_batch",
             ),
@@ -703,4 +689,4 @@ class TestPooledSampleT5Dual:
         outs = v.verify_batch([("q0", "a0"), ("q1", "a1")])
         assert len(outs) == 2
         assert dual_called["n"] == 1
-        v._pooled_sample_t5.assert_not_called()
+        v._pooled_sample.assert_not_called()

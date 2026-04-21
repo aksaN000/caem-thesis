@@ -24,6 +24,54 @@
 % ============================================================
 
 % ---------------------------------------------------------------
+\section*{Note on reported data and Branch C}
+\label{sec:branch-c-transition-note}
+\addcontentsline{toc}{section}{Note on reported data and Branch C}
+% ---------------------------------------------------------------
+
+The empirical results reported throughout this chapter are drawn from
+the \textbf{Phase-1a Flan-T5-Large run} of \caem{} (780M-parameter
+encoder--decoder backbone, six-signal verifier composite, seventeen
+registered ablation variants, DPR retrieval). This was the frozen
+measurement configuration when the chapter body was written.
+
+A follow-on engineering cycle (\textbf{Branch C}) migrated the system
+to a decoder-only Qwen-2.5-3B-Instruct backbone and extended the
+verifier composite with a seventh family, \texttt{q\_a\_relevance}, that
+measures question$\leftrightarrow$answer relevance and closes a
+confabulation failure mode observed at Cycle 0 of the Phase-1a run
+(hallucinated off-topic answers scoring high on both entailment and
+grounding because the retrieved passage matched the hallucination rather
+than addressing the question). Branch C additionally lands four memory-
+hygiene mechanisms (SIL-pool loop filter, retroactive loop prune,
+retroactive downgrade, cycle-boundary SBERT consolidation at similarity
+0.92, and a hit-counter forced re-verification queue) and grows the
+ablation registry from seventeen pre-Branch-C variants to a target of
+twenty-three for the final run (currently nineteen landed: two Branch-C
+additions --- \texttt{no\_q\_a\_relevance} and
+\texttt{no\_memory\_consolidation} --- plus four more planned for the
+main-run integration). The canonical framing of the upgraded verifier
+is a \emph{seven-family composite covering ten underlying signals across
+seven decorrelated axes}.
+
+Every Branch-C design decision, implementation phase, and regression
+gate is logged in \texttt{branch\_C.md} (design spine, ablation
+registry, epistemic gate protocol, timeline, risk register) and
+\texttt{branch\_C\_log.md} (continuous diary of code changes + test
+gates). Readers should treat the numerical results in this chapter as
+the \emph{pre-Branch-C} baseline; the Branch-C main-run data set will
+replace them in the next revision of the chapter, with a side-by-side
+table fixing the backbone-plus-composite confound through a Phase-1a
+revalidation pass that re-scores existing Flan-T5-Large (question,
+answer, passage) triples under the seven-family composite.
+
+The Moskvoretskii epistemic gate
+($\rho(\ustored, \mathrm{is\_faithful})$ with 95\% bootstrap CI) is a
+pre-integration precondition for the Branch-C main run, not a post-hoc
+diagnostic reported here. The gate's protocol and decision tree are
+given in \texttt{branch\_C.md} \S``Evaluation protocol''.
+
+% ---------------------------------------------------------------
 \section{Experimental Setup}
 \label{sec:exp-setup}
 % ---------------------------------------------------------------

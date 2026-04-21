@@ -112,8 +112,12 @@ def _parse_args() -> argparse.Namespace:
     )
     p.add_argument(
         "--model_name",
-        default="google/flan-t5-large",
-        help="HF model ID. Keep at flan-t5-large for the Chapter 5 panel.",
+        default=None,
+        help=(
+            "HF model ID for the decoder-only base generator. Defaults to "
+            "CAEMConfig.base_model_name (Qwen/Qwen2.5-3B-Instruct on Branch C). "
+            "Override to run the Chapter 5 panel against a different backbone."
+        ),
     )
     p.add_argument(
         "--device",

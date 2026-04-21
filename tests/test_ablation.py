@@ -123,6 +123,7 @@ class TestUStoredWeightRescaling:
 
     @pytest.mark.parametrize("name", [
         "no_grounding", "no_internal_calibration", "no_semantic_entropy",
+        "no_q_a_relevance",
     ])
     def test_weights_sum_to_one(self, name):
         cfg = get_variant(name).apply()
@@ -130,6 +131,7 @@ class TestUStoredWeightRescaling:
             cfg.u_stored_weight_pground_mean
             + cfg.u_stored_weight_pground_atomic
             + cfg.u_stored_weight_nli
+            + cfg.u_stored_weight_q_a_relevance
             + cfg.u_stored_weight_sc
             + cfg.u_stored_weight_uinternal
             + cfg.u_stored_weight_se
@@ -152,6 +154,13 @@ class TestUStoredWeightRescaling:
             "nli is a self-consistency signal, not grounding — must not be "
             "zeroed by no_grounding variant (see Task #114 / MAJOR-VR1)"
         )
+        # Branch C Goal 2: q_a_relevance is also orthogonal to external
+        # grounding — it scores question↔answer relevance, not passage
+        # support. It MUST remain non-zero in the no_grounding ablation.
+        assert cfg.u_stored_weight_q_a_relevance > 0.0, (
+            "q_a_relevance is a question-answer relevance signal (Goal 2), "
+            "not external grounding -- must stay non-zero in no_grounding"
+        )
 
     def test_no_internal_calibration_zeros_uinternal(self):
         cfg = get_variant("no_internal_calibration").apply()
@@ -161,6 +170,61 @@ class TestUStoredWeightRescaling:
         cfg = get_variant("no_semantic_entropy").apply()
         assert cfg.u_stored_weight_se == 0.0
 
+    def test_no_q_a_relevance_zeros_qa_weight(self):
+        """Branch C Goal 2 ablation: zero q_a_relevance weight and
+        redistribute. The remaining six weights sum to 1.0 (already
+        covered by test_weights_sum_to_one).
+        """
+        cfg = get_variant("no_q_a_relevance").apply()
+        assert cfg.u_stored_weight_q_a_relevance == 0.0
+
+    def test_no_q_a_relevance_preserves_branch_c_ratios(self):
+        """Pro-rata rescale: the six legacy weights preserve their Branch-C
+        Goal-2 relative ratios (0.28 / 0.14 / 0.16 / 0.14 / 0.10 / 0.04 on
+        base, each divided by their sum 0.86 so the kept weights sum to 1).
+
+        Branch C does not try to recover Session-42 ratios — this is the
+        same rescale pattern every other ``_mut_no_*`` variant uses, and
+        keeps Chapter 5's comparison defined on a consistent composite
+        (Goal-2 with one axis removed vs Goal-2 full).
+        """
+        cfg = get_variant("no_q_a_relevance").apply()
+        # Expected = Branch-C Goal-2 weight / (1 - q_a_relevance weight) = / 0.86
+        base = CAEMConfig()  # untouched baseline
+        scale = 1.0 / (1.0 - base.u_stored_weight_q_a_relevance)
+        for field in (
+            "u_stored_weight_pground_mean",
+            "u_stored_weight_pground_atomic",
+            "u_stored_weight_nli",
+            "u_stored_weight_sc",
+            "u_stored_weight_uinternal",
+            "u_stored_weight_se",
+        ):
+            expected = getattr(base, field) * scale
+            actual = getattr(cfg, field)
+            assert math.isclose(actual, expected, abs_tol=1e-9), (
+                f"{field}: {actual} != {expected} after pro-rata rescale"
+            )
+
+    def test_equal_signal_weights_uses_seven_families(self):
+        """Branch C Goal 2: the equal-weights ablation must flatten across
+        the seven weighted families (1/7 each), not the pre-Goal-2 1/6.
+        """
+        cfg = get_variant("equal_signal_weights").apply()
+        expected = 1.0 / 7.0
+        for field in (
+            "u_stored_weight_pground_mean",
+            "u_stored_weight_pground_atomic",
+            "u_stored_weight_nli",
+            "u_stored_weight_q_a_relevance",
+            "u_stored_weight_sc",
+            "u_stored_weight_uinternal",
+            "u_stored_weight_se",
+        ):
+            assert math.isclose(
+                getattr(cfg, field), expected, abs_tol=1e-9,
+            ), f"{field} != 1/7 after equal_signal_weights mutation"
+
 
 class TestThresholdMutations:
     def test_no_early_exit_disables_gate(self):
@@ -169,10 +233,6 @@ class TestThresholdMutations:
         # With floor > 1 and ceiling < 0, the AND is never satisfiable.
         assert cfg.early_exit_u_internal > 1.0
         assert cfg.early_exit_p_ground_max < 0.0
-
-    def test_no_contradiction_veto_raises_threshold(self):
-        cfg = get_variant("no_contradiction_veto").apply()
-        assert cfg.contradiction_veto_threshold > 1.0
 
     def test_no_tier1_raises_combined_threshold(self):
         cfg = get_variant("no_tier1").apply()

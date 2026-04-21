@@ -1,82 +1,74 @@
 """
 eval/baselines.py
 =================
-External baselines for the CAEM Chapter 5 comparison panel.
+External baselines for the CAEM Chapter 5 comparison panel (Branch C, Qwen-3B).
 
 Design
 ------
 Each baseline is a lightweight "pipeline-shaped" object that exposes the same
 ``answer(query, store_to_memory=False) -> PipelineResult`` signature as
 ``caem.pipeline.CAEMPipeline``. This lets ``eval.harness.EvalHarness`` consume
-baselines without modification, and the per-sample JSON output carries the
-same schema that ``eval.reporting`` and ``eval.metrics`` already understand.
+baselines without modification.
+
+**Branch C decision (2026-04-22)**: all baselines now run on the same
+decoder-only backbone (Qwen-2.5-3B-Instruct by default -- see
+``CAEMConfig.base_model_name``). The prior Flan-T5-Large implementation is
+preserved on the ``main`` branch for historical reproducibility. This
+keeps the main-panel comparison apples-to-apples: CAEM vs. baselines are
+measured on the same generator and the delta attributes cleanly to the
+CAEM machinery rather than to backbone differences.
 
 Baselines
 ---------
-ZeroShotBaseline  (B1) -- Flan-T5-Large, no CoT prefix, no retrieval. Floor.
-CoTBaseline       (B2) -- Flan-T5-Large with "Let's think step by step" prefix.
-RAGBaseline       (B3) -- DPR top-k retrieval + Flan-T5-Large context-conditioned.
-CoTRAGBaseline    (B4) -- RAG context + CoT prefix.
+ZeroShotBaseline  (B1) -- Qwen-3B, single-turn ChatML, no CoT, no retrieval.
+                          Floor.
+CoTBaseline       (B2) -- Qwen-3B ChatML with a ``"Let's think step by step."``
+                          trigger prepended to the user message.
+RAGBaseline       (B3) -- DPR top-k retrieval + Qwen-3B context-conditioned
+                          generation via ``caem.retrieval.rag.TierThreeRAG``.
+CoTRAGBaseline    (B4) -- RAG context + explicit CoT trigger injected into
+                          the prefill.
 FLAREBaseline     (B5) -- Jiang et al. EMNLP 2023 active retrieval with
-                          confidence-threshold look-ahead: generate a 64-token
-                          look-ahead, and if any token's log-probability falls
-                          below ``theta`` trigger retrieval on the low-confidence
-                          span, then regenerate the sentence with retrieved
-                          context.
+                          confidence-threshold look-ahead. Decoder-only
+                          slicing: the generated suffix is ``out.sequences
+                          [0, input_len:]`` (prompt echoed in the generate
+                          output for causal LMs).
 
 Mapping to PipelineResult fields
 --------------------------------
 ``tier``                    -- 2 for generation-only baselines (Zero-shot, CoT),
-                               3 for retrieval-augmented baselines (RAG, CoT+RAG,
-                               FLARE). The field is kept for compatibility with
-                               the harness and aggregator; baselines do not
-                               implement a router.
-``stored``                  -- always False for inference baselines.
+                               3 for retrieval-augmented baselines.
+``stored``                  -- always False.
 ``u_stored``                -- None (no verifier).
-``verifier_output``         -- None (no Stage-5 verifier).
+``verifier_output``         -- None.
 ``routing_decision``        -- None.
 ``pre_confidence``          -- None.
 ``escalated``               -- True for FLARE when a look-ahead triggered a
                                retrieval restart; False otherwise.
 
-Hyperparameters
----------------
-All hyperparameters are tagged [LIT] (literature-fixed), [DES] (CAEM design
-choice inherited from ``caem.config.CaemConfig``), or [CAL] (empirically
-calibrated on a held-out split). Baselines intentionally share the [DES]
-values of CAEM Tier 2/Tier 3 so that differences in final metrics are
-attributable to the missing CAEM machinery rather than to mismatched decode
-or retrieval budgets.
-
 References
 ----------
-FLARE    : Jiang, Z., Xu, F. F., Gao, L., Sun, Z., Liu, Q., Dwivedi-Yu, J.,
-           Yang, Y., Callan, J., Neubig, G. "Active Retrieval Augmented
+FLARE    : Jiang, Z., Xu, F. F., et al. "Active Retrieval Augmented
            Generation." EMNLP 2023.
 CoT      : Wei et al. "Chain-of-Thought Prompting Elicits Reasoning in Large
-           Language Models." NeurIPS 2022.
-RAG      : Lewis et al. "Retrieval-Augmented Generation for Knowledge-
-           Intensive NLP Tasks." NeurIPS 2020; Karpukhin et al. "Dense
-           Passage Retrieval for Open-Domain Question Answering." EMNLP 2020.
-Self-RAG : Asai, A., Wu, Z., Wang, Y., Sil, A., Hajishirzi, H. "Self-RAG:
-           Learning to Retrieve, Generate, and Critique through Self-
-           Reflection." ICLR 2024.  [citation-only; not implemented here
-           because Self-RAG requires a Llama-2-7B backbone and the public
-           checkpoint is not apples-to-apples with Flan-T5-Large.]
+           Language Models." NeurIPS 2022; Kojima et al. "Large Language
+           Models are Zero-Shot Reasoners." NeurIPS 2022.
+RAG      : Lewis et al. NeurIPS 2020; Karpukhin et al. EMNLP 2020.
 """
 
 from __future__ import annotations
 
 import logging
 import time
-from typing import List, Optional, Tuple
+from typing import Any, List, Optional, Tuple
 
 import torch
-from transformers import AutoTokenizer, T5ForConditionalGeneration
 
 from caem.config import CAEMConfig
 from caem.memory.encoder import QueryEncoder
+from caem.model_loader import load_base_generator
 from caem.pipeline import PipelineResult
+from caem.prompts import FORCED_PREFIX, build_tier3_prompt
 from caem.retrieval.rag import PassageStore, TierThreeRAG
 
 logger = logging.getLogger(__name__)
@@ -90,8 +82,19 @@ class BaselineBase:
     """Minimal pipeline-shaped base for the Chapter 5 external baselines.
 
     Subclasses implement ``_generate(query) -> (answer, tier, escalated)``.
-    This base handles tokeniser/model loading, prompt tokenisation caps,
-    latency measurement, and wrapping into a ``PipelineResult``.
+    This base loads the shared Qwen-3B decoder-only generator (or any
+    instruction-tuned decoder-only backbone listed in
+    ``CAEMConfig.base_model_name``), handles prompt tokenisation caps,
+    measures latency, and wraps results into a ``PipelineResult``.
+
+    Decoder-only slicing
+    --------------------
+    ``model.generate()`` on a causal LM returns ``input_ids + generated_ids``
+    concatenated; the correct generated-only slice is
+    ``output_ids[0, input_len:]``. (The pre-Branch-C T5 code used
+    ``output_ids[0]`` because encoder-decoder generate returns only the
+    decoder tokens starting after the start-of-sequence.) ``_run_generation``
+    below is the single source of truth for the slice.
     """
 
     name: str = "baseline"
@@ -99,25 +102,34 @@ class BaselineBase:
 
     def __init__(
         self,
-        model_name: str = "google/flan-t5-large",
+        model_name: Optional[str] = None,
         device: str = "cuda",
         dtype: Optional[torch.dtype] = None,
         max_new_tokens: int = 256,
-        max_input_tokens: int = 512,
+        max_input_tokens: int = 2048,
+        config: Optional[CAEMConfig] = None,
+        use_flash_attention_2: Optional[bool] = None,
+        use_torch_compile: Optional[bool] = None,
     ) -> None:
-        self.model_name = model_name
+        cfg = config or CAEMConfig()
+        self.config = cfg
+        self.model_name = model_name or cfg.base_model_name
         self.device = device
         self.max_new_tokens = max_new_tokens
         self.max_input_tokens = max_input_tokens
 
-        logger.info("[%s] loading %s on %s", self.name, model_name, device)
-        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
-        load_kwargs = {}
-        if dtype is not None:
-            load_kwargs["torch_dtype"] = dtype
-        self.model = T5ForConditionalGeneration.from_pretrained(
-            model_name, **load_kwargs
-        ).to(device)
+        load_dtype = dtype if dtype is not None else torch.bfloat16
+        flash_attn = cfg.use_flash_attention_2 if use_flash_attention_2 is None else use_flash_attention_2
+        compile_ = cfg.use_torch_compile if use_torch_compile is None else use_torch_compile
+
+        logger.info("[%s] loading %s on %s", self.name, self.model_name, device)
+        self.model, self.tokenizer = load_base_generator(
+            self.model_name,
+            device=device,
+            dtype=load_dtype,
+            use_flash_attention_2=flash_attn,
+            use_torch_compile=compile_,
+        )
         self.model.eval()
 
     # ------------------------------------------------------------------ #
@@ -125,14 +137,39 @@ class BaselineBase:
     # ------------------------------------------------------------------ #
 
     def _build_prompt(self, query: str) -> str:
-        """Return the full prompt string fed to the model."""
-        return query
+        """Return the full prompt string fed to the model. Subclasses override."""
+        return self._wrap_chatml_user(query)
 
     def _generate(self, query: str) -> Tuple[str, int, bool]:
         """Generate an answer. Returns (answer, tier, escalated)."""
         prompt = self._build_prompt(query)
         answer = self._run_generation(prompt)
         return answer, self.tier_value, False
+
+    # ------------------------------------------------------------------ #
+    # ChatML wrapping                                                      #
+    # ------------------------------------------------------------------ #
+
+    def _wrap_chatml_user(self, user_content: str) -> str:
+        """Wrap ``user_content`` in a single-turn ChatML prompt with the
+        assistant-generation marker appended.
+
+        Falls back to the raw user content if the tokenizer does not expose
+        ``apply_chat_template`` or the template call returns a non-string
+        (mock tokenizers / non-instruction-tuned models).
+        """
+        tok = self.tokenizer
+        messages = [{"role": "user", "content": user_content}]
+        if hasattr(tok, "apply_chat_template"):
+            try:
+                rendered = tok.apply_chat_template(
+                    messages, tokenize=False, add_generation_prompt=True,
+                )
+                if isinstance(rendered, str):
+                    return rendered
+            except Exception:
+                pass
+        return user_content
 
     # ------------------------------------------------------------------ #
     # Shared generation helper                                             #
@@ -149,15 +186,24 @@ class BaselineBase:
             return_tensors="pt",
             truncation=True,
             max_length=self.max_input_tokens,
+            add_special_tokens=False,
         )
         input_ids = enc["input_ids"].to(self.device)
+        attention_mask = enc.get("attention_mask")
+        if attention_mask is not None:
+            attention_mask = attention_mask.to(self.device)
+        input_len = int(input_ids.shape[1])
         with torch.no_grad():
             output_ids = self.model.generate(
                 input_ids,
+                attention_mask=attention_mask,
                 max_new_tokens=max_new_tokens or self.max_new_tokens,
                 do_sample=do_sample,
+                pad_token_id=self.tokenizer.pad_token_id,
             )
-        return self.tokenizer.decode(output_ids[0], skip_special_tokens=True).strip()
+        # Decoder-only slice: prompt is echoed in output_ids.
+        gen_ids = output_ids[0, input_len:] if output_ids.shape[1] > input_len else output_ids[0]
+        return self.tokenizer.decode(gen_ids, skip_special_tokens=True).strip()
 
     # ------------------------------------------------------------------ #
     # Pipeline-shaped public API                                           #
@@ -193,22 +239,23 @@ class BaselineBase:
 
 
 # =============================================================================
-# B1 -- Zero-shot Flan-T5-Large
+# B1 -- Zero-shot
 # =============================================================================
 
 class ZeroShotBaseline(BaselineBase):
-    """Zero-shot Flan-T5-Large. Floor baseline: no CoT, no retrieval, no memory.
+    """Zero-shot Qwen-3B. Floor baseline: no CoT, no retrieval, no memory.
 
-    Matches the generation configuration of ``CAEMPipeline._tier2`` so that
-    Zero-shot vs. CAEM comparison isolates the effect of the CAEM machinery
-    rather than the decoder configuration.
+    The query is ChatML-wrapped as a single user turn with no system prompt
+    and no few-shot examples -- the cleanest ablation against CAEM's
+    scaffolded-CoT system prompt. Differences on Chapter-5 metrics then
+    attribute to CAEM's machinery rather than to ChatML-vs-flat prompting.
     """
 
     name = "zero_shot"
     tier_value = 2
 
     def _build_prompt(self, query: str) -> str:
-        return query
+        return self._wrap_chatml_user(query)
 
 
 # =============================================================================
@@ -216,23 +263,27 @@ class ZeroShotBaseline(BaselineBase):
 # =============================================================================
 
 class CoTBaseline(BaselineBase):
-    """Chain-of-Thought prompting (Wei et al. NeurIPS 2022).
+    """Zero-shot CoT (Kojima et al. NeurIPS 2022 / Wei et al. NeurIPS 2022).
+
+    Prepends ``"Let's think step by step."`` to the user turn. Still
+    ChatML-wrapped, single-turn, no retrieval.
 
     Hyperparameters
     ---------------
     prefix : str
-        [LIT] "Let's think step by step." -- the zero-shot CoT trigger phrase
-        from Kojima et al. NeurIPS 2022.
+        [LIT] "Let's think step by step." -- Kojima et al. NeurIPS 2022 zero-
+        shot CoT trigger.
     max_new_tokens : int
-        [DES] 256 -- matches ``CaemConfig.cot_max_new_tokens``.
+        [DES] Inherits ``BaselineBase`` default (256); CoT outputs rarely
+        exceed that on the factual-QA panel.
     """
 
     name = "cot"
     tier_value = 2
-    prefix: str = "Let's think step by step. "
+    prefix: str = "Let's think step by step."
 
     def _build_prompt(self, query: str) -> str:
-        return f"{self.prefix}{query}"
+        return self._wrap_chatml_user(f"{self.prefix}\n\n{query}")
 
 
 # =============================================================================
@@ -240,21 +291,22 @@ class CoTBaseline(BaselineBase):
 # =============================================================================
 
 class RAGBaseline(BaselineBase):
-    """DPR + Flan-T5-Large RAG baseline.
+    """DPR + Qwen-3B RAG baseline.
 
-    Reuses ``caem.retrieval.rag.TierThreeRAG`` for passage retrieval, prompt
-    assembly, and generation, so this baseline is numerically identical to
-    CAEM's Tier 3 RAG when CAEM dispatches to Tier 3. The difference is that
-    this baseline sends *every* query through RAG with no router.
+    Delegates to ``caem.retrieval.rag.TierThreeRAG`` for passage retrieval,
+    ChatML prompt assembly, and generation, so this baseline is numerically
+    identical to CAEM's Tier 3 RAG when CAEM dispatches to Tier 3. The
+    difference is that this baseline routes *every* query through RAG with
+    no router.
 
     Hyperparameters
     ---------------
     top_k : int
-        [DES] 5 -- ``CaemConfig.rag_top_k`` (Karpukhin et al. EMNLP 2020).
+        [DES] ``CaemConfig.rag_top_k`` (Karpukhin et al. EMNLP 2020).
     max_context_tokens : int
-        [DES] 384 -- ``CaemConfig.rag_max_context_tokens``.
+        [DES] ``CaemConfig.rag_max_context_tokens``.
     max_new_tokens : int
-        [DES] 256 -- ``CaemConfig.rag_max_new_tokens``.
+        [DES] ``CaemConfig.rag_max_new_tokens``.
     """
 
     name = "rag"
@@ -265,24 +317,20 @@ class RAGBaseline(BaselineBase):
         passage_store: PassageStore,
         passage_encoder: Optional[QueryEncoder] = None,
         config: Optional[CAEMConfig] = None,
-        model_name: str = "google/flan-t5-large",
+        model_name: Optional[str] = None,
         device: str = "cuda",
         dtype: Optional[torch.dtype] = None,
     ) -> None:
-        self.config = config or CAEMConfig()
+        cfg = config or CAEMConfig()
         super().__init__(
             model_name=model_name,
             device=device,
             dtype=dtype,
-            max_new_tokens=self.config.rag_max_new_tokens,
-            max_input_tokens=512,
+            max_new_tokens=cfg.rag_max_new_tokens,
+            max_input_tokens=cfg.rag_max_context_tokens * 8 + cfg.rag_max_new_tokens,
+            config=cfg,
         )
-        # Query-side Sentence-BERT encoder for DPR retrieval. Reuse the
-        # one the caller provides (typical when this baseline shares a
-        # process with a CAEMPipeline) or construct a fresh one.
         self.passage_encoder = passage_encoder or QueryEncoder(device=self.device)
-        # Share the generator with TierThreeRAG so retrieval + generation
-        # match CAEM Tier 3 exactly.
         self.rag = TierThreeRAG(
             model=self.model,
             tokenizer=self.tokenizer,
@@ -302,40 +350,39 @@ class RAGBaseline(BaselineBase):
 # =============================================================================
 
 class CoTRAGBaseline(RAGBaseline):
-    """RAG with a Chain-of-Thought trigger injected before the answer cue.
+    """RAG with an explicit CoT trigger injected into the assistant prefill.
 
-    The prompt is the standard RAG numbered-context prompt produced by
-    ``TierThreeRAG._build_prompt``. Following Wei et al. (NeurIPS 2022), the
-    CoT trigger is placed immediately before the ``Answer:`` cue rather than
-    at the very top of the prompt: the model needs to condition the reasoning
-    chain on both the retrieved context and the question, not on a bare
-    instruction preceding the context block.
+    The prompt is the scaffolded-CoT ChatML prompt from
+    ``caem.prompts.build_tier3_prompt``. The CoT trigger is prepended to
+    the ``"Reasoning:"`` forced prefix so the assistant turn begins with
+
+        "Let's think step by step.\\nReasoning: ..."
+
+    Ch5 reports B3 vs B4 together to isolate the effect of an explicit CoT
+    trigger over the scaffolded Reasoning/Answer format alone.
     """
 
     name = "cot_rag"
     prefix: str = "Let's think step by step."
-    _cue_marker: str = "\nAnswer:"
-
-    def _inject_cot_trigger(self, prompt: str) -> str:
-        """Insert ``self.prefix`` on its own line immediately before the final
-        ``\\nAnswer:`` cue. Falls back to appending the trigger if the cue is
-        not present (defensive; every branch of ``_build_prompt`` emits it).
-        """
-        idx = prompt.rfind(self._cue_marker)
-        if idx == -1:
-            return prompt.rstrip() + "\n" + self.prefix.rstrip()
-        return prompt[:idx] + "\n" + self.prefix.rstrip() + prompt[idx:]
 
     def _generate(self, query: str) -> Tuple[str, int, bool]:
-        # Retrieve passages via the shared RAG object.
         passages = self.rag.retrieve(query)
-        prompt = self.rag._build_prompt(query, passages)
-        prompt = self._inject_cot_trigger(prompt)
-        answer = self._run_generation(
-            prompt,
+        prompt_text, forced_prefix = build_tier3_prompt(
+            query, passages, tokenizer=self.tokenizer,
+        )
+        # Prepend the CoT trigger to the prefill so the assistant turn reads
+        # "Let's think step by step.\nReasoning: ..." -- matches the inject-
+        # before-Answer-cue semantics of the pre-Branch-C T5 implementation,
+        # adapted to ChatML's prefill-based forcing.
+        full_prompt = f"{prompt_text}{self.prefix}\n{forced_prefix}"
+        continuation = self._run_generation(
+            full_prompt,
             max_new_tokens=self.config.rag_max_new_tokens,
             do_sample=self.config.rag_do_sample,
         )
+        # Surface the forced prefix in the returned answer so the downstream
+        # scorer sees the same "Reasoning: ...\nAnswer: ..." shape as CAEM Tier 3.
+        answer = f"{forced_prefix}{continuation}" if continuation else forced_prefix
         return answer, self.tier_value, False
 
 
@@ -346,29 +393,29 @@ class CoTRAGBaseline(RAGBaseline):
 class FLAREBaseline(RAGBaseline):
     """FLARE: active retrieval augmented generation via look-ahead confidence.
 
-    At each decode step the model emits a 64-token look-ahead without
+    At each sentence boundary the model emits a 64-token look-ahead without
     retrieval. If any token's probability falls below ``theta`` the low-
-    confidence token span is masked, the masked prefix becomes the retrieval
-    query, and the current sentence is regenerated with retrieved passages
-    prepended. Otherwise the look-ahead is committed and decoding continues.
+    confidence span triggers a retrieval and the sentence is regenerated
+    with retrieved passages prepended. Otherwise the look-ahead is committed
+    and decoding continues.
 
     Hyperparameters
     ---------------
     theta : float
         [LIT] 0.4 -- confidence floor for triggering retrieval (Jiang et al.
-        2023 §4.2: "we set the confidence threshold to 0.4").
+        2023 §4.2).
     look_ahead_tokens : int
-        [LIT] 64 -- the look-ahead horizon (Jiang et al. 2023 §4.2).
+        [LIT] 64 -- look-ahead horizon (Jiang et al. 2023 §4.2).
     max_sentences : int
-        [DES] 8 -- cap total sentence regenerations to avoid runaway loops
-        on degenerate queries.
+        [DES] 8 -- cap total sentence regenerations.
 
-    Notes
-    -----
-    This implementation uses sentence-level active retrieval with a single
-    retrieval trigger per sentence, following the published FLARE variant.
-    The token-level log-probability floor is computed from the model's own
-    generation scores (``output_scores=True``).
+    Decoder-only slicing
+    --------------------
+    ``model.generate()`` returns ``input_ids + generated_ids`` concatenated
+    for a causal LM, so ``out.sequences[0, input_len:]`` is the generated
+    suffix. The pre-Branch-C T5 implementation sliced ``out.sequences[0, 1:]``
+    (skip decoder-start token) -- NOT valid here. The current code paths this
+    correctly; ``tests/test_flare_smoke.py`` is the regression guard.
     """
 
     name = "flare"
@@ -379,7 +426,7 @@ class FLAREBaseline(RAGBaseline):
         passage_store: PassageStore,
         passage_encoder: Optional[QueryEncoder] = None,
         config: Optional[CAEMConfig] = None,
-        model_name: str = "google/flan-t5-large",
+        model_name: Optional[str] = None,
         device: str = "cuda",
         dtype: Optional[torch.dtype] = None,
         theta: float = 0.4,
@@ -398,92 +445,120 @@ class FLAREBaseline(RAGBaseline):
         self.look_ahead_tokens = look_ahead_tokens
         self.max_sentences = max_sentences
 
-    def _look_ahead(self, prompt: str) -> Tuple[str, float]:
-        """Emit a 64-token look-ahead from ``prompt``; return (text, min_prob).
+    def _look_ahead(self, query: str, committed: str) -> Tuple[str, float]:
+        """Emit a ``look_ahead_tokens`` span continuing ``committed``; return
+        (text, min_prob).
 
-        min_prob is the minimum per-token probability across the emitted
-        span; this is the scalar that FLARE thresholds against ``theta``.
+        min_prob is the minimum per-token probability across the emitted span
+        -- the scalar FLARE thresholds against ``theta``.
+
+        The look-ahead prompt wraps ``query`` as a ChatML user turn and uses
+        ``committed`` as the assistant prefill (so the model continues from
+        wherever the caller has accumulated text). For an empty ``committed``
+        the assistant starts from a bare generation marker.
         """
+        prompt_text = self._wrap_chatml_user(query)
+        full_prompt = f"{prompt_text}{committed}" if committed else prompt_text
         enc = self.tokenizer(
-            prompt,
+            full_prompt,
             return_tensors="pt",
             truncation=True,
             max_length=self.max_input_tokens,
+            add_special_tokens=False,
         )
         input_ids = enc["input_ids"].to(self.device)
+        attention_mask = enc.get("attention_mask")
+        if attention_mask is not None:
+            attention_mask = attention_mask.to(self.device)
+        input_len = int(input_ids.shape[1])
         with torch.no_grad():
             out = self.model.generate(
                 input_ids,
+                attention_mask=attention_mask,
                 max_new_tokens=self.look_ahead_tokens,
                 do_sample=False,
                 return_dict_in_generate=True,
                 output_scores=True,
+                pad_token_id=self.tokenizer.pad_token_id,
             )
-        # T5 is encoder-decoder: model.generate() returns only decoder tokens
-        # in out.sequences, with shape (1, T+1) where position 0 is the
-        # decoder_start_token_id (typically pad) and positions 1..T are the
-        # generated tokens. Slicing by input_ids.shape[1] would be correct
-        # for a decoder-only model (GPT-family) but yields an empty tensor
-        # here; the correct offset is 1 (skip the start token). out.scores
-        # is a tuple of T logits, one per generated step, aligned with
-        # out.sequences[0, 1:].
+
         if not out.scores:
             return "", 1.0
-        gen_ids = out.sequences[0, 1:]
+
+        # Decoder-only: out.sequences = [input_ids, generated_ids] concatenated.
+        # The slice [0, input_len:] is the generated tail, aligned with out.scores.
+        gen_ids = out.sequences[0, input_len:]
         probs: List[float] = []
         for t, logits in enumerate(out.scores):
             if t >= len(gen_ids):
                 break
-            token_id = gen_ids[t].item()
+            token_id = int(gen_ids[t].item())
             p = torch.softmax(logits[0], dim=-1)[token_id].item()
             probs.append(p)
         text = self.tokenizer.decode(gen_ids, skip_special_tokens=True).strip()
         min_prob = min(probs) if probs else 1.0
         return text, min_prob
 
+    def _grounded_generate(
+        self,
+        query: str,
+        committed: str,
+        passages: List[Tuple[str, float]],
+    ) -> str:
+        """Regenerate the current sentence with retrieved passages prepended.
+
+        Uses ``build_tier3_prompt`` so the grounded regeneration matches
+        CAEM's Tier 3 ChatML format. The accumulated ``committed`` text is
+        threaded as a ``Partial answer so far:`` prefix in the query text
+        (keeps the prompt shape simple while preserving FLARE's per-sentence
+        grounding behaviour).
+        """
+        query_with_context = (
+            f"{query}\n\nPartial answer so far: {committed}"
+            if committed
+            else query
+        )
+        prompt_text, forced_prefix = build_tier3_prompt(
+            query_with_context, passages, tokenizer=self.tokenizer,
+        )
+        full_prompt = prompt_text + forced_prefix
+        return self._run_generation(
+            full_prompt,
+            max_new_tokens=self.look_ahead_tokens,
+            do_sample=False,
+        )
+
     def _generate(self, query: str) -> Tuple[str, int, bool]:
         """Sentence-by-sentence active retrieval.
 
-        Committed text accumulates across sentences; each sentence triggers
-        either (a) a direct look-ahead commit if min-prob >= theta, or
-        (b) a retrieval round followed by a grounded regeneration commit.
-        ``escalated`` is True whenever at least one retrieval was triggered.
+        Committed text accumulates across sentences; each iteration either
+        (a) commits a look-ahead sentence if its min-prob >= theta, or
+        (b) triggers retrieval and commits a grounded regeneration.
+        ``escalated`` is True whenever at least one retrieval fires.
         """
         committed = ""
         escalated = False
         for _ in range(self.max_sentences):
-            lookup_prompt = f"{query}\n\nAnswer: {committed}"
-            look_text, min_prob = self._look_ahead(lookup_prompt)
+            look_text, min_prob = self._look_ahead(query, committed)
             if not look_text:
                 break
 
-            # Take one sentence at a time.
             sentence = _first_sentence(look_text)
 
             if min_prob >= self.theta:
-                # Commit the look-ahead sentence without retrieval.
                 committed = _append_sentence(committed, sentence)
             else:
-                # Retrieval trigger: mask low-prob tokens, use remaining
-                # text as the retrieval query, and regenerate with context.
                 escalated = True
                 retrieval_query = sentence or query
                 passages = self.rag.retrieve(retrieval_query)
-                grounded_prompt = self.rag._build_prompt(
-                    f"{query}\n\nPartial answer so far: {committed}",
-                    passages,
-                )
-                grounded = self._run_generation(
-                    grounded_prompt,
-                    max_new_tokens=self.look_ahead_tokens,
-                    do_sample=False,
-                )
+                grounded = self._grounded_generate(query, committed, passages)
+                # Strip the "Reasoning:" prefix that the scaffolded prompt
+                # forces; FLARE's committed buffer tracks natural-language
+                # sentences, not scaffolded CoT tokens.
+                if grounded.lower().lstrip().startswith(FORCED_PREFIX.lower()):
+                    grounded = grounded.lstrip()[len(FORCED_PREFIX):].lstrip()
                 committed = _append_sentence(committed, _first_sentence(grounded))
 
-            # Termination: FLAN-T5 tends to emit a full answer in the first
-            # sentence for factual-QA. Stop when look-ahead stops producing
-            # new content or the committed text ends in a final-answer
-            # marker (period + whitespace).
             if committed.rstrip().endswith((".", "?", "!")) and len(committed.split()) >= 3:
                 break
 

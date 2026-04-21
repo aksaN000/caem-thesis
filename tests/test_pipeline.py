@@ -24,7 +24,7 @@ FAISS network calls. We control:
   - tokenizer.decode()         -> fixed answer string
   - pre_estimator.estimate()   -> PreRoutingConfidence with controlled u_pre
   - router.route()             -> RoutingDecision with controlled tier
-  - post_estimator.estimate()  -> PostGenerationConfidence with controlled u_hat
+  - (post-generation Stage-4a gate was removed Session 42; verifier is the truth)
   - verifier.verify()          -> UnifiedVerifierOutput with controlled fields
   - rag.generate()             -> fixed answer string
   - memory_store               -> real EpisodicMemoryStore (small, in-memory)
@@ -61,7 +61,6 @@ import torch
 from caem.config import CAEMConfig
 from caem.memory.entry import (
     EpisodicEntry,
-    PostGenerationConfidence,
     PreRoutingConfidence,
     RoutingDecision,
 )
@@ -144,15 +143,17 @@ def make_routing(
     )
 
 
-def make_post_conf(u_hat: float = 0.70) -> PostGenerationConfidence:
-    # u_hat is retained as a function arg for call-site compatibility; the
-    # PostGenerationConfidence dataclass no longer stores it (the gate that
-    # consumed it was removed when the UnifiedVerifier became the single
-    # source of post-generation truth).
-    del u_hat  # silence unused-arg linters
-    return PostGenerationConfidence(
-        u_token=0.7, u_dropout=0.7, u_consistency=0.7, u_entropy=0.7,
-    )
+def make_post_conf(u_hat: float = 0.70) -> None:
+    # Retained only as a helper shim: all call sites used to build a
+    # ``PostGenerationConfidence`` instance here, but the dataclass was
+    # removed as dead code on 2026-04-22 (the Stage-4a u_hat gate that
+    # consumed it was retired in Session 42 when UnifiedVerifier became
+    # the single source of post-generation truth). The function is kept
+    # so existing call sites do not need mass edits; it now returns
+    # ``None`` since that is what ``PipelineResult.post_confidence``
+    # carries in the live pipeline.
+    del u_hat
+    return None
 
 
 def make_vout(

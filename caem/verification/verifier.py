@@ -170,6 +170,15 @@ class UnifiedVerifierOutput:
     atomic_facts: List[str] = field(default_factory=list)
     per_atom_entail: List[float] = field(default_factory=list)
 
+    # --- Question-answer relevance (Branch C Goal 2) ---------------------- #
+    # Cross-encoder score on (question, display_answer). Closes the sample-②
+    # off-topic-answer-with-matching-passage failure mode (hallucinated answer
+    # that happened to match a retrieved passage, so entailment and grounding
+    # both pass while the answer doesn't address the question). Defaults to
+    # 0.5 so callers that omit a qa_relevance_scorer get a neutral composite
+    # contribution rather than a silent 0 that would penalise every answer.
+    q_a_relevance: float = 0.5
+
 
 # ============================================================================ #
 # NLI ensemble helper                                                           #
@@ -391,6 +400,7 @@ class UnifiedVerifier:
         nli_tokenizer: Optional[Any] = None,
         reranker: Optional[Any] = None,
         passage_retriever: Optional[Callable[[str, int], List[str]]] = None,
+        qa_relevance_scorer: Optional[Any] = None,
         enable_atomic: bool = True,
         config: Optional[CAEMConfig] = None,
         device: Optional[str] = None,
@@ -401,6 +411,13 @@ class UnifiedVerifier:
         self.config = config or CAEMConfig()
         self.reranker = reranker
         self.passage_retriever = passage_retriever
+        # Branch C Goal 2: BGE / MiniLM cross-encoder scoring
+        # (question, display_answer) relevance. Any object with a
+        # ``.predict(List[Tuple[str, str]]) -> np.ndarray`` method is
+        # compatible (sentence-transformers CrossEncoder,
+        # FlagEmbedding.FlagReranker, or a thin wrapper). None disables
+        # the signal and the composite falls back to the 0.5 neutral prior.
+        self.qa_relevance_scorer = qa_relevance_scorer
         self.enable_atomic = enable_atomic
 
         if device is None:
@@ -492,6 +509,9 @@ class UnifiedVerifier:
             top_passages, answer, fallback=p_ground_mean
         )
 
+        # ---------- question-answer relevance (Branch C Goal 2) ----------- #
+        q_a_relevance = self._compute_q_a_relevance(query, answer)
+
         # ---------- early-exit confabulation gate ------------------------- #
         ee_u = self.config.early_exit_u_internal
         ee_g = self.config.early_exit_p_ground_max
@@ -521,6 +541,7 @@ class UnifiedVerifier:
                 top_passages=top_passages,
                 atomic_facts=atomic_facts,
                 per_atom_entail=per_atom_entail,
+                q_a_relevance=float(q_a_relevance),
             )
 
         # ---------- composite --------------------------------------------- #
@@ -531,6 +552,7 @@ class UnifiedVerifier:
             h_norm=h_norm,
             u_internal=u_internal,
             p_entail=p_entail,
+            q_a_relevance=q_a_relevance,
         )
 
         # ---------- decision tree ----------------------------------------- #
@@ -544,10 +566,12 @@ class UnifiedVerifier:
             "verify | u_tok=%.3f u_drop=%.3f u_int=%.3f | "
             "s_avg=%.3f h_norm=%.3f p_ent=%.3f | "
             "pg_max=%.3f pg_mean=%.3f pg_atomic=%.3f p_contra=%.3f | "
+            "q_a_rel=%.3f | "
             "u_stored=%.3f decision=%s",
             u_token, u_dropout, u_internal,
             s_avg, h_norm, p_entail,
             p_ground_max, p_ground_mean, p_ground_atomic, p_contra,
+            q_a_relevance,
             u_stored, decision,
         )
 
@@ -569,6 +593,7 @@ class UnifiedVerifier:
             top_passages=top_passages,
             atomic_facts=atomic_facts,
             per_atom_entail=per_atom_entail,
+            q_a_relevance=float(q_a_relevance),
         )
 
     def should_store(self, out: UnifiedVerifierOutput) -> bool:
@@ -642,7 +667,7 @@ class UnifiedVerifier:
         # utilised GPUs (smaller cards or smaller batches) it can approach
         # 15-20%. Falls back to sequential dispatch when CUDA is not
         # available (CPU tests, non-NVIDIA devices).
-        chains_per_sample, se_samples_per_sample = self._pooled_sample_t5_dual(
+        chains_per_sample, se_samples_per_sample = self._pooled_sample_dual(
             queries=queries,
             num_per_a=self.config.sc_chains_m,
             temperature_a=0.7,
@@ -665,7 +690,7 @@ class UnifiedVerifier:
             ))
         return outputs
 
-    def _pooled_sample_t5(
+    def _pooled_sample(
         self,
         queries: List[str],
         *,
@@ -674,8 +699,10 @@ class UnifiedVerifier:
         max_new_tokens: int,
         label: str,
     ) -> List[List[str]]:
-        """Draw ``num_per`` i.i.d. T5 samples for each of N queries in one
-        batched ``model.generate(num_return_sequences=num_per)`` call.
+        """Draw ``num_per`` i.i.d. samples for each of N queries in one
+        batched decoder-only ``model.generate(num_return_sequences=num_per)``
+        call. Queries are ChatML-wrapped + left-padded so rows in the batch
+        align for decoding.
 
         Returns a list of N lists, each of length ``num_per``. On failure
         returns N empty lists so downstream scorers fall back gracefully
@@ -733,13 +760,13 @@ class UnifiedVerifier:
             return per_sample
         except Exception as exc:
             logger.warning(
-                "_pooled_sample_t5 (%s) failed (N=%d, num_per=%d): %s -- "
+                "_pooled_sample (%s) failed (N=%d, num_per=%d): %s -- "
                 "returning empty samples so downstream scorers fall back.",
                 label, N, num_per, exc,
             )
             return [[] for _ in range(N)]
 
-    def _pooled_sample_t5_dual(
+    def _pooled_sample_dual(
         self,
         *,
         queries: List[str],
@@ -751,7 +778,7 @@ class UnifiedVerifier:
         label_b: str,
         max_new_tokens: int,
     ) -> Tuple[List[List[str]], List[List[str]]]:
-        """Run two data-independent pooled T5 samplings concurrently.
+        """Run two data-independent pooled samplings concurrently.
 
         Level B Phase 2 CUDA-stream overlap. The two calls (M-chain at
         temperature_a, semantic-entropy at temperature_b) read the same
@@ -767,7 +794,7 @@ class UnifiedVerifier:
             + stream_b.wait on current stream) fences both before we
             read back the outputs for decode.
           * When CUDA is unavailable (CPU, MPS, ROCm without stream
-            emulation), we fall back to the serial ``_pooled_sample_t5``
+            emulation), we fall back to the serial ``_pooled_sample``
             path -- zero behavioural change.
 
         Returns
@@ -789,14 +816,14 @@ class UnifiedVerifier:
             and self.device.startswith("cuda")
         )
         if not use_streams:
-            a = self._pooled_sample_t5(
+            a = self._pooled_sample(
                 queries,
                 num_per=num_per_a,
                 temperature=temperature_a,
                 max_new_tokens=max_new_tokens,
                 label=label_a,
             )
-            b = self._pooled_sample_t5(
+            b = self._pooled_sample(
                 queries,
                 num_per=num_per_b,
                 temperature=temperature_b,
@@ -888,14 +915,14 @@ class UnifiedVerifier:
             return per_sample_a, per_sample_b
         except Exception as exc:
             logger.warning(
-                "_pooled_sample_t5_dual failed (N=%d) -- falling back to "
+                "_pooled_sample_dual failed (N=%d) -- falling back to "
                 "serial dispatch: %s", N, exc,
             )
-            a = self._pooled_sample_t5(
+            a = self._pooled_sample(
                 queries, num_per=num_per_a, temperature=temperature_a,
                 max_new_tokens=max_new_tokens, label=label_a,
             )
-            b = self._pooled_sample_t5(
+            b = self._pooled_sample(
                 queries, num_per=num_per_b, temperature=temperature_b,
                 max_new_tokens=max_new_tokens, label=label_b,
             )
@@ -913,7 +940,7 @@ class UnifiedVerifier:
     ) -> List[List[str]]:
         """Decode a pooled generate output into N per-sample lists.
 
-        Shared by _pooled_sample_t5_dual for both stream outputs. If
+        Shared by _pooled_sample_dual for both stream outputs. If
         the sampler raised or produced no tensor, returns N empty
         lists so downstream scorers fall back.
 
@@ -923,7 +950,7 @@ class UnifiedVerifier:
         """
         if err is not None:
             logger.warning(
-                "_pooled_sample_t5_dual (%s) sampler failed (N=%d, "
+                "_pooled_sample_dual (%s) sampler failed (N=%d, "
                 "num_per=%d): %s -- returning empty samples.",
                 label, N, num_per, err,
             )
@@ -1363,6 +1390,56 @@ class UnifiedVerifier:
             return [], [], float(fallback)
 
     # ====================================================================== #
+    # Question-answer relevance (Branch C Goal 2)                             #
+    # ====================================================================== #
+
+    def _compute_q_a_relevance(self, query: str, answer: str) -> float:
+        """Score the semantic relevance of ``answer`` to ``query`` in [0, 1].
+
+        Runs the injected cross-encoder (e.g. BGE-reranker-v2-m3 or
+        cross-encoder/ms-marco-MiniLM-L6-v2) on a single (question, answer)
+        pair. When the scorer is not configured, returns 0.5 -- the neutral
+        prior that leaves the composite numerically unchanged if its weight
+        is zeroed via an ablation config.
+
+        Failure modes are treated as neutral (0.5) rather than escalated
+        to 0.0 / 1.0, for the same reason p_entail / p_ground_max return
+        0.5 when their NLI bundle is unavailable: zero would add a false
+        penalty, one would add a false reward.
+
+        Why this signal exists (the sample-② failure mode):
+            Phase-1a Cycle 0 produced hallucinated off-topic answers that
+            scored high on p_entail and p_ground_max because a retrieved
+            passage happened to *support* the hallucinated text, even though
+            the text did not *address the question*. Neither entailment nor
+            grounding checks question↔answer relevance -- q_a_relevance
+            closes that gap.
+        """
+        scorer = self.qa_relevance_scorer
+        if scorer is None:
+            return 0.5
+        q = (query or "").strip()
+        a = (answer or "").strip()
+        if not q or not a:
+            return 0.5
+        try:
+            raw = scorer.predict([(q, a)])
+        except Exception as exc:
+            logger.warning(
+                "q_a_relevance scorer failed (%s) -- falling back to 0.5 "
+                "neutral prior.", exc,
+            )
+            return 0.5
+        # Accept any array-like with a single scalar in position 0.
+        try:
+            score = float(np.asarray(raw).reshape(-1)[0])
+        except Exception:
+            return 0.5
+        if not math.isfinite(score):
+            return 0.5
+        return float(np.clip(score, 0.0, 1.0))
+
+    # ====================================================================== #
     # Composite + decision                                                    #
     # ====================================================================== #
 
@@ -1375,6 +1452,7 @@ class UnifiedVerifier:
         h_norm: float,
         u_internal: float,
         p_entail: float,
+        q_a_relevance: float = 0.5,
     ) -> float:
         cfg = self.config
         w_pg_mean = cfg.u_stored_weight_pground_mean
@@ -1383,6 +1461,10 @@ class UnifiedVerifier:
         w_hnorm = cfg.u_stored_weight_se    # applied as (1 - h_norm)
         w_uint = cfg.u_stored_weight_uinternal
         w_pent = cfg.u_stored_weight_nli
+        # Branch C Goal 2: getattr keeps the composite runnable against a
+        # pre-Goal-2 CAEMConfig (zero weight -> q_a_relevance contribution is
+        # silenced, matches Session-42 baseline numerics exactly).
+        w_qarel = getattr(cfg, "u_stored_weight_q_a_relevance", 0.0)
 
         u = (
             w_pg_mean * p_ground_mean
@@ -1391,6 +1473,7 @@ class UnifiedVerifier:
             + w_hnorm * (1.0 - h_norm)
             + w_uint * u_internal
             + w_pent * p_entail
+            + w_qarel * q_a_relevance
         )
         return float(np.clip(u, 0.0, 1.0))
 
@@ -1401,15 +1484,24 @@ class UnifiedVerifier:
         p_contra: float,
         p_ground_max: float,
     ) -> Tuple[str, bool]:
-        """Apply the Session 42 decision tree. Returns (decision, abstained)."""
+        """Apply the Branch C decision tree. Returns (decision, abstained).
+
+        Note: the Session-42 contradiction veto branch
+        (``p_contra >= contradiction_veto_threshold -> DISCARD``) was removed
+        on 2026-04-22 because MiniCheck --- the default judge since Branch C
+        --- is a unary P(supported) model that returns ``p_contra = 0.0`` by
+        construction (see ``caem/verification/minicheck.py::batch_contradict_prob``).
+        Under that backend the veto could never fire, so every stored entry
+        carried ``p_contra = 0`` and the ``no_contradiction_veto`` ablation
+        variant was a no-op. ``p_contra`` remains in the schema as a
+        diagnostic under the ``roberta_nli_backend`` ablation variant (where
+        the judge actually emits 3-class probabilities), but no decision
+        logic reads it.
+        """
         cfg = self.config
         store_thr = cfg.store_threshold
         defer_thr = cfg.defer_threshold
         abstain_pg = cfg.abstain_pground_ceiling
-        contra_veto = cfg.contradiction_veto_threshold
-
-        if p_contra >= contra_veto:
-            return "DISCARD", False
 
         if u_stored >= store_thr:
             return "STORE", False

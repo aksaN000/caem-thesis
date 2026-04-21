@@ -84,11 +84,11 @@ def _check_deps() -> None:
 def _load_imports() -> Dict[str, Any]:
     """Deferred import so --help works without GPU deps installed."""
     import torch
-    from transformers import AutoTokenizer, T5ForConditionalGeneration
 
     from caem.config import CAEMConfig
     from caem.memory.encoder import QueryEncoder
     from caem.memory.store import EpisodicMemoryStore
+    from caem.model_loader import load_base_generator
     from caem.pipeline import CAEMPipeline
     from caem.retrieval.rag import PassageStore
     from caem.training.self_improvement import SelfImprovementLoop
@@ -105,8 +105,7 @@ def _load_imports() -> Dict[str, Any]:
 
     return dict(
         torch=torch,
-        AutoTokenizer=AutoTokenizer,
-        T5ForConditionalGeneration=T5ForConditionalGeneration,
+        load_base_generator=load_base_generator,
         CAEMConfig=CAEMConfig,
         QueryEncoder=QueryEncoder,
         EpisodicMemoryStore=EpisodicMemoryStore,
@@ -168,17 +167,25 @@ def build_pipeline(config: Any, ns: Any, m: Dict[str, Any]) -> "CAEMPipeline":
         )
         config.grad_accum_steps = hw_grad_accum
 
-    # -- Flan-T5-Large ----------------------------------------------------- #
-    logger.info("Loading Flan-T5-Large ...")
+    # -- Base generator (Qwen-2.5-3B-Instruct, decoder-only) -------------- #
+    # Branch C uses a decoder-only backbone via load_base_generator. The
+    # model name is sourced from CAEMConfig.base_model_name so that the CLI
+    # can override via --model-name without touching this function.
+    logger.info("Loading base generator: %s ...", config.base_model_name)
     torch = m["torch"]
-    tokenizer = m["AutoTokenizer"].from_pretrained("google/flan-t5-large")
-    model = m["T5ForConditionalGeneration"].from_pretrained("google/flan-t5-large")
-    if hw.use_bf16:
-        model = model.to(torch.bfloat16)
-    elif hw.use_fp16:
-        model = model.to(torch.float16)
-    model = model.to(device).eval()
-    logger.info("Flan-T5-Large loaded (%.0f M params, precision=%s)",
+    load_dtype = (
+        torch.bfloat16 if hw.use_bf16
+        else torch.float16 if hw.use_fp16
+        else torch.float32
+    )
+    model, tokenizer = m["load_base_generator"](
+        config.base_model_name,
+        device=device,
+        dtype=load_dtype,
+        use_flash_attention_2=config.use_flash_attention_2,
+        use_torch_compile=config.use_torch_compile,
+    )
+    logger.info("Base generator loaded (%.0f M params, precision=%s)",
                 sum(p.numel() for p in model.parameters()) / 1e6,
                 "bf16" if hw.use_bf16 else "fp16" if hw.use_fp16 else "fp32")
 

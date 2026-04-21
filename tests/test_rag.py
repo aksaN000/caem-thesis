@@ -171,6 +171,79 @@ class TestPassageStoreSearch:
             assert p in passages
 
 
+class TestPassageStoreAdaptiveNprobe:
+    """Branch C Goal 5: per-call FAISS nprobe override.
+
+    The debug-scale PassageStore falls back to FlatIP when the corpus is
+    too small to train IVF-PQ, so these tests use mocked index objects
+    to exercise the nprobe path without standing up a 20k-passage IVF
+    index. The production path (IVF-PQ + GPU) is exercised indirectly by
+    the Vast main run.
+    """
+
+    def test_nprobe_override_applied_and_restored_on_ivf(self):
+        store, _, _ = make_passage_store(5)
+
+        # Swap in a stub index that records nprobe reads/writes and
+        # returns deterministic search output.
+        class _StubIVFIndex:
+            def __init__(self):
+                self.nprobe = 32
+                self.ntotal = 5
+                self.nprobe_history = []
+
+            def search(self, q, k):
+                self.nprobe_history.append(self.nprobe)
+                # Deterministic scores + valid ids.
+                scores = np.zeros((1, k), dtype=np.float32)
+                ids = np.arange(k, dtype=np.int64).reshape(1, k)
+                return scores, ids
+
+        stub = _StubIVFIndex()
+        store._index = stub
+
+        store.search(unit_vec(0), k=3, nprobe=64)
+        # Recorded nprobe during search was 64 (override applied).
+        assert stub.nprobe_history == [64]
+        # Post-call nprobe restored to the pre-call value.
+        assert stub.nprobe == 32
+
+    def test_nprobe_none_leaves_index_untouched(self):
+        store, _, _ = make_passage_store(5)
+
+        class _StubIVFIndex:
+            def __init__(self):
+                self.nprobe = 32
+                self.ntotal = 5
+                self.search_called_with_nprobe = None
+
+            def search(self, q, k):
+                self.search_called_with_nprobe = self.nprobe
+                scores = np.zeros((1, k), dtype=np.float32)
+                ids = np.arange(k, dtype=np.int64).reshape(1, k)
+                return scores, ids
+
+        stub = _StubIVFIndex()
+        store._index = stub
+
+        store.search(unit_vec(0), k=3, nprobe=None)
+        assert stub.search_called_with_nprobe == 32
+        assert stub.nprobe == 32
+
+    def test_nprobe_override_ignored_on_flat_index(self):
+        """FlatIP indexes have no nprobe attribute; the override path
+        must be a no-op rather than raising, so the fallback-index path
+        works unchanged.
+        """
+        store, _, _ = make_passage_store(3)
+        # make_passage_store builds a FlatIP index at this debug size.
+        # Call succeeds and returns the same results whether nprobe is
+        # supplied or not.
+        base = store.search(unit_vec(0), k=2)
+        overridden = store.search(unit_vec(0), k=2, nprobe=256)
+        assert base == overridden
+
+
 # -----------------------------------------------------------------------------
 # PassageStore save / load
 # -----------------------------------------------------------------------------

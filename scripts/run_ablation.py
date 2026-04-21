@@ -69,11 +69,11 @@ def _check_deps() -> None:
 
 def _load_imports() -> Dict[str, Any]:
     import torch
-    from transformers import AutoTokenizer, T5ForConditionalGeneration
 
     from caem.config import CAEMConfig
     from caem.memory.encoder import QueryEncoder
     from caem.memory.store import EpisodicMemoryStore
+    from caem.model_loader import load_base_generator
     from caem.pipeline import CAEMPipeline
     from caem.retrieval.rag import PassageStore
     from eval.benchmarks import load_benchmark, make_synthetic_samples
@@ -81,8 +81,7 @@ def _load_imports() -> Dict[str, Any]:
 
     return dict(
         torch=torch,
-        AutoTokenizer=AutoTokenizer,
-        T5ForConditionalGeneration=T5ForConditionalGeneration,
+        load_base_generator=load_base_generator,
         CAEMConfig=CAEMConfig,
         QueryEncoder=QueryEncoder,
         EpisodicMemoryStore=EpisodicMemoryStore,
@@ -306,26 +305,29 @@ def main(ns: argparse.Namespace) -> None:
     apply_memory_flags(hw)
     device = hw.device
 
-    logger.info("Loading Flan-T5-Large ...")
-    tokenizer = m["AutoTokenizer"].from_pretrained("google/flan-t5-large")
-    model_obj = m["T5ForConditionalGeneration"].from_pretrained("google/flan-t5-large")
+    # Baseline config drives both model load and verifier/NLI loads below.
+    # Variants mutate a config copy downstream (variant.apply()); model and
+    # NLI weights are shared across variants and loaded once here.
+    base_config = m["CAEMConfig"]()
+    logger.info("Loading base generator: %s ...", base_config.base_model_name)
+    load_dtype = (
+        torch.bfloat16 if hw.use_bf16
+        else torch.float16 if hw.use_fp16
+        else torch.float32
+    )
+    model_obj, tokenizer = m["load_base_generator"](
+        base_config.base_model_name,
+        device=device,
+        dtype=load_dtype,
+        use_flash_attention_2=base_config.use_flash_attention_2,
+        use_torch_compile=base_config.use_torch_compile,
+    )
     if ns.model_checkpoint:
         logger.info("Loading fine-tuned weights from %s", ns.model_checkpoint)
         state = torch.load(
             ns.model_checkpoint, map_location=device, weights_only=True
         )
         model_obj.load_state_dict(state)
-    if hw.use_bf16:
-        model_obj = model_obj.to(torch.bfloat16)
-    elif hw.use_fp16:
-        model_obj = model_obj.to(torch.float16)
-    model_obj = model_obj.to(device).eval()
-
-    # Encoders and verifier deps (shared).  Use a baseline CAEMConfig so the
-    # NLI model name matches what the verifier, run_experiment, and
-    # run_purity_validation load.  Variants mutate a config copy downstream
-    # (variant.apply()), but NLI weights are shared and are loaded once here.
-    base_config = m["CAEMConfig"]()
     encoder = m["QueryEncoder"](
         model_name=base_config.sbert_model, device=device,
     )

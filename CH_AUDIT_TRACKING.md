@@ -621,7 +621,7 @@ Phase 1 static batching (`caem/pipeline_batch.py`) pools Tier 2, Tier 3,
 and verifier M-chain + semantic-entropy calls across micro-batches.
 Phase 2 adds thread-pool prefetch
 (`caem/pipeline_batch_prefetch.py`), CUDA-stream overlap for the two
-data-independent verifier samplers (`_pooled_sample_t5_dual`), and a
+data-independent verifier samplers (`_pooled_sample_dual`), and a
 Tier-1 fast path that threads `_peek_routing` results into the serial
 `answer()` via `_precomputed_routing`.
 
@@ -638,7 +638,7 @@ Chapter hits:
   wall-clock numbers, and the semantics-preserving contract.
 
 Code: `caem/pipeline_batch.py` + `caem/pipeline_batch_prefetch.py` +
-`caem/verification/verifier.py` verify_batch + `_pooled_sample_t5_dual`
+`caem/verification/verifier.py` verify_batch + `_pooled_sample_dual`
 + `scripts/level_b_smoke.py`.
 
 ### M12 Generation token budget 256 → 512 (Ch4)

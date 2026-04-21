@@ -933,19 +933,24 @@ def run_purity_validation(ns: argparse.Namespace) -> None:
         # regressions. (An all-zero verifier trivially yields α=0.5 from TNR=1,
         # TPR=0 and hides real bugs.)
         import torch
-        from transformers import (
-            AutoModelForSequenceClassification,
-            AutoTokenizer,
-            T5ForConditionalGeneration,
-        )
         from caem.config import CAEMConfig
         from caem.memory.encoder import QueryEncoder
+        from caem.model_loader import load_base_generator
         from caem.pipeline import CAEMPipeline
 
         config = CAEMConfig()
-        tokenizer = AutoTokenizer.from_pretrained("google/flan-t5-large")
-        model = T5ForConditionalGeneration.from_pretrained("google/flan-t5-large")
-        model = cast(Any, model).to(torch.device(profile.device))
+        load_dtype = (
+            torch.bfloat16 if profile.use_bf16
+            else torch.float16 if profile.use_fp16
+            else torch.float32
+        )
+        model, tokenizer = load_base_generator(
+            config.base_model_name,
+            device=profile.device,
+            dtype=load_dtype,
+            use_flash_attention_2=config.use_flash_attention_2,
+            use_torch_compile=config.use_torch_compile,
+        )
         encoder = QueryEncoder(model_name=config.sbert_model, device=profile.device)
 
         # Load the verifier judge via the shared loader (MiniCheck by default,
@@ -982,9 +987,9 @@ def run_purity_validation(ns: argparse.Namespace) -> None:
     else:
         # Load all cycle pipelines
         import torch
-        from transformers import AutoTokenizer, T5ForConditionalGeneration
         from caem.config import CAEMConfig
         from caem.memory.encoder import QueryEncoder
+        from caem.model_loader import load_base_generator
         from caem.pipeline import CAEMPipeline
         from caem.retrieval.rag import PassageStore
         from eval.benchmarks import (
@@ -997,7 +1002,23 @@ def run_purity_validation(ns: argparse.Namespace) -> None:
         )
 
         config = CAEMConfig()
-        tokenizer = AutoTokenizer.from_pretrained("google/flan-t5-large")
+        # Load tokenizer (and a placeholder model discarded below -- the
+        # per-cycle factory reloads weights with their respective checkpoint).
+        # Using load_base_generator here ensures the tokenizer has the Branch-C
+        # ChatML template + pad_token alias required by the pipeline.
+        load_dtype = (
+            torch.bfloat16 if profile.use_bf16
+            else torch.float16 if profile.use_fp16
+            else torch.float32
+        )
+        _warmup_model, tokenizer = load_base_generator(
+            config.base_model_name,
+            device="cpu",  # discarded; factory loads per-cycle on GPU
+            dtype=load_dtype,
+            use_flash_attention_2=False,
+            use_torch_compile=False,
+        )
+        del _warmup_model
 
         from caem.verification import load_verifier_judge
         judge, nli_model, nli_tokenizer = None, None, None
@@ -1109,7 +1130,13 @@ def run_purity_validation(ns: argparse.Namespace) -> None:
             ckpt_dir = Path(checkpoints_dir) / f"cycle_{cycle_num}"
             model_path = ckpt_dir / "model.pt"
 
-            model = T5ForConditionalGeneration.from_pretrained("google/flan-t5-large")
+            model, _tok = load_base_generator(
+                config.base_model_name,
+                device=profile.device,
+                dtype=load_dtype,
+                use_flash_attention_2=config.use_flash_attention_2,
+                use_torch_compile=config.use_torch_compile,
+            )
             if model_path.exists():
                 logger.info("Loading cycle %d weights from %s ...", cycle_num, model_path)
                 # weights_only=True mitigates arbitrary-code-execution risk in
@@ -1123,12 +1150,7 @@ def run_purity_validation(ns: argparse.Namespace) -> None:
                     "Cycle %d checkpoint not found at %s -- using base weights.",
                     cycle_num, model_path,
                 )
-
-            if profile.use_fp16:
-                model = model.half()
-            elif profile.use_bf16:
-                model = model.bfloat16()
-            model = cast(Any, model).to(torch.device(profile.device)).eval()
+            model = cast(Any, model).eval()
 
             encoder = QueryEncoder(model_name=config.sbert_model, device=profile.device)
             pipeline = CAEMPipeline(

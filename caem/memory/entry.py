@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Optional, Tuple
 
 import numpy as np
 
@@ -85,6 +85,20 @@ class EpisodicEntry:
     was not tagged and will be treated as training-eligible (legacy /
     unit-test default)."""
 
+    merged_source_benchmarks: Tuple[str, ...] = ()
+    """Additional benchmark tags merged into this entry during Goal-4-item-3
+    memory consolidation. Populated by ``EpisodicMemoryStore.consolidate``
+    when a cluster of near-paraphrase entries is collapsed onto a single
+    representative -- the cluster members' ``source_benchmark`` values end
+    up here (deduplicated, excluding the representative's own tag).
+
+    The SIL training-pool gate treats the entry's effective benchmark set
+    as ``{source_benchmark} ∪ merged_source_benchmarks`` and excludes the
+    entry from fine-tuning if ANY member of that set is in
+    ``TRANSFER_BENCHMARKS`` -- this prevents consolidation from leaking
+    OOD-held-out content into the training pool through a back-door of
+    "the representative happened to be ID so the whole cluster passes"."""
+
     # -- Mutable quality metadata (Session 42 nine-signal layout) ----------- #
     u_stored: float = 0.0
     """Combined stored confidence in [0, 1] (the composite prior).
@@ -132,6 +146,15 @@ class EpisodicEntry:
     """Max contradiction probability over top-3 passages in [0, 1].
     Drives the DISCARD veto when >= contradiction_veto_threshold."""
 
+    q_a_relevance: float = 0.5
+    """Question-answer relevance in [0, 1] (Branch C Goal 2).
+    Cross-encoder score on the (question, display_answer) pair. Closes the
+    sample-② failure mode observed at Phase-1a Cycle 0 where a hallucinated
+    off-topic answer scored high p_entail + high p_ground_max because the
+    retrieved passage matched the hallucination rather than the question.
+    Default 0.5 = neutral prior when no cross-encoder is configured (matches
+    p_entail's absence-fallback)."""
+
     # Decision record -------------------------------------------------------- #
     decision: str = "STORE"
     """Stage-5 decision: STORE / DEFERRED / ABSTAIN / DISCARD."""
@@ -142,10 +165,22 @@ class EpisodicEntry:
 
     # Usage / feedback ------------------------------------------------------- #
     retrieval_count: int = 0
-    """Total number of times this episode has been retrieved."""
+    """Total number of times this episode has been retrieved (cumulative,
+    never reset). Feeds the retrieval-feedback u_stored update and the
+    Value score for pruning."""
 
     success_rate: float = 0.0
     """Running fraction of retrievals that were accepted (not overridden)."""
+
+    hit_counter: int = 0
+    """Tier-1 serves since the last retroactive re-verification (Branch C
+    Goal 4 item 5). Incremented by the pipeline on every Tier-1 hit and
+    reset to 0 each time ``retroverify`` re-scores this entry. Entries
+    with ``hit_counter >= CAEMConfig.hit_counter_force_retroverify`` are
+    flagged as "popular-needs-recheck" by
+    ``EpisodicMemoryStore.force_retroverify_queue``. Distinct from
+    ``retrieval_count``, which is the cumulative total across all tiers
+    and is never reset."""
 
     retroverified: bool = False
     """True if this episode passed retroactive re-verification in the latest cycle."""
@@ -201,32 +236,15 @@ class PreRoutingConfidence:
         return self.u_pre >= safety_threshold
 
 
-@dataclass
-class PostGenerationConfidence:
-    """Legacy shell retained for type compatibility with pipeline.py.
-
-    The pre-UnifiedVerifier design had a 4-signal post-generation u_hat gate
-    that escalated Tier 2 -> Tier 3 based on a learned composite. That gate
-    was removed when the nine-signal UnifiedVerifier became the single source
-    of post-generation truth (see pipeline._tier2 returning
-    post_conf=None). The four raw signals below still have meaning for
-    offline inspection; they are not consumed by the runtime pipeline.
-    """
-
-    u_token: float
-    """Geometric mean of per-token log-probs, recomputed on generated answer."""
-
-    u_dropout: float
-    """MC Dropout uncertainty: 1 / (1 + Var[answer_probs]) across K=5 passes.
-    K is fixed from Gal & Ghahramani (2016)."""
-
-    u_consistency: float
-    """Average pairwise cosine sim across M=3 chain-of-thought generations.
-    M is fixed from Wang et al. (2022)."""
-
-    u_entropy: float
-    """1 - H_semantic / log2(K) across K=10 samples at T=1.0.
-    K and T are fixed from Farquhar et al. (2024)."""
+# NOTE (2026-04-22): The ``PostGenerationConfidence`` dataclass that
+# previously lived here was removed as dead code. It was the Stage-4a
+# 4-signal u_hat gate's output type; that gate was retired in Session 42
+# when UnifiedVerifier became the single source of post-generation
+# truth, and the shell was kept solely for type-compat with
+# pipeline._tier2 which returns ``post_conf=None``. Nothing read the
+# shell's four fields; the pipeline's Optional[PostGenerationConfidence]
+# type hint is now Optional[None] in signature, carried by
+# ``post_confidence: None = None`` defaults.
 
 
 # -----------------------------------------------------------------------------

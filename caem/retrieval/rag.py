@@ -243,6 +243,8 @@ class PassageStore:
         self,
         query_embedding: np.ndarray,
         k: int = 5,
+        *,
+        nprobe: Optional[int] = None,
     ) -> List[Tuple[str, float]]:
         """Return top-k (passage, cosine_score) pairs for a query embedding.
 
@@ -251,6 +253,13 @@ class PassageStore:
         query_embedding : np.ndarray, shape (dim,), float32, L2-normalised
         k : int
             Number of passages to retrieve.
+        nprobe : int or None
+            Branch C Goal 5: per-call IVF nprobe override. When set,
+            temporarily raises/lowers the index's nprobe for this call only,
+            then restores the pre-call value. Use ``cfg.rag_faiss_nprobe_tier3``
+            for full-RAG (high recall) and ``cfg.rag_faiss_nprobe_tier2`` for
+            memory-hit confirmations (cheap probe). Ignored when the index
+            is not IVF-based (e.g., FlatIP fallback).
 
         Returns
         -------
@@ -262,8 +271,32 @@ class PassageStore:
 
         k = min(k, self._index.ntotal)
         q = query_embedding.astype(np.float32).reshape(1, self._dim)
-        # FAISS SWIG stubs expose low-level signatures; runtime supports search(x, k).
-        scores, ids = cast(Any, self._index).search(q, k)
+
+        # Adaptive nprobe: restore the prior value on exit so concurrent
+        # searches on the same store (unusual but possible under threaded
+        # retrieval prefetchers) see a consistent probe setting. No-op on
+        # non-IVF indexes (FlatIP fallback + flat debug builds).
+        prior_nprobe: Optional[int] = None
+        if nprobe is not None and hasattr(self._index, "nprobe"):
+            try:
+                prior_nprobe = int(self._index.nprobe)
+                self._index.nprobe = int(nprobe)
+            except Exception as exc:
+                logger.debug(
+                    "PassageStore.search: nprobe override failed (%s); "
+                    "using current index nprobe.", exc,
+                )
+                prior_nprobe = None
+
+        try:
+            # FAISS SWIG stubs expose low-level signatures; runtime supports search(x, k).
+            scores, ids = cast(Any, self._index).search(q, k)
+        finally:
+            if prior_nprobe is not None:
+                try:
+                    self._index.nprobe = prior_nprobe
+                except Exception:
+                    pass
 
         results = []
         for score, idx in zip(scores[0], ids[0]):
@@ -457,14 +490,21 @@ class TierThreeRAG:
     # ------------------------------------------------------------------ #
 
     def _retrieve(self, query: str, k: int) -> List[Tuple[str, float]]:
-        """Encode query and search the passage store."""
+        """Encode query and search the passage store.
+
+        Branch C Goal 5: Tier 3 full-RAG retrievals use the high-recall
+        ``rag_faiss_nprobe_tier3`` setting. The store's search() temporarily
+        raises/lowers nprobe for this call only. None falls back to the
+        global ``rag_faiss_nprobe`` (pre-Goal-5 behaviour).
+        """
         try:
             emb = self.passage_encoder.encode(query)
             emb = emb.astype(np.float32)
             norm = np.linalg.norm(emb)
             if norm > 0:
                 emb = emb / norm
-            return self.passage_store.search(emb, k=k)
+            tier3_nprobe = getattr(self.config, "rag_faiss_nprobe_tier3", None)
+            return self.passage_store.search(emb, k=k, nprobe=tier3_nprobe)
         except Exception as exc:
             logger.warning("RAG retrieval failed: %s", exc)
             return []

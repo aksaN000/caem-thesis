@@ -213,49 +213,78 @@ Addendum and Chapter 3 §3.5.
 
 ---
 
-## At-a-glance execution order (updated 2026-04-19)
+## At-a-glance execution order (Branch C, updated 2026-04-22)
 
-**Phase 1a** (this rental, self-funded **\$215 topup on \$25 balance,
-total \$240**): ~358 GPU-h ≈ 14 days wall-clock at weighted
-5.5 s/sample under MiniCheck (Tier 1/2/3 mix), ~\$230 cost with ~\$10
-slack. **Phase 1 Full** (post-supervisor-funding): Steps 16–18 only,
-~\$640 additional.
+**Phase 1a is now the Branch C Qwen-2.5-3B-Instruct main run.** The
+prior Flan-T5-Large Phase 1a was halted at Step 7.0 and archived to
+``aksaN000/caem-passage-index-21m/phase_1a_flan_t5_halted/``; the
+recovered data becomes Variant 18 (`flan_t5_large_backbone`) in the
+Phase 1 Full ablation sweep. The table below reflects the Branch C
+upgrade surface:
 
-Status column legend: ✅ done · 🔄 in progress · ⏳ pending ·
-🟡 deferred to Phase 1 Full.
+- Base generator: Qwen-2.5-3B-Instruct (ChatML), loaded via
+  ``caem.model_loader.load_base_generator``
+- Verifier composite: **seven-family / ten-signal** (adds
+  ``q_a_relevance`` via BGE-reranker-v2-m3 cross-encoder)
+- SIL training: **Full FT + 8-bit AdamW (bitsandbytes)** primary; LoRA
+  structured fallback; memory-only terminal fallback
+- Memory hygiene: loop filter (SIL pool + retroverify), retroverify
+  downgrade, SBERT consolidation at 0.92 with answer-equality +
+  u_spread guards, hit-counter forced re-verification queue
+- Decision tree: contradiction veto REMOVED (MiniCheck returned
+  ``p_contra = 0`` by construction so the branch never fired)
+- Adaptive FAISS nprobe per tier
+- CAEM_PROFILE env var (0/1/2) for NVTX / torch.profiler
+
+Status legend: ✅ done · 🔄 in progress · ⏳ pending · 🟡 deferred to
+Phase 1 Full.
 
 | # | Step | Phase | Status | Wall-clock | Cost (5090 @ \$0.64/h) |
 |---|------|-------|:---:|-----------:|----------------:|
 | 1 | Pre-flight on local PC | 1a | ✅ | 5 min | \$0 |
 | 2 | Rent + connect RTX 5090 | 1a | ✅ | 10 min | ~\$0.10 |
-| 3 | Remote environment setup + HF model cache | 1a | ✅ | 15 min | ~\$0.15 |
-| 3B | Pytest unit-test gate (95 + 9 MiniCheck tests) | 1a | ✅ | 2 min | ~\$0.02 |
-| 4 | Build passage index (IndexFlatIP, 21M) | 1a | ✅ | ~8 h | ~\$5 |
-| 4.5 | Archive FAISS index to HuggingFace Hub | 1a | ✅ | 10 min | ~\$0.10 |
-| 5 | Smoke test (1 cycle, n=50, MiniCheck) | 1a | ✅ | 36 min | ~\$0.40 |
-| 6 | Cold-start memory seeding (150 ep/bench @ τ=0.35) | 1a | 🔄 | ~2 h | ~\$1.3 |
-| 7.0 | Cycle-0 eval + threshold calibration | 1a | ⏳ | ~1 h | ~\$0.6 |
-| 5.5 | Verifier calibration diagnostic (MiniCheck vs RoBERTa) | 1a | ⏳ | 15 min | ~\$0.15 |
-| 7 | **Main 10-cycle CAEM run** at n_questions=5000 (Ch5 declared) | 1a | ⏳ | ~335 h | **~\$215** |
-| 8 | FLARE pre-flight smoke (5 samples) | 1a | ⏳ | 5 min | ~\$0.05 |
-| 9 | B1 Zero-shot baseline | 1a | ⏳ | 20 min | ~\$0.20 |
-| 10 | B2 Chain-of-Thought baseline | 1a | ⏳ | 50 min | ~\$0.55 |
-| 11 | B3 DPR-RAG baseline | 1a | ⏳ | 1.7 h | ~\$1.1 |
-| 12 | B4 CoT + DPR-RAG baseline | 1a | ⏳ | 2.1 h | ~\$1.3 |
-| 13 | B5 FLARE baseline | 1a | ⏳ | 2.5 h | ~\$1.6 |
-| 14 | B6 Vanilla FT (10 cycles) | 1a | ⏳ | ~5.8 h | ~\$3.7 |
-| 15 | B7 EWC-only FT (10 cycles) | 1a | ⏳ | ~5.8 h | ~\$3.7 |
-| 15.5 | McNemar + bootstrap CI + Holm sig-tests | 1a | ⏳ | 15 min | ~\$0.15 |
-| 19 | Purity theorem validation | 1a | ⏳ | 30 min | ~\$0.30 |
-| 19.2 | Cycle-2 retention diagnostic (advisory flag) | 1a | ⏳ | 10 min | ~\$0.10 |
-| 19.5 | Nine-signal correlation matrix | 1a | ⏳ | 5 min | CPU only |
-| 20 | Aggregate outputs + download + stop instance | 1a | ⏳ | 25 min | ~\$0.25 |
-| **Phase 1a subtotal** | | | | **~358 h** | **~\$230** |
-| 16 | Screening sweep (17 variants × 3 cycles × n_screen=1500) | Full | 🟡 | ~480 h | ~\$306 |
+| 3 | Remote env setup (+ Qwen-3B cache + bitsandbytes + flash-attn) | 1a | ⏳ | 25 min | ~\$0.25 |
+| 3B | Pytest unit-test gate (703 tests, 2 env-gated skips) | 1a | ⏳ | 2 min | ~\$0.02 |
+| 3C | Live `test_load_qwen_3b` (slow, single-shot) | 1a | ⏳ | 5 min | ~\$0.05 |
+| 4 | Build / reuse passage index (21M, IVF-PQ on Qwen-era) | 1a | ♻️ | ~8 h | ~\$5 |
+| 4.5 | Archive / refresh FAISS index on HuggingFace Hub | 1a | ♻️ | 10 min | ~\$0.10 |
+| 5 | Smoke test (1 cycle, n=50, MiniCheck + BGE reranker) | 1a | ⏳ | 40 min | ~\$0.45 |
+| 5.5 | Verifier calibration diagnostic (MiniCheck vs RoBERTa + q_a_relevance) | 1a | ⏳ | 20 min | ~\$0.20 |
+| 6 | Cold-start memory seeding (Qwen-3B prompts, τ\_store = 0.45) | 1a | ⏳ | ~2 h | ~\$1.3 |
+| 7.0 | Cycle-0 eval + per-benchmark τ calibration | 1a | ⏳ | ~1.2 h | ~\$0.8 |
+| 7.0.E | **Epistemic gate** (faithfulness labels + Spearman ρ CI) | 1a | ⏳ | ~45 min | ~\$0.5 |
+| 7.0.E.1 |  ↳ `scripts/label_faithfulness.py` (MiniCheck re-score) | 1a | ⏳ | ~25 min | ~\$0.3 |
+| 7.0.E.2 |  ↳ `scripts/epistemic_gate.py --n_bootstrap 1000` | 1a | ⏳ | ~5 min | ~\$0.05 |
+| 7.0.E.3 |  ↳ GATE: ρ > 0.5 PROCEED · 0.3 < ρ ≤ 0.5 HONESTY · ≤ 0.3 STOP | 1a | ⏳ | instant | — |
+| 7.0.P | Perf baseline row (`perf_baseline.py`, bs=1/8/16/32) | 1a | ⏳ | ~35 min | ~\$0.35 |
+| 7 | **Main 10-cycle CAEM run** (Qwen-3B, n\_questions=5000, 7-family composite) | 1a | ⏳ | ~300 h | **~\$195** |
+| 8 | FLARE pre-flight smoke (5 samples, Qwen-3B backbone) | 1a | ⏳ | 6 min | ~\$0.06 |
+| 9 | B1 Zero-shot (Qwen-3B ChatML) | 1a | ⏳ | 25 min | ~\$0.25 |
+| 10 | B2 Chain-of-Thought (Qwen-3B) | 1a | ⏳ | 55 min | ~\$0.60 |
+| 11 | B3 DPR-RAG (Qwen-3B + TierThreeRAG) | 1a | ⏳ | 1.8 h | ~\$1.2 |
+| 12 | B4 CoT + DPR-RAG (Qwen-3B) | 1a | ⏳ | 2.2 h | ~\$1.4 |
+| 13 | B5 FLARE (Qwen-3B, decoder-only slice) | 1a | ⏳ | 2.6 h | ~\$1.7 |
+| 14 | B6 Simple FT (Full FT + 8-bit AdamW, 10 cycles) | 1a | ⏳ | ~6.5 h | ~\$4.2 |
+| 15 | B7 EWC-only FT (10 cycles; λ fitted to match L2 anchor scale) | 1a | ⏳ | ~6.5 h | ~\$4.2 |
+| 15.5 | McNemar + bootstrap CI + Holm sig-tests | 1a | ⏳ | 20 min | ~\$0.20 |
+| 19 | Purity theorem validation (seven-family composite replay) | 1a | ⏳ | 45 min | ~\$0.45 |
+| 19.2 | Cycle-2 retention diagnostic (advisory flag) | 1a | ⏳ | 15 min | ~\$0.15 |
+| 19.5 | Ten-signal correlation matrix (includes q_a_relevance) | 1a | ⏳ | 10 min | CPU only |
+| 19.7 | Consolidation-audit review (outputs/consolidation_log_cycle_*.jsonl) | 1a | ⏳ | 10 min | CPU only |
+| 20 | Aggregate outputs + perf_log.csv + download + stop instance | 1a | ⏳ | 30 min | ~\$0.30 |
+| **Phase 1a subtotal** | | | | **~328 h** | **~\$215** |
+| 16 | Screening sweep (19 landed variants × 3 cycles × n\_screen=1500) | Full | 🟡 | ~420 h | ~\$270 |
 | 17 | Aggregate screening + pick top-N | Full | 🟡 | 5 min | ~\$0.05 |
-| 18 | Confirmatory sweep (top-N + `full`, 10 cycles × n=5000) | Full | 🟡 | ~520 h | ~\$332 |
-| **Phase 1 Full subtotal** | | | | **~1,000 h** | **~\$638** |
-| 20B | **(Optional)** STaR ceiling run | 20B | 🟡 | 7–8 h | ~\$5 |
+| 18 | Confirmatory sweep (top-N + `full` + 4 planned variants\*, 10 cycles × n=5000) | Full | 🟡 | ~560 h | ~\$360 |
+| **Phase 1 Full subtotal** | | | | **~980 h** | **~\$630** |
+| 20B | **(Optional)** STaR ceiling run | 20B | 🟡 | 7-9 h | ~\$5 |
+
+\* Four Phase-1-Full-only variants: `flan_t5_large_backbone` (Phase-1a-halted
+data revalidated through the Branch-C composite), `bge_hybrid_retriever`,
+`valentin_4signal_verifier`, `kernel_language_entropy_vs_vanilla_se`. Registry
+target: **23 variants** at confirmatory-sweep time; currently **19 landed**
+(17 pre-Branch-C + `no_q_a_relevance` + `no_memory_consolidation`); the 4
+above are planned slots.
 
 Progress snapshot (end of 2026-04-20 session):
 - Steps 1, 2, 3, 3B, 4, 4.5, 5 ✅

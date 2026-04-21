@@ -101,14 +101,25 @@ def test_encoder_decoder_models_rejected():
 
 
 def test_config_defaults_branch_c():
-    """CAEMConfig defaults to Qwen-3B + LoRA for Branch C."""
+    """CAEMConfig defaults for Branch C: Qwen-3B + Full FT with 8-bit AdamW
+    primary, LoRA as structured fallback.
+
+    The training-path doctrine flipped on 2026-04-22: Full FT + 8-bit AdamW
+    fits 32 GB on a 5090 (batch=4, grad checkpointing, bf16), so LoRA moved
+    from primary to first fallback (per Ch4 Cycle-2 retention cascade). See
+    branch_C.md "T5 removal" and "Full FT + 8-bit AdamW as primary" sections.
+    """
     from caem.config import CAEMConfig
 
     c = CAEMConfig()
     assert c.base_model_name == "Qwen/Qwen2.5-3B-Instruct"
-    assert c.use_lora_training is True
+    # Full FT + 8-bit AdamW is the PRIMARY path; LoRA is only consulted when
+    # use_lora_training is flipped after a Full-FT failure mode.
+    assert c.use_8bit_adamw is True
+    assert c.use_lora_training is False
+    # LoRA fallback config must still be valid so the fallback cascade can
+    # activate it without code changes.
     assert c.lora_r == 16
-    # Qwen/Llama naming convention for LoRA target modules
     assert "q_proj" in c.lora_target_modules
     assert "gate_proj" in c.lora_target_modules
     # Dual-backbone fields were removed in the T5-removal refactor

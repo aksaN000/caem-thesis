@@ -106,21 +106,47 @@ def _check_deps():
 # -----------------------------------------------------------------------------
 
 def generate_answer(model, tokenizer, question: str, device: str, max_new_tokens: int = 256) -> str:
-    """Run greedy decoding on a single question. Returns stripped answer string."""
+    """Run greedy decoding on a single question. Returns stripped answer string.
+
+    ChatML-wraps the question for decoder-only instruction-tuned backbones
+    (Qwen/Gemma/Llama) and slices the generated continuation off the echoed
+    prompt. Falls back to flat-text prompting when the tokenizer has no
+    chat template.
+    """
     import torch
+    if hasattr(tokenizer, "apply_chat_template"):
+        try:
+            prompt = tokenizer.apply_chat_template(
+                [{"role": "user", "content": question}],
+                tokenize=False, add_generation_prompt=True,
+            )
+            if not isinstance(prompt, str):
+                prompt = question
+        except Exception:
+            prompt = question
+    else:
+        prompt = question
     inputs = tokenizer(
-        question,
+        prompt,
         return_tensors="pt",
         truncation=True,
-        max_length=512,
+        max_length=2048,
+        add_special_tokens=False,
     ).to(device)
+    input_len = int(inputs["input_ids"].shape[1])
     with torch.no_grad():
         output_ids = model.generate(
             **inputs,
             max_new_tokens=max_new_tokens,
             do_sample=False,
+            pad_token_id=tokenizer.pad_token_id,
         )
-    answer = tokenizer.decode(output_ids[0], skip_special_tokens=True).strip()
+    gen_ids = (
+        output_ids[0, input_len:]
+        if output_ids.shape[1] > input_len
+        else output_ids[0]
+    )
+    answer = tokenizer.decode(gen_ids, skip_special_tokens=True).strip()
     return answer
 
 
@@ -273,9 +299,8 @@ def main(args: argparse.Namespace) -> None:
     _check_deps()
 
     import torch
-    # Use AutoTokenizer → fast (Rust) tokenizer; T5Tokenizer was the slow
-    # Python implementation. Functionally identical for Flan-T5-Large.
-    from transformers import AutoTokenizer, T5ForConditionalGeneration
+    from caem.config import CAEMConfig
+    from caem.model_loader import load_base_generator
 
     # -- Device --------------------------------------------------------------
     if args.device == "auto":
@@ -306,15 +331,18 @@ def main(args: argparse.Namespace) -> None:
         model_dtype = torch.float32
         dtype_str = "fp32"
 
-    model_name = args.model
+    # --model defaults to CAEMConfig.base_model_name (Qwen-3B on Branch C);
+    # override for a different backbone sanity check.
+    model_name = args.model or CAEMConfig().base_model_name
     logger.info("Loading %s (dtype=%s) ...", model_name, dtype_str)
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
-    model = cast(Any, T5ForConditionalGeneration.from_pretrained(
+    cfg_for_load = CAEMConfig()
+    model, tokenizer = load_base_generator(
         model_name,
-        torch_dtype=model_dtype,
-    ))
-    model = cast(Any, model).to(torch.device(device))
-    model.eval()
+        device=device,
+        dtype=model_dtype,
+        use_flash_attention_2=cfg_for_load.use_flash_attention_2,
+        use_torch_compile=cfg_for_load.use_torch_compile,
+    )
     n_params = sum(p.numel() for p in model.parameters()) / 1e6
     logger.info("Model loaded: %.0f M params on %s", n_params, device)
 
@@ -425,8 +453,11 @@ if __name__ == "__main__":
     )
     p.add_argument(
         "--model",
-        default="google/flan-t5-large",
-        help="HuggingFace model ID for the base model.",
+        default=None,
+        help=(
+            "HuggingFace model ID for the base generator. Defaults to "
+            "CAEMConfig.base_model_name (Qwen/Qwen2.5-3B-Instruct on Branch C)."
+        ),
     )
     p.add_argument(
         "--n_samples",
