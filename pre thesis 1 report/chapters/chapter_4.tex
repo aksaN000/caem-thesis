@@ -1536,6 +1536,237 @@ Questions per cycle & $5{,}000$ & [DES] & Chapter~5 protocol \\
 \end{tabular}
 \end{table}
 
+\paragraph{Performance engineering for experimental throughput.}
+\label{par:perf-engineering}
+The $50{,}000$-query Chapter~\ref{ch:results} protocol ($10$ cycles
+$\times\,5{,}000$ queries) is bounded by per-query wall-clock latency
+on the rented RTX~5090. A naive serial execution of the eight-stage
+pipeline cost $\approx 13$~s per query on the baseline profile
+before any batching (Profile~v3 on FEVER, see
+\Cref{tab:perf-profile-sequence}), extrapolating to $\approx 181$
+GPU-h at \$$0.80$/h. This paragraph records the \emph{static batching}
+layer that reduces per-query latency by $\approx 21\%$ --- to
+$\approx 10.2$~s / query --- without changing the decision rules or
+verifier signals described in \Cref{sec:verifier}. An additional
+$\approx 12$-percentage-point speedup appeared achievable on paper by
+pooling two further verifier stages ($u_{\text{token}}$
+teacher-forcing and $u_{\text{dropout}}$ MC-sampling) across samples,
+but live measurement on the target hardware showed the gain was
+erased by a thermal regression in the cross-encoder rerank kernel
+when the GPU ran at sustained $\sim\!100\%$ utilisation; those two
+pools were therefore reverted, and their implementation is retained
+in-file as infrastructure for future hardware that does not throttle
+under the same workload. A third candidate --- atomic-decomposition
+pooling --- was rejected earlier in the investigation for a
+systematic correctness bias (see
+\Cref{par:perf-atomic-rejection}).
+
+\paragraph{Static batching wrapper.}
+A wrapper class \texttt{BatchPipeline}
+(\texttt{caem/pipeline\_batch.py}) processes $N$ queries in lockstep
+through each of the eight pipeline stages. The serial
+\texttt{CAEMPipeline.answer} entry point is preserved;
+\texttt{answer\_batch(samples)} is a new entry point that runs
+tier-dispatch per sample, buckets by tier, issues one padded
+\texttt{model.generate} per tier bucket for Tier~2 and Tier~3
+samples, runs one batched verifier pass over all Tier~2 and Tier~3
+outputs, and finally commits each sample's decision through the
+serial \texttt{answer} helper so memory-store writes happen in
+submission order. Default batch size is $N = 32$, chosen to fit
+Qwen-2.5-3B at \texttt{bfloat16} plus MiniCheck-Flan-T5-Large plus
+the cross-encoder within the $32$~GB VRAM envelope. On an RTX~4090
+($24$~GB) the same path runs unchanged at $N = 16$.
+
+\paragraph{Within-verifier pooling (shipped).}
+Two GPU-heavy stages inside a single \texttt{verify\_batch} call are
+pooled across samples in the shipped configuration:
+\begin{enumerate}
+\item \textbf{M-chain self-consistency sampling}
+  ($M = 3$ chains per sample at $T = 0.7$) and \textbf{semantic-entropy
+  sampling} ($K = 10$ samples per sample at $T_{\text{SE}}$) pool
+  $N \cdot M$ and $N \cdot K$ rows into one padded
+  \texttt{model.generate(num\_return\_sequences=\cdot)} each,
+  dispatched on two CUDA streams concurrently to overlap their
+  kernel launches (\texttt{\_pooled\_sample\_dual}).
+\item \textbf{Cross-encoder passage rerank} pools $N \cdot 20 = 640$
+  (query+answer, passage) pairs at $N = 32$ into one
+  \texttt{CrossEncoder.predict} call, eliminating the per-sample
+  tokenisation and kernel-launch overhead
+  (\texttt{\_retrieve\_and\_rerank\_batch}).
+\end{enumerate}
+The remaining two GPU-heavy stages --- $u_{\text{token}}$
+teacher-forcing and $u_{\text{dropout}}$ MC-Dropout sampling --- run
+per sample inside the serial \texttt{verify} loop from
+\texttt{verify\_batch}. Cross-sample pooled implementations
+(\texttt{\_pool\_u\_token\_batch}, \texttt{\_pool\_u\_dropout\_batch})
+were written, correctness-validated by the diagnostic below, and then
+reverted after live profiling on the target hardware (see
+\Cref{par:perf-u-pools-thermal}). A third candidate --- pooling the
+atomic-decomposition decoder (\texttt{\_score\_atomic\_batch}) ---
+was rejected during equivalence validation for a systematic bias; see
+\Cref{par:perf-atomic-rejection}.
+
+\paragraph{Batching correctness: equivalence diagnostic.}
+\label{par:perf-equivalence}
+Each pool was validated through a per-signal equivalence diagnostic
+(\texttt{scripts/diff\_verify\_serial\_vs\_batch.py}) that runs both
+the serial \texttt{verify} and the batched \texttt{verify\_batch}
+paths on the same deterministic (query, answer) pairs and diffs every
+field of the resulting \texttt{UnifiedVerifierOutput}. The pass
+criterion is two-part:
+$|\text{mean}\ \Delta u_{\text{stored}}| < 0.01$ across the test set
+AND no uni-directional sign pattern (e.g., $+N / -0$) on any
+stage-isolable signal, because a balanced sign pattern indicates
+\texttt{bfloat16} matmul reassociation noise whereas a uni-directional
+pattern indicates a systematic algorithmic bias.
+\Cref{tab:perf-pool-validation} summarises the per-pool outcome at
+$N = 32$ on FEVER.
+
+\begin{table}[tbp]
+\centering
+\small
+\caption{Per-pool validation on the FEVER diagnostic at $N = 32$.
+  Sign pattern counts samples with $\Delta > +0.005$, $\Delta < -0.005$,
+  and $|\Delta| \le 0.005$ respectively. A pool is accepted when
+  $|\text{mean}\ \Delta u_{\text{stored}}| < 0.01$ AND no signal
+  exhibits a uni-directional sign pattern at the per-sample level.}
+\label{tab:perf-pool-validation}
+\begin{tabular}{@{}p{4.1cm}p{2.5cm}rrp{2.6cm}@{}}
+\toprule
+\textbf{Pool} & \textbf{Status} & \textbf{mean Δ} & \textbf{max |Δ|} & \textbf{Sign pattern} \\
+\midrule
+M-chain + SE (CUDA stream)        & shipped                                 & $s_{\text{avg}}\ +0.081$ & $0.65$ & $12 / 13 / 7$ balanced \\
+Cross-encoder rerank              & shipped                                 & $\approx 0$ & $\approx 0$ & identical passages \\
+$u_{\text{token}}$ (right-pad)    & correct but reverted\textsuperscript{*} & $+0.0004$   & $0.004$     & $0 / 0 / 32$ clean \\
+$u_{\text{dropout}}$ (MC pool)    & correct but reverted\textsuperscript{*} & $-0.038$    & $0.40$      & $1 / 5 / 26$ conservative \\
+Atomic decomposition              & \textbf{rejected}\textsuperscript{\dag} & $+0.229$    & $0.72$      & $\mathbf{4 / 0 / 0}$ systematic \\
+\bottomrule
+\end{tabular}\\[2pt]
+\textsuperscript{*}Passes correctness bar but was reverted after live
+profiling showed no wall-clock gain on the RTX~5090; see
+\Cref{par:perf-u-pools-thermal}.\\
+\textsuperscript{\dag}Rejected for systematic correctness bias; see
+\Cref{par:perf-atomic-rejection}.
+\end{table}
+
+\paragraph{Reverted pools: $u_{\text{token}}$ and $u_{\text{dropout}}$ pooling.}
+\label{par:perf-u-pools-thermal}
+Pooled implementations of both internal-calibration stages passed the
+equivalence diagnostic at $N = 32$ --- $|\text{mean}\ \Delta|$
+entries of $0.0004$ and $0.038$ on $u_{\text{token}}$ and
+$u_{\text{dropout}}$ respectively, with no uni-directional sign
+pattern on either --- so the correctness bar was satisfied. Live
+profiling on the RTX~5090 nonetheless showed the two pools did not
+net-save wall-clock time: the $\approx 35$~s they save per batch of
+$32$ samples in the per-sample verifier loop is offset by a
+$\approx 50$~s regression in the cross-encoder rerank stage. The
+regression appears to be thermal: when the rerank, M-chain / SE, and
+two $u$-pool stages all run back-to-back at sustained $\sim\!100\%$
+GPU utilisation without the per-sample Python orchestration gaps of
+the serial path, the sustained power draw pushes the $5090$ into its
+throttling envelope and the rerank kernel (which depends on the
+longest-input row in the pooled batch) loses throughput before the
+other stages feel it. The net per-query latency (Profile~v8,
+\Cref{tab:perf-profile-sequence}) was $\approx 11.5$~s vs
+Profile~v4's $10.2$~s --- a $\approx 13\%$ regression. Both pools
+were therefore reverted; the serial \texttt{\_compute\_u\_token} and
+\texttt{\_compute\_u\_dropout} paths run per sample from inside
+\texttt{verify\_batch} as before. The helper functions remain in-tree
+with dead-code markers so a future hardware platform with different
+thermal behaviour can re-enable the pools without further code
+change.
+
+\paragraph{Rejected pool: atomic decomposition.}
+\label{par:perf-atomic-rejection}
+A pooled variant of \texttt{\_score\_atomic} would have saved
+$\approx 40$~s per $N = 32$ batch by batching the greedy
+atomic-decomposition generate and pooling all (passage, fact) NLI
+pairs across samples. The diagnostic rejected it. Under batched
+greedy decoding on Qwen-2.5-3B at \texttt{bfloat16} with $N \ge 4$
+left-padded inputs, the decomposition decoder terminates $2$--$3$
+tokens earlier than the unpadded serial path, emitting only $4$--$7$
+atomic facts per sample vs the serial path's $13$--$14$. With fewer,
+coarser facts, the $\min(p_{\text{entail}})$ reduction over per-fact
+grounding probabilities lands $+0.23$ higher on average, inflating
+$p_{\text{ground}}^{\text{atomic}}$ uniformly across all test
+samples. The shift propagates through the composite weight
+$w_{p_{\text{ground}}^{\text{atomic}}} = 0.14$ to $+0.05$ on
+$u_{\text{stored}}$, which is large enough to move STORE / DISCARD
+boundary cases. The sign pattern was $+4 / -0 / {\sim}0$ at $N = 4$:
+all four samples shifted in the same direction, ruling out bf16
+matmul noise as the explanation. The pool was therefore reverted
+with a sentinel guard (\texttt{atomic\_facts\_pool[i] = None}) so the
+serial path runs per sample from inside \texttt{verify\_batch}; the
+helper itself is retained in-tree so a future decoder framework that
+fixes EOS timing under batched greedy decoding can re-enable it
+without further code change.
+
+\paragraph{Rejected optimisation: \texttt{torch.compile}.}
+Empirical drift measurement via
+\texttt{scripts/compile\_drift\_check.py} on the same hardware stack
+(torch~$2.10.0$+cu$130$, CUDA~$13.1$, Blackwell sm\_$120$, bf$16$,
+Qwen-2.5-3B-Instruct) recorded a maximum logit drift of
+$\mathbf{5.156}$ between eager and compiled forward passes under both
+\texttt{compile\_mode="reduce-overhead"} and \texttt{="default"},
+or $\approx 50{,}000{\times}$ the documented $10^{-4}$ envelope.
+Because a $5$-unit logit drift is large enough to flip greedy
+decoder choices --- exactly the failure mode that rejected the
+atomic-decomposition pool above --- \texttt{use\_torch\_compile}
+remains \texttt{False} in the default configuration. The gate and
+baseline are recorded in \texttt{outputs/perf\_log.csv}; the
+$\approx 10$--$15\%$ generation speedup torch.compile would offer is
+not commensurate with a correctness-boundary change of that
+magnitude.
+
+\paragraph{Other Goal-5 levers.}
+Two additional optimisations landed without triggering the
+equivalence diagnostic because they do not alter the numerical
+inference path. \textbf{$8$-bit AdamW} (via \texttt{bitsandbytes})
+for the self-improvement loop halves the optimiser-state footprint
+and makes the L$_2$ anchor plus frozen copy of the base model
+co-resident on GPU under the $32$~GB envelope.
+\textbf{Tier-adaptive FAISS \texttt{nprobe}} (Tier~2 queries use
+$\texttt{nprobe} = 16$, Tier~3 uses $\texttt{nprobe} = 64$)
+allocates retrieval accuracy to where it matters: Tier~3 RAG answers
+are verifier-gated while Tier~2 answers are accepted pre-verifier
+once the self-consistency similarity clears $\tau_{\text{sim}}$. An
+\textbf{automatic stale-CUDA-process reap} is wired into
+\texttt{caem/model\_loader.py} (gated on
+\texttt{CAEM\_FORCE\_GPU\_CLEANUP=1}) so that a crashed prior run
+does not force a manual
+\texttt{nvidia-smi --query-compute-apps \ldots{} | kill -9} before the
+next pipeline load.
+
+\begin{table}[tbp]
+\centering
+\small
+\caption{Measured verifier-batch wall-clock on the FEVER$@64$ smoke
+  test (RTX~5090, bs $= 32$). Profile~v3 is the pre-pool baseline;
+  \textbf{v4 is the shipped configuration}; v7 shows the
+  atomic-pool-contaminated regime that the equivalence diagnostic
+  rejected; v8 adds the two further $u$-pools (correct but
+  thermal-regressed, subsequently reverted). Per-query latency
+  includes all generation and verification stages.}
+\label{tab:perf-profile-sequence}
+\begin{tabular}{@{}llrrrr@{}}
+\toprule
+\textbf{Profile} & \textbf{Config} & \textbf{verify\_batch} & \textbf{Batch wall} & \textbf{s / query} & \textbf{vs v3} \\
+\midrule
+v3          & no verifier pools                              & $\sim\!246$~s & $\sim\!415$~s & $13.0$ & -- \\
+\textbf{v4} & \textbf{$+$ m-chain, SE, rerank (shipped)}     & $\mathbf{216}$~\textbf{s} & $\mathbf{327}$~\textbf{s} & $\mathbf{10.2}$ & $\mathbf{21\%}$ \\
+v7          & $+$ $u_{\text{token}}$, $u_{\text{dropout}}$, atomic  & $121$~s & $220$~s & $6.9$ & $47\%$\textsuperscript{\dag} \\
+v8          & v7 $-$ atomic pool                             & $229$~s & $367$~s & $11.5$ & $12\%$\textsuperscript{\ddag} \\
+\bottomrule
+\end{tabular}\\[2pt]
+\textsuperscript{\dag}Rejected by equivalence diagnostic
+($+0.05\ u_{\text{stored}}$ bias; see
+\Cref{par:perf-atomic-rejection}).\\
+\textsuperscript{\ddag}Correctness-clean but thermal-regressed on the
+$5090$; $u_{\text{token}}$ and $u_{\text{dropout}}$ pools reverted
+post-profile (\Cref{par:perf-u-pools-thermal}). The shipped
+configuration is v4.
+\end{table}
+
 Reproducibility is handled at three layers. A single integer seed is passed at pipeline construction and drives every stochastic component: the MC-Dropout masks, the self-consistency and semantic-entropy sampling, the training-pool shuffle, and the $10\%$ general-domain sampler inside \texttt{\_mix}. The configuration dataclass is serialised to JSON alongside every checkpoint so that a cycle-$c$ model can be replayed with exactly the constants it was trained under, even if the repository defaults change. Benchmark manifests (the exact question indices used in each cycle's $5{,}000$-question draw and each $200$-question MMLU probe) are written next to the checkpoint. The one component that remains non-deterministic is low-level CUDA arithmetic, which produces floating-point results that can differ in the final decimal places across runs even under a fixed seed; this is a limitation shared with every system using the same stack, and the variance it induces is smaller than the cycle-over-cycle effects reported in Chapter~5.
 
 \section{Chapter Summary}

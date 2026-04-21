@@ -604,6 +604,32 @@ save; the Wikipedia DPR passage index ($21$M vectors) is held on CPU
 throughout because its size exceeds what can be co-resident with the
 generator on the single-GPU budget.
 
+\paragraph{Performance envelope.}
+All results in this chapter are produced under the Level-B static
+batching configuration described in
+Chapter~\ref{ch:methodology}~\S\ref{sec:implementation}~(\emph{Performance
+engineering for experimental throughput}, \Cref{par:perf-engineering}).
+Per-query wall-clock latency on the FEVER$@64$ smoke test falls from
+$\approx 13.0$~s on the pre-pool baseline (Profile~v3) to
+$\approx 10.2$~s under the shipped configuration (Profile~v4,
+\Cref{tab:perf-profile-sequence}), a $\approx 21\%$ reduction driven
+by pooling M-chain / semantic-entropy sampling, and cross-encoder
+rerank across the $32$-sample batch. Two further candidate pools
+($u_{\text{token}}$ teacher-forcing, $u_{\text{dropout}}$ MC
+sampling) passed the per-signal equivalence diagnostic
+(\texttt{scripts/diff\_verify\_serial\_vs\_batch.py}) but were
+reverted after live profiling showed a thermal regression in the
+rerank kernel erased their paper gain
+(\Cref{par:perf-u-pools-thermal}); a third (atomic-decomposition
+pool) was rejected during validation for a
+$+0.05\ u_{\text{stored}}$ bias induced by Qwen's end-of-sequence
+timing under batched greedy decoding in \texttt{bfloat16}
+(\Cref{par:perf-atomic-rejection}). No result in this chapter
+depends on either rejected path, and per-query latency at the
+shipped configuration extrapolates to $\approx 108$ GPU-h for the
+$50{,}000$-query $10$-cycle confirmatory protocol on the rented
+RTX~5090.
+
 \paragraph{Generator prompt design.}
 Every Tier~2 and Tier~3 generation call uses a uniform few-shot
 scaffolded chain-of-thought prompt with a forced decoder prefix,

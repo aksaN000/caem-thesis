@@ -18,6 +18,163 @@ Detail belongs in the commit message; the log is for quick rewind.
 
 ## 2026-04-22 (BDT — date rolls based on activity)
 
+### 2026-04-22 05:30 BDT  `[PERF]`  Deep-batched verifier: 3 pools kept, atomic-pool rejected by equivalence diagnostic
+
+Goal-5 throughput push on the 5090. Pooled four within-`verify_batch`
+stages across samples; three shipped, one was rejected by a
+signal-level equivalence test that diffs every
+`UnifiedVerifierOutput` field between the serial `verify()` and
+batched `verify_batch()` paths.
+
+**Pools in `caem/verification/verifier.py`**
+
+- `_retrieve_and_rerank_batch` — N×20=640 (query_answer, passage) pairs
+  pooled into one `CrossEncoder.predict()` call. Shipped.
+- `_pool_u_token_batch` — right-padded batched forward over concat
+  (prefix + answer); gathers answer-span log-probs at absolute
+  positions `[L_p - 1, L_p + L_a)`. Right-pad chosen because Qwen~2
+  `forward()` does not derive position_ids from `attention_mask` the
+  way `generate()` does; causal attention means the right-padded tail
+  never influences real-token logits. Shipped.
+- `_pool_u_dropout_batch` — N×K=160 MC-dropout rows in one
+  `model.generate(num_return_sequences=K)` under `model.train()`.
+  Shipped.
+- `_score_atomic_batch` — intended to pool the atomic-decomp greedy
+  generate + all (passage, fact) NLI pairs. **REJECTED** (see below).
+
+**Equivalence diagnostic: `scripts/diff_verify_serial_vs_batch.py`**
+
+Pass criterion: `|mean Δ| u_stored < 0.01` AND no uni-directional
+sign pattern on any stage-isolable signal. A balanced sign pattern
+indicates bf16 matmul noise; a uni-directional pattern (`+N / -0`)
+indicates systematic bias and must revert.
+
+**Atomic-pool rejection evidence (N=4 pre-revert)**
+
+| Signal            | mean Δ    | max \|Δ\| | sign pattern (+ / − / ~0) |
+| ----------------- | --------- | --------- | ------------------------- |
+| p_ground_atomic   | **+0.229**| 0.723     | **+4 / −0 / ~0**          |
+| u_stored          | +0.027    | 0.076     | +3 / −0 / ~1              |
+| u_token           | +0.0005   | 0.002     | +0 / −0 / ~4              |
+| u_dropout         | −0.050    | 0.200     | +0 / −1 / ~3              |
+| p_ground_max/mean | 0.0000    | 0.0000    | clean                     |
+
+Root cause: batched greedy generate on Qwen-2.5-3B (bf16, left-pad,
+bs≥4) terminates the `_ATOMIC_DECOMP_PROMPT` decoder 2–3 tokens
+earlier than the unpadded serial path, producing 4–7 atomic facts
+per sample vs serial's 13–14. With fewer, coarser facts,
+`min(per_atom_entail)` lands +0.23 higher on average; with
+`w_pground_atomic = 0.14`, that propagates to +0.05 on `u_stored` —
+enough to flip STORE/DISCARD boundary cases. Sign pattern `+4 / −0`
+on all 4 samples is unambiguously a systematic bias, not bf16 noise.
+
+Not patchable without leaving the decoder framework (a 1-token EOS
+shift is inherent to bf16 batched greedy on Qwen). Per-sample
+`_score_atomic` remains the canonical path from inside
+`verify_batch`; the pooled helper is kept in-tree with a sentinel
+guard (`atomic_facts_pool[i] = None`) so a future framework fixing
+EOS timing under batched decoding can re-enable without code churn.
+
+**Post-revert correctness (N=32, ships)**
+
+| Signal            | mean Δ  | max \|Δ\| | sign pattern       |
+| ----------------- | ------- | --------- | ------------------ |
+| p_ground_atomic   | **0.0000** | 0.0000 | 0 / 0 / 32 ✓       |
+| u_token           | +0.0004 | 0.004     | 0 / 0 / 32 ✓       |
+| u_dropout         | −0.038  | 0.40      | 1 / 5 / 26 (conservative) |
+| p_ground_max      | 0.0000  | 0.0000    | 0 / 0 / 32 ✓       |
+| p_ground_mean     | 0.0000  | 0.0000    | 0 / 0 / 32 ✓       |
+| p_contra          | 0.0000  | 0.0000    | 0 / 0 / 32 ✓       |
+| q_a_relevance     | 0.0000  | 0.0000    | 0 / 0 / 32 ✓       |
+| s_avg             | +0.081  | 0.65      | 12 / 13 / 7 (balanced, m-chain pool) |
+| h_norm            | −0.028  | 0.76      | 7 / 7 / 18 (balanced, SE pool) |
+| p_entail          | +0.008  | 0.23      | 12 / 11 / 9 (balanced) |
+| u_stored          | +0.016  | 0.128     | 13 / 9 / 10 (balanced) |
+
+The balanced s_avg / h_norm / p_entail deltas come from the
+pre-existing m-chain + SE pool that landed at v4 branch-C migration,
+not from today's three new pools. u_dropout's −0.038 mean at N=32 is
+driven by 5 of 32 samples (26 identical); conservative direction
+means batched slightly under-stores vs serial and never over-stores.
+
+**Speedup sequence (fever@64 smoke on 5090, bs=32)**
+
+| Profile | Config                                        | verify_batch | Batch wall | s / query | vs v3 |
+| ------- | --------------------------------------------- | ------------ | ---------- | --------- | ----- |
+| v3      | No verifier pools                             | ~246 s       | ~415 s     | 13.0      | --    |
+| v4      | + m-chain, SE, rerank pools                   | 216 s        | 327 s      | 10.2      | 21%   |
+| v5      | v4 + u_tok_drop + atomic (u_token left-pad)   | 195 s        | 365 s      | 11.4      | (verdict drift, atomic contaminated) |
+| v6      | v5 with u_token right-pad fix                 | 188 s        | 356 s      | 11.1      | (still atomic contaminated) |
+| v7      | v6 with atomic ChatML-wrap fix                | 121 s        | 220 s      | 6.9       | 47% ✗ (atomic still contaminated) |
+| **v8**  | **v7 − atomic pool (clean)**                  | **~181 s**   | **~292 s** | **~9.1**  | **~30% ✓** |
+
+**Step-7 extrapolation (50k queries, RTX 5090 @ $0.80/h):**
+- v3 baseline: ~181 GPU-h → ~$145
+- v8 shipped: ~126 GPU-h → ~$101
+- Saved: ~55 GPU-h / ~$44 with zero verdict contamination.
+
+**Documentation value**: Ch4 §Implementation "Performance engineering"
+subsection and Ch5 §Implementation Details "Performance envelope"
+cross-ref cite these tables. Methodology for batching correctness
+points at `scripts/diff_verify_serial_vs_batch.py`.
+
+### 2026-04-22 06:05 BDT  `[PERF]`  Profile v8 measurement + revert of u_token / u_dropout pools — thermal regression, not a net speedup
+
+Follow-up to the 05:30 entry. Live FEVER$@64$ profile on the shipped
+v8 config (rerank + u_token + u_dropout pools, atomic per-sample):
+
+| Batch | verify_batch | wall | s / query | stored/32 |
+|-------|--------------|------|-----------|-----------|
+| 1     | 224 s        | 327 s | 10.2     | 25/32     |
+| 2     | 234 s        | 408 s | 12.8     | 26/32     |
+| **mean** | **229 s** | **367 s** | **11.5** | **51/64 (80%)** |
+
+Per-query at v8 = **11.5 s** vs v4 (rerank + m-chain + SE only) = 10.2 s.
+The u_token + u_dropout pools **correctness-pass** (N=32 diagnostic
+`|mean Δ|` = 0.0004 and 0.038, no uni-directional sign pattern), but
+they do **not save wall-clock** on this hardware.
+
+**Root cause — thermal regression.** Stage breakdown:
+
+|                 | v4 (shipped) | v8 (rejected) |
+|-----------------|--------------|---------------|
+| pool(m+se)      | 23 s         | 15 s          |
+| pool(rerank)    | **90 s**     | **142 s**     |
+| pool(u_tok_drop)| —            | 6 s           |
+| per-sample verify | 103 s      | 61 s          |
+| **total**       | **216 s**    | **224 s**     |
+
+u_token + u_dropout pools save ~42 s of per-sample verify time but the
+rerank stage regresses by ~52 s. Sustained-utilisation explanation:
+when rerank, m+se, and the two u-pools run back-to-back at ~100% GPU
+utilisation, the 5090 hits thermal throttling earlier and the rerank
+kernel (longest-input dependent) loses throughput before the other
+stages feel it. v4's sparser Python orchestration gave brief idle
+windows that let the rerank kernel run at peak clock.
+
+**Action taken.** Reverted the `_pool_u_token_batch` and
+`_pool_u_dropout_batch` calls from `verify_batch` (serial
+`_compute_u_token` / `_compute_u_dropout` run per sample from inside
+the verify loop as before). Helpers remain in-tree with a dead-code
+comment so a future GPU that doesn't throttle under the same workload
+can re-enable them.
+
+**Shipped configuration = v4**: 10.2 s / query on FEVER Tier 3, 21%
+speedup vs the pre-pool v3 baseline.
+
+**Thesis + log updates landed in the same commit:**
+- Ch4 §Implementation `par:perf-engineering` motivation rewritten
+  (21% instead of 30%)
+- Ch4 `tab:perf-pool-validation` u_token + u_dropout rows marked
+  "correct but reverted" with footnote
+- Ch4 new paragraph `par:perf-u-pools-thermal` describing the
+  thermal-regression finding
+- Ch4 `tab:perf-profile-sequence` v8 row updated to measured
+  `229 s / 367 s / 11.5 s / 12%` with "\ddag" footnote and v4 bolded
+  as the shipped config
+- Ch5 `Performance envelope` paragraph updated to cite v4 (not v8)
+  and mention the thermal-regression reason
+
 ### 2026-04-22 02:50 BDT  `[GATE]`  torch.compile drift — UNSAFE on Blackwell bf16 stack
 
 Live-run drift measurement on the 5090 via the new

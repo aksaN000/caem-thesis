@@ -463,6 +463,8 @@ class UnifiedVerifier:
         u_dropout: Optional[float] = None,
         chains: Optional[List[str]] = None,
         se_samples: Optional[List[str]] = None,
+        top_passages: Optional[List[str]] = None,
+        atomic_override: Optional[Tuple[List[str], List[float]]] = None,
     ) -> UnifiedVerifierOutput:
         """Compute all nine signals, form the composite, and emit a decision.
 
@@ -512,8 +514,14 @@ class UnifiedVerifier:
         _per_stage_ms["m_chain_h_norm"] = (_t.perf_counter() - _ts) * 1000.0
 
         # ---------- external grounding ------------------------------------ #
+        # Branch C Goal 5 perf fix (2026-04-21): when verify_batch has
+        # precomputed the top_passages via the pooled cross-encoder path
+        # (_retrieve_and_rerank_batch), reuse them and skip the per-sample
+        # FAISS + rerank call. This was 57.6% of per-sample verify time
+        # in Profile v3; pooling drops it to near-zero here.
         _ts = _t.perf_counter()
-        top_passages = self._retrieve_and_rerank(query, answer)
+        if top_passages is None:
+            top_passages = self._retrieve_and_rerank(query, answer)
         _per_stage_ms["retrieve_rerank"] = (_t.perf_counter() - _ts) * 1000.0
 
         _ts = _t.perf_counter()
@@ -525,9 +533,22 @@ class UnifiedVerifier:
         _per_stage_ms["p_contra"] = (_t.perf_counter() - _ts) * 1000.0
 
         _ts = _t.perf_counter()
-        atomic_facts, per_atom_entail, p_ground_atomic = self._score_atomic(
-            top_passages, answer, fallback=p_ground_mean
-        )
+        # Branch C Goal 5 deep-batching (2026-04-21): verify_batch can pool
+        # atomic decomposition across samples and pass the precomputed
+        # (facts, per_atom_entail) via atomic_override. When supplied, skip
+        # the per-sample _score_atomic call. Empty override -> fallback to
+        # p_ground_mean (matches _score_atomic's semantics when decomp fails).
+        if atomic_override is not None:
+            atomic_facts, per_atom_entail = atomic_override
+            if atomic_facts and per_atom_entail:
+                p_ground_atomic = float(min(per_atom_entail))
+            else:
+                atomic_facts, per_atom_entail = [], []
+                p_ground_atomic = float(p_ground_mean)
+        else:
+            atomic_facts, per_atom_entail, p_ground_atomic = self._score_atomic(
+                top_passages, answer, fallback=p_ground_mean
+            )
         _per_stage_ms["atomic"] = (_t.perf_counter() - _ts) * 1000.0
 
         # ---------- question-answer relevance (Branch C Goal 2) ----------- #
@@ -718,15 +739,65 @@ class UnifiedVerifier:
         )
         t_pool = _t.perf_counter()
 
+        # Branch C Goal 5 deep-batching: pool the cross-encoder rerank
+        # across all N samples. This was the #1 hot spot in Profile v3
+        # (57.6% of per-sample verify time at bs=32). One predict() call
+        # over N*K candidate pairs instead of N calls of K pairs each.
+        top_passages_per_sample = self._retrieve_and_rerank_batch(queries, answers)
+        t_rerank = _t.perf_counter()
+
+        # Profile v8 on the 5090 (2026-04-21) showed the u_token and
+        # u_dropout cross-sample pools do not net-save wall-clock time:
+        # the ~35 s/batch-32 they save in per-sample verify time is
+        # offset by a ~50 s regression in the cross-encoder rerank
+        # stage (sustained-utilisation thermal headroom: back-to-back
+        # heavy pools keep the 5090 at ~100% and the rerank kernel
+        # runs slower than when interleaved with per-sample Python
+        # orchestration). The helpers ``_pool_u_token_batch`` and
+        # ``_pool_u_dropout_batch`` remain in-file for future hardware
+        # that does not throttle the same way; verify_batch falls
+        # through to per-sample u_token/u_dropout computation inside
+        # the serial verify() loop below.
+        t_u_pool = _t.perf_counter()
+
+        # DO NOT pool atomic-decomposition across samples.
+        #
+        # Diagnostic (diff_verify_serial_vs_batch.py, 2026-04-21) showed
+        # batched greedy generate on Qwen2.5-3B (left-pad + bf16 at bs>=4)
+        # terminates the decomposition 2-3 tokens earlier than the
+        # unpadded serial path and produces 4-7 atomic facts per sample
+        # instead of the serial path's 13-14. With fewer, coarser facts,
+        # ``min(per_atom_entail)`` lands +0.23 higher on average (up to
+        # +0.72 on individual samples), inflating u_stored by +0.05 mean.
+        # That shift passes verdicts that serial verification would
+        # discard -- a correctness regression we refuse to ship. Each
+        # sample runs its own unpadded ``_score_atomic`` inside verify()
+        # (see atomic_override=None path). The per-sample atomic decomp +
+        # NLI still costs ~1.3 s/sample at bs=32 but preserves the
+        # 13-14-fact decomposition serial produces.
+        atomic_facts_pool = [None] * N  # sentinel: atomic_override disabled
+        per_atom_pool = [None] * N
+        t_atomic = _t.perf_counter()
+
         # Time each per-sample verify() call so we know which internal
         # stage dominates. Report sum per stage at the end of the batch.
         per_stage_ms: dict = {
             "pool_m_chain_plus_se": (t_pool - _t0) * 1000.0,
+            "pool_rerank": (t_rerank - t_pool) * 1000.0,
+            "pool_u_tok_drop": (t_u_pool - t_rerank) * 1000.0,
+            "pool_atomic": (t_atomic - t_u_pool) * 1000.0,
             "verify_per_sample_total": 0.0,
         }
         outputs: List[UnifiedVerifierOutput] = []
         for i, (q, a) in enumerate(inputs):
             _ts = _t.perf_counter()
+            # atomic_override=None: let the per-sample verify() run its
+            # own unpadded ``_score_atomic`` so the decomposition matches
+            # serial fact-by-fact (see the comment on atomic_facts_pool
+            # above for why pooling the decomp is off).
+            override = None
+            if atomic_facts_pool[i] is not None:
+                override = (atomic_facts_pool[i], per_atom_pool[i])
             outputs.append(self.verify(
                 q, a,
                 input_ids=per_sample_input_ids[i],
@@ -734,14 +805,20 @@ class UnifiedVerifier:
                 u_dropout=u_dropouts[i],
                 chains=chains_per_sample[i],
                 se_samples=se_samples_per_sample[i],
+                top_passages=top_passages_per_sample[i],
+                atomic_override=override,
             ))
             per_stage_ms["verify_per_sample_total"] += (_t.perf_counter() - _ts) * 1000.0
         total_ms = (_t.perf_counter() - _t0) * 1000.0
         logger.info(
             "verify_batch N=%d: total=%.0fms | pool(m+se)=%.0fms | "
-            "per-sample-verify=%.0fms (%.0fms/sample)",
+            "pool(rerank)=%.0fms | pool(u_tok_drop)=%.0fms | "
+            "pool(atomic)=%.0fms | per-sample-verify=%.0fms (%.0fms/sample)",
             N, total_ms,
             per_stage_ms["pool_m_chain_plus_se"],
+            per_stage_ms["pool_rerank"],
+            per_stage_ms["pool_u_tok_drop"],
+            per_stage_ms["pool_atomic"],
             per_stage_ms["verify_per_sample_total"],
             per_stage_ms["verify_per_sample_total"] / max(N, 1),
         )
@@ -1378,6 +1455,104 @@ class UnifiedVerifier:
             logger.warning("reranker failed: %s -- using retriever order", exc)
             return list(candidates[:rerank_k])
 
+    def _retrieve_and_rerank_batch(
+        self,
+        queries: List[str],
+        answers: List[str],
+    ) -> List[List[str]]:
+        """Batched variant of ``_retrieve_and_rerank`` across N samples.
+
+        FAISS retrieval stays per-query (CPU IVF-PQ; retrieval is a small
+        fraction of wall-time per sample and FAISS already uses OMP
+        threads internally). The cross-encoder rerank — the expensive
+        GPU call at ~4.4 s/sample in Profile v3 — is pooled: ALL
+        candidate (query+answer, passage) pairs from every sample go
+        into ONE ``reranker.predict`` call at combined batch size
+        ``N × retrieve_k`` (e.g. 32 × 20 = 640 pairs), amortising the
+        GPU invocation + tokenisation cost across the whole batch.
+
+        Branch C Goal 5 perf fix, 2026-04-21. Profile v3 showed rerank
+        took 57.6% of per-sample verify time; pooling this one stage
+        cuts that share to ~5% at bs=32.
+
+        Returns
+        -------
+        List of length N; result[i] is the top-``rerank_k`` passages
+        for samples[i], same semantics as the per-sample method.
+        """
+        N = len(queries)
+        if N == 0:
+            return []
+        if self.passage_retriever is None:
+            return [[] for _ in range(N)]
+
+        retrieve_k = self.config.verifier_retrieve_k
+        rerank_k = self.config.verifier_rerank_k
+
+        # Phase 1: per-query FAISS retrieve. Can't batch the FAISS side
+        # (different query embeddings), but this is ~50-100 ms per query,
+        # not the bottleneck.
+        candidates_per_sample: List[List[str]] = []
+        for q in queries:
+            try:
+                cands = self.passage_retriever(q, retrieve_k)
+            except Exception as exc:
+                logger.warning(
+                    "passage retrieval failed for query %r (%s) -- []",
+                    q[:60], exc,
+                )
+                cands = []
+            candidates_per_sample.append(list(cands))
+
+        # Fast path: if the reranker is missing, just return per-sample
+        # top-k by retriever order.
+        if self.reranker is None:
+            return [c[:rerank_k] for c in candidates_per_sample]
+
+        # Phase 2: pool all rerank pairs across samples. Samples with
+        # <=rerank_k candidates need no rerank; record them as "skip".
+        all_pairs: List[Tuple[str, str]] = []
+        offsets: List[Tuple[int, int, bool]] = []  # (start, end, needs_rerank)
+        for i, cands in enumerate(candidates_per_sample):
+            if not cands or len(cands) <= rerank_k:
+                offsets.append((len(all_pairs), len(all_pairs), False))
+                continue
+            start = len(all_pairs)
+            q_a_prefix = f"{queries[i]} {answers[i]}"
+            for p in cands:
+                all_pairs.append((q_a_prefix, p))
+            offsets.append((start, len(all_pairs), True))
+
+        # Phase 3: ONE batched cross-encoder predict over all pairs.
+        all_scores: List[float] = []
+        if all_pairs:
+            try:
+                scores = self.reranker.predict(
+                    all_pairs, show_progress_bar=False,
+                )
+                all_scores = list(np.asarray(scores).reshape(-1))
+            except Exception as exc:
+                logger.warning(
+                    "pooled rerank failed (%s, N_pairs=%d); falling back to "
+                    "retriever order.", exc, len(all_pairs),
+                )
+                # Mark every needs_rerank sample as "fall back"
+                # by clearing all_scores; offsets loop below will
+                # take the top-K slice when scores are missing.
+                all_scores = []
+
+        # Phase 4: split scores back per sample, pick top-k.
+        results: List[List[str]] = []
+        for i, cands in enumerate(candidates_per_sample):
+            start, end, needs_rerank = offsets[i]
+            if not needs_rerank or not all_scores:
+                results.append(cands[:rerank_k])
+                continue
+            sample_scores = all_scores[start:end]
+            order = np.argsort(sample_scores)[::-1][:rerank_k]
+            results.append([cands[int(j)] for j in order])
+        return results
+
     def _score_p_ground(
         self,
         passages: List[str],
@@ -1414,6 +1589,336 @@ class UnifiedVerifier:
         except Exception as exc:
             logger.warning("p_contra failed: %s -- returning 0.0", exc)
             return 0.0
+
+    # ---- pooled u_dropout / u_token / atomic (deep-batching) -------------- #
+
+    def _pool_u_dropout_batch(
+        self, queries: List[str],
+    ) -> List[Optional[float]]:
+        """Pool N*K MC-dropout sampling generations across samples.
+
+        Semantically equivalent to calling ``_compute_u_dropout`` per
+        sample: run K sampled generations at T=0.7 with ``model.train()``
+        mode active (dropout on), then compute (1 - max_count/K) as the
+        variance proxy. Pooled into ONE
+        ``model.generate(num_return_sequences=K)`` call on left-padded
+        batch of N queries -> N*K rows -> regroup.
+
+        Branch C Goal 5 deep-batching, 2026-04-21. Profile v4 showed
+        u_tok_drop at 1.3 s/sample (41.8 s total at bs=32). Pooling cuts
+        this to a single padded generate at roughly the same wall-clock as
+        the existing m-chain/SE pools.
+
+        Returns
+        -------
+        List of N u_dropout floats, or ``None`` at index i if that
+        sample could not be scored (empty samples, < 2 draws); the per-
+        sample verify() then falls back to ``_compute_u_dropout`` for
+        that sample only, preserving the serial-path error semantics.
+        """
+        K = getattr(self.config, "mc_dropout_k", 5)
+        N = len(queries)
+        if N == 0 or K <= 0:
+            return []
+        try:
+            wrapped = [self._wrap_chatml(q) for q in queries]
+            original_side = getattr(self.tokenizer, "padding_side", None)
+            self.tokenizer.padding_side = "left"
+            enc = self.tokenizer(
+                wrapped, return_tensors="pt", truncation=True,
+                max_length=2048, padding=True,
+            )
+            if original_side is not None:
+                self.tokenizer.padding_side = original_side
+            input_ids = enc["input_ids"].to(self.device)
+            attention_mask = enc["attention_mask"].to(self.device)
+            input_len = int(input_ids.shape[1])
+            self.model.train()  # activate dropout for MC sampling
+            try:
+                with torch.no_grad():
+                    out = self.model.generate(
+                        input_ids,
+                        attention_mask=attention_mask,
+                        max_new_tokens=self.config.cot_max_new_tokens,
+                        do_sample=True,
+                        temperature=0.7,
+                        num_return_sequences=K,
+                        pad_token_id=self.tokenizer.pad_token_id,
+                    )
+            finally:
+                # ALWAYS restore eval() so subsequent non-dropout forwards
+                # (teacher-forcing u_token, p_ground NLI, etc.) see a
+                # deterministic model.
+                self.model.eval()
+            # Regroup: HF generate produces (N*K, T) with rows grouped by
+            # input: [q0_c0..q0_cK-1, q1_c0..q1_cK-1, ...]. Decode only the
+            # newly generated tokens and compute the plurality-variance proxy.
+            per_sample_samples: List[List[str]] = [[] for _ in range(N)]
+            for row_idx in range(out.shape[0]):
+                s = row_idx // K
+                decoded = self.tokenizer.decode(
+                    out[row_idx, input_len:], skip_special_tokens=True,
+                ).strip()
+                per_sample_samples[s].append(decoded)
+            u_dropouts: List[Optional[float]] = []
+            for samples in per_sample_samples:
+                if len(samples) < 2:
+                    u_dropouts.append(None)
+                    continue
+                counts: dict = {}
+                for s in samples:
+                    k = re.sub(r"[^\w\s]", "", s.lower()).strip()
+                    counts[k] = counts.get(k, 0) + 1
+                var = 1.0 - (max(counts.values()) / float(K))
+                u_dropouts.append(float(np.clip(var, 0.0, 1.0)))
+            return u_dropouts
+        except Exception as exc:
+            self.model.eval()
+            logger.warning(
+                "_pool_u_dropout_batch failed (N=%d, K=%d): %s -- returning "
+                "None per sample so verify() falls back to per-sample compute.",
+                N, K, exc,
+            )
+            return [None] * N
+
+    def _pool_u_token_batch(
+        self, queries: List[str], answers: List[str],
+    ) -> List[Optional[float]]:
+        """Pool N teacher-forcing u_token forwards into one padded batch.
+
+        Right-pads the concatenated (prefix + answer) token sequences so
+        each row's real tokens occupy positions ``[0, L_i)`` — the same
+        absolute positions as an unpadded serial forward. This matters
+        for decoder-only models like Qwen2.5 whose ``forward()`` path
+        computes position_ids as ``arange(seq_len)`` without adjusting
+        for left-pad offsets (``generate()`` handles left-pad correctly
+        but ``forward()`` does not, on some transformers versions). Under
+        causal attention the right-padded tokens are never attended to
+        from the real positions, so the real-token logits exactly match
+        the unpadded serial forward (modulo ~1e-5 bf16 matmul noise).
+
+        Semantically equivalent to N serial ``_compute_u_token`` calls
+        at the per-row level (bf16 matmul reassociation may introduce
+        ~1e-5 drift on the mean, well below the verifier's compose
+        tolerances).
+
+        Returns
+        -------
+        List of N u_token floats; ``None`` at index i if that sample's
+        row-level gather failed (caller falls back to per-sample compute).
+        """
+        N = len(queries)
+        if N == 0:
+            return []
+        try:
+            self.model.eval()
+            prefix_ids_list: List[torch.Tensor] = []
+            answer_ids_list: List[torch.Tensor] = []
+            for q, a in zip(queries, answers):
+                p_enc = self._tokenize(q)
+                p_ids = p_enc["input_ids"][0]
+                a_ids = self.tokenizer(
+                    a, return_tensors="pt", truncation=True,
+                    max_length=self.config.cot_max_new_tokens,
+                    add_special_tokens=False,
+                ).input_ids[0].to(self.device)
+                prefix_ids_list.append(p_ids)
+                answer_ids_list.append(a_ids)
+            full_list = [
+                torch.cat([p, a], dim=0)
+                for p, a in zip(prefix_ids_list, answer_ids_list)
+            ]
+            lens = [int(f.shape[0]) for f in full_list]
+            max_len = max(lens)
+            pad_id = self.tokenizer.pad_token_id
+            if pad_id is None:
+                pad_id = self.tokenizer.eos_token_id or 0
+            padded = torch.full(
+                (N, max_len), int(pad_id),
+                dtype=torch.long, device=self.device,
+            )
+            attn = torch.zeros(
+                (N, max_len), dtype=torch.long, device=self.device,
+            )
+            # Right-pad: real tokens occupy positions [0, L); pad at [L, max_len).
+            # Causal attention means real tokens never attend to the pad
+            # tail, so logits at real positions match unpadded serial.
+            for i, f in enumerate(full_list):
+                L = lens[i]
+                padded[i, :L] = f
+                attn[i, :L] = 1
+            with torch.no_grad():
+                out = self.model(input_ids=padded, attention_mask=attn)
+                logits = out.logits  # (N, max_len, V)
+            u_tokens: List[Optional[float]] = []
+            for i in range(N):
+                try:
+                    A = int(answer_ids_list[i].shape[0])
+                    if A == 0:
+                        u_tokens.append(0.5)
+                        continue
+                    P = int(prefix_ids_list[i].shape[0])
+                    # Predicting logit for answer token j (absolute position
+                    # P+j within the row) lives at position P-1+j. Right-
+                    # padding preserves these absolute positions unchanged.
+                    start = P - 1
+                    end = start + A
+                    pred_logits = logits[i, start:end, :]
+                    log_probs = F.log_softmax(pred_logits, dim=-1)
+                    gathered = log_probs.gather(
+                        1, answer_ids_list[i].unsqueeze(1),
+                    ).squeeze(1)
+                    if gathered.numel() == 0:
+                        u_tokens.append(0.5)
+                        continue
+                    mean_logp = gathered.mean().item()
+                    u_tokens.append(
+                        float(np.clip(math.exp(mean_logp), 0.0, 1.0))
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "pooled u_token row %d failed: %s -- None", i, exc,
+                    )
+                    u_tokens.append(None)
+            return u_tokens
+        except Exception as exc:
+            logger.warning(
+                "_pool_u_token_batch failed (N=%d): %s -- None per sample",
+                N, exc,
+            )
+            return [None] * N
+
+    def _score_atomic_batch(
+        self,
+        answers: List[str],
+        passages_per_sample: List[List[str]],
+    ) -> Tuple[List[List[str]], List[List[float]]]:
+        """Pool atomic decomposition + NLI scoring across N samples.
+
+        Two things get pooled:
+          1. **Decomposition generate**: N greedy ``model.generate`` calls
+             on the fixed ``_ATOMIC_DECOMP_PROMPT.format(answer=a)`` prompt
+             are replaced with ONE left-padded batched generate.
+          2. **NLI pair scoring**: all ``sum_i(len(facts_i) * len(passages_i))``
+             (passage, fact) pairs across samples are flattened into a single
+             ``nli.batch_entail_prob`` call, then split back per sample.
+
+        Branch C Goal 5 deep-batching, 2026-04-21. Profile v4 showed
+        atomic at 1.7 s/sample (53.9 s total at bs=32) after rerank
+        pooling. Pooling decomp + NLI cuts kernel launches by ~N×.
+
+        Returns
+        -------
+        (facts_per_sample, per_atom_entail_per_sample), each list of
+        length N. Empty list at index i means decomp produced no facts
+        or the sample had no passages; ``verify()`` then falls back to
+        ``p_ground_mean`` for that sample's ``p_ground_atomic``.
+        """
+        N = len(answers)
+        empty_facts: List[List[str]] = [[] for _ in range(N)]
+        empty_atoms: List[List[float]] = [[] for _ in range(N)]
+        if not self.enable_atomic or not self.nli or N == 0:
+            return empty_facts, empty_atoms
+
+        # Only samples with non-empty answer + non-empty passages can be
+        # scored; others keep the empty fallback.
+        active_idx: List[int] = [
+            i for i in range(N)
+            if passages_per_sample[i] and (answers[i] or "").strip()
+        ]
+        if not active_idx:
+            return empty_facts, empty_atoms
+
+        # --- Pooled atomic-decomposition greedy generate ----------------- #
+        # ChatML-wrap each decomp prompt to match the serial _score_atomic
+        # path (which tokenizes via self._tokenize -> self._wrap_chatml).
+        # Qwen2.5-Instruct produces materially different fact decompositions
+        # when given raw text vs an assistant-turn ChatML prompt -- raw text
+        # output tends to be longer, less atomic, and looser on pronoun
+        # resolution, which shifts the downstream NLI entailment scores.
+        # Without this wrap, pooled u_stored was observed +0.08 vs serial
+        # (Profile v6, 2026-04-21).
+        prompts = [
+            self._wrap_chatml(_ATOMIC_DECOMP_PROMPT.format(answer=answers[i]))
+            for i in active_idx
+        ]
+        facts_per_active: List[List[str]] = [[] for _ in active_idx]
+        try:
+            self.model.eval()
+            original_side = getattr(self.tokenizer, "padding_side", None)
+            self.tokenizer.padding_side = "left"
+            enc = self.tokenizer(
+                prompts, return_tensors="pt", truncation=True,
+                max_length=2048, padding=True,
+            )
+            if original_side is not None:
+                self.tokenizer.padding_side = original_side
+            input_ids = enc["input_ids"].to(self.device)
+            attention_mask = enc["attention_mask"].to(self.device)
+            input_len = int(input_ids.shape[1])
+            with torch.no_grad():
+                out = self.model.generate(
+                    input_ids,
+                    attention_mask=attention_mask,
+                    max_new_tokens=self.config.cot_max_new_tokens,
+                    do_sample=False,
+                    pad_token_id=self.tokenizer.pad_token_id,
+                )
+            for row in range(out.shape[0]):
+                decoded = self.tokenizer.decode(
+                    out[row, input_len:], skip_special_tokens=True,
+                )
+                facts_per_active[row] = _parse_atomic_facts(decoded)
+        except Exception as exc:
+            logger.warning(
+                "_score_atomic_batch decomp failed (N=%d): %s -- using "
+                "fallback (empty facts) for all samples.", N, exc,
+            )
+            return empty_facts, empty_atoms
+
+        # --- Pool (passage, fact) NLI pairs across all active samples ---- #
+        pooled_pairs: List[Tuple[str, str]] = []
+        # For each active sample we record (pool_start, n_facts, P_i).
+        pool_info: List[Tuple[int, int, int]] = []
+        for local_i, i in enumerate(active_idx):
+            facts_i = facts_per_active[local_i]
+            passages_i = passages_per_sample[i]
+            P_i = len(passages_i)
+            if not facts_i or P_i == 0:
+                pool_info.append((len(pooled_pairs), 0, P_i))
+                continue
+            start = len(pooled_pairs)
+            for f in facts_i:
+                for p in passages_i:
+                    pooled_pairs.append((p, f))
+            pool_info.append((start, len(facts_i), P_i))
+
+        flat_scores: List[float] = []
+        if pooled_pairs:
+            try:
+                flat_scores = list(self.nli.batch_entail_prob(pooled_pairs))
+            except Exception as exc:
+                logger.warning(
+                    "_score_atomic_batch NLI failed (%d pairs): %s -- using "
+                    "fallback for all samples.", len(pooled_pairs), exc,
+                )
+                return empty_facts, empty_atoms
+
+        # --- Split back per sample, build per_atom min scores ------------ #
+        facts_out: List[List[str]] = [[] for _ in range(N)]
+        per_atom_out: List[List[float]] = [[] for _ in range(N)]
+        for local_i, i in enumerate(active_idx):
+            start, n_facts, P_i = pool_info[local_i]
+            if n_facts == 0 or P_i == 0:
+                continue
+            facts_i = facts_per_active[local_i]
+            per_atom_i: List[float] = []
+            for k in range(n_facts):
+                chunk = flat_scores[start + k * P_i : start + (k + 1) * P_i]
+                per_atom_i.append(float(np.clip(max(chunk), 0.0, 1.0)))
+            facts_out[i] = facts_i
+            per_atom_out[i] = per_atom_i
+        return facts_out, per_atom_out
 
     def _score_atomic(
         self,
