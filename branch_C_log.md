@@ -2304,3 +2304,63 @@ When the thesis author opens this next:
 5. Start with Ch4 §4.1 ceiling derivation (highest leverage task)
 
 End of master plan.
+
+### 2026-04-23 01:15 BDT  `[METHOD]`  Ch1-6 rewrite methodology — 3-phase per-section process (prep → draft → coherence)
+
+User correction 2026-04-23 01:00 BDT: I was jumping straight to
+drafting without preparation. This leads to over-aggressive edits
+(I initially marked §1.3 for full REPLACE when it only needed one
+new bullet + expanded wrap-up).
+
+**Methodology locked:** every Ch1-6 section goes through 3 phases.
+
+**Phase 1 — Preparation** (required before any .tex edit):
+  1a. Read current section fully
+  1b. Pull concepts from: branch_C_log.md (by keyword grep),
+      branch_C.md, Master Plan (00:50 BDT), config state, Phase 1a data
+  1c. Inventory content → KEEP(primary) / KEEP(secondary) /
+      MODIFY / REPLACE / ADD
+  1d. Decide placement: primary layer (ceiling-attainment) vs
+      secondary layer (system description)
+  1e. Match to Master Plan: theorems referenced, audit tables
+      previewed, TODO items satisfied
+  Output: single-page Phase 1 artifact per section, user-reviewed
+  before proceeding.
+
+**Phase 2 — Drafting** (only after Phase 1 approval):
+  - Edit the .tex file
+  - Single commit per section
+  - Clear git message describing primary vs secondary additions
+
+**Phase 3 — Coherence review** (after drafting, before next section):
+  - Forward reference check (future chapters)
+  - Backward reference check (earlier chapters)
+  - Registry count check (ablations, signals, benchmarks, theorems)
+  - Terminology consistency (Flan-T5 → Qwen, 9-signal → 10-signal, etc.)
+
+**Why this matters:**
+  - Prevents over-aggressive edits (I was marking REPLACE when KEEP
+    was right)
+  - Prevents content duplication across chapters
+  - Prevents terminology drift (feedback_thesis_coherence memory)
+  - Preserves cross-reference integrity
+
+**Estimated scope:**
+  - ~15 sections across Ch1-6 (6 chapters × ~2-3 sections each)
+  - ~1 hour per section (20min Phase 1 + 30min Phase 2 + 10min Phase 3)
+  - Total: ~15 focused writing hours across the 2-3 week rewrite window
+
+**Ordering (from Master Plan 00:30 BDT):**
+  1. Ch4 §4.1 ceiling derivation (theoretical foundation)
+  2. Ch4 §4.9 theorems (T1-T4, C4-C10)
+  3. Ch1 §1.1 epistemic-bound motivation (ties to Ch4 §4.1)
+  4. Ch1 §1.3 Problem Statement (4th bullet + wrap-up)
+  5. Ch1 §1.4 Objective (Obj 8 + preamble)
+  6. Ch2 literature (Sun et al., CAEM positioning)
+  7. Remaining sections in Ch2-Ch5-Ch6 in parallel
+  8. Coherence pass at end
+
+**First Phase 1 artifact to produce:** Ch1 §1.1 Background (the
+opening-paragraph reframe is the hardest sentence in the thesis;
+prep-work MUST be done first).
+
