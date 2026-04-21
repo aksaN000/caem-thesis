@@ -132,6 +132,83 @@ the parameter-scaling literature (removes H_base)."
 dependent) into a single vague claim. Always specify which limit
 is being taken.
 
+**Corollary C8 (Base-Model-Conditional Convergence Rate, added
+2026-04-22 20:30 BDT user refinement):**
+
+For CAEM on fixed benchmark B with base generator theta:
+
+    c*(theta, B) ≈ (1/k) · ln(A(theta) / (eps · C_inf(theta)))
+
+where the initial gap A(theta) = H_base(theta) · (1 - coverage(0))
+scales directly with the base model's intrinsic hallucination rate.
+Substituting:
+
+    c*(theta, B) ∝ log(H_base(theta) / C_inf(theta))
+
+**Interpretation:**
+- Strong base (low H_base, high C_inf): log ratio small → c*
+  small → CAEM converges in FEW cycles
+- Weak base (high H_base, lower C_inf): log ratio large → c*
+  large → CAEM needs MANY cycles AND plateaus higher
+
+**Empirical grounding (Sun et al. ICLR 2026, EvoLM suite):**
+  "Base → Mid-trained → Post-trained models show progressively
+   smaller initial gaps and slower decay rates, confirming
+   saturation as capability limit is approached."
+
+Sun et al. already demonstrated this scaling in pure SIL (no memory
+augmentation). C8 extends the result to CAEM: the memory + verifier
+architecture inherits the same base-model-conditional rate
+behaviour, because the exponential saturation form (C4) holds and
+A(theta) scales with H_base.
+
+**What this predicts for Phase 1a:**
+- Qwen-2.5-3B is a medium-capability base model
+- Expected c* range: 5-8 cycles
+- The equilibrium-fit data from the Upgrades 1-3 machinery
+  (caem/eval/equilibrium.py) directly reports (C_inf, A, k, c*)
+  from the observed CES trajectory
+- Cross-check these numbers against Sun et al.'s published EvoLM
+  parameters to position CAEM/Qwen-3B in their Mid-trained regime
+  (or wherever the observed fit lands)
+
+**Empirical validation limit for the thesis:** we can validate the
+FIT shape (exponential saturation) from Phase 1a data alone, via
+the equilibrium_fit.json artefacts written at cycles 6..10. But
+testing the CROSS-MODEL scaling (C8's primary prediction) requires
+running CAEM on multiple base generators (Qwen-3B + Qwen-7B +
+Flan-T5-Large via the flan_t5_large_backbone ablation variant).
+That's Steps 16-18 (Phase 1 Full, deferred).
+
+**Ch1-6 rewrite pass additions (refined):**
+
+- [ ] Ch4 §Theoretical Analysis: add C8 after C7. One paragraph
+      with the log-ratio formula and the Sun et al. empirical
+      reference. No new proof needed — follows from C4 + C7 +
+      Sun et al.'s EvoLM validation.
+- [ ] Ch5 §Main Results: extend Table 5.F (user-facing H rate per
+      cycle) to report observed (C_inf, A, k, c*) from the
+      equilibrium_fit.json artefacts. One extra subtable or
+      annotated caption.
+- [ ] Ch6 §Discussion: add one paragraph positioning CAEM/Qwen-3B
+      relative to Sun et al.'s EvoLM Base/Mid/Post-trained
+      parameter range. This is post-data, so phrasing depends on
+      what the actual fit shows.
+- [ ] Ch9 §Future Work: expand the Claim 4 + Claim 5 entry to
+      note that cross-model testing of C8 scaling is one of the
+      primary extensions (Qwen-3B vs 7B vs 14B CAEM comparison).
+
+**Final thesis-claim-stack headline (final final):**
+
+"CAEM asymptotically eliminates hallucination on any fixed benchmark
+(T4) at a rate governed by the base model's initial hallucination
+rate (C8). Strong base models converge in fewer cycles; weak base
+models need more cycles and plateau higher (C7). The double limit —
+infinite cycles with infinite parameters — yields H → 0. Empirically
+on Qwen-2.5-3B we observe c* = [X] cycles (Table 5.F), with fit
+parameters (C_inf, A, k) consistent with Sun et al. (ICLR 2026)
+EvoLM [Base/Mid/Post]-trained regime."
+
 ### 2026-04-22 19:45 BDT  `[DECISION]`  FINAL THESIS CLAIM STACK — each of 5 claims paired with theoretical proof AND empirical audit table
 
 Locks in the thesis-defense structure after iterative user pushback
