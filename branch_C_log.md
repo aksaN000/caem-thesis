@@ -1872,6 +1872,40 @@ User decisions 2026-04-22 23:15 BDT (before sleep):
    - C10 specifically may still benefit from a theorist, but we can
      get it to semi-formal together first
 
+**Addendum 2026-04-22 23:45 BDT** (user correction: trace must cover
+the FULL 2x2 confusion matrix, not just TP/FP/FN/ABSTAIN):
+
+Table 5.E per-episode-type decision-trace categories (8 total):
+
+| Type         | Meaning                                 | CAEM outcome                        | Trajectory demonstrated                            |
+|--------------|-----------------------------------------|-------------------------------------|----------------------------------------------------|
+| TP-high      | correct + high u_stored                 | STORE + TRAIN                       | stable KEEP across cycles                          |
+| TP-moderate  | correct + moderate u_stored             | STORE, initially below τ_train      | retroverify PROMOTES past τ_train by cycle M       |
+| TP-low       | correct + low u_stored                  | DEFERRED                            | deferred buffer reconsideration → STORE at cycle M |
+| **TN**       | **wrong answer + correctly low u_stored** | **DISCARD at gate 1**                | **not stored; trace by per-cycle COUNT of correctly-discarded hallucinations** |
+| FP-moderate  | hallucination + moderate u_stored       | STORE, below τ_train                | retroverify DOWNGRADE → PRUNE within 1-2 cycles    |
+| FP-high      | rare confab + high u_stored             | STORE + TRAIN briefly               | 1-cycle pollution then retroverify PRUNES          |
+| FN           | correct + u_stored < τ_defer            | DISCARD                             | empty-by-construction per composite signal definitions — expected count = 0 |
+| ABSTAIN      | correct + p_ground_max < 0.2            | refuse-to-confabulate (Goal 1)      | principled refusal (not stored, not a failure)     |
+
+What each row demonstrates in Ch5:
+- TP-* rows → recovery mechanisms (retroverify + deferred) work
+- TN row → gate-1 correctly rejects hallucinations (Claim 1 validation)
+- FP-* rows → C10 self-correction cleans memory within cycles
+- FN row → empty-by-construction architectural guarantee
+- ABSTAIN row → refuse-to-confabulate is a feature not a bug
+
+TN's per-cycle trajectory is trivially flat (no memory entry at any
+cycle), but the per-cycle COUNT of correctly-DISCARDed hallucinations
+quantifies gate-1 precision and completes the confusion matrix at
+each cycle boundary.
+
+Audit artifact spec: outputs/audit/evidence_fidelity_manual.json must
+include all 8 categories as the "type" field. Expected marginal
+increase in audit effort: ~1h (add TN sampling from the discarded
+population via the Cycle-0 calibration fold, which records every
+decision including DISCARDs).
+
 **Status at session end (pre-sleep 2026-04-22 23:30 BDT):**
 - 20 commits pushed to feat/qwen-3b-goal1
 - 10-theorem stack logged with proof sketches (T1–T4, C4, C5, C7,
