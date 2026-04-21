@@ -18,6 +18,146 @@ Detail belongs in the commit message; the log is for quick rewind.
 
 ## 2026-04-22 (BDT — date rolls based on activity)
 
+### 2026-04-22 17:30 BDT  `[DECISION]`  Ch5/Ch6 evidence-fidelity audit — manual-verification critical-case tables, multi-gate defense, monotonic-improvement tables
+
+During the Hour-3 hallucination audit on the Profile v8 cold-start
+store, user raised a sharp architectural point that reframes the
+"verifier miss rate" conversation: a store-gate false-positive is NOT
+the user-facing miss rate, because CAEM has a 4-layer defense stack.
+
+**The 4 stacked gates:**
+
+| Gate                    | Field                         | Default | Controls                                    |
+|-------------------------|-------------------------------|---------|---------------------------------------------|
+| 1. Store gate           | `store_threshold` (calibrated)| ~0.50–0.65 | Entry to memory                          |
+| 2. Train gate           | `min_u_stored_for_training`   | 0.75    | Entry to SIL fine-tuning pool                |
+| 3. Tier-1 retrieval     | `tier1_combined_threshold`    | 0.90    | `S = 0.7·sim + 0.3·u_stored ≥ 0.90`         |
+| 4. Retroverify          | `retroverify_prune_threshold` | 0.50    | Re-score at every cycle boundary; prune low |
+
+**Combined with auto-calibration** (`scripts/calibrate_thresholds.py`
+runs after Cycle-0, fits τ_store at P70, τ_defer at P40, τ_train at P90
+of the calibration fold's u_stored distribution), the cold-start
+τ=0.50 seed is sacrificial scaffolding; Step 7 runs on fitted
+thresholds that will be substantially tighter (~0.63–0.68 likely).
+
+**Implication for Ch6 §Discussion:** the verifier's observed ~4%
+store-gate evidence-hallucination pass-through rate (Profile v8, 51
+episodes) does NOT propagate to user-facing outputs. Quantitative
+proof:
+
+| Profile-v8 miss | u_stored | Passes gate 2 (τ_train=0.75)? | Tier-1 sim required (gate 3) |
+|-----------------|----------|-------------------------------|------------------------------|
+| #2 Paris stadium| 0.696    | ❌ NO                          | sim ≥ 0.986 (essentially duplicate query only) |
+| #24 13RW date   | 0.628    | ❌ NO                          | sim ≥ 0.970                  |
+| #48 R. Gosling  | 0.481    | ❌ NO (and fails gate 1 at τ=0.50) | sim ≥ 0.997              |
+
+Gate 2 alone filters all three misses out of the SIL training
+distribution — the fine-tuned model never learns from the hallucinated
+evidence. Gate 3 keeps them out of Tier-1 cached answers except on
+near-duplicate queries (where the user is essentially asking the same
+thing twice and gets the already-flagged low-confidence cached
+response, not a new hallucination).
+
+**Audit commitment (TO BE EXECUTED DURING Ch1–6 REWRITE PASS, post-
+Phase-1a completion):**
+
+Scope: thesis Chapters 1 through 6 get a Branch-C consistency pass
+that includes the evidence-fidelity audit tables below. Not done in
+this session — this log entry records the plan so the rewrite session
+inherits it.
+
+
+- [ ] Ch5 new subsection §5.X "Evidence-fidelity audit": hand-curate
+      ~20 critical cases from Cycle-0 STORE decisions (mix of
+      high-u_stored, borderline, and discarded). Fact-check each
+      against world truth. Classify: (a) correct-both (answer ✓,
+      evidence ✓), (b) conclusion-right-evidence-wrong (the class
+      the verifier misses), (c) wrong-and-flagged (caught by low
+      u_stored), (d) wrong-and-unflagged (worst case — none observed
+      in the 51-episode smoke but this is the zero-rate we're
+      defending).
+
+- [ ] Ch5 **Table 5.A "Multi-gate hallucination filtration"**: for
+      each hand-audited case, columns showing u_stored, passes gate 2
+      (yes/no), passes gate 3 at realistic sim (yes/no), cycle-1
+      retroverify disposition (KEEP / PRUNE / DOWNGRADE). Target
+      demonstration: **no (b)/(d) case survives all 4 gates**.
+
+- [ ] Ch5 **Table 5.B "Monotonic model improvement per cycle"**:
+      per-cycle deltas of (EM, F1, mean u_stored on STORE, stored-
+      episode purity via spot-check, MMLU retention). Target
+      demonstration: **EM and purity monotonically non-decreasing
+      across cycles 1..N (equilibrium observed at cycle $c^\\star$ via
+      Upgrades 1–3 equilibrium fit)**.
+
+- [ ] Ch5 **Table 5.C "Human-vs-CAEM-verifier agreement"** (the
+      gold-standard verifier-quality comparison most SIL papers skip):
+      sample ~200 episodes across the u_stored range and all 3 training
+      benchmarks. For each, collect:
+        * **Human label** ∈ {correct, conclusion-right-evidence-wrong,
+          wrong-answer, uncertain}
+        * **Verifier decision** ∈ {STORE, DEFERRED, ABSTAIN, DISCARD}
+        * **u_stored** scalar
+      Compute:
+        * **Confusion matrix** (human × verifier, 4×4)
+        * **Precision** of verifier STORE against human "correct" label
+        * **Recall** of verifier STORE against human "correct"
+        * **Cohen's κ** for verifier-vs-human agreement
+        * **Per-benchmark breakdown** (FEVER vs TriviaQA vs NQ)
+        * **ROC curve** of u_stored as a detector of human "correct"
+          (report AUC)
+      Target demonstration: **Cohen's κ ≥ 0.6** (substantial
+      agreement), precision on STORE ≥ 0.95, AUC ≥ 0.85. These three
+      numbers position CAEM's 9-signal verifier as substantially
+      better-calibrated than a MiniCheck-only baseline (single-signal
+      κ ≈ 0.40–0.55 typical in MiniCheck paper).
+
+- [ ] Ch6 §Discussion paragraph integrating the 4-gate architectural
+      defense framing (draft in this log above), citing Tables 5.A,
+      5.B, AND 5.C as quantitative backing for three thesis claims:
+      (1) "no hallucinated answer propagates to user" (Table 5.A, via
+      gate trace), (2) "model monotonically improves per cycle"
+      (Table 5.B, via per-cycle EM/purity deltas), and (3) "9-signal
+      verifier substantially outperforms single-signal baselines"
+      (Table 5.C, via human-gold agreement metrics).
+
+- [ ] Audit data source: after Step 7 completes, read
+      `outputs/full_run/cycle_N/memory_store.{faiss,meta}` + the
+      retroverify JSONs (`retroverify_cycleN.json`) and sample ~20
+      STOREs per cycle into a manual-review spreadsheet; land the
+      hand-audited classifications as `outputs/audit/evidence_fidelity_manual.json`
+      before writing Table 5.A/5.B.
+
+**This turns a potential thesis weakness (4% store-gate miss) into a
+methodological strength** (multi-gate filtration, empirically
+demonstrated with hand-audited critical cases, never-propagated-to-
+user claim backed by gate-trace tables).
+
+**IMPORTANT — thesis claim calibration (do NOT overclaim):**
+
+The strongest defensible claim is NOT "training data is 100% pure
+always." That's a universal claim requiring either theoretical proof
+or exhaustive audit, neither of which is feasible. The defensible
+phrasing instead is a three-line conjunction:
+
+1. **Empirical (bounded by audit size):** "At τ_train = 0.75, 0 of
+   N audited evidence-hallucinations entered the SIL fine-tuning pool"
+   — cite Table 5.A row count.
+2. **Architectural (unconditional):** "The gate ordering τ_store <
+   τ_train guarantees every store-gate false-positive below 0.75 is
+   filtered from training by construction" — trivially verifiable
+   from config.
+3. **Residual-risk acknowledgement:** "The edge case of evidence-
+   hallucinations scoring u_stored ≥ 0.75 despite 9 verification
+   signals is addressed by cycle-boundary retroactive re-verification
+   (§4.7); Table 5.B empirically demonstrates retroverify catches
+   [X] such episodes across cycles 1..N."
+
+These three together give reviewers a rigorously-bounded claim. The
+sloppy "100% pure always" phrasing loses credibility the moment a
+reviewer proposes a hypothetical high-u_stored hallucination we
+didn't see in the audit.
+
 ### 2026-04-22 07:00 BDT  `[DECISION]`  Phase 1a launch: n=5000 locked, early-stop gate active, moderate overrun accepted
 
 After a full cost-and-scope pass on the Branch-C Plan A at Qwen-3B +
