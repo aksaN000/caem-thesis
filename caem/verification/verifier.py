@@ -481,15 +481,25 @@ class UnifiedVerifier:
             input_ids = self._tokenize(query)["input_ids"]
         assert input_ids is not None
 
+        # TEMP profiling 2026-04-21: per-stage wall-time accounting inside
+        # a single verify() call. Aggregated at the batch level to guide
+        # the deep-batching refactor. Remove after verifier_stage_time.py
+        # or equivalent stops being useful.
+        import time as _t
+        _per_stage_ms = {}
+
         # ---------- internal calibration (cheap) -------------------------- #
+        _ts = _t.perf_counter()
         with section("verifier.u_token_dropout"):
             if u_token is None:
                 u_token = self._compute_u_token(input_ids, answer)
             if u_dropout is None:
                 u_dropout = self._compute_u_dropout(input_ids)
             u_internal = 0.5 * u_token + 0.5 * (1.0 - u_dropout)
+        _per_stage_ms["u_tok_drop"] = (_t.perf_counter() - _ts) * 1000.0
 
         # ---------- sample-set signals (M chains reused) ------------------ #
+        _ts = _t.perf_counter()
         with section("verifier.m_chain_and_h_norm"):
             if chains is None:
                 chains = self._generate_m_chains(input_ids)
@@ -499,19 +509,38 @@ class UnifiedVerifier:
                 h_norm = self._compute_h_norm(input_ids)
             else:
                 h_norm = self._h_norm_from_samples(se_samples)
+        _per_stage_ms["m_chain_h_norm"] = (_t.perf_counter() - _ts) * 1000.0
 
         # ---------- external grounding ------------------------------------ #
-        with section("verifier.grounding"):
-            top_passages = self._retrieve_and_rerank(query, answer)
-            p_ground_max, p_ground_mean = self._score_p_ground(top_passages, answer)
-            p_contra = self._score_p_contra(top_passages, answer)
-            atomic_facts, per_atom_entail, p_ground_atomic = self._score_atomic(
-                top_passages, answer, fallback=p_ground_mean
-            )
+        _ts = _t.perf_counter()
+        top_passages = self._retrieve_and_rerank(query, answer)
+        _per_stage_ms["retrieve_rerank"] = (_t.perf_counter() - _ts) * 1000.0
+
+        _ts = _t.perf_counter()
+        p_ground_max, p_ground_mean = self._score_p_ground(top_passages, answer)
+        _per_stage_ms["p_ground_nli"] = (_t.perf_counter() - _ts) * 1000.0
+
+        _ts = _t.perf_counter()
+        p_contra = self._score_p_contra(top_passages, answer)
+        _per_stage_ms["p_contra"] = (_t.perf_counter() - _ts) * 1000.0
+
+        _ts = _t.perf_counter()
+        atomic_facts, per_atom_entail, p_ground_atomic = self._score_atomic(
+            top_passages, answer, fallback=p_ground_mean
+        )
+        _per_stage_ms["atomic"] = (_t.perf_counter() - _ts) * 1000.0
 
         # ---------- question-answer relevance (Branch C Goal 2) ----------- #
+        _ts = _t.perf_counter()
         with section("verifier.q_a_relevance"):
             q_a_relevance = self._compute_q_a_relevance(query, answer)
+        _per_stage_ms["q_a_relevance"] = (_t.perf_counter() - _ts) * 1000.0
+
+        # Accumulate onto instance (batch-level rollup done by verify_batch).
+        if not hasattr(self, "_last_verify_stage_ms"):
+            self._last_verify_stage_ms = {}
+        for k, v in _per_stage_ms.items():
+            self._last_verify_stage_ms[k] = self._last_verify_stage_ms.get(k, 0.0) + v
 
         # ---------- early-exit confabulation gate ------------------------- #
         ee_u = self.config.early_exit_u_internal
@@ -668,6 +697,15 @@ class UnifiedVerifier:
         # utilised GPUs (smaller cards or smaller batches) it can approach
         # 15-20%. Falls back to sequential dispatch when CUDA is not
         # available (CPU tests, non-NVIDIA devices).
+        # TEMP profiling 2026-04-21: log per-stage wall-time of batched
+        # verify_batch so we can pick the right stages to deep-batch next.
+        # Remove after the deep-batching refactor ships.
+        import time as _t
+        _t0 = _t.perf_counter()
+        # Reset the per-sample stage accumulator so this batch's numbers
+        # don't include stale state from a previous batch.
+        self._last_verify_stage_ms = {}
+
         chains_per_sample, se_samples_per_sample = self._pooled_sample_dual(
             queries=queries,
             num_per_a=self.config.sc_chains_m,
@@ -678,9 +716,17 @@ class UnifiedVerifier:
             label_b="se-sample",
             max_new_tokens=self.config.cot_max_new_tokens,
         )
+        t_pool = _t.perf_counter()
 
+        # Time each per-sample verify() call so we know which internal
+        # stage dominates. Report sum per stage at the end of the batch.
+        per_stage_ms: dict = {
+            "pool_m_chain_plus_se": (t_pool - _t0) * 1000.0,
+            "verify_per_sample_total": 0.0,
+        }
         outputs: List[UnifiedVerifierOutput] = []
         for i, (q, a) in enumerate(inputs):
+            _ts = _t.perf_counter()
             outputs.append(self.verify(
                 q, a,
                 input_ids=per_sample_input_ids[i],
@@ -689,6 +735,27 @@ class UnifiedVerifier:
                 chains=chains_per_sample[i],
                 se_samples=se_samples_per_sample[i],
             ))
+            per_stage_ms["verify_per_sample_total"] += (_t.perf_counter() - _ts) * 1000.0
+        total_ms = (_t.perf_counter() - _t0) * 1000.0
+        logger.info(
+            "verify_batch N=%d: total=%.0fms | pool(m+se)=%.0fms | "
+            "per-sample-verify=%.0fms (%.0fms/sample)",
+            N, total_ms,
+            per_stage_ms["pool_m_chain_plus_se"],
+            per_stage_ms["verify_per_sample_total"],
+            per_stage_ms["verify_per_sample_total"] / max(N, 1),
+        )
+        # Per-stage breakdown summed across the N samples. Shows which
+        # internal verify() stage is the deep-batching priority.
+        stages = self._last_verify_stage_ms or {}
+        if stages:
+            stage_lines = " | ".join(
+                f"{k}={stages.get(k, 0.0):.0f}ms ({stages.get(k, 0.0)/max(N, 1):.0f}ms/sample)"
+                for k in ("u_tok_drop", "m_chain_h_norm", "retrieve_rerank",
+                         "p_ground_nli", "p_contra", "atomic", "q_a_relevance")
+                if k in stages
+            )
+            logger.info("verify_batch stage breakdown [total over %d samples]: %s", N, stage_lines)
         return outputs
 
     def _pooled_sample(

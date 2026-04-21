@@ -26,12 +26,156 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Any, Tuple
+import subprocess
+from typing import Any, List, Tuple
 
 import torch
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
 logger = logging.getLogger(__name__)
+
+
+# =============================================================================
+# Stale-CUDA-process cleanup (Vast session-recovery hygiene)
+# =============================================================================
+
+def _list_cuda_processes() -> List[Tuple[int, int]]:
+    """Return ``[(pid, used_memory_mib), ...]`` for processes currently
+    holding CUDA memory, as reported by ``nvidia-smi``.
+
+    Parses the CSV ``--query-compute-apps=pid,used_memory`` output. Silent
+    empty return on non-CUDA hosts / nvidia-smi missing / parse errors.
+    """
+    try:
+        out = subprocess.check_output(
+            [
+                "nvidia-smi",
+                "--query-compute-apps=pid,used_memory",
+                "--format=csv,noheader,nounits",
+            ],
+            stderr=subprocess.STDOUT,
+            timeout=5,
+        )
+    except Exception:
+        return []
+    results: List[Tuple[int, int]] = []
+    for line in out.decode("utf-8", errors="replace").splitlines():
+        parts = [p.strip() for p in line.split(",")]
+        if len(parts) != 2:
+            continue
+        try:
+            results.append((int(parts[0]), int(parts[1])))
+        except ValueError:
+            continue
+    return results
+
+
+def _reap_stale_cuda_processes(
+    *,
+    min_memory_mib: int = 100,
+    dry_run: bool = False,
+) -> List[Tuple[int, int]]:
+    """Kill CUDA-holding PIDs other than the current process.
+
+    Parameters
+    ----------
+    min_memory_mib
+        Ignore processes using less than this. Avoids reaping tiny
+        utility processes (e.g. ``nvidia-smi`` itself, jupyter kernels
+        that happen to have CUDA runtime loaded but no tensors).
+    dry_run
+        If True, list what WOULD be killed but don't send signals.
+
+    Returns
+    -------
+    List of ``(pid, used_memory_mib)`` actually reaped (or would-be-reaped
+    under ``dry_run``). Empty list is the normal clean-GPU case.
+
+    Safety
+    ------
+    The current process's PID is always excluded -- this function never
+    kills its own caller. Sibling Python processes or zombie CUDA
+    allocations from previously-crashed runs are fair game.
+    """
+    my_pid = os.getpid()
+    candidates = [
+        (pid, mib) for pid, mib in _list_cuda_processes()
+        if pid != my_pid and mib >= min_memory_mib
+    ]
+    if not candidates:
+        return []
+
+    reaped: List[Tuple[int, int]] = []
+    for pid, mib in candidates:
+        if dry_run:
+            logger.info(
+                "GPU cleanup (dry-run): would reap PID %d holding %d MiB.",
+                pid, mib,
+            )
+            reaped.append((pid, mib))
+            continue
+        try:
+            os.kill(pid, 9)
+            logger.warning(
+                "GPU cleanup: reaped stale PID %d (held %d MiB).", pid, mib,
+            )
+            reaped.append((pid, mib))
+        except ProcessLookupError:
+            # Already gone -- nvidia-smi lagged the real state.
+            reaped.append((pid, mib))
+        except PermissionError:
+            logger.warning(
+                "GPU cleanup: cannot kill PID %d (%d MiB) -- permission "
+                "denied. Use `sudo kill -9 %d` manually.", pid, mib, pid,
+            )
+    return reaped
+
+
+def _warn_or_reap_gpu_state() -> None:
+    """Pre-load GPU hygiene. Invoked at the top of ``load_base_generator``.
+
+    Behaviour (safe by default):
+
+    - On any host (CUDA or not) this function scans for CUDA-holding PIDs
+      other than self via ``_list_cuda_processes``.
+    - If any are found, it ALWAYS emits a WARNING log with the breakdown
+      so the operator sees stale GPU holds before the model load fails
+      with OOM.
+    - When the env var ``CAEM_FORCE_GPU_CLEANUP=1`` is set (the
+      recommended default for Vast single-tenant rentals), it additionally
+      sends SIGKILL to the stale PIDs. In a shared environment, leave the
+      var unset -- the warning alone surfaces the issue without risk.
+
+    Why not always reap: on shared CUDA hosts (some HPC clusters, shared
+    lab GPUs), killing sibling processes is unacceptable. The two-step
+    default (warn always, reap only on flag) is the minimum-surprise
+    policy that still solves the 2026-04-21 Vast session-recovery leak.
+    """
+    stale = _list_cuda_processes()
+    if not stale:
+        return
+    my_pid = os.getpid()
+    others = [(pid, mib) for pid, mib in stale if pid != my_pid]
+    if not others:
+        return
+    total = sum(m for _, m in others)
+    logger.warning(
+        "GPU memory held by %d other process(es) before load: %d MiB total "
+        "(breakdown %s). Set CAEM_FORCE_GPU_CLEANUP=1 to auto-reap, or "
+        "`kill -9 <pid>` manually. Skipping this warning risks an OOM mid-load.",
+        len(others), total, others,
+    )
+    if os.environ.get("CAEM_FORCE_GPU_CLEANUP", "0") == "1":
+        reaped = _reap_stale_cuda_processes()
+        if reaped:
+            # Give the kernel a moment to release the memory before the
+            # load tries to allocate. ~0.5 s is enough empirically on Vast.
+            import time
+            time.sleep(0.5)
+            logger.info(
+                "GPU cleanup: reaped %d process(es), freed ~%d MiB. Proceeding.",
+                len(reaped), sum(m for _, m in reaped),
+            )
 
 
 def _ensure_rayon_threads_set() -> None:
@@ -107,6 +251,14 @@ def load_base_generator(
     ValueError
         If ``model_name`` resolves to an encoder-decoder architecture.
     """
+    # GPU hygiene pre-check: warn on stale CUDA holds, optionally reap
+    # under CAEM_FORCE_GPU_CLEANUP=1. See _warn_or_reap_gpu_state for the
+    # safety contract. This is the single-entry-point for every Vast run
+    # (seeder / run_experiment / run_baseline / perf_baseline /
+    # force_retroverify all go through load_base_generator), so the check
+    # lives here rather than duplicated across scripts.
+    _warn_or_reap_gpu_state()
+
     hf_config = AutoConfig.from_pretrained(model_name)
     if getattr(hf_config, "is_encoder_decoder", False):
         raise ValueError(
