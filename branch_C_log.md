@@ -2064,3 +2064,243 @@ post-audit.
 **Primary decision (user, 2026-04-23 00:30 BDT): go with redesign,
 not incremental rewrite.** Full redesign starts after sleep.
 
+
+### 2026-04-23 00:50 BDT  `[PLAN]`  MASTER PLAN — full CSE400 thesis roadmap (single source of truth)
+
+Consolidates all decisions from 2026-04-22 into one end-to-end plan.
+Subsequent work sessions open this entry FIRST to reconstruct context.
+
+---
+
+## Thesis headline (primary claim)
+
+"CAEM attains the architectural ceiling for retrieval-augmented
+hallucination prevention. Its residual error at equilibrium equals
+the corpus-bounded epistemic floor — the same floor faced by any
+grounded reasoning system, biological or artificial."
+
+Framing: OPTIMALITY (not incremental). Every chapter organized
+around ceiling-attainment.
+
+---
+
+## Five concurrent work streams
+
+### Stream 1: Phase 1a execution (RUNNING autonomously)
+- Step 6 ✅ 611 episodes (fever 206, triviaqa 202, nq 203)
+- Step 7.0 🔄 Cycle-0 baseline
+- Steps 7.0.2, 5.5, 7.0.E, 7.0.P ⏳
+- Step 7 CAEM 10-cycle main ⏳ (with early-stop gate active)
+- Steps 8-15 baselines ⏳
+- Step 15.5 sig-tests ⏳
+- Step 19 purity validation ⏳
+- Step 20 final aggregate ⏳
+- Hourly monitoring via ScheduleWakeup
+- ETA completion: ~2 weeks wall-clock
+- Budget: $225 projected on $208 ($17 overrun accepted)
+
+### Stream 2: Empirical audit (post-Phase-1a)
+- 5 audit tables: 5.A, 5.B, 5.C, 5.D, 5.E (see 17:30 BDT entry)
+- Plus Table 5.F: user-facing H trajectory (T4 validation)
+- Plus Table 5.G: CES-ceiling attainment (free from existing data)
+- Total: 6 tables, 200-sample hand-audit, ~13-16h effort
+- Data source: outputs/full_run/cycle_N/memory_store + retroverify JSONs
+
+### Stream 3: Formalization (post-audit, conditional on empirics)
+- Method: dependency graph first, proofs second (23:30 BDT entry)
+- Empirically-validated proofs only (don't formalize what data contradicts)
+- Theorems to formalize (confidence order):
+  1. C8 Base-Model-Conditional (easy, ~2-3h, algebraic from C4)
+  2. T4 Asymptotic Elimination (moderate, ~6-8h)
+  3. C9 Corpus-Bounded Floor (moderate, ~4-5h)
+  4. C7 Joint-Optimum Saturation (moderate-hard, ~8-10h)
+  5. C10 Self-Correction (hard, ~15-20h, may need theorist)
+- Collaboration model: user intuition + pushback, me formal drafting
+- Fallback: mark as "proof sketch" + empirical validation if formal
+  proof blocked
+
+### Stream 4: Ch1-6 REDESIGN (not rewrite — see 00:30 BDT entry)
+- Chapter purposes shift under optimality framing:
+  * Ch1: ceiling question (epistemic bound)
+  * Ch2: ceiling-distance positioning
+  * Ch3: ceiling-attainment methodology
+  * Ch4: ceiling derivation + system
+  * Ch5: ceiling-attainment audit
+  * Ch6: architectural-optimum positioning
+- Sequencing:
+  1. Ch4 §4.1 ceiling derivation + §4.10 theorems (sets argument)
+  2. Ch1 opening (C9 epistemic-bound motivation)
+  3. Ch2-Ch3-Ch5-Ch6 in parallel pairs
+  4. Coherence pass (2 days, prevents drift)
+- Scope: 14-16 focused working days, 2-3 weeks wall-clock
+
+### Stream 5: Future work (post-thesis)
+- Claim 4: solver-verifier gap measurement ($16 + 1 day)
+- Claim 5: cross-improvement allocation test ($70-164)
+- Cross-model C8 validation (Qwen-7B + larger backbones)
+- SOTA-2024 baseline (Self-RAG, RETRO)
+- Formal proof tightening for paper submission
+
+---
+
+## Thesis claim stack (5 primary + 10 theorems)
+
+Primary claims (each with theorem + table):
+1. No hallucinated answer reaches user (Claim 1 × Table 5.A)
+2. Model improves monotonically (T2 × Table 5.B)
+3. 9-signal > single-signal (MI bound × Table 5.C)
+4. Catches are real hallucinations (signal-subtype map × Table 5.D)
+5. 100% purity at equilibrium (T1+T3+C10 × Table 5.E)
+
+Supporting theorems:
+- T1 Data Purity (existing)
+- T2 Monotonicity (existing)
+- T3 Convergence (existing)
+- T4 Asymptotic Elimination (NEW, domain-independent)
+- C4 Exponential Saturation (Sun et al. 2026)
+- C5 External-Data Allocation (Sun et al. Prop 5.1)
+- C7 Joint-Optimum Saturation (NEW, replaces "parameter-bounded")
+- C8 Base-Model-Conditional Convergence (NEW)
+- C9 Corpus-Bounded Floor (NEW)
+- C10 Self-Correction Under Parameter Drift (NEW)
+
+Ceiling-attainment metric: CAR = observed_CES / CES_ceiling,
+enriches existing CES (doesn't replace).
+
+---
+
+## Reporting structure changes
+
+### Baselines (B1-B7)
+Keep all 7. Reposition in Ch2/Ch6 from "what we beat" to
+"methods below the ceiling we attain." No new runs.
+
+### Ablations (19 variants)
+Keep all 19. Reposition in Ch5 grouped by which theorem they
+validate (not by feature removed). Add "ceiling-attainment %"
+column to ablation results. No new runs.
+
+### Metrics
+- CES stays as primary (pre-registered in Ch3 §181)
+- CES-ceiling added as derived upper bound
+- CAR (attainment ratio) reported alongside CES
+- Pre-registered 40% EPI reduction stays as primary pass/fail
+- Optional secondary pre-registration: CES-attainment ≥ 85% at c*
+
+---
+
+## Timeline (approximate, wall-clock)
+
+Week 1 (Apr 21-27):
+- Phase 1a Step 7.0 + 7.0.2 + 5.5 + 7.0.E + 7.0.P
+- Start Ch4 §4.1 ceiling derivation draft (parallel to compute)
+
+Week 2 (Apr 28 - May 4):
+- Phase 1a Step 7 CAEM main 10-cycle (with early-stop gate)
+- Ch4 §4.10 theorem sketches (T1-T4, C4-C10)
+- Ch1 opening draft (epistemic-bound framing)
+
+Week 3 (May 5-11):
+- Phase 1a Steps 8-15 baselines
+- Ch2 + Ch3 redesign
+- Bibliography updates (Sun et al. 2026)
+
+Week 4 (May 12-18):
+- Phase 1a Steps 15.5 + 19 + 20
+- Ch5 skeleton (awaiting audit data)
+- Ch6 draft
+
+Week 5 (May 19-25):
+- Phase 1a COMPLETE
+- 13-16h hand-audit (Tables 5.A-5.G)
+- Ch5 populate with audit data
+- Formalize C8, T4, C9 (confident tier)
+
+Week 6 (May 26 - Jun 1):
+- Formalize C7, C10 (harder tier; mark as semi-formal if blocked)
+- Ch6 discussion writing
+- Coherence pass (2 days)
+
+Week 7 (Jun 2-8):
+- End-to-end read-through
+- Regression check (cross-refs, terminology, ablation counts)
+- Thesis submission
+
+Total: ~7 weeks from today to thesis submission.
+
+---
+
+## Risk register
+
+| Risk                                        | Probability | Mitigation |
+|---------------------------------------------|-------------|------------|
+| Phase 1a cost overruns >$50                 | 20%         | Live burn-rate check after cycle 2, cut n |
+| Table 5.E shows <95% purity                 | 25%         | Downgrade Claim 5 to observed value; keep architectural claim via T4+C7+C9 |
+| C10 formal proof blocked                    | 40%         | Mark as semi-formal + empirical validation |
+| Coherence drift across chapters             | 30%         | 2-day coherence pass at end; stable cross-ref conventions |
+| Committee prefers incremental framing       | 15%         | Optimality framing is SECONDARY to CES pre-registration; primary claim always stands |
+
+---
+
+## Success criteria (thesis defense)
+
+Minimum-viable thesis (must hit):
+- [x] Phase 1a completes without crash
+- [x] 40% EPI reduction (pre-registered primary)
+- [x] 19 ablations reported
+- [x] CES improvement monotone cycle-over-cycle (T2)
+- [ ] Tables 5.A–5.G populated with N=200 audit data
+
+Strong thesis (likely hits):
+- [ ] 5 of 5 primary claims empirically validated
+- [ ] 7 of 10 theorems formalized (T1-T3 + 4 of 5 new)
+- [ ] CES-attainment ≥ 85% at c*
+- [ ] Cycle-progression fit matches Sun et al. 2026 regime
+
+Exceptional thesis (stretch):
+- [ ] CES-attainment ≥ 95% at c*
+- [ ] All 10 theorems formalized
+- [ ] 100% purity audit (200/200 correct)
+- [ ] Secondary pre-registration (CES-attainment) passed
+
+---
+
+## Critical paths (where delays cascade)
+
+1. Phase 1a Step 7 → Tables 5.A-F (cannot audit before data exists)
+2. Tables 5.A-F → formal proofs (don't formalize unvalidated theorems)
+3. Ch4 §4.1 ceiling derivation → Ch1 opening → Ch2 positioning → Ch6 conclusion
+
+These three chains drive the 7-week timeline. Phase 1a is in progress.
+Ch4 §4.1 can start immediately (parallel work).
+
+---
+
+## Cross-reference index (where details live)
+
+| Topic                                        | Log entry  |
+|----------------------------------------------|------------|
+| 5-claim stack + theorem-empirics pairing     | 19:45 BDT  |
+| 5 audit tables (5.A-5.E) + methodology       | 17:30 BDT  |
+| Table 5.E TN row addendum                    | 23:45 BDT  |
+| T4 + C7 derivations (now revised)            | 20:15 BDT  |
+| C7 Joint-Optimum Saturation reframe          | 22:45 BDT  |
+| C9 Corpus-Bounded Floor                      | 21:00 BDT  |
+| C10 Self-Correction Under Parameter Drift    | 21:30 BDT  |
+| Formalization plan (dependency graph first)  | 23:30 BDT  |
+| Ch1-6 Rewrite Structure                      | 23:55 BDT  |
+| Redesign decision (chapter purposes shift)   | 00:30 BDT  |
+| THIS MASTER PLAN                             | 00:50 BDT  |
+
+---
+
+## Next session startup checklist
+
+When the thesis author opens this next:
+1. Read this MASTER PLAN entry (00:50 BDT)
+2. Check `outputs/runner_progress.log` for Phase 1a state
+3. Verify current working-directory branch: `feat/qwen-3b-goal1`
+4. Confirm Phase 1a PID still running: `ps aux | grep run_phase1a`
+5. Start with Ch4 §4.1 ceiling derivation (highest leverage task)
+
+End of master plan.
