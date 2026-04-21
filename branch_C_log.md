@@ -1906,6 +1906,77 @@ increase in audit effort: ~1h (add TN sampling from the discarded
 population via the Cycle-0 calibration fold, which records every
 decision including DISCARDs).
 
+**Addendum 2026-04-22 23:55 BDT** (user requested Ch1-6 rewrite
+structure before sleep):
+
+### Ch1-6 Rewrite Structure (locked)
+
+Chapter mapping:
+
+- **Ch1 Introduction**: C9 motivation frame (hallucination as universal
+  epistemic bound), no theorems, set up the narrative for Ch4
+- **Ch2 Background**: add Sun et al. 2026 (ICLR); position CAEM vs
+  pure SIL
+- **Ch3 Requirements**: mostly unchanged
+- **Ch4 Methodology + Theoretical Analysis**: all 10 theorems here in
+  dependency order
+- **Ch5 Experiments**: update Flan-T5→Qwen, RoBERTa→MiniCheck; new
+  §5.X "Evidence-Fidelity Audit" with 6 tables
+- **Ch6 Discussion**: integrate 4-gate + C10 defense, ceiling-
+  saturation + epistemic-floor framing
+
+Theorem dependency graph (bottom-up):
+
+    Layer 1 (existing): T1 -> T2 -> T3
+    Layer 2 (Sun et al. imports): C4, C5
+    Layer 3 (mechanism): T1 + T2 + Claim-5-empirical -> C10
+    Layer 4 (headline): T1 + T2 + C10 + Claim-1-bound -> T4
+    Layer 5 (synthesis): T4 + C10 -> C7 ;  C4 -> C8
+    Layer 6 (external): C9 (corpus-bounded floor)
+
+Ch4 §4.9 Theoretical Analysis presentation order:
+
+    4.9.1  T1, T2, T3    (foundational, existing)
+    4.9.2  C4            (exponential saturation, cites Sun et al.)
+    4.9.3  C5            (external-data allocation)
+    4.9.4  C10           (self-correction mechanism)
+    4.9.5  T4            (main result: asymptotic elimination)
+    4.9.6  C7            (joint optimum saturation)
+    4.9.7  C8            (base-model convergence rate)
+    4.9.8  C9            (epistemic floor, refers back to Ch1)
+
+Theorem-Empirical Table pairing:
+
+    T1   ↔ Table 5.A (gate-trace precision)
+    T2   ↔ Table 5.B (per-cycle Δ_purity)
+    T3   ↔ Table 5.B (trajectory plateau)
+    C4   ↔ Table 5.B + equilibrium_fit.json (R² on fit)
+    C5   ↔ N/A in Phase 1a (Future Work, cross-schedule test)
+    C7   ↔ Table 5.F (H at equilibrium = saturation floor)
+    C8   ↔ equilibrium_fit.json (c* prediction)
+    C9   ↔ Table 5.F (residual ≈ corpus-gap rate)
+    C10  ↔ Table 5.E (per-episode trajectory, FP drops below τ_prune)
+    T4   ↔ Table 5.F (user-facing H → architectural floor)
+
+Rewrite task checklist (in order):
+
+    [x] Structure locked (this entry)
+    [ ] Ch1 reframe: hallucination-as-epistemic-bound motivation
+    [ ] Ch2 literature: Sun et al. added, CAEM positioning
+    [ ] Ch3 mostly unchanged
+    [ ] Ch4.1–4.8 Branch-C text updates (Flan-T5 → Qwen-3B, etc.)
+    [ ] Ch4.9 Theoretical Analysis (10 theorems in dependency order)
+    [x] Ch4.10 Implementation perf-engineering (done this session)
+    [x] Ch5 Experimental Setup perf-envelope (done this session)
+    [ ] Ch5 §Evidence-Fidelity Audit (Tables 5.A–5.F, post-Phase-1a)
+    [ ] Ch6 Discussion (4-gate + C10 defense, ceiling-saturation,
+        epistemic-floor, cite Tables 5.A–5.F)
+
+Total rewrite effort estimate: 40–50 hours over 2 weeks (mostly
+tex-writing; the theorem proofs themselves ~20h subset of this).
+
+Audit effort (separate from rewrite): 13–16h hand-audit post-Phase-1a.
+
 **Status at session end (pre-sleep 2026-04-22 23:30 BDT):**
 - 20 commits pushed to feat/qwen-3b-goal1
 - 10-theorem stack logged with proof sketches (T1–T4, C4, C5, C7,
