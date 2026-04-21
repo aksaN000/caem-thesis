@@ -37,6 +37,12 @@ export MKL_NUM_THREADS="${MKL_NUM_THREADS:-16}"
 export OPENBLAS_NUM_THREADS="${OPENBLAS_NUM_THREADS:-16}"
 export FAISS_NUM_THREADS="${FAISS_NUM_THREADS:-16}"
 
+# --- CAEM env (Session 3 2026-04-22): auto-reap stale CUDA processes on
+#     every pipeline load so a crashed prior step doesn't hold GPU memory
+#     across the runner's step boundaries. See caem/model_loader.py.
+export CAEM_FORCE_GPU_CLEANUP="${CAEM_FORCE_GPU_CLEANUP:-1}"
+export CAEM_PROFILE="${CAEM_PROFILE:-0}"
+
 # --- Paths ---
 RUNNER_LOG="outputs/phase1a_runner.log"
 mkdir -p outputs data/calibration data/retention outputs/calibration \
@@ -66,11 +72,11 @@ step_6_reseed() {
         log "Step 6: cold-start memory already present at $out — skipping"
         return 0
     fi
-    band "Step 6 — cold-start seed (NEW prompts, cold-start override τ=0.45)"
+    band "Step 6 — cold-start seed (NEW prompts, cold-start override τ=0.50)"
     python -m scripts.seed_cold_start \
         --target_episodes 200 \
         --benchmarks fever triviaqa natural_questions \
-        --cold_start_store_threshold 0.45 \
+        --cold_start_store_threshold 0.50 \
         --output_dir "$out" 2>&1 | tee -a outputs/step6_seed.log
     python - <<'PY'
 import json, sys
