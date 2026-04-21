@@ -1130,6 +1130,15 @@ def run_experiment(ns: argparse.Namespace) -> None:
     # retention ratio denominates against (mmlu_retention_ratio_pct).
     mmlu_per_cycle: List[float] = []
 
+    # Per-cycle equilibrium-gate signal lists. Populated post-eval so the
+    # gate has real per-cycle evidence (CES proxy = mean EM across
+    # eval benchmarks; storage rate = mean of per-benchmark storage_rate
+    # fields written by the harness). The MMLU retention signal is read
+    # directly from mmlu_per_cycle to avoid duplicate state. See
+    # caem/eval/equilibrium.py for the gate logic.
+    ces_history: List[float] = []
+    storage_rates: List[float] = []
+
     # -- CYCLE 0: Baseline evaluation & Resume Logic ------------------------ #
     if ns.resume_from_cycle == 0:
         logger.info("-" * 60)
@@ -1478,6 +1487,109 @@ def run_experiment(ns: argparse.Namespace) -> None:
 
         logger.info("Cycle %d done in %.1f min.", cycle_num, (time.time() - t0) / 60)
 
+        # -------------------------------------------------------------- #
+        # Equilibrium-prediction + triple-signal early-stop gate
+        # (Sun et al. ICLR 2026 exponential-saturation form). See
+        # caem/eval/equilibrium.py and Ch4 Corollary C4.
+        # -------------------------------------------------------------- #
+        # CES proxy: mean EM across eval benchmarks this cycle.
+        # storage-rate proxy: mean of the per-benchmark storage_rate
+        # fields written by the harness. mmlu_retention already lives
+        # in mmlu_per_cycle (appended above).
+        try:
+            _em_vals = [float(r.get("em", 0.0)) for r in cycle_results.values()]
+            _sr_vals = [float(r.get("storage_rate", 0.0)) for r in cycle_results.values()]
+            mean_em = sum(_em_vals) / len(_em_vals) if _em_vals else 0.0
+            mean_sr = sum(_sr_vals) / len(_sr_vals) if _sr_vals else 0.0
+        except Exception as exc:
+            logger.warning(
+                "equilibrium hook: failed to extract per-cycle signals (%s); "
+                "gate will skip this cycle.", exc,
+            )
+            mean_em = float("nan")
+            mean_sr = float("nan")
+
+        if not math.isnan(mean_em):
+            ces_history.append(mean_em)
+        if not math.isnan(mean_sr):
+            storage_rates.append(mean_sr)
+
+        # Only run the gate after the burn-in and when caller requested it.
+        if (
+            getattr(ns, "early_stop_enable", True)
+            and cycle_num >= ns.early_stop_min_cycles
+            and len(ces_history) >= 3
+        ):
+            from caem.eval.equilibrium import (
+                fit_ces_saturation,
+                predict_ceq_star,
+                three_signal_gate,
+            )
+            _fit = None
+            _c_star = None
+            try:
+                _fit = fit_ces_saturation(ces_history)
+                _c_star = predict_ceq_star(_fit, eps=ns.early_stop_eps)
+            except Exception as exc:
+                logger.info(
+                    "equilibrium fit unavailable at cycle %d (%s); relying "
+                    "on non-parametric signals only.", cycle_num, exc,
+                )
+
+            _decision = three_signal_gate(
+                ces_history=ces_history,
+                storage_rates=storage_rates,
+                mmlu_retentions=mmlu_per_cycle,
+                ces_eps=ns.early_stop_ces_eps,
+                storage_frac=ns.early_stop_storage_frac,
+                mmlu_floor=config.forgetting_tolerance,
+                signals_required=ns.early_stop_signals_required,
+                cycle=cycle_num,
+            )
+
+            # Persist an audit artefact so the thesis can cite the exact
+            # fit + gate state at each cycle boundary.
+            try:
+                (output_dir / f"cycle_{cycle_num}").mkdir(parents=True, exist_ok=True)
+                _artefact = {
+                    "cycle": int(cycle_num),
+                    "ces_history": [float(x) for x in ces_history],
+                    "storage_rates": [float(x) for x in storage_rates],
+                    "mmlu_retentions": [
+                        (None if math.isnan(float(v)) else float(v))
+                        for v in mmlu_per_cycle
+                    ],
+                    "fit": (_fit.as_dict() if _fit is not None else None),
+                    "c_star": (None if _c_star is None else float(_c_star)),
+                    "decision": _decision.as_dict(),
+                }
+                with open(
+                    output_dir / f"cycle_{cycle_num}" / "equilibrium_fit.json",
+                    "w", encoding="utf-8",
+                ) as _eq_f:
+                    json.dump(_artefact, _eq_f, indent=2)
+            except Exception as exc:
+                logger.warning(
+                    "equilibrium hook: failed to persist artefact (%s)", exc,
+                )
+
+            logger.info(
+                "equilibrium gate | cycle=%d | signals=%s | c_star=%s | stop=%s",
+                cycle_num,
+                ",".join(_decision.signals_fired) or "none",
+                f"{_c_star:.2f}" if _c_star is not None else "n/a",
+                _decision.should_stop,
+            )
+
+            if _decision.should_stop:
+                logger.info(
+                    "EARLY_STOP cycle=%d signals=%s (2-of-3 gate fired); "
+                    "skipping remaining %d cycle(s).",
+                    cycle_num, _decision.signals_fired,
+                    config.num_cycles - cycle_num,
+                )
+                break
+
     # -- Summary ------------------------------------------------------------- #
     save_summary_csv(all_cycle_results, output_dir, mmlu_per_cycle=mmlu_per_cycle)
     print_mechanism_table(all_cycle_results)
@@ -1606,6 +1718,59 @@ def _parse_args() -> argparse.Namespace:
         "--skip_calibration",
         action="store_true",
         help="Skip temperature scaling + signal-weight fitting (use equal initial weights).",
+    )
+    # ------------------------------------------------------------------
+    # Early-stop gate on the self-improvement cycle loop.
+    #
+    # Fits the Sun et al. (ICLR 2026) exponential-saturation form
+    # CES(c) = C_inf - A * exp(-k * c) to the per-cycle eval trajectory
+    # and combines the parametric CES gradient with two CAEM-native
+    # non-parametric signals (storage-rate saturation + MMLU-retention
+    # ceiling) to decide whether further cycles are worth the compute.
+    # See caem/eval/equilibrium.py for the module. Gate is ON by default
+    # to honour the Plan-B1 budget; pass --no_early_stop to force a
+    # full num_cycles run (e.g., for the cycle-progression plot when
+    # equilibrium is not expected to fire).
+    # ------------------------------------------------------------------
+    p.add_argument(
+        "--no_early_stop",
+        dest="early_stop_enable",
+        action="store_false",
+        help="Disable the triple-signal early-stop gate (default: gate active).",
+    )
+    p.set_defaults(early_stop_enable=True)
+    p.add_argument(
+        "--early_stop_min_cycles",
+        type=int,
+        default=5,
+        help="Minimum cycles to run before the gate can fire. Below this, "
+             "the exponential fit is too noisy to trust.",
+    )
+    p.add_argument(
+        "--early_stop_eps",
+        type=float,
+        default=0.01,
+        help="predict_ceq_star tolerance: fraction of C_inf below which we "
+             "consider the residual gap negligible.",
+    )
+    p.add_argument(
+        "--early_stop_ces_eps",
+        type=float,
+        default=0.002,
+        help="CES gradient threshold for signal 1. Two consecutive cycles "
+             "both below this trigger the gradient signal.",
+    )
+    p.add_argument(
+        "--early_stop_storage_frac",
+        type=float,
+        default=0.05,
+        help="Storage-rate threshold for signal 2 (memory saturation).",
+    )
+    p.add_argument(
+        "--early_stop_signals_required",
+        type=int,
+        default=2,
+        help="Signals that must fire (of 3) to break the cycle loop.",
     )
     p.add_argument(
         "--smoke_test",
