@@ -100,7 +100,12 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--output_dir", default="outputs/baselines")
     p.add_argument("--num_cycles", type=int, default=10)
     p.add_argument("--epochs_per_cycle", type=int, default=3)
-    p.add_argument("--batch_size", type=int, default=16)
+    p.add_argument("--batch_size", type=int, default=16,
+                   help="Training DataLoader batch_size (not eval). See --eval_batch_size for eval.")
+    p.add_argument("--eval_batch_size", type=int, default=1,
+                   help=("Goal 5 Level B batch size for the post-cycle eval. "
+                         "bs=1 keeps the serial path; bs=8-32 uses the baseline's "
+                         "native answer_batch for ~1.5-2x eval speedup."))
     p.add_argument("--grad_accum_steps", type=int, default=-1,
                    help="Gradient-accumulation multiplier. -1 (default) auto-"
                         "selects from scripts.hardware so that batch_size * "
@@ -892,6 +897,8 @@ def main() -> None:
             output_dir=str(eval_root),
             log_every=100,
             fail_on_error=False,
+            batch_size=getattr(ns, "eval_batch_size", 1),
+            use_prefetch=False,
         )
         for bench in ns.eval_benchmarks:
             if bench == "fever":

@@ -446,11 +446,12 @@ _run_inference_baseline() {
         log "Step $step ($name): already present — skipping"
         return 0
     fi
-    band "Step $step — $name baseline (n=5000)"
+    band "Step $step — $name baseline (n=5000, bs=32)"
     python -m scripts.run_baseline \
         --baseline "$flag" \
         --benchmarks $BASELINE_BENCHES \
         --n_questions 5000 \
+        --eval_batch_size 32 \
         --output_dir outputs/baselines \
         "${extra[@]}" \
         2>&1 | tee "outputs/baselines/${step}_${name}.log"
@@ -472,13 +473,14 @@ step_14_b6_vanilla_ft() {
             return 0
         fi
     fi
-    band "Step 14 — B6 vanilla FT (10 cycles, no L2 anchor, no MMLU guard)"
+    band "Step 14 — B6 vanilla FT (10 cycles, no L2 anchor, no MMLU guard, eval bs=32)"
     python -m scripts.run_simple_ft \
         --baseline_name vanilla_ft \
         --num_cycles 10 \
         --eval_benchmarks "${BENCHMARKS[@]}" \
         --n_eval_per_bench 5000 \
         --n_train_per_bench 4000 \
+        --eval_batch_size 32 \
         --output_dir "$outdir" 2>&1 | tee outputs/baselines/B6_vanilla_ft.log
 }
 
@@ -492,7 +494,7 @@ step_15_b7_ewc_only() {
             return 0
         fi
     fi
-    band "Step 15 — B7 EWC-only FT (10 cycles, L2 anchor + MMLU guard on)"
+    band "Step 15 — B7 EWC-only FT (10 cycles, L2 anchor + MMLU guard on, eval bs=32)"
     python -m scripts.run_simple_ft \
         --baseline_name ewc_only_ft \
         --use_l2_anchor \
@@ -501,6 +503,7 @@ step_15_b7_ewc_only() {
         --eval_benchmarks "${BENCHMARKS[@]}" \
         --n_eval_per_bench 5000 \
         --n_train_per_bench 4000 \
+        --eval_batch_size 32 \
         --output_dir "$outdir" 2>&1 | tee outputs/baselines/B7_ewc_only_ft.log
 }
 

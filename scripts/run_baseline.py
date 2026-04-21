@@ -105,6 +105,23 @@ def _parse_args() -> argparse.Namespace:
         help="Samples per benchmark (use 10-20 for smoke tests).",
     )
     p.add_argument(
+        "--eval_batch_size",
+        type=int,
+        default=1,
+        help=(
+            "Goal 5 Level B eval batch size. bs=1 preserves serial per-query "
+            "path. bs=8-32 uses the baseline's answer_batch (zero_shot / cot / "
+            "rag / cot_rag gain ~1.5-2x; FLARE falls back to serial due to "
+            "iterative look-ahead decoding)."
+        ),
+    )
+    p.add_argument(
+        "--eval_prefetch",
+        action="store_true",
+        help="Forwarded to EvalHarness (no-op for baseline paths — baselines "
+             "have native answer_batch so prefetch wrapper isn't used).",
+    )
+    p.add_argument(
         "--split",
         default="dev",
         help="Benchmark split (dev is data-leakage-safe for FEVER; "
@@ -327,6 +344,8 @@ def main() -> None:
         output_dir=str(output_dir),
         log_every=ns.log_every,
         fail_on_error=False,
+        batch_size=getattr(ns, "eval_batch_size", 1),
+        use_prefetch=getattr(ns, "eval_prefetch", False),
     )
 
     summaries: Dict[str, Dict] = {}

@@ -205,9 +205,94 @@ class BaselineBase:
         gen_ids = output_ids[0, input_len:] if output_ids.shape[1] > input_len else output_ids[0]
         return self.tokenizer.decode(gen_ids, skip_special_tokens=True).strip()
 
+    def _run_generation_batch(
+        self,
+        prompts: List[str],
+        max_new_tokens: Optional[int] = None,
+        do_sample: bool = False,
+    ) -> List[str]:
+        """Goal 5 Level B batched generate. Left-pads the N prompts, runs one
+        model.generate(), slices per-row. For decoder-only Qwen, left-padding
+        is required so the last position of each row is always the generation
+        start (causal attention makes the right-pad tail inert).
+        """
+        if not prompts:
+            return []
+        original_padding_side = getattr(self.tokenizer, "padding_side", "right")
+        self.tokenizer.padding_side = "left"
+        try:
+            enc = self.tokenizer(
+                prompts,
+                return_tensors="pt",
+                truncation=True,
+                max_length=self.max_input_tokens,
+                add_special_tokens=False,
+                padding=True,
+            )
+        finally:
+            self.tokenizer.padding_side = original_padding_side
+
+        input_ids = enc["input_ids"].to(self.device)
+        attention_mask = enc["attention_mask"].to(self.device)
+        max_input_len = int(input_ids.shape[1])
+        with torch.no_grad():
+            output_ids = self.model.generate(
+                input_ids,
+                attention_mask=attention_mask,
+                max_new_tokens=max_new_tokens or self.max_new_tokens,
+                do_sample=do_sample,
+                pad_token_id=self.tokenizer.pad_token_id,
+            )
+        # With left-padding the prompt ends at column (max_input_len - 1), so
+        # generated tokens always start at column max_input_len. Per-row slice.
+        results: List[str] = []
+        for i in range(output_ids.shape[0]):
+            if output_ids.shape[1] > max_input_len:
+                gen_ids = output_ids[i, max_input_len:]
+            else:
+                gen_ids = output_ids[i]
+            results.append(self.tokenizer.decode(gen_ids, skip_special_tokens=True).strip())
+        return results
+
     # ------------------------------------------------------------------ #
     # Pipeline-shaped public API                                           #
     # ------------------------------------------------------------------ #
+
+    def answer_batch(self, queries: List[str], store_to_memory: bool = False) -> List[PipelineResult]:
+        """Goal 5 Level B batched API. Default implementation: build N prompts via
+        ``self._build_prompt`` and run one batched ``_run_generation_batch``.
+        RAG / CoT-RAG override to do batched retrieve + per-query prompt assembly
+        before the batched generate.
+        """
+        if not queries:
+            return []
+        t0 = time.perf_counter()
+        try:
+            prompts = [self._build_prompt(q) for q in queries]
+            answers = self._run_generation_batch(prompts)
+        except Exception as exc:
+            logger.error("[%s] batched generation failed (%d queries): %s",
+                         self.name, len(queries), exc)
+            answers = [""] * len(queries)
+        batch_ms = (time.perf_counter() - t0) * 1000.0
+        per_sample_ms = batch_ms / max(len(queries), 1)
+        return [
+            PipelineResult(
+                query=q,
+                answer=ans,
+                tier=self.tier_value,
+                stored=False,
+                latency_ms=per_sample_ms,
+                routing_decision=None,
+                pre_confidence=None,
+                post_confidence=None,
+                verifier_output=None,
+                u_stored=None,
+                entry_id=None,
+                escalated=False,
+            )
+            for q, ans in zip(queries, answers)
+        ]
 
     def answer(self, query: str, store_to_memory: bool = False) -> PipelineResult:
         """Drop-in replacement for ``CAEMPipeline.answer``.
@@ -344,6 +429,32 @@ class RAGBaseline(BaselineBase):
         answer = self.rag.generate(query)
         return answer, self.tier_value, False
 
+    def answer_batch(self, queries: List[str], store_to_memory: bool = False) -> List[PipelineResult]:
+        """Goal 5 Level B batched RAG: delegates to ``TierThreeRAG.generate_batch``
+        which does per-query retrieval + prompt assembly then one batched
+        ``model.generate`` over left-padded prompts.
+        """
+        if not queries:
+            return []
+        t0 = time.perf_counter()
+        try:
+            answers = self.rag.generate_batch(queries)
+        except Exception as exc:
+            logger.error("[%s] batched RAG generation failed (%d queries): %s",
+                         self.name, len(queries), exc)
+            answers = [""] * len(queries)
+        batch_ms = (time.perf_counter() - t0) * 1000.0
+        per_sample_ms = batch_ms / max(len(queries), 1)
+        return [
+            PipelineResult(
+                query=q, answer=ans, tier=self.tier_value,
+                stored=False, latency_ms=per_sample_ms,
+                routing_decision=None, pre_confidence=None, post_confidence=None,
+                verifier_output=None, u_stored=None, entry_id=None, escalated=False,
+            )
+            for q, ans in zip(queries, answers)
+        ]
+
 
 # =============================================================================
 # B4 -- CoT + RAG
@@ -384,6 +495,50 @@ class CoTRAGBaseline(RAGBaseline):
         # scorer sees the same "Reasoning: ...\nAnswer: ..." shape as CAEM Tier 3.
         answer = f"{forced_prefix}{continuation}" if continuation else forced_prefix
         return answer, self.tier_value, False
+
+    def answer_batch(self, queries: List[str], store_to_memory: bool = False) -> List[PipelineResult]:
+        """Goal 5 Level B batched CoT-RAG. Builds per-query CoT-RAG prompts
+        (retrieve -> build_tier3_prompt -> prepend CoT trigger -> append forced
+        "Reasoning:" prefix) and runs one batched left-padded ``model.generate``.
+        Surfaces the forced prefix in the returned answer so Ch5 scorers see
+        the same "Reasoning: .../Answer: ..." shape as CAEM Tier 3.
+        """
+        if not queries:
+            return []
+        t0 = time.perf_counter()
+        forced_prefixes: List[str] = []
+        full_prompts: List[str] = []
+        for q in queries:
+            passages = self.rag.retrieve(q)
+            prompt_text, forced_prefix = build_tier3_prompt(
+                q, passages, tokenizer=self.tokenizer,
+            )
+            forced_prefixes.append(forced_prefix)
+            full_prompts.append(f"{prompt_text}{self.prefix}\n{forced_prefix}")
+
+        try:
+            continuations = self._run_generation_batch(
+                full_prompts,
+                max_new_tokens=self.config.rag_max_new_tokens,
+                do_sample=self.config.rag_do_sample,
+            )
+        except Exception as exc:
+            logger.error("[%s] batched CoT-RAG generation failed (%d queries): %s",
+                         self.name, len(queries), exc)
+            continuations = [""] * len(queries)
+
+        batch_ms = (time.perf_counter() - t0) * 1000.0
+        per_sample_ms = batch_ms / max(len(queries), 1)
+        results: List[PipelineResult] = []
+        for q, cont, fp in zip(queries, continuations, forced_prefixes):
+            answer_str = f"{fp}{cont}" if cont else fp
+            results.append(PipelineResult(
+                query=q, answer=answer_str, tier=self.tier_value,
+                stored=False, latency_ms=per_sample_ms,
+                routing_decision=None, pre_confidence=None, post_confidence=None,
+                verifier_output=None, u_stored=None, entry_id=None, escalated=False,
+            ))
+        return results
 
 
 # =============================================================================
@@ -563,6 +718,17 @@ class FLAREBaseline(RAGBaseline):
                 break
 
         return committed.strip(), self.tier_value, escalated
+
+    def answer_batch(self, queries: List[str], store_to_memory: bool = False) -> List[PipelineResult]:
+        """FLARE cannot be cleanly batched: sentence-by-sentence decode with
+        per-sentence confidence gating and conditional retrieval produces
+        different control flow per query and different sentence counts.
+        Batching would require reducing all queries to a fixed number of
+        decode steps, which changes the algorithm. Falls back to per-query
+        serial ``answer()``. FLARE's ~3-hour serial cost on Step 13 is
+        accepted in Ch5 §5.6 "Performance envelope" per branch_C.md.
+        """
+        return [self.answer(q, store_to_memory=store_to_memory) for q in queries]
 
 
 # =============================================================================

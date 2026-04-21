@@ -114,6 +114,29 @@ def _derive_verifier_fields() -> Tuple[str, ...]:
 VERIFIER_FIELDS: Tuple[str, ...] = _derive_verifier_fields()
 
 
+class _NativeAnswerBatchAdapter:
+    """Thin adapter: unpack BatchSample objects into ``(queries, store_to_memory)``
+    and call the underlying pipeline's native ``answer_batch``. Used by
+    ``EvalHarness._get_batch_pipeline`` when the pipeline exposes
+    ``answer_batch`` directly (e.g. Goal 5 baselines), avoiding the
+    ``caem.pipeline_batch.BatchPipeline`` wrapper that's hard-typed to
+    ``CAEMPipeline``.
+    """
+    def __init__(self, pipeline):
+        self.p = pipeline
+
+    def answer_batch(self, batch_samples):
+        if not batch_samples:
+            return []
+        # source_benchmark is ignored by baselines (no memory / routing).
+        # store_to_memory defaults to True in BatchSample; pass False here
+        # since baselines never store and the harness's store_to_memory flag
+        # already routes this from the call site.
+        queries = [s.query for s in batch_samples]
+        store_flag = bool(batch_samples[0].store_to_memory) if batch_samples else False
+        return self.p.answer_batch(queries, store_to_memory=store_flag)
+
+
 class EvalHarness:
     """Run one benchmark against a CAEMPipeline and collect results.
 
@@ -163,6 +186,17 @@ class EvalHarness:
 
     def _get_batch_pipeline(self):
         if self._batch_pipeline is not None:
+            return self._batch_pipeline
+        # If the pipeline exposes answer_batch natively (e.g. Goal 5 baselines
+        # or any future user-supplied pipeline shape), use it directly. Only
+        # fall back to wrapping with caem.pipeline_batch.BatchPipeline when the
+        # pipeline is a CAEMPipeline that needs the Level B static batcher.
+        if hasattr(self.pipeline, "answer_batch") and callable(self.pipeline.answer_batch):
+            logger.info(
+                "EvalHarness: pipeline has native answer_batch (%s); using it directly (bs=%d).",
+                type(self.pipeline).__name__, self.batch_size,
+            )
+            self._batch_pipeline = _NativeAnswerBatchAdapter(self.pipeline)
             return self._batch_pipeline
         from caem.pipeline_batch import BatchPipeline
         bp = BatchPipeline(self.pipeline)
