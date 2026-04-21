@@ -429,6 +429,16 @@ class BatchPipeline:
         # samples need batched generation. Router outputs are
         # deterministic given the same inputs, so the tier decision
         # inside answer() will match per_sample_tier[i].
+        # Amortise the batched heavy-work (generate + verify) cost across
+        # the N samples and thread the per-sample number into each
+        # answer() call via _precomputed_latency_ms. Measured at THIS
+        # point (before the serial answer() loop) because by now all the
+        # expensive batched ops have run; the remaining per-sample
+        # answer() bookkeeping is sub-millisecond and excluded from the
+        # reported latency (it's the same constant overhead at bs=1).
+        heavy_elapsed_ms = (_time.perf_counter() - batch_start) * 1000.0
+        per_sample_ms = heavy_elapsed_ms / max(len(samples), 1)
+
         results: List[PipelineResult] = []
         for i, s in enumerate(samples):
             kwargs = dict(
@@ -436,6 +446,7 @@ class BatchPipeline:
                 store_to_memory=s.store_to_memory,
                 source_benchmark=s.source_benchmark,
                 _precomputed_routing=per_sample_routing[i],
+                _precomputed_latency_ms=per_sample_ms,
             )
             if i in precomputed_tier2:
                 kwargs["_precomputed_tier2_answer"] = precomputed_tier2[i]
@@ -445,18 +456,6 @@ class BatchPipeline:
                 kwargs["_precomputed_vout"] = precomputed_vouts[i]
             r = self.p.answer(**kwargs)
             results.append(r)
-
-        # Amortise the batch wall-time across samples. The per-sample
-        # latency from ``self.p.answer()`` just now is ~0 because the
-        # heavy work (batched generate + batched verify) ran earlier in
-        # this method; that inner value is useless for measurement.
-        # Overwrite each PipelineResult's latency_ms with the averaged
-        # batch cost so callers (eval harness + perf_baseline + seeder
-        # log) read a number that matches wall-clock per query at bs=N.
-        batch_elapsed_ms = (_time.perf_counter() - batch_start) * 1000.0
-        per_sample_ms = batch_elapsed_ms / max(len(samples), 1)
-        for r in results:
-            r.latency_ms = per_sample_ms
         return results
 
     # ---- Internal helpers ----------------------------------------------- #

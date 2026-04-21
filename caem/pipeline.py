@@ -394,6 +394,7 @@ class CAEMPipeline:
         _precomputed_tier3_answer: Optional[str] = None,
         _precomputed_vout: Optional[UnifiedVerifierOutput] = None,
         _precomputed_routing: Optional[tuple] = None,
+        _precomputed_latency_ms: Optional[float] = None,
     ) -> PipelineResult:
         """Run the full CAEM pipeline for a single query.
 
@@ -549,7 +550,17 @@ class CAEMPipeline:
                 vout.u_internal, vout.p_ground_max, vout.decision,
             )
 
-        latency_ms = (time.perf_counter() - t_start) * 1000.0
+        # Branch C Goal 5 (2026-04-21): ``_precomputed_latency_ms`` lets
+        # BatchPipeline.answer_batch override the per-sample latency with
+        # the amortised batch wall-time. Without this, the batched path's
+        # per-sample answer() call would log ~0ms because all the heavy
+        # work (batched generate + batched verify) already ran. When None
+        # (the normal serial path), fall back to the local perf_counter
+        # measurement which is accurate for single-query calls.
+        if _precomputed_latency_ms is not None:
+            latency_ms = float(_precomputed_latency_ms)
+        else:
+            latency_ms = (time.perf_counter() - t_start) * 1000.0
         logger.info(
             "Pipeline: Tier %d | stored=%s | u_stored=%.3f | decision=%s | latency=%.1f ms",
             routing.tier, stored_flag,
