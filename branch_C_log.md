@@ -112,14 +112,43 @@ inherits it.
       better-calibrated than a MiniCheck-only baseline (single-signal
       κ ≈ 0.40–0.55 typical in MiniCheck paper).
 
+- [ ] Ch5 **Table 5.D "Failure-mode breakdown of CAEM-caught
+      episodes"** — defends the claim "our verifier catches
+      hallucinations, not just any low-quality output." For each
+      episode already hand-audited in Table 5.A, add a subtype label:
+        * Confabulation (invented fact) → HALLUCINATION (strict)
+        * Ungroundedness (answer not supported by any passage) → HALLUCINATION
+        * Evidence-hallucination (wrong citation for right conclusion) → HALLUCINATION
+        * Factual error (wrong date/number/name, plausible phrasing) → HALLUCINATION-adjacent
+        * Over-hedging ("not enough info" when info exists) → CONSERVATIVE FAILURE (not hallucination)
+        * Off-topic (wrong question answered) → RELEVANCE FAILURE (not hallucination)
+      Report percentages. Target: **>= 70% of caught episodes are
+      hallucinations in the strict confabulation / ungroundedness /
+      evidence-hallucination subtypes**, the remaining <= 30% are
+      adjacent failure modes whose filtration is still desirable but
+      not classified as hallucinations per se.
+
+      Signal-to-subtype mapping for the thesis narrative: 6 of CAEM's
+      10 signals directly target hallucination (s_avg, h_norm,
+      p_ground_max/mean, p_ground_atomic, p_contra). 2 target
+      hallucination-adjacent uncertainty (u_dropout, p_entail). 2
+      target non-hallucination failures (u_token = hedging,
+      q_a_relevance = off-topic Goal-2 sample-②). This mapping will
+      appear as a figure or side-table in §5.X justifying the
+      primary-target claim.
+
 - [ ] Ch6 §Discussion paragraph integrating the 4-gate architectural
       defense framing (draft in this log above), citing Tables 5.A,
-      5.B, AND 5.C as quantitative backing for three thesis claims:
+      5.B, 5.C, AND 5.D as quantitative backing for FOUR thesis
+      claims:
       (1) "no hallucinated answer propagates to user" (Table 5.A, via
       gate trace), (2) "model monotonically improves per cycle"
-      (Table 5.B, via per-cycle EM/purity deltas), and (3) "9-signal
+      (Table 5.B, via per-cycle EM/purity deltas), (3) "9-signal
       verifier substantially outperforms single-signal baselines"
-      (Table 5.C, via human-gold agreement metrics).
+      (Table 5.C, via human-gold agreement metrics), and (4) "caught
+      episodes are predominantly hallucinations in the strict sense,
+      not just confidence-filter false-positives" (Table 5.D, via
+      failure-mode subtype breakdown).
 
 - [ ] Audit data source: after Step 7 completes, read
       `outputs/full_run/cycle_N/memory_store.{faiss,meta}` + the
