@@ -2399,3 +2399,73 @@ Do NOT create a new folder for the rewrite. Reasons:
   - Phase 1a runner autonomous (Step 7.0 Cycle-0 baseline in progress)
   - Next session post-sleep starts with Ch4 §4.1 Phase 1 prep artifact
 
+
+### 2026-04-23 01:45 BDT  `[GAP]`  Goal 5 BatchPipeline wiring incomplete — only 3 of 11 major runners use it
+
+User observation 2026-04-23 01:40 BDT: Step 7.0 Cycle-0 baseline
+currently running at ~18s/q unbatched rate, while Profile v4 showed
+~10.2s/q with BatchPipeline. Audit reveals BatchPipeline is wired in
+only 3 of 11 major runners.
+
+**BatchPipeline coverage audit:**
+
+  ✅ Wired:
+    - seed_cold_start.py (Step 6; wired this session)
+    - level_b_smoke.py (dev smoke test)
+    - perf_baseline.py (Step 7.0.P)
+
+  ❌ NOT wired (major production runners):
+    - run_experiment.py     (Steps 5, 7.0, 7 — CAEM main!)
+    - run_baseline.py       (Steps 9-13: B1-B5)
+    - run_simple_ft.py      (Steps 14, 15: B6, B7)
+    - run_purity_validation.py (Step 19)
+    - run_ablation.py       (ablations)
+    - run_cyclic_ablation.py (cyclic ablations)
+    - label_faithfulness.py (Step 7.0.E.1)
+    - build_calibration_pairs.py (Step 5.5.1)
+
+**Impact on Phase 1a:**
+
+  Step  |  Query count  |  Unbatched cost  |  Batched cost  |  Lost
+  ------+---------------+------------------+----------------+---------
+  7.0   |  3,000        |  ~15h / $12      |  ~8.5h / $7    |  ~$5
+  7     |  40,000       |  ~200h / $160    |  ~113h / $90   |  ~$70
+  14    |  40,000       |  ~80h / $64      |  ~55h / $44    |  ~$20
+  15    |  40,000       |  ~90h / $72      |  ~60h / $48    |  ~$24
+  9-13  |  30,000       |  ~60h / $48      |  ~35h / $28    |  ~$20
+  Total:                                                        ~$139
+
+**Dev cost to wire BatchPipeline into all 8 runners:** ~15-20 hours
+across the remaining Phase 1a window. run_experiment.py alone is
+~4-6 hours dev + 1h testing.
+
+**Decision (user-pending):**
+
+  Option A (recommended): accept Step 7.0 suboptimal (~$5 loss),
+  wire BatchPipeline into run_experiment.py BEFORE Step 7 launches
+  (~14-18h window available between Step 7.0 completion and Step 7
+  start). Saves ~$70 on Step 7. Wire remaining runners opportunistically.
+
+  Option B: interrupt Step 7.0 now, wire BatchPipeline, relaunch.
+  Risky (loses 2.8h progress, may introduce bugs mid-run).
+
+  Option C: accept unbatched throughout, lose ~$139 total.
+
+**Safety net:** `tests/test_pipeline_batch_equivalence.py` exists
+(from Session-level-B work). Can validate BatchPipeline integration
+in run_experiment.py produces bit-equivalent results to the serial
+path. MUST pass before Step 7 launches.
+
+**Next-session action item (high priority):**
+
+  [ ] Wire BatchPipeline into run_experiment.py
+  [ ] Validate via test_pipeline_batch_equivalence.py
+  [ ] Smoke test on a small benchmark subset
+  [ ] Land before Step 7 launches (target: Step 7.0 completion + 2h)
+  [ ] Additional runners (B6/B7, ablations) wired after Step 7 proves out
+
+**Master Plan update:** this gap isn't in the Master Plan (00:50 BDT);
+it should be added as a critical-path item. Goal 5 was implemented
+at the infrastructure level (BatchPipeline class, pool helpers,
+equilibrium module) but wiring-to-runners is incomplete.
+
