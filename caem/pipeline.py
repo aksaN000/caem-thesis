@@ -59,6 +59,7 @@ from caem.memory.store import EpisodicMemoryStore
 from caem.retrieval.rag import PassageStore, TierThreeRAG
 from caem.routing.router import AdaptiveRouter
 from caem.verification.verifier import UnifiedVerifier, UnifiedVerifierOutput
+from caem._profile import section
 
 logger = logging.getLogger(__name__)
 
@@ -633,7 +634,7 @@ class CAEMPipeline:
 
         try:
             self.model.eval()
-            with torch.no_grad():
+            with torch.no_grad(), section("tier2.generate"):
                 output_ids = self.model.generate(
                     input_ids,
                     attention_mask=attention_mask,
@@ -665,7 +666,8 @@ class CAEMPipeline:
         -------
         str -- may be empty string on complete failure.
         """
-        answer = self.rag.generate(query)
+        with section("tier3.rag_generate"):
+            answer = self.rag.generate(query)
         logger.debug("Tier 3 RAG answer: '%s...'", answer[:80])
         return answer
 
@@ -715,10 +717,11 @@ class CAEMPipeline:
         if not answer:
             return None
         try:
-            return self.verifier.verify(
-                query, answer,
-                u_token=u_token, u_dropout=u_dropout,
-            )
+            with section("verifier.verify"):
+                return self.verifier.verify(
+                    query, answer,
+                    u_token=u_token, u_dropout=u_dropout,
+                )
         except Exception as exc:
             logger.error("Verification failed: %s -- answer will not be stored.", exc)
             return None

@@ -388,6 +388,30 @@ class SelfImprovementLoop:
         n_retroverified = 0
         n_retropruned = 0
         if verify_fn is not None and not aborted:
+            # Goal 4 item 5: report the hit-counter pressure BEFORE retroverify
+            # resets the counters. The forced queue is the set of entries that
+            # crossed cfg.hit_counter_force_retroverify (default 10) since
+            # their last re-score. Retroverify re-scores every entry so the
+            # forced queue is automatically covered; this log line documents
+            # the population size so between-cycle fast-path scripts can
+            # calibrate against it. See also scripts/force_retroverify.py for
+            # the between-cycle entry point that operates on just this queue.
+            try:
+                force_queue = memory_store.force_retroverify_queue()
+            except Exception as exc:
+                logger.debug(
+                    "Cycle %d: force_retroverify_queue probe failed (%s); "
+                    "continuing.", cycle_num, exc,
+                )
+                force_queue = []
+            if force_queue:
+                logger.info(
+                    "Cycle %d: hit-counter forced-queue size = %d "
+                    "(top-pressure entries that would have been force-re-scored "
+                    "mid-cycle if the between-cycle fast path were enabled; "
+                    "these will be re-scored by the full retroverify pass below).",
+                    cycle_num, len(force_queue),
+                )
             logger.info(
                 "Cycle %d: running retroactive re-verification on %d episodes ...",
                 cycle_num, memory_store.size,

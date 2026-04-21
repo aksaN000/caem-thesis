@@ -123,6 +123,7 @@ import torch
 import torch.nn.functional as F
 
 from caem.config import CAEMConfig
+from caem._profile import section
 
 logger = logging.getLogger(__name__)
 
@@ -481,36 +482,36 @@ class UnifiedVerifier:
         assert input_ids is not None
 
         # ---------- internal calibration (cheap) -------------------------- #
-        if u_token is None:
-            u_token = self._compute_u_token(input_ids, answer)
-        if u_dropout is None:
-            u_dropout = self._compute_u_dropout(input_ids)
-        u_internal = 0.5 * u_token + 0.5 * (1.0 - u_dropout)
+        with section("verifier.u_token_dropout"):
+            if u_token is None:
+                u_token = self._compute_u_token(input_ids, answer)
+            if u_dropout is None:
+                u_dropout = self._compute_u_dropout(input_ids)
+            u_internal = 0.5 * u_token + 0.5 * (1.0 - u_dropout)
 
         # ---------- sample-set signals (M chains reused) ------------------ #
-        # chains / se_samples may be injected by verify_batch, which pools
-        # T5 sampling across samples in one padded generate call. Semantically
-        # equivalent (i.i.d. samples at the same temperature), but avoids N
-        # sequential kernel launches when called from the batched path.
-        if chains is None:
-            chains = self._generate_m_chains(input_ids)
-        s_avg = self._score_s_avg(chains)
-        p_entail = self._score_p_entail(chains, answer)
-        if se_samples is None:
-            h_norm = self._compute_h_norm(input_ids)
-        else:
-            h_norm = self._h_norm_from_samples(se_samples)
+        with section("verifier.m_chain_and_h_norm"):
+            if chains is None:
+                chains = self._generate_m_chains(input_ids)
+            s_avg = self._score_s_avg(chains)
+            p_entail = self._score_p_entail(chains, answer)
+            if se_samples is None:
+                h_norm = self._compute_h_norm(input_ids)
+            else:
+                h_norm = self._h_norm_from_samples(se_samples)
 
         # ---------- external grounding ------------------------------------ #
-        top_passages = self._retrieve_and_rerank(query, answer)
-        p_ground_max, p_ground_mean = self._score_p_ground(top_passages, answer)
-        p_contra = self._score_p_contra(top_passages, answer)
-        atomic_facts, per_atom_entail, p_ground_atomic = self._score_atomic(
-            top_passages, answer, fallback=p_ground_mean
-        )
+        with section("verifier.grounding"):
+            top_passages = self._retrieve_and_rerank(query, answer)
+            p_ground_max, p_ground_mean = self._score_p_ground(top_passages, answer)
+            p_contra = self._score_p_contra(top_passages, answer)
+            atomic_facts, per_atom_entail, p_ground_atomic = self._score_atomic(
+                top_passages, answer, fallback=p_ground_mean
+            )
 
         # ---------- question-answer relevance (Branch C Goal 2) ----------- #
-        q_a_relevance = self._compute_q_a_relevance(query, answer)
+        with section("verifier.q_a_relevance"):
+            q_a_relevance = self._compute_q_a_relevance(query, answer)
 
         # ---------- early-exit confabulation gate ------------------------- #
         ee_u = self.config.early_exit_u_internal

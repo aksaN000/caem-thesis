@@ -425,7 +425,128 @@ def _build_parser() -> argparse.ArgumentParser:
                    help="Perf log CSV (appended).")
     p.add_argument("--smoke", action="store_true",
                    help="Run the synthetic CPU-only smoke (no model load).")
+    p.add_argument("--live_model", action="store_true",
+                   help="Live-model run: load CAEMPipeline, run N queries, "
+                        "measure per-tier latency + GPU util. Requires CUDA.")
+    p.add_argument("--passage_index", type=Path,
+                   default=Path("data/passage_index"),
+                   help="Passage index for Tier-3 RAG in the live run.")
+    p.add_argument("--benchmark", default="fever",
+                   help="Benchmark to sample queries from (fever / triviaqa / nq).")
     return p
+
+
+def _run_live_model(
+    ns: argparse.Namespace,
+) -> List[PerfRow]:
+    """Load CAEMPipeline and run ``ns.n_queries`` queries per batch size.
+
+    Sweeps the comma-separated ``--batch_sizes``; for each bs>1 wraps the
+    serial pipeline with ``BatchPipeline.answer_batch``; for bs=1 uses the
+    serial ``pipeline.answer()`` loop. Records per-query latency +
+    background-sampled GPU util/VRAM peak per configuration.
+
+    Writes one row per (label, batch_size) into the CSV.
+    """
+    import torch
+    from caem.config import CAEMConfig
+    from caem.memory.encoder import QueryEncoder
+    from caem.model_loader import load_base_generator
+    from caem.pipeline import CAEMPipeline
+    from caem.pipeline_batch import BatchPipeline, BatchSample
+    from caem.retrieval.rag import PassageStore
+    from caem.verification import load_verifier_judge
+    from eval.benchmarks import load_benchmark
+
+    if not torch.cuda.is_available():
+        logger.error("--live_model requires CUDA; none detected.")
+        sys.exit(2)
+
+    cfg = CAEMConfig()
+    device = "cuda"
+
+    logger.info("Loading Qwen-3B base generator ...")
+    model, tokenizer = load_base_generator(
+        cfg.base_model_name, device=device, dtype=torch.bfloat16,
+        use_flash_attention_2=cfg.use_flash_attention_2,
+        use_torch_compile=cfg.use_torch_compile,
+    )
+    encoder = QueryEncoder(model_name=cfg.sbert_model, device=device)
+    logger.info("Loading verifier judge ...")
+    judge, nli_model, nli_tokenizer = load_verifier_judge(cfg, device, allow_fallback=True)
+
+    cross_encoder = None
+    if cfg.cross_encoder_model:
+        try:
+            from sentence_transformers import CrossEncoder
+            cross_encoder = CrossEncoder(cfg.cross_encoder_model, device=device)
+            logger.info("Cross-encoder loaded.")
+        except Exception as exc:
+            logger.warning("Cross-encoder load failed (%s); continuing without.", exc)
+
+    passage_store = None
+    if ns.passage_index.exists():
+        passage_store = PassageStore.load(str(ns.passage_index))
+        logger.info("Passage index: %d passages.", len(passage_store.passages))
+    else:
+        logger.warning("Passage index missing at %s; Tier-3 will degrade.", ns.passage_index)
+
+    pipeline = CAEMPipeline(
+        model=model, tokenizer=tokenizer, encoder=encoder,
+        judge=judge, nli_model=nli_model, nli_tokenizer=nli_tokenizer,
+        passage_store=passage_store, cross_encoder=cross_encoder,
+        config=cfg, device=device, current_cycle=0,
+    )
+
+    logger.info("Loading %d %s samples ...", ns.n_queries, ns.benchmark)
+    samples = load_benchmark(ns.benchmark, n=ns.n_queries, split="train")
+    queries = [s["question"] for s in samples if s.get("question")][: ns.n_queries]
+    if len(queries) < ns.n_queries:
+        logger.warning("Only got %d queries (< %d requested).", len(queries), ns.n_queries)
+
+    batch_sizes = [int(b.strip()) for b in ns.batch_sizes.split(",") if b.strip()]
+    rows: List[PerfRow] = []
+    for bs in batch_sizes:
+        logger.info("--- Measuring bs=%d over %d queries ---", bs, len(queries))
+        rec = TimingRecorder()
+        with GPUSampler(interval_s=0.5) as sampler:
+            if bs == 1:
+                for q in queries:
+                    with rec.time(f"live.bs1.answer"):
+                        pipeline.answer(q, store_to_memory=False)
+            else:
+                batch_pipeline = BatchPipeline(pipeline)
+                for i in range(0, len(queries), bs):
+                    chunk = queries[i : i + bs]
+                    batch_inputs = [
+                        BatchSample(query=q, store_to_memory=False)
+                        for q in chunk
+                    ]
+                    with rec.time(f"live.bs{bs}.answer_batch"):
+                        batch_pipeline.answer_batch(batch_inputs)
+
+        timing = rec.summarise(
+            f"live.bs1.answer" if bs == 1 else f"live.bs{bs}.answer_batch"
+        )
+        # Per-query latency = timing.mean / (1 for bs=1, bs for batched)
+        rows.append(PerfRow(
+            label=f"{ns.label}-bs{bs}",
+            timestamp=time.time(),
+            n_queries=len(queries),
+            batch_size=bs,
+            timing=timing,
+            gpu=sampler.summary(),
+            metadata={
+                "mode": "live_model",
+                "benchmark": ns.benchmark,
+                "model": cfg.base_model_name,
+                "flash_attn_2": str(cfg.use_flash_attention_2),
+                "torch_compile": str(cfg.use_torch_compile),
+                "cross_encoder": cfg.cross_encoder_model or "",
+            },
+        ))
+    append_rows(rows, ns.output_csv)
+    return rows
 
 
 def main(argv: Optional[List[str]] = None) -> int:
@@ -436,12 +557,22 @@ def main(argv: Optional[List[str]] = None) -> int:
         rows = run_smoke(ns.output_csv, n_queries=ns.n_queries)
         logger.info("Smoke wrote %d rows to %s", len(rows), ns.output_csv)
         return 0
-    # The full model-loaded path is Vast-GPU-gated; we leave it as a
-    # TODO slot here so the CLI surface is stable.
+    if ns.live_model:
+        rows = _run_live_model(ns)
+        logger.info("Live-model wrote %d rows to %s", len(rows), ns.output_csv)
+        for r in rows:
+            logger.info(
+                "  bs=%d | per-op mean=%.0f ms | p95=%.0f ms | "
+                "GPU util mean=%.1f%% peak=%.1f%% | VRAM peak=%.0f MiB",
+                r.batch_size,
+                r.timing.mean_ms, r.timing.p95_ms,
+                r.gpu.mean_util_pct, r.gpu.peak_util_pct,
+                r.gpu.peak_vram_mb,
+            )
+        return 0
     logger.error(
-        "Live-model perf run is not yet implemented -- re-run with --smoke "
-        "for the CPU statistics path. Vast-GPU integration lands with the "
-        "Goal 5 perf-tuning sweep.",
+        "No mode selected. Pass --smoke for the CPU stats path or "
+        "--live_model for the live CAEMPipeline measurement on CUDA.",
     )
     return 2
 

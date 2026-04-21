@@ -341,11 +341,27 @@ def seed_benchmark(
     benchmark: str,
     target_episodes: int,
     max_questions: int,
+    *,
+    batch_pipeline=None,
+    batch_size: int = 8,
 ) -> Dict:
     """Run the pipeline on training samples and collect verified episodes.
 
-    Stops when target_episodes is reached or all samples are exhausted.
-    Returns stats: {verified, stored, processed, elapsed_s}
+    Branch C Goal 5 integration (2026-04-21)
+    ----------------------------------------
+    When ``batch_pipeline`` is supplied (a ``caem.pipeline_batch.BatchPipeline``
+    wrapper over the serial pipeline), queries are processed in chunks of
+    ``batch_size`` via ``batch_pipeline.answer_batch`` instead of the
+    single-query loop. This lights up Tier-2 / Tier-3 generation +
+    verifier M-chain + K-sample pooling across the batch dim -- typical
+    ~2-3x speedup on a 5090 at bs=8.
+
+    Commit ordering is preserved by the BatchPipeline contract (writes to
+    ``memory_store`` happen in submitted-sample order within each batch),
+    so the seeded store is observationally equivalent to the serial path.
+
+    Stops when ``target_episodes`` is reached or all samples are exhausted.
+    Returns stats: ``{verified, stored, processed, elapsed_s}``.
     """
     if not samples:
         logger.info("  %s: no seed samples -- skipping.", benchmark)
@@ -354,27 +370,56 @@ def seed_benchmark(
     t0 = time.time()
     n_verified = 0
     n_processed = 0
-
     to_process = samples[:max_questions]
 
-    for s in to_process:
-        if n_verified >= target_episodes:
-            break
+    # Batched path: feed BatchPipeline chunks; checkpoint target check
+    # between chunks so we never process more than ~batch_size extra
+    # queries past the target.
+    if batch_pipeline is not None:
+        from caem.pipeline_batch import BatchSample
+        i = 0
+        while i < len(to_process):
+            if n_verified >= target_episodes:
+                break
+            chunk = to_process[i : i + batch_size]
+            i += len(chunk)
 
-        result = pipeline.answer(s["question"])
-        n_processed += 1
+            batch_inputs = [
+                BatchSample(
+                    query=s["question"],
+                    source_benchmark=benchmark,
+                    store_to_memory=True,
+                )
+                for s in chunk
+            ]
+            results = batch_pipeline.answer_batch(batch_inputs)
+            for res in results:
+                n_processed += 1
+                if res.stored:
+                    n_verified += 1
 
-        # PipelineResult is a dataclass -- use attribute access, not .get()
-        was_stored = result.stored
-        if was_stored:
-            n_verified += 1
-
-        if n_processed % 20 == 0:
             elapsed = time.time() - t0
             logger.info(
-                "  [%s seed] processed=%d | verified+stored=%d / %d target | %.0fs",
-                benchmark, n_processed, n_verified, target_episodes, elapsed,
+                "  [%s seed] processed=%d | verified+stored=%d / %d target | %.0fs "
+                "(batched, bs=%d)",
+                benchmark, n_processed, n_verified, target_episodes,
+                elapsed, len(chunk),
             )
+    else:
+        # Legacy serial path (kept for debug + CPU smokes without batch deps).
+        for s in to_process:
+            if n_verified >= target_episodes:
+                break
+            result = pipeline.answer(s["question"], source_benchmark=benchmark)
+            n_processed += 1
+            if result.stored:
+                n_verified += 1
+            if n_processed % 20 == 0:
+                elapsed = time.time() - t0
+                logger.info(
+                    "  [%s seed] processed=%d | verified+stored=%d / %d target | %.0fs",
+                    benchmark, n_processed, n_verified, target_episodes, elapsed,
+                )
 
     elapsed = time.time() - t0
     logger.info(
@@ -457,13 +502,35 @@ def main(args: argparse.Namespace) -> None:
     # -- Build pipeline -------------------------------------------------------
     pipeline = build_pipeline(config, device)
 
+    # -- Goal-5 batched wrapper (2-3x speedup on the seeder loop) ------------
+    batch_pipeline = None
+    batch_size = int(getattr(args, "batch_size", 8) or 8)
+    if batch_size > 1:
+        try:
+            from caem.pipeline_batch import BatchPipeline
+            batch_pipeline = BatchPipeline(pipeline)
+            logger.info(
+                "Goal 5: wrapping CAEMPipeline with BatchPipeline (bs=%d) "
+                "for the seeder loop.",
+                batch_size,
+            )
+        except Exception as exc:
+            logger.warning(
+                "BatchPipeline wrap failed (%s); falling back to serial "
+                "pipeline.answer().", exc,
+            )
+
     # -- Seed each benchmark --------------------------------------------------
     benchmarks = args.benchmarks
     target = args.target_episodes
     max_q  = args.max_questions
 
     logger.info("=" * 60)
-    logger.info("COLD-START SEEDING  (target=%d eps/benchmark)", target)
+    logger.info(
+        "COLD-START SEEDING  (target=%d eps/benchmark, bs=%d%s)",
+        target, batch_size,
+        " [serial fallback]" if batch_pipeline is None else "",
+    )
     logger.info("=" * 60)
 
     summary_stats: Dict[str, dict] = {}
@@ -472,7 +539,10 @@ def main(args: argparse.Namespace) -> None:
         logger.info("-" * 50)
         logger.info("Seeding %s ...", bm)
         train_samples = load_train_samples(bm, n=max_q, seed=args.seed)
-        stats = seed_benchmark(pipeline, train_samples, bm, target, max_q)
+        stats = seed_benchmark(
+            pipeline, train_samples, bm, target, max_q,
+            batch_pipeline=batch_pipeline, batch_size=batch_size,
+        )
         summary_stats[bm] = stats
 
     # -- Save memory store ----------------------------------------------------
@@ -576,6 +646,17 @@ if __name__ == "__main__":
             "0.45 (the DEFERRED-band bar). Cold-start entries feed retrieval "
             "only, not training (which still uses tau_train=0.75), so the "
             "looser admission bar does not compromise the thesis guarantees."
+        ),
+    )
+    p.add_argument(
+        "--batch_size",
+        type=int,
+        default=8,
+        help=(
+            "Goal 5 batch size for BatchPipeline.answer_batch. Set to 1 to "
+            "fall back to the serial pipeline.answer() loop (useful for "
+            "debugging; ~2-3x slower on a 5090). Commit ordering within "
+            "each batch matches the serial path."
         ),
     )
     main(p.parse_args())
