@@ -100,7 +100,7 @@ step_7_0_cycle0() {
         log "Step 7.0: Cycle-0 eval JSONs already present — skipping"
         return 0
     fi
-    band "Step 7.0 — Cycle-0 baseline (500/bench, NEW prompts)"
+    band "Step 7.0 — Cycle-0 baseline (500/bench, NEW prompts, bs=32)"
     python -m scripts.run_experiment \
         --output_dir outputs/cycle_0 \
         --num_cycles 0 \
@@ -109,6 +109,7 @@ step_7_0_cycle0() {
         --benchmarks "${BENCHMARKS[@]}" \
         --passage_index data/passage_index \
         --cold_start_memory outputs/cold_start_memory/memory_store \
+        --eval_batch_size 32 \
         2>&1 | tee -a outputs/cycle_0/run.log
 }
 
@@ -388,6 +389,7 @@ step_7_main() {
         --store_threshold "$tau_store" \
         --defer_threshold "$tau_defer" \
         --train_threshold "$tau_train" \
+        --eval_batch_size 32 \
         "${resume_args[@]}" \
         2>&1 | tee -a outputs/full_run/run.log
 

@@ -322,7 +322,11 @@ class PassageStore:
     def load(cls, path: str) -> "PassageStore":
         """Load PassageStore from disk (bypasses embedding recomputation)."""
         p = Path(path)
-        index = faiss.read_index(str(p / "passages.faiss"))
+        # mmap the FAISS index so the 64 GB body stays on disk and only the
+        # active IVF cells are paged in. Without this, a 90 GB cgroup limit
+        # gets exhausted before any model loads.
+        mmap_flag = getattr(faiss, "IO_FLAG_MMAP", 0) | getattr(faiss, "IO_FLAG_READ_ONLY", 0)
+        index = faiss.read_index(str(p / "passages.faiss"), mmap_flag)
         with open(p / "passages.pkl", "rb") as f:
             passages = pickle.load(f)
 

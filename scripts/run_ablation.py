@@ -402,6 +402,8 @@ def main(ns: argparse.Namespace) -> None:
         )
         harness = m["EvalHarness"](
             pipeline, output_dir=str(output_dir / variant.name), log_every=100,
+            batch_size=getattr(ns, "eval_batch_size", 1),
+            use_prefetch=getattr(ns, "eval_prefetch", False),
         )
         try:
             result = run_variant(
@@ -447,6 +449,10 @@ def _build_argparser() -> argparse.ArgumentParser:
                    help="Cycle-N retroverify JSON containing cycle MMLU (for RET).")
     p.add_argument("--n_questions", type=int, default=500,
                    help="Per-benchmark eval size for every variant.")
+    p.add_argument("--eval_batch_size", type=int, default=1,
+                   help="Goal 5 Level B batch size for EvalHarness (bs=1 keeps serial path).")
+    p.add_argument("--eval_prefetch", action="store_true",
+                   help="Goal 5 Level B Phase 2: wrap BatchPipeline in PrefetchingBatchPipeline.")
     p.add_argument("--benchmarks", nargs="+", default=[
         "fever", "triviaqa", "natural_questions",
         "truthfulqa", "strategyqa", "arc_challenge",

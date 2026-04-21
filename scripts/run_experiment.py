@@ -1114,7 +1114,13 @@ def run_experiment(ns: argparse.Namespace) -> None:
     )
 
     # -- Eval harness -------------------------------------------------------- #
-    harness = m["EvalHarness"](pipeline, output_dir=str(eval_dir), log_every=100)
+    harness = m["EvalHarness"](
+        pipeline,
+        output_dir=str(eval_dir),
+        log_every=100,
+        batch_size=getattr(ns, "eval_batch_size", 1),
+        use_prefetch=getattr(ns, "eval_prefetch", False),
+    )
 
     # -- Self-improvement loop ----------------------------------------------- #
     sil = m["SelfImprovementLoop"](
@@ -1660,6 +1666,26 @@ def _parse_args() -> argparse.Namespace:
         help=(
             "Per-benchmark SIL training-pool size. When --n_eval_questions is "
             "omitted, the same value is used for the evaluation pool."
+        ),
+    )
+    p.add_argument(
+        "--eval_batch_size",
+        type=int,
+        default=1,
+        help=(
+            "Goal 5 Level B batch size for the EvalHarness. "
+            "bs=1 uses the serial per-sample path (reference). "
+            "bs=8 is the thesis Phase 1a default; bs=16 for 5090-class hardware. "
+            "Wraps the CAEMPipeline in BatchPipeline.answer_batch."
+        ),
+    )
+    p.add_argument(
+        "--eval_prefetch",
+        action="store_true",
+        help=(
+            "Goal 5 Level B Phase 2: wrap the BatchPipeline in "
+            "PrefetchingBatchPipeline so chunk N+1 is prefetched while "
+            "chunk N is generating. Requires --eval_batch_size > 1."
         ),
     )
     p.add_argument(

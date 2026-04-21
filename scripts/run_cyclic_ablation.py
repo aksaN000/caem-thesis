@@ -469,7 +469,11 @@ def run_cyclic_ablation(ns: argparse.Namespace) -> None:
         )
 
     # --- Harness + SIL loop ------------------------------------------------- #
-    harness = m["EvalHarness"](pipeline, output_dir=str(eval_dir), log_every=100)
+    harness = m["EvalHarness"](
+        pipeline, output_dir=str(eval_dir), log_every=100,
+        batch_size=getattr(ns, "eval_batch_size", 1),
+        use_prefetch=getattr(ns, "eval_prefetch", False),
+    )
 
     # Respect skip_self_improvement: we still construct the loop object so
     # _mmlu_score is available, but we never call run_cycle on it.
@@ -784,6 +788,10 @@ def _parse_args() -> argparse.Namespace:
                    help="Override SIL samples per cycle. Defaults: confirmatory=5000, screening=1500, smoke=500.")
     p.add_argument("--n_eval_per_benchmark", type=int, default=None,
                    help="Override eval set size per benchmark. Defaults: 500 (50 in smoke).")
+    p.add_argument("--eval_batch_size", type=int, default=1,
+                   help="Goal 5 Level B batch size for EvalHarness (bs=1 keeps serial path).")
+    p.add_argument("--eval_prefetch", action="store_true",
+                   help="Goal 5 Level B Phase 2: wrap BatchPipeline in PrefetchingBatchPipeline.")
 
     # -- Run-experiment compatibility
     p.add_argument(

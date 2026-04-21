@@ -143,14 +143,42 @@ class EvalHarness:
         output_dir: Optional[str | Path] = None,
         log_every: int = 100,
         fail_on_error: bool = False,
+        batch_size: int = 1,
+        use_prefetch: bool = False,
     ) -> None:
         self.pipeline = pipeline
         self.output_dir = Path(output_dir) if output_dir else None
         self.log_every = log_every
         self.fail_on_error = fail_on_error
+        # Goal 5 Level B: when batch_size > 1, wrap the serial pipeline in a
+        # BatchPipeline (optionally PrefetchingBatchPipeline) and route
+        # `run()` through a batched chunked loop. batch_size == 1 preserves
+        # the serial per-sample path bit-for-bit (the test equivalence path).
+        self.batch_size = max(1, int(batch_size))
+        self.use_prefetch = bool(use_prefetch)
+        self._batch_pipeline = None  # lazy; built on first batched run
 
         if self.output_dir:
             self.output_dir.mkdir(parents=True, exist_ok=True)
+
+    def _get_batch_pipeline(self):
+        if self._batch_pipeline is not None:
+            return self._batch_pipeline
+        from caem.pipeline_batch import BatchPipeline
+        bp = BatchPipeline(self.pipeline)
+        if self.use_prefetch:
+            try:
+                from caem.pipeline_batch_prefetch import PrefetchingBatchPipeline
+                bp = PrefetchingBatchPipeline(bp)
+                logger.info("EvalHarness: wrapped pipeline with PrefetchingBatchPipeline (bs=%d).", self.batch_size)
+            except Exception as exc:
+                logger.warning(
+                    "PrefetchingBatchPipeline unavailable (%s); using plain BatchPipeline.", exc,
+                )
+        else:
+            logger.info("EvalHarness: wrapped pipeline with BatchPipeline (bs=%d).", self.batch_size)
+        self._batch_pipeline = bp
+        return bp
 
     # ------------------------------------------------------------------ #
     # Main entry point                                                     #
@@ -183,12 +211,15 @@ class EvalHarness:
 
         sample_results: List[SampleResult] = []
 
-        for i, sample in enumerate(samples):
-            if self.log_every > 0 and i % self.log_every == 0:
-                logger.info("  [%s/%s] %s cycle=%d ...", i, len(samples), benchmark, cycle)
+        if self.batch_size > 1:
+            sample_results = self._run_batched(samples, benchmark, store_to_memory, cycle)
+        else:
+            for i, sample in enumerate(samples):
+                if self.log_every > 0 and i % self.log_every == 0:
+                    logger.info("  [%s/%s] %s cycle=%d ...", i, len(samples), benchmark, cycle)
 
-            sr = self._run_one(sample, benchmark, store_to_memory)
-            sample_results.append(sr)
+                sr = self._run_one(sample, benchmark, store_to_memory)
+                sample_results.append(sr)
 
         # -- Aggregate --------------------------------------------------- #
         em_scores = [sr["em"] for sr in sample_results]
@@ -274,51 +305,34 @@ class EvalHarness:
         Stage-5 verifier ran, else all twelve fields are None (Tier 1 hits,
         pipeline errors with fail_on_error=False).
         """
-        question = sample["question"]
-        gold_answers = sample["answers"]
-        gold_label = sample.get("gold_label")
-
-        # -- Pipeline call ---------------------------------------------- #
-        pipeline_error: Optional[str] = None
         try:
             result = self.pipeline.answer(
-                question,
+                sample["question"],
                 store_to_memory=store_to_memory,
                 source_benchmark=benchmark,
             )
-            prediction = result.answer
-            display_answer = getattr(result, "display_answer", result.answer)
-            tier = result.tier
-            stored = result.stored
-            u_stored = result.u_stored
-            latency_ms = result.latency_ms
-            escalated = result.escalated
-            verifier_signals = self._extract_verifier_signals(result.verifier_output)
+            return self._record_from_result(sample, benchmark, result, pipeline_error=None)
         except Exception as exc:
             if self.fail_on_error:
                 raise
             logger.warning("pipeline.answer() raised for sample %s: %s", sample.get("id"), exc)
-            prediction = ""
-            display_answer = ""
-            # Sentinel tier for "pipeline crashed" — distinguishes a crash
-            # from a legitimate Tier 3 RAG route, which the old code silently
-            # conflated. routing_distribution() now excludes tier<1 from the
-            # per-tier denominator and exposes the fraction separately as
-            # "crash_frac", so the Ch5 tier distribution numbers are not
-            # inflated by pipeline errors. Audit MAJOR-H2 / Task #117.
-            tier = -1
-            stored = False
-            u_stored = None
-            latency_ms = 0.0
-            escalated = False
-            verifier_signals = self._extract_verifier_signals(None)
-            # Record the exception class + message (not the full traceback,
-            # which can contain unsafe-to-serialise objects). The "crash
-            # rate" Ch5 methodology column is aggregated from the count of
-            # non-None pipeline_error entries across the per-sample JSON.
-            pipeline_error = f"{type(exc).__name__}: {exc}"
+            return self._record_from_error(sample, benchmark, exc)
 
-        # -- Scoring ---------------------------------------------------- #
+    def _record_from_result(
+        self,
+        sample: BenchmarkSample,
+        benchmark: str,
+        result,
+        pipeline_error: Optional[str] = None,
+    ) -> SampleResult:
+        """Build a SampleResult from a PipelineResult. Used by both serial and batched paths."""
+        question = sample["question"]
+        gold_answers = sample["answers"]
+        gold_label = sample.get("gold_label")
+
+        prediction = result.answer
+        display_answer = getattr(result, "display_answer", result.answer)
+        verifier_signals = self._extract_verifier_signals(result.verifier_output)
         em, f1 = self._score(prediction, gold_answers, gold_label, benchmark)
 
         record: SampleResult = {
@@ -331,15 +345,121 @@ class EvalHarness:
             "gold_label": gold_label,
             "em": em,
             "f1": f1,
-            "tier": tier,
-            "stored": stored,
-            "u_stored": u_stored,
-            "latency_ms": latency_ms,
-            "escalated": escalated,
+            "tier": result.tier,
+            "stored": result.stored,
+            "u_stored": result.u_stored,
+            "latency_ms": result.latency_ms,
+            "escalated": result.escalated,
             "pipeline_error": pipeline_error,
         }
         record.update(verifier_signals)
         return record
+
+    def _record_from_error(
+        self,
+        sample: BenchmarkSample,
+        benchmark: str,
+        exc: BaseException,
+    ) -> SampleResult:
+        """Build a SampleResult for a pipeline crash (fail_on_error=False path)."""
+        # Sentinel tier -1 distinguishes a crash from a legitimate Tier 3 RAG
+        # route; routing_distribution() excludes tier<1 from the per-tier
+        # denominator so Ch5 tier fractions are not inflated by crashes.
+        em, f1 = self._score("", sample["answers"], sample.get("gold_label"), benchmark)
+        record: SampleResult = {
+            "id": sample.get("id", ""),
+            "benchmark": benchmark,
+            "question": sample["question"],
+            "prediction": "",
+            "display_answer": "",
+            "gold_answers": sample["answers"],
+            "gold_label": sample.get("gold_label"),
+            "em": em,
+            "f1": f1,
+            "tier": -1,
+            "stored": False,
+            "u_stored": None,
+            "latency_ms": 0.0,
+            "escalated": False,
+            "pipeline_error": f"{type(exc).__name__}: {exc}",
+        }
+        record.update(self._extract_verifier_signals(None))
+        return record
+
+    def _run_batched(
+        self,
+        samples: List[BenchmarkSample],
+        benchmark: str,
+        store_to_memory: bool,
+        cycle: int,
+    ) -> List[SampleResult]:
+        """Goal 5 Level B batched eval loop.
+
+        Chunks ``samples`` into ``self.batch_size``-sized groups, calls
+        ``BatchPipeline.answer_batch`` per chunk, and converts returned
+        ``PipelineResult``s into ``SampleResult``s preserving input order.
+        Per-chunk exceptions fall back to serial ``_run_one`` for that
+        chunk so one pathological batch never aborts the whole eval
+        (equivalent to the serial path's per-sample exception handling).
+        Memory-store commits still occur in submission order (the
+        ``BatchPipeline`` contract), so memory state is deterministic.
+        """
+        from caem.pipeline_batch import BatchSample
+
+        bp = self._get_batch_pipeline()
+        bs = self.batch_size
+        results: List[SampleResult] = []
+        next_log = 0
+
+        for chunk_start in range(0, len(samples), bs):
+            chunk = samples[chunk_start : chunk_start + bs]
+            if self.log_every > 0 and chunk_start >= next_log:
+                logger.info(
+                    "  [%s/%s] %s cycle=%d batched (bs=%d) ...",
+                    chunk_start, len(samples), benchmark, cycle, bs,
+                )
+                next_log = chunk_start + self.log_every
+
+            batch_inputs = [
+                BatchSample(
+                    query=s["question"],
+                    source_benchmark=benchmark,
+                    store_to_memory=store_to_memory,
+                )
+                for s in chunk
+            ]
+
+            try:
+                batch_results = bp.answer_batch(batch_inputs)
+            except Exception as exc:
+                if self.fail_on_error:
+                    raise
+                logger.warning(
+                    "BatchPipeline.answer_batch failed for chunk [%d:%d] of %s: %s -- "
+                    "falling back to serial for this chunk.",
+                    chunk_start, chunk_start + len(chunk), benchmark, exc,
+                )
+                for s in chunk:
+                    results.append(self._run_one(s, benchmark, store_to_memory))
+                continue
+
+            if len(batch_results) != len(chunk):
+                logger.warning(
+                    "BatchPipeline.answer_batch returned %d results for %d inputs "
+                    "(chunk [%d:%d] of %s); falling back to serial for this chunk.",
+                    len(batch_results), len(chunk),
+                    chunk_start, chunk_start + len(chunk), benchmark,
+                )
+                for s in chunk:
+                    results.append(self._run_one(s, benchmark, store_to_memory))
+                continue
+
+            for s, pipeline_result in zip(chunk, batch_results):
+                results.append(
+                    self._record_from_result(s, benchmark, pipeline_result)
+                )
+
+        return results
 
     def _score(
         self,

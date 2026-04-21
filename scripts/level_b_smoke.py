@@ -158,7 +158,12 @@ def _compare(serial_rs, batched_rs) -> dict:
             u_diff = abs(s_u - b_u)
             if u_diff > max_u_diff:
                 max_u_diff = u_diff
-        decision_ok = (s.decision == b.decision)
+        # PipelineResult stores the verifier decision on .verifier_output.decision;
+        # there is no top-level .decision attribute. Tier-1 hits have vout=None,
+        # so treat those as "TIER1" to avoid a None==None collision matching all pairs.
+        s_dec = s.verifier_output.decision if s.verifier_output is not None else "TIER1"
+        b_dec = b.verifier_output.decision if b.verifier_output is not None else "TIER1"
+        decision_ok = (s_dec == b_dec)
         if decision_ok:
             decision_matches += 1
         per_sample.append({
@@ -166,8 +171,8 @@ def _compare(serial_rs, batched_rs) -> dict:
             "serial_u_stored": s_u,
             "batched_u_stored": b_u,
             "u_diff": u_diff,
-            "serial_decision": s.decision,
-            "batched_decision": b.decision,
+            "serial_decision": s_dec,
+            "batched_decision": b_dec,
             "serial_tier": s.tier,
             "batched_tier": b.tier,
             "serial_answer": (s.answer or "")[:60],
