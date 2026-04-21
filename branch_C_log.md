@@ -2364,3 +2364,38 @@ new bullet + expanded wrap-up).
 opening-paragraph reframe is the hardest sentence in the thesis;
 prep-work MUST be done first).
 
+
+### 2026-04-23 01:30 BDT  `[DECISION]`  Rewrite methodology saved to memory; folder decision locked (modify existing, not new)
+
+User followup 2026-04-23 01:25 BDT on the 3-phase methodology: "keep
+it in memory and log. and thats why i was asking should we use new
+folder for new report or modify the old one."
+
+**Memory saved:** `/root/.claude/projects/-workspace/memory/feedback_thesis_rewrite_methodology.md`
+  - Type: feedback (working-style directive)
+  - Scope: every session touching `pre thesis 1 report/chapters/*.tex`
+  - Contains: 3-phase process, KEEP-default heuristic, folder decision,
+    critical-path ordering, time budget
+  - Indexed in `MEMORY.md` (below feedback_thesis_coherence)
+
+**Folder decision:** modify existing `pre thesis 1 report/` folder.
+Do NOT create a new folder for the rewrite. Reasons:
+  - Git history IS the versioning mechanism (no need for folder copies)
+  - LaTeX scaffolding (main.tex, bib, appendix, preamble) already set up
+  - Cross-references (\ref, \cite, \label) all resolve in existing folder
+  - Coherence review simpler on one folder
+  - Diff-based review via git log/git diff is cleanest path
+
+**Pre-rewrite state tagged:** `pre-rewrite-2026-04-23`
+  - Git tag pushed to origin
+  - Can always `git reset --hard pre-rewrite-2026-04-23` if redesign
+    needs reverting
+  - Serves as reference point for committee review ("before vs after")
+
+**Session end state:**
+  - 26 commits pushed to feat/qwen-3b-goal1
+  - 1 new memory file (rewrite methodology)
+  - 1 git tag (pre-rewrite snapshot)
+  - Phase 1a runner autonomous (Step 7.0 Cycle-0 baseline in progress)
+  - Next session post-sleep starts with Ch4 §4.1 Phase 1 prep artifact
+
