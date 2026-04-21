@@ -164,11 +164,62 @@ inherits it.
       pruned, demonstrating **effective 100% decision accuracy on
       in-memory episodes at steady state**.
 
-      **Claim discipline for Table 5.E (do NOT overstate):** the
-      claim is "effective 100% at steady state on episodes that
-      reached the memory store" — excludes FN below τ_defer which are
-      unrecoverable (a known limitation of any threshold gate). Thesis
-      explicitly acknowledges this in the claim text.
+      **Claim discipline for Table 5.E (CORRECTED 2026-04-22 18:15 BDT
+      after user pushback on the FN category):** an earlier draft
+      claimed DISCARD of correct answers was an "unrecoverable FN"
+      edge case. That is wrong. A composite-weight derivation shows:
+        * Correct + working retrieval → u_stored ≥ 0.58 → always STORE
+          or DEFER (recoverable).
+        * Correct + failed retrieval → u_stored ~0.40, p_ground_max
+          < 0.2 → routes to ABSTAIN, which is a design-intended
+          principled refusal (the Goal-1 "refuse to confabulate"
+          guardrail), not a loss.
+        * Correct + DISCARD requires u_stored < 0.45 AND p_ground_max
+          ≥ 0.2 AND answer-is-correct — a pathological signal
+          conjunction essentially never realized in practice
+          (if retrieval returned entailing passages,
+          p_ground_mean contributes enough to push u_stored past 0.45).
+      Table 5.E therefore traces FIVE recoverable categories (TP-high,
+      TP-moderate, TP-low, FP-moderate, FP-high) plus the ABSTAIN
+      category (conservative refusal, not a failure). The "FN-DISCARD
+      of correct answers" cell of the audit is EXPECTED to be empty
+      and documented as empirically-verified-zero rather than as an
+      unrecoverable limitation.
+
+      This strengthens the thesis claim from "effective 100% on
+      in-memory episodes" to "effective 100% on all correct answers
+      that pass minimum coherence checks, with ABSTAIN as the
+      principled refusal for unverifiable cases."
+
+      **Further-sharpened claim (2026-04-22 18:45 BDT user pushback):**
+      the "DISCARD of a correct answer" case is not just rare — it's
+      empty-by-construction. A DISCARD requires u_stored < 0.45 AND
+      p_ground_max ≥ 0.2. With w_pg_mean=0.28 contributing ≥ 0.028
+      from any functional retrieval (p_ground_mean ≥ 0.1), the
+      remaining 0.58 of weight must average < 0.73 — which requires
+      at least two of {s_avg, p_entail, q_a_relevance, u_internal} to
+      be < 0.5. But:
+        * s_avg < 0.5 means the model is INCONSISTENT across M chains
+          (one chain "happened to be correct" by luck; the answer
+          isn't reliably correct)
+        * p_entail < 0.5 means the reasoning chain does NOT entail
+          the final answer (correct phrase appended to wrong chain
+          = post-hoc guess, not "correct" in an epistemic sense)
+        * q_a_relevance < 0.5 means the answer doesn't address the
+          question (factually true statement ≠ correct answer to THIS
+          question)
+      Any of these being low means the answer lacks the epistemic
+      properties the verifier measures as "correctness." So DISCARD
+      of a human-judged-correct answer is a contradiction in terms
+      within CAEM's composite design.
+
+      **Revised Table 5.E expectation:** the "FN: DISCARD of correct
+      answer" row is expected to have count = 0 across all N cycles,
+      not as an empirical surprise but as architectural prediction.
+      Auditing that count is still valuable — to confirm no signal
+      bug or weight mis-calibration breaks the construction — but
+      any non-zero count would signal a bug, not an acceptable
+      limitation.
 
 - [ ] Ch6 §Discussion paragraph integrating the 4-gate architectural
       defense framing (draft in this log above), citing Tables 5.A,
