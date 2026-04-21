@@ -34,13 +34,18 @@ from tests.test_verifier import _blank_verifier  # reuses the isolation helper
 # -----------------------------------------------------------------------------
 
 class _MockScorer:
-    """Minimal sentence-transformers CrossEncoder duck-type."""
+    """Minimal sentence-transformers CrossEncoder duck-type.
+
+    Accepts **kwargs so the verifier can pass show_progress_bar=False
+    (or any other future CrossEncoder.predict flag) without the mock
+    having to track the signature.
+    """
 
     def __init__(self, score: float) -> None:
         self.score = score
         self.calls: list = []
 
-    def predict(self, pairs):
+    def predict(self, pairs, **kwargs):  # noqa: ARG002 -- kwargs ignored
         self.calls.append(list(pairs))
         return np.array([self.score])
 
