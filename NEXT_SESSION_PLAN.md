@@ -295,45 +295,66 @@ upgrade surface:
 Status legend: ✅ done · 🔄 in progress · ⏳ pending · 🟡 deferred to
 Phase 1 Full.
 
-| # | Step | Phase | Status | Wall-clock | Cost (5090 @ \$0.64/h) |
+Cost and wall-clock updated 2026-04-22 to reflect live Branch-C rates:
+Qwen-2.5-3B + MiniCheck-Flan-T5-Large + BGE-reranker-v2-m3 measured at
+~10.2 s/q pure-Tier-3 (Profile v4 on 5090), tier-weighted ~7.8 s/q
+averaged across 10 cycles, per-cycle SIL pool 12,000 samples at
+n_questions=5000 (after 1k calib+purity reservation × 3 benchmarks).
+**Steps 7, 14, 15 run with the triple-signal early-stop gate active
+(Upgrades 1–3, `caem/eval/equilibrium.py`)**; typical spend shown is
+gate-firing at c=7, worst case is full 10-cycle.
+
+| # | Step | Phase | Status | Wall-clock | Cost (5090 @ \$0.80/h) |
 |---|------|-------|:---:|-----------:|----------------:|
 | 1 | Pre-flight on local PC | 1a | ✅ | 5 min | \$0 |
 | 2 | Rent + connect RTX 5090 | 1a | ✅ | 10 min | ~\$0.10 |
-| 3 | Remote env setup (+ Qwen-3B cache + bitsandbytes + flash-attn) | 1a | ⏳ | 25 min | ~\$0.25 |
-| 3B | Pytest unit-test gate (703 tests, 2 env-gated skips) | 1a | ⏳ | 2 min | ~\$0.02 |
-| 3C | Live `test_load_qwen_3b` (slow, single-shot) | 1a | ⏳ | 5 min | ~\$0.05 |
-| 4 | Build / reuse passage index (21M, IVF-PQ on Qwen-era) | 1a | ♻️ | ~8 h | ~\$5 |
-| 4.5 | Archive / refresh FAISS index on HuggingFace Hub | 1a | ♻️ | 10 min | ~\$0.10 |
-| 5 | Smoke test (1 cycle, n=50, MiniCheck + BGE reranker) | 1a | ⏳ | 40 min | ~\$0.45 |
-| 5.5 | Verifier calibration diagnostic (MiniCheck vs RoBERTa + q_a_relevance) | 1a | ⏳ | 20 min | ~\$0.20 |
-| 6 | Cold-start memory seeding (Qwen-3B prompts, τ\_store = 0.45) | 1a | ⏳ | ~2 h | ~\$1.3 |
-| 7.0 | Cycle-0 eval + per-benchmark τ calibration | 1a | ⏳ | ~1.2 h | ~\$0.8 |
-| 7.0.E | **Epistemic gate** (faithfulness labels + Spearman ρ CI) | 1a | ⏳ | ~45 min | ~\$0.5 |
-| 7.0.E.1 |  ↳ `scripts/label_faithfulness.py` (MiniCheck re-score) | 1a | ⏳ | ~25 min | ~\$0.3 |
-| 7.0.E.2 |  ↳ `scripts/epistemic_gate.py --n_bootstrap 1000` | 1a | ⏳ | ~5 min | ~\$0.05 |
-| 7.0.E.3 |  ↳ GATE: ρ > 0.5 PROCEED · 0.3 < ρ ≤ 0.5 HONESTY · ≤ 0.3 STOP | 1a | ⏳ | instant | — |
-| 7.0.P | Perf baseline row (`perf_baseline.py`, bs=1/8/16/32) | 1a | ⏳ | ~35 min | ~\$0.35 |
-| 7 | **Main 10-cycle CAEM run** (Qwen-3B, n\_questions=5000, 7-family composite) | 1a | ⏳ | ~300 h | **~\$195** |
-| 8 | FLARE pre-flight smoke (5 samples, Qwen-3B backbone) | 1a | ⏳ | 6 min | ~\$0.06 |
-| 9 | B1 Zero-shot (Qwen-3B ChatML) | 1a | ⏳ | 25 min | ~\$0.25 |
-| 10 | B2 Chain-of-Thought (Qwen-3B) | 1a | ⏳ | 55 min | ~\$0.60 |
-| 11 | B3 DPR-RAG (Qwen-3B + TierThreeRAG) | 1a | ⏳ | 1.8 h | ~\$1.2 |
-| 12 | B4 CoT + DPR-RAG (Qwen-3B) | 1a | ⏳ | 2.2 h | ~\$1.4 |
-| 13 | B5 FLARE (Qwen-3B, decoder-only slice) | 1a | ⏳ | 2.6 h | ~\$1.7 |
-| 14 | B6 Simple FT (Full FT + 8-bit AdamW, 10 cycles) | 1a | ⏳ | ~6.5 h | ~\$4.2 |
-| 15 | B7 EWC-only FT (10 cycles; λ fitted to match L2 anchor scale) | 1a | ⏳ | ~6.5 h | ~\$4.2 |
-| 15.5 | McNemar + bootstrap CI + Holm sig-tests | 1a | ⏳ | 20 min | ~\$0.20 |
-| 19 | Purity theorem validation (seven-family composite replay) | 1a | ⏳ | 45 min | ~\$0.45 |
+| 3 | Remote env setup (+ Qwen-3B cache + bitsandbytes) | 1a | ✅ | 25 min | ~\$0.25 |
+| 3B | Pytest unit-test gate (758 tests, 2 env-gated skips) | 1a | ✅ | 2 min | ~\$0.02 |
+| 3C | Live `test_load_qwen_3b` (slow, single-shot) | 1a | ✅ | 5 min | ~\$0.05 |
+| 4 | Passage index (21M, IVF-PQ, 2M training sample) | 1a | ✅ | ~8 h | ~\$5 |
+| 4.5 | FAISS index archived on HF Hub (`aksaN000/caem-passage-index-21m`) | 1a | ✅ | 10 min | ~\$0.10 |
+| 5 | Smoke test (1 cycle, n=50, MiniCheck + BGE reranker) | 1a | ✅ | 40 min | ~\$0.45 |
+| 5.5 | Verifier calibration diagnostic (MiniCheck vs RoBERTa + q_a_relevance) | 1a | ✅ | 20 min | ~\$0.20 |
+| **6** | **Cold-start memory seed** (200 × 3 benchmarks at τ\_store=0.45) | 1a | **🔄** | ~2.5 h | ~\$1.70 |
+| 7.0 | Cycle-0 eval + per-benchmark τ calibration | 1a | ⏳ | ~1.2 h | ~\$1.0 |
+| 7.0.E | Epistemic gate (faithfulness labels + Spearman ρ CI) | 1a | ⏳ | ~45 min | ~\$0.6 |
+| 7.0.P | Perf baseline row (`perf_baseline.py`, bs=1/8/16/32) | 1a | ⏳ | ~35 min | ~\$0.45 |
+| **7** | **CAEM 10-cycle main** (n\_questions=5000, 7-family composite, early-stop gate active) | 1a | ⏳ | 100–170 h | **\$130–\$170** |
+| 8 | FLARE pre-flight smoke (5 samples, Qwen-3B backbone) | 1a | ⏳ | 6 min | ~\$0.15 |
+| 9 | B1 Zero-shot (Qwen-3B ChatML) | 1a | ⏳ | 3.3 h | ~\$2.67 |
+| 10 | B2 Chain-of-Thought (Qwen-3B) | 1a | ⏳ | 5.0 h | ~\$4.00 |
+| 11 | B3 DPR-RAG (Qwen-3B + TierThreeRAG) | 1a | ⏳ | 8.3 h | ~\$6.64 |
+| 12 | B4 CoT + DPR-RAG (Qwen-3B) | 1a | ⏳ | 11.7 h | ~\$9.36 |
+| 13 | B5 FLARE (Qwen-3B, decoder-only slice) | 1a | ⏳ | 16.7 h | ~\$13.36 |
+| **14** | **B6 Vanilla-FT 10-cycle** (Full FT + 8-bit AdamW, early-stop gate active) | 1a | ⏳ | 50–78 h | **\$60–\$78** |
+| **15** | **B7 EWC-only FT 10-cycle** (λ fitted to match L2 anchor scale, early-stop gate active) | 1a | ⏳ | 60–89 h | **\$73–\$89** |
+| 15.5 | McNemar + bootstrap CI + Holm sig-tests | 1a | ⏳ | 20 min | ~\$0.40 |
+| 19 | Purity theorem validation (seven-family composite replay) | 1a | ⏳ | 1.4 h | ~\$1.12 |
 | 19.2 | Cycle-2 retention diagnostic (advisory flag) | 1a | ⏳ | 15 min | ~\$0.15 |
 | 19.5 | Ten-signal correlation matrix (includes q_a_relevance) | 1a | ⏳ | 10 min | CPU only |
-| 19.7 | Consolidation-audit review (outputs/consolidation_log_cycle_*.jsonl) | 1a | ⏳ | 10 min | CPU only |
-| 20 | Aggregate outputs + perf_log.csv + download + stop instance | 1a | ⏳ | 30 min | ~\$0.30 |
-| **Phase 1a subtotal** | | | | **~328 h** | **~\$215** |
-| 16 | Screening sweep (19 landed variants × 3 cycles × n\_screen=1500) | Full | 🟡 | ~420 h | ~\$270 |
+| 19.7 | Consolidation-audit review | 1a | ⏳ | 10 min | CPU only |
+| 20 | Aggregate outputs + perf_log.csv + download + stop instance | 1a | ⏳ | 30 min | ~\$0.24 |
+| **Phase 1a subtotal (typical, early-stop at c≈7)** | | | | **~200 h** | **~\$225** |
+| **Phase 1a subtotal (worst, no early-stop)** | | | | **~245 h** | **~\$272** |
+| 16 | Screening sweep (19 landed variants × 3 cycles × n=1500) | Full | 🟡 | ~80 h | ~\$90 |
 | 17 | Aggregate screening + pick top-N | Full | 🟡 | 5 min | ~\$0.05 |
-| 18 | Confirmatory sweep (top-N + `full` + 4 planned variants\*, 10 cycles × n=5000) | Full | 🟡 | ~560 h | ~\$360 |
-| **Phase 1 Full subtotal** | | | | **~980 h** | **~\$630** |
-| 20B | **(Optional)** STaR ceiling run | 20B | 🟡 | 7-9 h | ~\$5 |
+| 18 | Confirmatory sweep (top-N + `full` + 4 planned variants\*, 10 cycles × n=5000) | Full | 🟡 | ~500 h | ~\$400 |
+| **Phase 1 Full subtotal (deferred)** | | | | **~580 h** | **~\$490** |
+| 20B | **(Optional)** STaR ceiling run | 20B | 🟡 | 7-9 h | ~\$6 |
+
+**Budget status (2026-04-22):** current Vast credit \$102, committed
+topup to \$208, projected spend \$225 typical (moderate overrun risk
+\$17), worst case \$272 (−\$64). Live burn-rate check after cycle 2 of
+Step 7 flags if trajectory heads toward the worst case; can cut
+n\_questions mid-run to 4000 or 3000 as the fallback.
+
+**Deferred to Future Work (post-thesis):** Claim 4 (solver-verifier gap
+via coupled-ODE fit on held-out probe, \$16) and Claim 5
+(cross-improvement allocation test — Early / Uniform / Late schedule of
+general\_data\_ratio, \$164 full-scale or \$70 reduced). Both framed as
+post-thesis extensions of Sun et al. (ICLR 2026); see
+`branch_C_log.md` 2026-04-22 06:30 BDT entry and the Branch-C Ch1–Ch5
+revision pass TODO list.
 
 \* Four Phase-1-Full-only variants: `flan_t5_large_backbone` (Phase-1a-halted
 data revalidated through the Branch-C composite), `bge_hybrid_retriever`,
