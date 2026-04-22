@@ -660,13 +660,18 @@ main() {
     # --- Headline (~335 h / ~14 days) ---
     step_7_main
 
-    # --- External baselines (~18 h) ---
-    step_8_flare_smoke
+    # --- External baselines (~8 h batched + ~55 h FT) ---
+    # B5 FLARE and its pre-gate removed from the chain: FLARE is inference-
+    # only and cannot be batched (iterative look-ahead per sentence), so at
+    # 30k serial queries it would cost ~25-125 GPU-h for a baseline that
+    # doesn't defend any of the 5 headline claims. CAEM's training + memory
+    # design makes any FLARE comparison structurally asymmetric (see
+    # branch_C_log.md 2026-04-22 removal rationale). step_8_flare_smoke and
+    # step_13_b5 function bodies remain in-file for potential Phase 2 reuse.
     step_9_b1
     step_10_b2
     step_11_b3
     step_12_b4
-    step_13_b5
     step_14_b6_vanilla_ft
     step_15_b7_ewc_only
     step_15_5_sig

@@ -2469,3 +2469,74 @@ it should be added as a critical-path item. Goal 5 was implemented
 at the infrastructure level (BatchPipeline class, pool helpers,
 equilibrium module) but wiring-to-runners is incomplete.
 
+
+
+### 2026-04-22 06:40 BDT  `[DECISION]`  B5 FLARE removed from Phase 1a baseline panel
+
+Removed `step_8_flare_smoke` and `step_13_b5` calls from `run_phase1a.sh::main()`
+(function bodies kept in-file). FLARE no longer runs on Phase 1a.
+
+**Rationale** (working through this with the user on 2026-04-22, session
+after Phase A/C wiring committed):
+
+1. **Training-asymmetry critique is real.** CAEM is a training + memory
+   system; FLARE is inference-only. CAEM-10 vs FLARE conflates "our
+   architecture" with "10 cycles of SFT on our training data". A skeptic
+   reads the B5 row and asks "of course CAEM wins — CAEM got 10 cycles
+   of training, FLARE got zero."
+
+2. **No fair static counterfactual exists.** CAEM Cycle 0 has Tier 1 = 0%,
+   Tier 2 = 1.4%, Tier 3 = 98.6% — effectively degenerates to plain RAG
+   because the 611-episode cold-start memory is too sparse to cover
+   meaningful Tier-1/2 routes. So CAEM-0 vs FLARE would predict FLARE
+   winning, not because FLARE is better than CAEM but because CAEM's
+   architectural payoff requires memory fill-up. Neither endpoint gives
+   a clean comparison.
+
+3. **None of the 5 headline claims need FLARE.**
+   - C1 (ceiling exists): any inference baseline bounds the ceiling; B1-B4 suffice
+   - C2 (α -> 100%): internal CAEM measurement (Step 19 purity)
+   - C3 (CAEM improves across cycles): CAEM Cycle 0 vs Cycle 10 internal comparison
+   - C4 (no catastrophic forgetting): MMLU retention + cycle-N retention slice
+   - C5 (decision tree matches Thm 2): decision-trace table from CAEM's own runs
+   FLARE's role was literature coverage for adaptive retrieval, not claim defense.
+
+4. **Cost**: FLARE is the only non-batchable baseline (iterative look-ahead
+   per sentence defeats static batching). At 30k serial queries it runs
+   ~25-125 GPU-h (~$16-80 on Vast RTX 5090). Removing it saves ~50 GPU-h
+   midpoint, ~$32, and reduces total Phase 1a budget from ~$149-213 down
+   to ~$133 -- still short of the $102 credit but closer.
+
+5. **What covers the adaptive-retrieval literature hole**: a methodology
+   paragraph in Ch5 §5.3 (or §5.6) stating:
+   > "We do not include adaptive-retrieval baselines (e.g. FLARE, Jiang
+   > et al. 2023; Self-RAG, Asai et al. 2023). CAEM is a training +
+   > memory system whose output evolves across cycles, whereas those
+   > methods are inference-only. Direct comparison is structurally
+   > asymmetric: CAEM-0 (pre-memory) operates as always-RAG and is
+   > expected to lose; CAEM-10 has a training-budget advantage. The
+   > appropriate fair comparator is B7 (EWC-only FT), which matches
+   > CAEM's training budget while omitting the memory and verifier
+   > machinery. Our B3/B4 baselines bound the retrieval-quality axis
+   > independently."
+
+**Revised baseline panel** (6 rows, all defensible):
+
+| Row | Baseline | Purpose |
+|-----|----------|---------|
+| B1  | zero_shot          | Floor: raw Qwen-3B |
+| B2  | CoT                | Prompt intervention alone |
+| B3  | RAG (always)       | Retrieval intervention alone |
+| B4  | CoT + RAG          | CoT combined with retrieval |
+| B6  | vanilla_ft (10c)   | Plain SFT, matched training budget |
+| B7  | ewc_only_ft (10c)  | SFT + anti-forgetting, matched training |
+| **CAEM** | **full machinery** | **thesis contribution** |
+
+Primary scientific comparison: **CAEM - B7** (matched training, isolates
+memory + verifier machinery). Secondary positioning: CAEM - B1..B4
+(deployment vs inference-only).
+
+**Does not affect running Step 7.0.** Runner's bash script and python
+modules were parsed at launch 2026-04-21 23:48:57 UTC; edit takes effect
+on next invocation. Function bodies for step_8_flare_smoke and step_13_b5
+remain in-file for potential Phase 2 reconsideration.
