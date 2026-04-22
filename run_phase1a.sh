@@ -227,18 +227,43 @@ step_prompt_ablation() {
 }
 
 # ============================================================================
-# Level B batched-inference smoke (merged 55dcb64; gate before main run)
+# u_tok_drop pool correctness gate (replaces Level B smoke for Branch C).
+# Runs diff_verify_serial_vs_batch.py at N=32 under CAEM_BATCH_U_TOK_DROP=1 —
+# the exact Step 7 main config — so we catch any pool regression before
+# burning 11 days on the headline. Gate threshold matches your 2026-04-22
+# 05:30 BDT [PERF] report: |mean Δ u_stored| < 0.02, balanced sign pattern,
+# p_ground_atomic drift exactly zero (atomic pool still guarded).
 # ============================================================================
-step_level_b_smoke() {
-    local marker="outputs/level_b_smoke.log"
-    if [[ -f "$marker" ]] && grep -q "Level B smoke PASSED" "$marker" 2>/dev/null; then
-        log "Level B smoke: previously PASSED — skipping"
+step_u_tok_drop_gate() {
+    local marker="outputs/u_tok_drop_validation.log"
+    if [[ -f "$marker" ]] && grep -q "u_tok_drop PASSED" "$marker" 2>/dev/null; then
+        log "u_tok_drop gate: previously PASSED — skipping"
         return 0
     fi
-    band "Level B batched-inference smoke (N=16)"
-    RUN_LEVEL_B_SMOKE=1 python -m scripts.level_b_smoke 2>&1 | tee "$marker"
-    grep -q "Level B smoke PASSED" "$marker" \
-        || { log "Level B smoke FAILED — see $marker"; exit 1; }
+    band "u_tok_drop pool correctness gate (N=32 diff_verify, CAEM_BATCH_U_TOK_DROP=1)"
+    CAEM_BATCH_U_TOK_DROP=1 python scripts/diff_verify_serial_vs_batch.py \
+        --n 32 --benchmark fever 2>&1 | tee "$marker"
+    # Parse |mean_delta| for u_stored; fail if >= 0.02 (your 2026-04-22 cutoff).
+    python - <<'PY'
+import re, sys
+log = open("outputs/u_tok_drop_validation.log").read()
+m = re.search(r"u_stored\s+([+-]?\d+\.\d+)\s+(\d+\.\d+)", log)
+if not m:
+    print("u_tok_drop gate: could not parse u_stored drift; FAILING closed"); sys.exit(1)
+mean_delta = float(m.group(1))
+max_abs    = float(m.group(2))
+print(f"  u_stored mean_delta={mean_delta:+.4f}  max|delta|={max_abs:.4f}")
+# Thresholds from the 2026-04-22 v4 shipped N=32 gate:
+#   |mean delta| < 0.02  (your report's accepted max was 0.016)
+#   p_ground_atomic guard still holds (checked separately below)
+if abs(mean_delta) >= 0.02:
+    print(f"  u_tok_drop gate FAILED: |mean_delta|={abs(mean_delta):.4f} >= 0.02"); sys.exit(1)
+# Confirm atomic-pool guard didn't fire (p_ground_atomic should be bit-zero).
+if not re.search(r"p_ground_atomic\s+\+0\.0000\s+0\.0000", log):
+    print("  u_tok_drop gate FAILED: atomic pool shows drift — guard broke"); sys.exit(1)
+print("  u_tok_drop PASSED")
+PY
+    echo "u_tok_drop PASSED" >> "$marker"
 }
 
 # ============================================================================
@@ -359,13 +384,11 @@ step_7_main() {
         fi
     fi
     band "Step 7 — main 10-cycle CAEM run (n=5000/bench, ~335 GPU-h) [u_tok_drop pools ON]"
-    # Enable the u_tok_drop verifier pools for this step only.
-    # Correctness: validated 2026-04-22 (|mean Δ u_token|=0.0004, |mean Δ u_dropout|=0.038).
-    # Thermals: at 45°C with oscillating 0-94% GPU util (2026-04-22 live), the
-    # sustained-100%-util thermal regression that caused the original revert
-    # does not apply. Fall-back to per-sample serial is automatic if any pooled
-    # row returns None, or if the env flag is unset in future launches.
-    export CAEM_BATCH_U_TOK_DROP=1
+    # Enable the u_tok_drop verifier pools for THIS python child only.
+    # Scoped via the leading assignment so the env var is not exported into
+    # subsequent runner stages (Step 8 FLARE smoke / baselines / diagnostics
+    # should see the v4 shipped configuration). Correctness validated at
+    # step_u_tok_drop_gate which runs immediately before this function.
 
     local tau_store tau_defer tau_train backend
     tau_store=$(python -c 'import json; print(json.load(open("outputs/cycle_0/calibrated_thresholds.json"))["thresholds"]["store"])')
@@ -384,7 +407,7 @@ step_7_main() {
         fi
     fi
 
-    python -m scripts.run_experiment \
+    CAEM_BATCH_U_TOK_DROP=1 python -m scripts.run_experiment \
         --output_dir outputs/full_run \
         --num_cycles 10 \
         --n_questions 5000 \
@@ -546,20 +569,27 @@ step_19_purity() {
 }
 
 # ============================================================================
-# Step 19.2.2 — Cycle-2 retention diagnostic evaluation
+# Step 19.2.2 — Retention diagnostic on the highest completed cycle.
+# Originally hardcoded to cycle 2 (Flan-T5 era "early warning" checkpoint);
+# on Qwen with EWC + MMLU-guard + rollback, the end-state answer stability
+# at cycle 10 is the thesis-relevant metric. We walk outputs/full_run/cycle_*
+# and pick the highest-numbered one that has a model/ subdir.
 # ============================================================================
 step_19_2_eval() {
-    local out="outputs/full_run/cycle_2/retention_diagnostic.json"
-    local ckpt="outputs/full_run/cycle_2/model"
+    local last_cycle
+    last_cycle=$(ls -d outputs/full_run/cycle_*/model 2>/dev/null \
+        | sed 's#.*/cycle_\([0-9]\+\)/model#\1#' | sort -n | tail -1)
+    if [[ -z "${last_cycle:-}" ]]; then
+        log "Step 19.2.2: no outputs/full_run/cycle_*/model checkpoint found — skipping"
+        return 0
+    fi
+    local out="outputs/full_run/cycle_${last_cycle}/retention_diagnostic.json"
+    local ckpt="outputs/full_run/cycle_${last_cycle}/model"
     if [[ -f "$out" ]]; then
-        log "Step 19.2.2: retention diagnostic already present — skipping"
+        log "Step 19.2.2: retention diagnostic for cycle $last_cycle already present — skipping"
         return 0
     fi
-    if [[ ! -d "$ckpt" ]]; then
-        log "Step 19.2.2: Cycle-2 checkpoint $ckpt missing — skipping (non-fatal)"
-        return 0
-    fi
-    band "Step 19.2.2 — Cycle-2 retention diagnostic"
+    band "Step 19.2.2 — retention diagnostic (evaluating on highest completed cycle: $last_cycle)"
     python scripts/cycle2_retention_diagnostic.py --evaluate \
         --slice data/retention/cycle0_slice_500.jsonl \
         --cycle2_checkpoint "$ckpt" \
@@ -611,13 +641,21 @@ main() {
     step_7_0_calibrate
     step_5_5_pairs
     step_5_5_headhead
-    step_5_5_gate                 # halts on Scenario B/C
-    step_prompt_ablation
-    step_level_b_smoke
+    # step_5_5_gate: REMOVED (scenario classifier, 2026-04-20 decision is
+    #   MiniCheck irrespective; wording guidance only).
+    # step_prompt_ablation: REMOVED (OLD-prompt eval dir is Flan-T5 era;
+    #   comparing OLD@T5 vs NEW@Qwen conflates two variables and isn't
+    #   defensible as a prompt-design ablation).
     step_19_2_slice               # must precede Step 7
 
     # --- One-shot HF snapshot of pre-Step-7 state (credit-burnout recovery) ---
     step_hf_upload_pre_main
+
+    # --- Pre-Step-7 correctness gate (replaces Level B smoke) ---
+    # Validates CAEM_BATCH_U_TOK_DROP=1 pool config right before Step 7 main
+    # burns 11 days of GPU. Fails the runner if |mean Δ u_stored| >= 0.02
+    # or if the atomic-pool guard broke.
+    step_u_tok_drop_gate
 
     # --- Headline (~335 h / ~14 days) ---
     step_7_main
