@@ -72,6 +72,7 @@ from __future__ import annotations
 
 import logging
 import math
+import os
 import pickle
 import random
 import time
@@ -1091,7 +1092,29 @@ class SelfImprovementLoop:
         aborted: bool,
         theta_prev: Optional[List[torch.Tensor]],
     ) -> str:
-        """Save model weights + metadata to outputs/cycle_{n}/."""
+        """Save model weights + metadata to outputs/cycle_{n}/.
+
+        Phase 1a disk-optimisation (2026-04-22): Qwen-2.5-3B bf16 state_dicts
+        are ~6.2 GB each. At 10 cycles that's ~62 GB — larger than the free
+        space on a 150 GB Vast cgroup. Two-tier retention:
+
+          1. Local rolling-N (always on): after each save, delete ``model.pt``
+             for cycle_{n-2} if that cycle isn't 0 and isn't the final.
+             Keeps cycle_0 (baseline) + last 2 cycles + final cycle.
+             Peak local disk ~25 GB instead of ~62 GB.
+
+          2. HF-Hub milestone offload (env-gated CAEM_HF_OFFLOAD=1):
+             upload cycles 0, N/2, and N (final) to
+             aksaN000/caem-passage-index-21m:checkpoints/<run>/cycle_<n>/
+             for cross-instance resume insurance. Selective (not every
+             cycle) to stay within free-tier storage headroom. Failures
+             are non-fatal — the local rolling-N is the guarantee; HF is
+             opportunistic backup.
+
+        ``meta.pkl`` is tiny and always kept under every cycle_{n}/ dir
+        so downstream scripts can find cycle boundaries without the
+        weights file.
+        """
         ckpt_dir = self.output_dir / f"cycle_{cycle_num}"
         ckpt_dir.mkdir(parents=True, exist_ok=True)
 
@@ -1118,6 +1141,57 @@ class SelfImprovementLoop:
         meta_path = ckpt_dir / "meta.pkl"
         with open(meta_path, "wb") as f:
             pickle.dump(meta, f)
+
+        # --- Tier 1: local rolling-N retention (always on) --------------
+        # Keep cycle_0 (baseline) + last 2 + final. Delete cycle_{n-2}/model.pt
+        # when cycle_num >= 2 and cycle_{n-2} is not 0 and not the final cycle.
+        total_cycles = getattr(self, "_total_cycles", 10)
+        if cycle_num >= 2:
+            old_cycle = cycle_num - 2
+            if old_cycle > 0 and old_cycle != total_cycles:
+                old_path = self.output_dir / f"cycle_{old_cycle}" / "model.pt"
+                if old_path.exists():
+                    try:
+                        size_mb = old_path.stat().st_size / (1024 * 1024)
+                        old_path.unlink()
+                        logger.info(
+                            "Cycle %d: reclaimed %.0f MB from cycle_%d/model.pt "
+                            "(rolling-N retention; meta.pkl preserved).",
+                            cycle_num, size_mb, old_cycle,
+                        )
+                    except Exception as exc:
+                        logger.warning(
+                            "Cycle %d: could not delete old cycle_%d/model.pt: %s",
+                            cycle_num, old_cycle, exc,
+                        )
+
+        # --- Tier 2: opportunistic HF-Hub milestone offload (env-gated) -
+        # Upload cycle_0, cycle_{N/2}, and cycle_N only, to bound HF storage.
+        if os.environ.get("CAEM_HF_OFFLOAD", "0") == "1":
+            milestones = {0, max(1, total_cycles // 2), total_cycles}
+            if cycle_num in milestones:
+                try:
+                    from huggingface_hub import HfApi
+                    api = HfApi()
+                    run_name = self.output_dir.name
+                    remote_path = f"checkpoints/{run_name}/cycle_{cycle_num}/model.pt"
+                    api.upload_file(
+                        path_or_fileobj=str(weights_path),
+                        path_in_repo=remote_path,
+                        repo_id="aksaN000/caem-passage-index-21m",
+                        repo_type="dataset",
+                        commit_message=f"offload {run_name} cycle {cycle_num} (milestone)",
+                    )
+                    logger.info(
+                        "Cycle %d: milestone offload OK -> %s",
+                        cycle_num, remote_path,
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "Cycle %d: HF milestone offload failed (%s) -- local "
+                        "rolling-N retention still active; training continues.",
+                        cycle_num, exc,
+                    )
 
         logger.info(
             "Cycle %d: checkpoint saved to %s (aborted=%s).",

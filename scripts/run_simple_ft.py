@@ -882,6 +882,31 @@ def main() -> None:
         model.save_pretrained(str(ckpt_dir))
         tokenizer.save_pretrained(str(ckpt_dir))
 
+        # Phase 1a disk-optimisation (2026-04-22): rolling-N retention.
+        # Qwen-2.5-3B full checkpoint ~6 GB; keeping 10 would use 60 GB per
+        # baseline run. Delete cycle_{n-2}/ weights (but keep cycle_0 and
+        # the final cycle) so peak local disk stays at ~18-24 GB.
+        # save_pretrained writes model.safetensors + config.json + tokenizer files;
+        # we delete just the weight shards, leaving metadata for downstream inspect.
+        if cycle >= 2:
+            old_cycle = cycle - 2
+            if old_cycle > 0 and old_cycle != ns.num_cycles:
+                old_dir = out_root / f"cycle_{old_cycle}"
+                for weight_file in list(old_dir.glob("*.safetensors")) + list(old_dir.glob("*.bin")):
+                    try:
+                        size_mb = weight_file.stat().st_size / (1024 * 1024)
+                        weight_file.unlink()
+                        logger.info(
+                            "Cycle %d: reclaimed %.0f MB from cycle_%d/%s "
+                            "(rolling-N retention).",
+                            cycle, size_mb, old_cycle, weight_file.name,
+                        )
+                    except Exception as exc:
+                        logger.warning(
+                            "Cycle %d: could not delete cycle_%d/%s: %s",
+                            cycle, old_cycle, weight_file.name, exc,
+                        )
+
         # Evaluate the cycle weights on the six-benchmark panel (3 ID + 3 OOD).
         logger.info("Cycle %d: evaluating on %d benchmarks ...",
                     cycle, len(ns.eval_benchmarks))
