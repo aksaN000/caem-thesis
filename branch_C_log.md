@@ -2590,3 +2590,97 @@ gives us real Step 7 main numbers so ablation scope can be informed
 rather than speculative. Also isolates blast radius — a single long
 runbook that fails mid-ablation is harder to triage than two shorter
 runbooks in sequence.
+
+
+### 2026-04-22 16:35 BDT  `[DECISION]`  Purity-claim reconciliation — 19:15 BDT sharpened claim is PRIMARY, 3-conjunction becomes the fallback
+
+During the Session 3 hourly-check loop review the user asked whether
+the claim "memory + SIL data never gets contaminated at the convergence
+cycle (assumed N=10)" is defensible. Audit found the log contains two
+different framings from earlier today, never reconciled:
+
+- **19:15 BDT sharpened claim** (lines ~693–749): "Purity at equilibrium
+  cycle c* is 100% on BOTH the memory store (u_stored ≥ τ_prune = 0.5
+  after retroverify) and the training pool (u_stored ≥ τ_train = 0.75)
+  subsets, with 95% Clopper-Pearson CI [0.985, 1.000] on each subset
+  independently" — bounded by audit size, conditional on equilibrium +
+  3-mechanism self-correction, architecturally predicted.
+
+- **Earlier cautious guidance** (lines ~780–803): "The strongest
+  defensible claim is NOT '100% pure always'. Use the 3-line
+  conjunction: (1) empirical bounded by audit N, (2) architectural
+  τ_store < τ_train, (3) retroverify residual-risk mitigation."
+
+**These aren't strictly contradictory** — the 19:15 sharpened version
+IS a careful statistical claim (Clopper-Pearson CI + per-subset +
+conditional). The earlier cautious version pre-empts an even sloppier
+phrasing ("100% pure always" with no CI, no scope). But the reader
+can't tell which the thesis uses without resolving the tension.
+
+**Reconciliation — adopted today:**
+
+1. **PRIMARY thesis claim (use this exact wording in Ch5 §5.X and
+   Ch6 §Discussion):**
+
+       "At equilibrium cycle c* (predicted dynamically via the
+        Upgrades 1–3 saturation fit; typically ≤ N = 10 in practice),
+        the 4-gate defense architecture (τ_store → τ_train → Tier-1
+        retrieval → retroverify-prune) drives the user-facing
+        hallucination rate to effectively zero via product-of-gates
+        bound ≤ 10⁻³. Memory store and training pool subsets both
+        exhibit audited purity of 200/200 = 100% with 95% Clopper-
+        Pearson CI [0.985, 1.000] (Table 5.E). The τ_store < τ_train
+        inequality guarantees by construction that no store-gate
+        false-positive at u_stored < 0.75 enters the SIL training
+        pool."
+
+2. **FALLBACK if audit reveals any defect (use this if Table 5.E
+   lands at, say, 199/200 or lower):**
+
+       "At equilibrium cycle c*, memory purity α approaches 1.0
+        (Theorem 2); user-facing hallucination rate is effectively
+        zero via the 4-gate defense. Audited purity is [X/200] with
+        95% CI [lower, upper]. The remaining risk is bounded by
+        (1) τ_store < τ_train architectural filter, (2) cycle-
+        boundary retroverify re-scoring, and (3) the product-of-
+        gates upper bound on user-facing propagation."
+
+3. **NEVER use any bare "100% pure / never contaminated / contaminant-
+   free" wording anywhere in the thesis text.** Those collapse on the
+   first "show me a counterexample proof" review. The audit-bounded +
+   architecturally-justified phrasing above is the right level of
+   rigor.
+
+4. **Never vs effectively-zero distinction** (important for Ch6
+   §Discussion framing):
+   - "Memory is NEVER contaminated at cycle N=10" — NOT claimed (false;
+     verifier false-positive rate > 0 at cycle 1; equilibrium approach
+     makes rate small but not provably zero)
+   - "User-facing hallucination rate is EFFECTIVELY zero at c*" — CAN
+     be claimed via product-of-gates upper bound + Table 5.A gate-
+     trace count target 0/N
+   - "Audited purity at c* is 100% (95% CI [0.985, 1.000])" — CAN be
+     claimed via Table 5.E Clopper-Pearson construction
+
+5. **Convergence-cycle phrasing** — use c* (equilibrium via Upgrades
+   1–3 fit), not a hard-coded "N=10." The early-stop gate fires
+   dynamically (default `--early_stop_min_cycles=5`, 2-of-3 signals
+   required). N=10 is an upper bound on the runner's cycle loop, not
+   the convergence point of CAEM. Chapter 5 should report the
+   empirical c* observed in experiment_summary.csv.
+
+**Action item:** when the Ch1–6 rewrite pass starts (post-Phase-1a
+per `feedback_thesis_rewrite_methodology.md`), the author should:
+- Grep the existing `pre thesis 1 report/chapters/` for any "100%
+  pure", "never contaminated", or "contaminant-free" wording and
+  rewrite to the PRIMARY claim above.
+- Confirm Table 5.E's CI lower bound supports the PRIMARY claim; if
+  not, downgrade to FALLBACK.
+- Add an explicit "residual-risk acknowledgement" paragraph citing
+  the 3-mechanism self-correction loop and FN (false-negative)
+  unrecoverability as documented limitations (the honest-scoping
+  paragraph that strengthens the claim by stating what's NOT claimed).
+
+**This entry supersedes the earlier cautious guidance (lines ~780–803)
+for the purposes of thesis text.** That cautious guidance remains in
+the log as historical record but is no longer the operative direction.
