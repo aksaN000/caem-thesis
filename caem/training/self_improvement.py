@@ -1165,33 +1165,39 @@ class SelfImprovementLoop:
                             cycle_num, old_cycle, exc,
                         )
 
-        # --- Tier 2: opportunistic HF-Hub milestone offload (env-gated) -
-        # Upload cycle_0, cycle_{N/2}, and cycle_N only, to bound HF storage.
-        if os.environ.get("CAEM_HF_OFFLOAD", "0") == "1":
-            milestones = {0, max(1, total_cycles // 2), total_cycles}
-            if cycle_num in milestones:
-                try:
-                    from huggingface_hub import HfApi
-                    api = HfApi()
-                    run_name = self.output_dir.name
-                    remote_path = f"checkpoints/{run_name}/cycle_{cycle_num}/model.pt"
-                    api.upload_file(
-                        path_or_fileobj=str(weights_path),
-                        path_in_repo=remote_path,
-                        repo_id="aksaN000/caem-passage-index-21m",
-                        repo_type="dataset",
-                        commit_message=f"offload {run_name} cycle {cycle_num} (milestone)",
-                    )
+        # --- Tier 2: Google Drive every-cycle offload (env-gated) -------
+        # When CAEM_GDRIVE_OFFLOAD=1, upload EVERY cycle's model.pt via rclone
+        # to gdrive:caem-phase1a/<run_name>/cycle_<n>/model.pt. Drive's ~5 TiB
+        # budget makes per-cycle offload trivial (no milestone filtering
+        # needed). Failures are non-fatal — the local rolling-N is still the
+        # on-disk guarantee; Drive is cross-instance / post-run backup.
+        if os.environ.get("CAEM_GDRIVE_OFFLOAD", "0") == "1":
+            import subprocess
+            run_name = self.output_dir.name
+            remote_path = f"gdrive:caem-phase1a/{run_name}/cycle_{cycle_num}/"
+            try:
+                result = subprocess.run(
+                    ["rclone", "copy", str(weights_path), remote_path,
+                     "--transfers", "4", "--checkers", "8"],
+                    capture_output=True, text=True, timeout=1800,
+                )
+                if result.returncode == 0:
                     logger.info(
-                        "Cycle %d: milestone offload OK -> %s",
+                        "Cycle %d: gdrive offload OK -> %smodel.pt",
                         cycle_num, remote_path,
                     )
-                except Exception as exc:
+                else:
                     logger.warning(
-                        "Cycle %d: HF milestone offload failed (%s) -- local "
+                        "Cycle %d: gdrive offload failed (rc=%d): %s -- local "
                         "rolling-N retention still active; training continues.",
-                        cycle_num, exc,
+                        cycle_num, result.returncode, result.stderr[:500],
                     )
+            except Exception as exc:
+                logger.warning(
+                    "Cycle %d: gdrive offload errored (%s) -- local rolling-N "
+                    "retention still active; training continues.",
+                    cycle_num, exc,
+                )
 
         logger.info(
             "Cycle %d: checkpoint saved to %s (aborted=%s).",

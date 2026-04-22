@@ -71,6 +71,7 @@ import argparse
 import json
 import logging
 import math
+import os
 import random
 import sys
 import time
@@ -882,12 +883,44 @@ def main() -> None:
         model.save_pretrained(str(ckpt_dir))
         tokenizer.save_pretrained(str(ckpt_dir))
 
-        # Phase 1a disk-optimisation (2026-04-22): rolling-N retention.
-        # Qwen-2.5-3B full checkpoint ~6 GB; keeping 10 would use 60 GB per
-        # baseline run. Delete cycle_{n-2}/ weights (but keep cycle_0 and
-        # the final cycle) so peak local disk stays at ~18-24 GB.
-        # save_pretrained writes model.safetensors + config.json + tokenizer files;
-        # we delete just the weight shards, leaving metadata for downstream inspect.
+        # Phase 1a offload (2026-04-22): Google Drive every-cycle upload then
+        # local rolling-N retention.
+        #
+        # Tier 2 — Google Drive upload (env-gated CAEM_GDRIVE_OFFLOAD=1):
+        # rclone copy the whole cycle_dir (save_pretrained produces multiple
+        # files) to gdrive:caem-phase1a/<ft_variant>/cycle_<n>/. Runs BEFORE
+        # local retention so the current cycle is safely on Drive before we
+        # delete any local data.
+        if os.environ.get("CAEM_GDRIVE_OFFLOAD", "0") == "1":
+            import subprocess
+            ft_variant = out_root.name
+            remote_path = f"gdrive:caem-phase1a/{ft_variant}/cycle_{cycle}/"
+            try:
+                result = subprocess.run(
+                    ["rclone", "copy", str(ckpt_dir), remote_path,
+                     "--transfers", "4", "--checkers", "8"],
+                    capture_output=True, text=True, timeout=1800,
+                )
+                if result.returncode == 0:
+                    logger.info("Cycle %d: gdrive offload OK -> %s", cycle, remote_path)
+                else:
+                    logger.warning(
+                        "Cycle %d: gdrive offload failed (rc=%d): %s -- local "
+                        "rolling-N still active; training continues.",
+                        cycle, result.returncode, result.stderr[:500],
+                    )
+            except Exception as exc:
+                logger.warning(
+                    "Cycle %d: gdrive offload errored (%s) -- local rolling-N "
+                    "still active; training continues.", cycle, exc,
+                )
+
+        # Tier 1 — local rolling-N retention (always on). Qwen-2.5-3B full
+        # checkpoint ~6 GB; keeping 10 would use 60 GB per baseline run.
+        # Delete cycle_{n-2}/ weights (but keep cycle_0 and the final cycle)
+        # so peak local disk stays at ~18-24 GB. save_pretrained writes
+        # model.safetensors + config.json + tokenizer files; we delete just
+        # the weight shards, leaving metadata for downstream inspect.
         if cycle >= 2:
             old_cycle = cycle - 2
             if old_cycle > 0 and old_cycle != ns.num_cycles:

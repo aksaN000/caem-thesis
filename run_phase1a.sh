@@ -383,12 +383,13 @@ step_7_main() {
             return 0
         fi
     fi
-    band "Step 7 — main 10-cycle CAEM run (n=5000/bench, ~335 GPU-h) [u_tok_drop pools ON]"
-    # Enable the u_tok_drop verifier pools for THIS python child only.
-    # Scoped via the leading assignment so the env var is not exported into
-    # subsequent runner stages (Step 8 FLARE smoke / baselines / diagnostics
-    # should see the v4 shipped configuration). Correctness validated at
-    # step_u_tok_drop_gate which runs immediately before this function.
+    band "Step 7 — main 10-cycle CAEM run (n=5000/bench, ~335 GPU-h) [u_tok_drop pools ON, gdrive offload ON]"
+    # Enable u_tok_drop verifier pools + gdrive checkpoint offload for this
+    # python child only. Scoped via leading assignments on the python call
+    # so subsequent runner stages see defaults.
+    # - u_tok_drop validated at step_u_tok_drop_gate immediately before.
+    # - gdrive offload sends every cycle to gdrive:caem-phase1a/full_run/
+    #   cycle_<n>/ after local save; local rolling-N still active as safety.
 
     local tau_store tau_defer tau_train backend
     tau_store=$(python -c 'import json; print(json.load(open("outputs/cycle_0/calibrated_thresholds.json"))["thresholds"]["store"])')
@@ -407,7 +408,7 @@ step_7_main() {
         fi
     fi
 
-    CAEM_BATCH_U_TOK_DROP=1 python -m scripts.run_experiment \
+    CAEM_BATCH_U_TOK_DROP=1 CAEM_GDRIVE_OFFLOAD=1 python -m scripts.run_experiment \
         --output_dir outputs/full_run \
         --num_cycles 10 \
         --n_questions 5000 \
@@ -504,8 +505,8 @@ step_14_b6_vanilla_ft() {
             return 0
         fi
     fi
-    band "Step 14 — B6 vanilla FT (10 cycles, no L2 anchor, no MMLU guard, eval bs=32)"
-    python -m scripts.run_simple_ft \
+    band "Step 14 — B6 vanilla FT (10 cycles, no L2 anchor, no MMLU guard, eval bs=32, gdrive offload ON)"
+    CAEM_GDRIVE_OFFLOAD=1 python -m scripts.run_simple_ft \
         --baseline_name vanilla_ft \
         --num_cycles 10 \
         --eval_benchmarks "${BENCHMARKS[@]}" \
@@ -525,8 +526,8 @@ step_15_b7_ewc_only() {
             return 0
         fi
     fi
-    band "Step 15 — B7 EWC-only FT (10 cycles, L2 anchor + MMLU guard on, eval bs=32)"
-    python -m scripts.run_simple_ft \
+    band "Step 15 — B7 EWC-only FT (10 cycles, L2 anchor + MMLU guard on, eval bs=32, gdrive offload ON)"
+    CAEM_GDRIVE_OFFLOAD=1 python -m scripts.run_simple_ft \
         --baseline_name ewc_only_ft \
         --use_l2_anchor \
         --use_mmlu_guard \
