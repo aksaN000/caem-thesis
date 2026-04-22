@@ -2540,3 +2540,53 @@ memory + verifier machinery). Secondary positioning: CAEM - B1..B4
 modules were parsed at launch 2026-04-21 23:48:57 UTC; edit takes effect
 on next invocation. Function bodies for step_8_flare_smoke and step_13_b5
 remain in-file for potential Phase 2 reconsideration.
+
+
+### 2026-04-22 09:45 BDT  `[DECISION]`  Phase 1a only now; Steps 16–18 deferred to Phase 1 Full
+
+After wiring Google Drive checkpoint offload via rclone (commit `b278c1b`),
+surfaced the question of whether the offload covers Phase 1 Full (incl.
+Steps 16–18 ablation sweeps). Audit findings:
+
+**What IS covered by `run_phase1a.sh` + gdrive offload (commit `b278c1b`):**
+- Step 7 main (`step_7_main`): `CAEM_BATCH_U_TOK_DROP=1 CAEM_GDRIVE_OFFLOAD=1`
+  leading assignment on the `run_experiment` call.
+- Step 14 B6 vanilla_ft (`step_14_b6_vanilla_ft`): `CAEM_GDRIVE_OFFLOAD=1`
+  on the `run_simple_ft` call.
+- Step 15 B7 ewc_only_ft (`step_15_b7_ewc_only`): same.
+- All other Phase 1a stages (inference-only baselines, calibration fits,
+  correlation / purity / aggregate) do not save cycle checkpoints, so
+  nothing to offload there.
+
+**What is NOT covered by `run_phase1a.sh` today:**
+- Steps 16–18 (Phase 1 Full ablation sweeps via `run_cyclic_ablation.py`)
+  are deliberately excluded from the Phase 1a chain (see `run_phase1a.sh`
+  line 9 comment: "Excludes: Steps 16-18 (Phase 1 Full, supervisor-funded
+  tranche)"). The CODE path in `run_cyclic_ablation.py` does reuse
+  `SelfImprovementLoop._save_checkpoint`, so setting
+  `CAEM_GDRIVE_OFFLOAD=1` manually on an ablation invocation would offload
+  correctly — but `run_phase1a.sh` does not set this automatically.
+
+**Additional concern flagged for Phase 1 Full**:
+- Step 16 screening sweep is 17 variants × 3 cycles. Rolling-N retention
+  handles within-variant retention (~24 GB each) but between-variant
+  accumulation is not currently handled. Running all 17 sequentially
+  would accumulate ~408 GB locally — overflows the 150 GB Vast disk
+  around variant 6–7. Needs cross-variant cleanup: after each variant
+  completes and its checkpoints are offloaded, delete its whole
+  `outputs/ablation/<variant>/cycle_*` directory tree locally. This fix
+  is TODO for when Steps 16–18 actually run.
+
+**Decision**: execute Phase 1a to completion first (launching commit
+`b278c1b` now). After Phase 1a finishes (~8–10 days), decide whether to
+run Steps 16–18 based on the actual Step 7 main numbers. If yes: add a
+follow-up patch for (a) extending the runbook to chain
+`run_cyclic_ablation.py`, (b) adding cross-variant cleanup to the
+ablation runner.
+
+**Rationale for phasing**: 17-variant screening is ~$50–70 of additional
+GPU on top of the current ~$133 Phase 1a budget. Doing Phase 1a first
+gives us real Step 7 main numbers so ablation scope can be informed
+rather than speculative. Also isolates blast radius — a single long
+runbook that fails mid-ablation is harder to triage than two shorter
+runbooks in sequence.
