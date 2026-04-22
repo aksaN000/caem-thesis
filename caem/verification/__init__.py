@@ -54,13 +54,12 @@ def load_verifier_judge(
 
     if backend == "minicheck":
         try:
-            judge = load_minicheck_judge(
+            mc_judge = load_minicheck_judge(
                 model_name=config.minicheck_model,
                 device=device,
                 entail_threshold=config.minicheck_entail_threshold,
                 contradict_threshold=config.minicheck_contradict_threshold,
             )
-            return judge, None, None
         except Exception as exc:
             if not allow_fallback:
                 raise
@@ -71,6 +70,71 @@ def load_verifier_judge(
                 exc,
             )
             # Fall through to the RoBERTa path below.
+            mc_judge = None
+
+        if mc_judge is not None:
+            # ---- Path B: try to attach FrozenQwenJudge via AdaptiveNLIJudge ----
+            # Precondition: Platt calibration JSON must exist (produced by
+            # scripts/calibrate_qwen_judge.py at step_platt_calibrate, which
+            # runs after Step 7.0 and before Step 7 main). If the JSON is
+            # absent we return the bare MiniCheckJudge so Step 7.0 works
+            # unmodified; Step 7 main gets the full AdaptiveNLIJudge once
+            # the calibration is in place.
+            import json
+            import os as _os
+            platt_path = "outputs/calibration/qwen_judge_platt.json"
+            use_adaptive = _os.environ.get("CAEM_USE_ADAPTIVE_JUDGE", "1") == "1"
+            if use_adaptive and _os.path.isfile(platt_path):
+                try:
+                    with open(platt_path) as _f:
+                        _platt = json.load(_f)
+                    logger.info(
+                        "Platt calibration found at %s (ρ=%.3f, MAE-logit=%.3f); "
+                        "wrapping verifier judge in AdaptiveNLIJudge (MiniCheck "
+                        "for hypothesis ≤408 MC-tokens, FrozenQwenJudge for longer).",
+                        platt_path,
+                        _platt.get("diagnostics", {}).get("pearson_rho_logit", 0.0),
+                        _platt.get("diagnostics", {}).get("mae_logit", 0.0),
+                    )
+                    from caem.model_loader import load_base_generator
+                    from caem.verification.qwen_judge import FrozenQwenJudge
+                    from caem.verification.adaptive_nli_judge import AdaptiveNLIJudge
+                    import torch as _torch
+
+                    # Load FROZEN base Qwen weights (not the evolving SIL-training
+                    # Qwen). See caem/verification/qwen_judge.py for why.
+                    qwen_model, qwen_tok = load_base_generator(
+                        config.base_model_name,
+                        device=device,
+                        dtype=_torch.bfloat16,
+                    )
+                    qwen_model.eval()
+                    qwen_judge = FrozenQwenJudge(
+                        qwen_model, qwen_tok, device=device,
+                        platt_a=float(_platt.get("platt_a", 1.0)),
+                        platt_b=float(_platt.get("platt_b", 0.0)),
+                    )
+                    adaptive = AdaptiveNLIJudge(
+                        minicheck_judge=mc_judge,
+                        qwen_judge=qwen_judge,
+                        mc_tokenizer=mc_judge.tokenizer,
+                    )
+                    return adaptive, None, None
+                except Exception as exc:
+                    logger.warning(
+                        "AdaptiveNLIJudge wiring failed (%s); returning bare "
+                        "MiniCheck. Long-hypothesis samples may incur 512-token "
+                        "truncation at the MiniCheck encoder.", exc,
+                    )
+                    return mc_judge, None, None
+            else:
+                logger.info(
+                    "AdaptiveNLIJudge inactive (platt calibration missing or "
+                    "CAEM_USE_ADAPTIVE_JUDGE=0); using bare MiniCheck judge. "
+                    "This is correct for Step 7.0; Step 7 main requires "
+                    "step_platt_calibrate to have run first.",
+                )
+                return mc_judge, None, None
 
     # backend == "roberta_nli", or MiniCheck failed with fallback permitted.
     from transformers import AutoModelForSequenceClassification, AutoTokenizer

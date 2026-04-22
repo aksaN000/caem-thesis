@@ -526,6 +526,18 @@ class EvalHarness:
             em = float(f1 > 0.15)
             return em, f1
 
+        elif benchmark == "asqa":
+            # ASQA: long-form synthesis of ambiguous NQ-derived questions.
+            # Gold answers are 1+ long-form strings (~100-300 tokens each).
+            # Scoring = best ROUGE-L across all gold answers (matches the
+            # ASQA paper's STR score; Stelmakh et al. 2022 Section 4.2).
+            # EM equivalent uses threshold 0.20 (slightly higher than
+            # TruthfulQA's 0.15 because ASQA golds are longer and give
+            # more chance for partial overlap even on wrong answers).
+            f1 = rouge_l(prediction, gold_answers)
+            em = float(f1 > 0.20)
+            return em, f1
+
         elif benchmark == "strategyqa":
             # Boolean QA: robust yes/no label extraction from free-form output.
             gold = gold_answers[0] if gold_answers else "no"

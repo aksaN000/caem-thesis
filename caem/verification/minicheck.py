@@ -163,13 +163,57 @@ class _MiniCheckJudge:
 
     # ---- Prompt construction --------------------------------------------- #
 
+    # Path A (2026-04-22) — adaptive premise truncation. The previous fixed
+    # ``max_premise_tokens=450`` cap left only ~58 tokens for the hypothesis
+    # before HF's 512-token encoder truncation cut the hypothesis tail, which
+    # on TriviaQA-style answers sometimes removed the model's final answer
+    # tokens from MiniCheck's view. The adaptive budget below allocates
+    # premise space based on the actual hypothesis length, guaranteeing
+    # the hypothesis is never truncated as long as it fits in
+    # (512 - OVERHEAD - MIN_PREMISE) = 408 tokens. For longer hypotheses
+    # the AdaptiveNLIJudge dispatcher (caem/verification/judge_interface.py)
+    # routes to a frozen Qwen-judge with 131k context.
+
+    _PROMPT_OVERHEAD_TOKENS: int = 4   # "predict: " + "\n\n" ≈ 4 T5 tokens (measured)
+    _MIN_PREMISE_TOKENS: int = 100     # always leave at least this much premise context
+    _MAX_INPUT_TOKENS: int = 512       # Flan-T5-Large training context
+
     def _format_prompt(self, premise: str, hypothesis: str) -> str:
-        # Truncate the premise hard to keep the combined prompt within
-        # the tokenizer's 512-token budget. MiniCheck's training inputs
-        # were single passages so premise shorter is usually better.
-        enc = self.tokenizer(premise, add_special_tokens=False)
-        ids = enc.input_ids[: self.max_premise_tokens]
-        premise_trunc = self.tokenizer.decode(ids, skip_special_tokens=True)
+        """Build a MiniCheck input that always fits 512 tokens without truncating the hypothesis.
+
+        Budget allocation order:
+          1. OVERHEAD (prefix + separator) is fixed at ~4 tokens.
+          2. Hypothesis receives whatever it needs up to (512 - OVERHEAD - MIN_PREMISE).
+          3. Premise receives the remainder, clamped to [MIN_PREMISE, max_premise_tokens].
+
+        If hypothesis alone exceeds (512 - OVERHEAD - MIN_PREMISE) = 408 tokens,
+        fall back to the legacy fixed-premise behaviour — the caller (typically
+        AdaptiveNLIJudge) should have routed this sample to a longer-context
+        judge, but we stay robust if called directly.
+        """
+        # Step 1 — measure hypothesis length.
+        hyp_ids_full = self.tokenizer(hypothesis, add_special_tokens=False).input_ids
+        hyp_len = len(hyp_ids_full)
+
+        # Step 2 — compute premise budget.
+        max_avail_for_premise = (
+            self._MAX_INPUT_TOKENS - hyp_len - self._PROMPT_OVERHEAD_TOKENS
+        )
+        if max_avail_for_premise < self._MIN_PREMISE_TOKENS:
+            # Hypothesis is too long; use the original fixed-cap strategy.
+            # Downstream HF truncation may still cut the hypothesis tail;
+            # AdaptiveNLIJudge should prevent this case by routing to
+            # a longer-context judge. We log and continue for robustness.
+            premise_budget = self.max_premise_tokens
+        else:
+            premise_budget = min(self.max_premise_tokens, max_avail_for_premise)
+            premise_budget = max(self._MIN_PREMISE_TOKENS, premise_budget)
+
+        # Step 3 — truncate premise.
+        prem_ids = self.tokenizer(premise, add_special_tokens=False).input_ids
+        prem_trunc_ids = prem_ids[:premise_budget]
+        premise_trunc = self.tokenizer.decode(prem_trunc_ids, skip_special_tokens=True)
+
         return f"predict: {premise_trunc}\n\n{hypothesis}"
 
     # ---- Core scoring ---------------------------------------------------- #

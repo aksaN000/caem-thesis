@@ -60,8 +60,15 @@ on_err() {
 }
 trap 'on_err $LINENO' ERR
 
-BENCHMARKS=(fever triviaqa natural_questions truthfulqa strategyqa arc_challenge)
-BASELINE_BENCHES="fever triviaqa natural_questions truthfulqa strategyqa arc_challenge"
+# Benchmark panel (2026-04-22 NQ→ASQA swap):
+# ASQA is built on AmbigQA, itself derived from NQ — so ASQA preserves
+# NQ's question distribution while evaluating with long-form synthesis
+# (ROUGE-L metric). This gives the panel one long-hypothesis benchmark
+# that stresses Path B (AdaptiveNLIJudge routes long-hyp to Qwen-judge),
+# enabling the "modular verifier" claim without increasing compute.
+# TriviaQA retains the short-factoid multi-alias role.
+BENCHMARKS=(fever triviaqa asqa truthfulqa strategyqa arc_challenge)
+BASELINE_BENCHES="fever triviaqa asqa truthfulqa strategyqa arc_challenge"
 
 # ============================================================================
 # Step 6 — Cold-start memory seeding under NEW uniform-scaffolded prompts
@@ -75,7 +82,7 @@ step_6_reseed() {
     band "Step 6 — cold-start seed (NEW prompts, cold-start override τ=0.50)"
     python -m scripts.seed_cold_start \
         --target_episodes 200 \
-        --benchmarks fever triviaqa natural_questions \
+        --benchmarks fever triviaqa asqa \
         --cold_start_store_threshold 0.50 \
         --output_dir "$out" 2>&1 | tee -a outputs/step6_seed.log
     python - <<'PY'
@@ -224,6 +231,32 @@ step_prompt_ablation() {
         --old_dir outputs/cycle_0_pre_cot_prompt/eval \
         --new_dir outputs/cycle_0/eval \
         --output_tex "$out" 2>&1 | tee -a "$RUNNER_LOG"
+}
+
+# ============================================================================
+# Platt calibration for AdaptiveNLIJudge (2026-04-22 Path B).
+# Fits scaling params (a, b) that align FrozenQwenJudge's P(yes) with
+# MiniCheck's P(supported) on a 500-sample overlap fold drawn from
+# Cycle-0 eval JSONs. Required before Step 7 main so long-hypothesis
+# samples routed to Qwen-judge produce comparable p_entail values.
+# Fails the runner if Pearson ρ (logit space) < 0.70.
+# ============================================================================
+step_platt_calibrate() {
+    local out="outputs/calibration/qwen_judge_platt.json"
+    if [[ -f "$out" ]]; then
+        log "Platt calibration: already fitted at $out — skipping"
+        return 0
+    fi
+    band "Path B — Platt calibration of FrozenQwenJudge vs MiniCheck"
+    python scripts/calibrate_qwen_judge.py \
+        --cycle0_eval_dir outputs/cycle_0/eval \
+        --output_json "$out" \
+        --n_samples 500 2>&1 | tee outputs/calibration/qwen_judge_platt.log
+    # If the script failed, halt the runner — Step 7 main needs the (a, b).
+    if [[ ! -f "$out" ]]; then
+        log "FATAL: Platt calibration did not produce $out; Step 7 main cannot proceed."
+        exit 1
+    fi
 }
 
 # ============================================================================
@@ -659,6 +692,13 @@ main() {
     #   comparing OLD@T5 vs NEW@Qwen conflates two variables and isn't
     #   defensible as a prompt-design ablation).
     step_19_2_slice               # must precede Step 7
+
+    # --- Path B calibration (must run before HF snapshot so the upload
+    #     includes qwen_judge_platt.json) ---
+    # Fits Platt scaling to align Qwen-judge P(yes) with MiniCheck P(supported).
+    # Required for Step 7 main's AdaptiveNLIJudge to produce comparable
+    # p_entail values on long-hypothesis samples (ASQA benchmark).
+    step_platt_calibrate
 
     # --- One-shot HF snapshot of pre-Step-7 state (credit-burnout recovery) ---
     step_hf_upload_pre_main

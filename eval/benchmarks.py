@@ -453,6 +453,102 @@ def load_natural_questions(
     return samples
 
 # -----------------------------------------------------------------------------
+# ASQA — long-form synthesis of ambiguous NQ-derived questions
+#
+# Stelmakh et al. 2022 (NAACL). Built on AmbigQA, itself derived from
+# Natural Questions. Questions come from NQ with multiple valid
+# interpretations; answers are long-form syntheses covering all
+# interpretations. Ideal for stressing CAEM's Path B long-hypothesis
+# verifier fallback while staying inside retrieval-augmented QA scope.
+#
+# - Question distribution: subset of NQ (ambiguous ones)
+# - Retrieval corpus: Wikipedia (same as other CAEM benchmarks)
+# - Gold format: long-form string answer (~100-300 tokens typical)
+# - Metric: ROUGE-L against gold (see eval/metrics.py rouge_l)
+# -----------------------------------------------------------------------------
+
+def load_asqa(
+    split: str = "dev",
+    n: Optional[int] = None,
+    seed: int = 42,
+) -> List[BenchmarkSample]:
+    """Load ASQA samples (long-form synthesis from NQ-derived ambiguous QA).
+
+    Parameters
+    ----------
+    split : str
+        ASQA provides "train" and "dev" splits (no public test).
+        Use "train" for cold-start seeding (step_6_reseed) and "dev"
+        for Cycle-0 / Step 7 main evaluation (default).
+    n : int | None
+        If set, randomly sample ``n`` examples using ``seed``.
+    seed : int
+        RNG seed for sub-sampling.
+
+    Returns
+    -------
+    List[BenchmarkSample] with:
+      - question: ambiguous question text
+      - answers: list of 1+ long-form gold answer strings (each typically
+        100-300 tokens). Scorer uses best-ROUGE-L across the list.
+      - gold_label: None
+      - id: ASQA sample_id
+      - benchmark: "asqa"
+    """
+    try:
+        from datasets import load_dataset
+    except ImportError as e:
+        raise ImportError("HuggingFace `datasets` is required for ASQA loading.") from e
+
+    logger.info("Loading ASQA [split=%s] from HuggingFace (din0s/asqa)...", split)
+    # Canonical HF location: din0s/asqa (ASQA authors' upload).
+    ds = load_dataset("din0s/asqa", split=split)
+
+    samples: List[BenchmarkSample] = []
+    for i, row in enumerate(cast(Any, ds)):
+        row = cast(Dict[str, Any], row)
+        question = row.get("ambiguous_question", "") or row.get("question", "")
+        if not question:
+            continue
+
+        # ASQA gold answers come in the "qa_pairs" field for short answers
+        # and "annotations" field for long-form annotations. For long-form
+        # evaluation we want the long_answer strings.
+        long_answers: List[str] = []
+        annotations = row.get("annotations", [])
+        if isinstance(annotations, list):
+            for ann in annotations:
+                if isinstance(ann, dict):
+                    long = ann.get("long_answer", "")
+                    if long:
+                        long_answers.append(long)
+
+        # Fallback: some ASQA formats put the single long answer under "answer".
+        if not long_answers:
+            single = row.get("answer", "")
+            if single:
+                long_answers.append(single)
+
+        if not long_answers:
+            continue
+
+        samples.append({
+            "question": question,
+            "answers": long_answers,
+            "gold_label": None,
+            "id": str(row.get("sample_id", i)),
+            "benchmark": "asqa",
+        })
+
+    if n is not None and n < len(samples):
+        rng = random.Random(seed)
+        samples = rng.sample(samples, n)
+
+    logger.info("ASQA: %d samples loaded (%s split).", len(samples), split)
+    return samples
+
+
+# -----------------------------------------------------------------------------
 # ARC-Challenge
 # -----------------------------------------------------------------------------
 
@@ -533,6 +629,8 @@ def load_benchmark(
         return load_triviaqa(n=n, seed=seed, **kwargs)
     elif name == "natural_questions":
         return load_natural_questions(n=n, seed=seed, **kwargs)
+    elif name == "asqa":
+        return load_asqa(n=n, seed=seed, **kwargs)
     elif name == "arc_challenge":
         return load_arc_challenge(n=n, seed=seed, **kwargs)
     else:
