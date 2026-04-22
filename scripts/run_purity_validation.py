@@ -108,11 +108,15 @@ logger = logging.getLogger(__name__)
 
 PURITY_BENCHMARK_DEFAULTS = ["fever", "triviaqa", "natural_questions"]
 PURITY_BENCHMARK_SPLITS = {
-    # Purity/calibration sets are carved from the SIL training pool.
+    # Purity/calibration sets are carved from the SIL training pool
+    # (content-hash disjoint from train-stream via caem.benchmark_splits).
+    # Branch C 2026-04-22: only training benchmarks contribute purity
+    # samples — transfer-only benchmarks (incl. ASQA) have no SIL stored
+    # episodes and therefore no purity measurement.
     "fever": "train",
     "triviaqa": "train",
     "natural_questions": "train",
-    # Transfer-only benchmarks are optional here and usually do not have purity_ids.
+    # Ad-hoc transfer fallbacks (not used by run_phase1a.sh Step 19):
     "truthfulqa": "validation",
     "strategyqa": "test",
     "arc_challenge": "test",
@@ -992,6 +996,7 @@ def run_purity_validation(ns: argparse.Namespace) -> None:
         from caem.retrieval.rag import PassageStore
         from eval.benchmarks import (
             load_arc_challenge,
+            load_asqa,
             load_fever,
             load_natural_questions,
             load_strategyqa,
@@ -1049,50 +1054,45 @@ def run_purity_validation(ns: argparse.Namespace) -> None:
         if not requested_benchmarks:
             requested_benchmarks = list(PURITY_BENCHMARK_DEFAULTS)
 
-        loader_by_benchmark = {
-            "fever": lambda: load_fever(split=PURITY_BENCHMARK_SPLITS["fever"]),
-            "triviaqa": lambda: load_triviaqa(split=PURITY_BENCHMARK_SPLITS["triviaqa"]),
-            "natural_questions": lambda: load_natural_questions(split=PURITY_BENCHMARK_SPLITS["natural_questions"]),
-            "truthfulqa": lambda: load_truthfulqa(),
-            "strategyqa": lambda: load_strategyqa(split=PURITY_BENCHMARK_SPLITS["strategyqa"]),
-            "arc_challenge": lambda: load_arc_challenge(split=PURITY_BENCHMARK_SPLITS["arc_challenge"]),
-        }
-
-        unknown_benchmarks = [bm for bm in requested_benchmarks if bm not in loader_by_benchmark]
-        if unknown_benchmarks:
-            raise ValueError(
-                f"Unknown benchmarks for purity validation: {unknown_benchmarks}. "
-                f"Supported: {sorted(loader_by_benchmark.keys())}"
-            )
-
-        # FIX: Load dataset splits to get exact purity_ids for the specific experiment run
-        splits_path = Path(checkpoints_dir) / "dataset_splits.json"
-        purity_ids_by_bm = {}
-        if splits_path.exists():
-            try:
-                with open(splits_path, "r", encoding="utf-8") as f:
-                    splits = json.load(f)
-                for bm, splits_dict in splits.items():
-                    purity_ids_by_bm[bm] = set(splits_dict.get("purity_ids", []))
-                logger.info("Loaded exact purity_ids from %s", splits_path)
-            except Exception as exc:
-                logger.warning("Failed to load dataset_splits.json: %s", exc)
-        else:
-            logger.warning("dataset_splits.json not found at %s. Falling back to top 500.", splits_path)
+        # Branch C 2026-04-22 evening: purity samples MUST match the canonical
+        # benchmark_splits.py allocation so purity measurement runs on the
+        # same 500-sample slice that Cycle-0 / run_experiment.py reserved.
+        # Prior implementation used per-benchmark loaders + dataset_splits.json
+        # fallback + "top 500" heuristic — all stochastically different from
+        # the canonical pool. Now we call build_all_benchmark_pools with the
+        # SAME rng_seed (42) as run_experiment.py and extract .purity directly.
+        from caem.benchmark_splits import (
+            build_all_benchmark_pools, TRAINING_BENCHMARKS,
+        )
+        logger.info(
+            "Building canonical benchmark pools for purity validation "
+            "(matches run_experiment.py Cycle-0 allocation exactly)..."
+        )
+        _pools = build_all_benchmark_pools(
+            benchmarks=[bm for bm in requested_benchmarks if bm in TRAINING_BENCHMARKS],
+            rng_seed=42,  # MUST match run_experiment.py seed
+        )
 
         def load_and_filter(bm_name: str):
-            # Load from the benchmark's configured split for purity validation.
-            samples = loader_by_benchmark[bm_name]()
-            if bm_name in purity_ids_by_bm and purity_ids_by_bm[bm_name]:
-                target_ids = purity_ids_by_bm[bm_name]
-                # Match either the string ID or the fallback index
-                filtered = [s for i, s in enumerate(samples) if str(s.get("id", i)) in target_ids or s.get("id", i) in target_ids]
-                if filtered:
-                    logger.info("Filtered %s to %d precise purity_ids", bm_name, len(filtered))
-                    return filtered
-            # Fallback to top 500 if no splits file or no matching IDs
-            logger.info("Falling back to top 500 items for %s", bm_name)
-            return samples[:500]
+            """Return the canonical 500-sample purity slice for bm_name.
+
+            Training benchmarks: return benchmark_pools[bm].purity (byte-identical
+            to what Step 7 main reserved). Transfer-only benchmarks: empty —
+            no purity measurement by design (they have no stored episodes).
+            """
+            if bm_name not in _pools:
+                logger.warning(
+                    "Benchmark %s not in canonical pool (transfer-only or excluded); "
+                    "returning empty purity slice.", bm_name,
+                )
+                return []
+            purity_slice = list(_pools[bm_name].purity)
+            logger.info(
+                "Loaded %s purity slice from benchmark_pools: %d samples "
+                "(canonical allocation, content-hash disjoint from train/eval).",
+                bm_name, len(purity_slice),
+            )
+            return purity_slice
 
         # Prefer benchmarks with explicit purity_ids from this experiment run.
         benchmarks_with_purity_ids = [
@@ -1196,7 +1196,8 @@ def _parse_args() -> argparse.Namespace:
         default=list(PURITY_BENCHMARK_DEFAULTS),
         help=(
             "Benchmarks to validate. Defaults to SIL purity benchmarks "
-            "used by run_experiment (fever, triviaqa, natural_questions)."
+            "used by run_experiment (fever, triviaqa, natural_questions "
+            "under Branch C; ASQA is transfer-only and has no purity pool)."
         ),
     )
     p.add_argument("--passage_index", default="data/passage_index",

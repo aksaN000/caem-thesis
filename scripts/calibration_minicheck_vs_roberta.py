@@ -201,6 +201,41 @@ def score_with_roberta(
     return p_ent, p_con
 
 
+def score_with_qwen_judge(
+    pairs: List[Dict[str, Any]], config: CAEMConfig, device: str,
+) -> np.ndarray:
+    """Return (N,) P(yes) scores from frozen base Qwen-3B via constrained
+    yes/no decoding.
+
+    No Platt calibration is applied here: the head-to-head diagnostic
+    measures raw judge discrimination. AUROC is invariant to monotonic
+    rescaling (so it's fair against MiniCheck/RoBERTa), and ECE reflects
+    the UNCALIBRATED Qwen distribution — Platt scaling lands later via
+    step_platt_calibrate and is a separate artefact. Reporting raw Qwen
+    ECE here is honest and lets Ch5 Appendix cite pre- vs post-Platt
+    calibration quality as independent evidence.
+    """
+    import torch
+    from caem.model_loader import load_base_generator
+    from caem.verification.qwen_judge import FrozenQwenJudge
+
+    logger.info("Loading base Qwen (frozen) for judge scoring ...")
+    qwen_model, qwen_tok = load_base_generator(
+        config.base_model_name, device=device, dtype=torch.bfloat16,
+    )
+    qwen_model.eval()
+    judge = FrozenQwenJudge(
+        qwen_model, qwen_tok, device=device,
+        platt_a=1.0, platt_b=0.0,  # raw P(yes); see docstring
+    )
+    # FrozenQwenJudge.batch_entail_prob expects separate premise/hypothesis
+    # lists rather than (premise, hypothesis) tuples.
+    premises = [p["document"] for p in pairs]
+    claims = [p["claim"] for p in pairs]
+    probs = judge.batch_entail_prob(premises, claims)
+    return np.asarray(probs, dtype=np.float32)
+
+
 # -------------------------------------------------------------------------- #
 # Main                                                                        #
 # -------------------------------------------------------------------------- #
@@ -223,8 +258,14 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--output_json", required=True, type=Path)
     p.add_argument("--device", default=None)
     p.add_argument(
-        "--backends", nargs="+", default=["minicheck", "roberta_nli"],
-        choices=["minicheck", "roberta_nli"],
+        "--backends", nargs="+",
+        default=["minicheck", "roberta_nli", "qwen_judge"],
+        choices=["minicheck", "roberta_nli", "qwen_judge"],
+        help=(
+            "Judges to score. 'qwen_judge' uses the FROZEN base Qwen-3B "
+            "with constrained yes/no decoding and reports RAW P(yes) "
+            "(no Platt calibration — that lands later at step_platt_calibrate)."
+        ),
     )
     p.add_argument("--coverages", nargs="+", type=float, default=[0.5, 0.8, 0.95])
     return p.parse_args()
@@ -264,6 +305,7 @@ def main() -> None:
     minicheck_probs: Optional[np.ndarray] = None
     roberta_probs: Optional[np.ndarray] = None
     roberta_con: Optional[np.ndarray] = None
+    qwen_probs: Optional[np.ndarray] = None
 
     if "minicheck" in ns.backends:
         logger.info("Scoring with MiniCheck-Flan-T5-Large ...")
@@ -293,6 +335,22 @@ def main() -> None:
         logger.info("RoBERTa: auroc=%.4f  ece=%.4f  brier=%.4f",
                     metrics.auroc, metrics.ece, metrics.brier)
 
+    if "qwen_judge" in ns.backends:
+        logger.info("Scoring with frozen base Qwen-3B (raw P(yes), no Platt) ...")
+        qwen_probs = score_with_qwen_judge(pairs, config, ns.device)
+        metrics = BackendMetrics(
+            auroc=_auroc(labels, qwen_probs),
+            ece=_ece(labels, qwen_probs),
+            brier=_brier(labels.astype(float), qwen_probs),
+            selective_accuracy=_selective_accuracy(labels, qwen_probs, ns.coverages),
+            n_pairs=n,
+        )
+        results["qwen_judge"] = asdict(metrics)
+        results["qwen_judge"]["platt_calibrated"] = False
+        logger.info("Qwen-judge (raw): auroc=%.4f  ece=%.4f  brier=%.4f",
+                    metrics.auroc, metrics.ece, metrics.brier)
+
+    # Pairwise AUROC deltas — report any pair that was scored.
     if minicheck_probs is not None and roberta_probs is not None:
         results["delta_auroc_minicheck_minus_roberta"] = (
             results["minicheck"]["auroc"] - results["roberta_nli"]["auroc"]
@@ -300,6 +358,22 @@ def main() -> None:
         logger.info(
             "Delta AUROC (MiniCheck - RoBERTa): %+.4f",
             results["delta_auroc_minicheck_minus_roberta"],
+        )
+    if minicheck_probs is not None and qwen_probs is not None:
+        results["delta_auroc_minicheck_minus_qwen"] = (
+            results["minicheck"]["auroc"] - results["qwen_judge"]["auroc"]
+        )
+        logger.info(
+            "Delta AUROC (MiniCheck - Qwen raw): %+.4f",
+            results["delta_auroc_minicheck_minus_qwen"],
+        )
+    if roberta_probs is not None and qwen_probs is not None:
+        results["delta_auroc_qwen_minus_roberta"] = (
+            results["qwen_judge"]["auroc"] - results["roberta_nli"]["auroc"]
+        )
+        logger.info(
+            "Delta AUROC (Qwen raw - RoBERTa): %+.4f",
+            results["delta_auroc_qwen_minus_roberta"],
         )
 
     ns.output_json.parent.mkdir(parents=True, exist_ok=True)
@@ -316,6 +390,8 @@ def main() -> None:
             header.append("minicheck_p_supported")
         if roberta_probs is not None:
             header += ["roberta_p_entail", "roberta_p_contradict"]
+        if qwen_probs is not None:
+            header.append("qwen_p_yes_raw")
         w.writerow(header)
         for i, pair in enumerate(pairs):
             row = [pair.get("id", i), int(labels[i])]
@@ -323,6 +399,8 @@ def main() -> None:
                 row.append(float(minicheck_probs[i]))
             if roberta_probs is not None:
                 row += [float(roberta_probs[i]), float(roberta_con[i])]
+            if qwen_probs is not None:
+                row.append(float(qwen_probs[i]))
             w.writerow(row)
     logger.info("Wrote per-pair details to %s", details_path)
 

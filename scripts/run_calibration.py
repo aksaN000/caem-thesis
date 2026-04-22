@@ -56,11 +56,15 @@ logger = logging.getLogger(__name__)
 
 CALIB_BENCHMARK_DEFAULTS = ["fever", "triviaqa", "natural_questions"]
 CALIB_BENCHMARK_SPLITS = {
-    # Calibration is carved from the SIL training pool.
+    # Calibration is normally carved from the SIL training pool (content-hash
+    # disjoint from train-stream via caem.benchmark_splits). The training
+    # benchmarks below are the canonical calibration sources; transfer-only
+    # entries remain for ad-hoc CLI invocations but are NOT used by the
+    # runbook chain. ASQA is Branch C transfer-only and intentionally absent.
     "fever": "train",
     "triviaqa": "train",
     "natural_questions": "train",
-    # Optional transfer-only benchmarks.
+    # Ad-hoc fallbacks (not used by run_phase1a.sh):
     "truthfulqa": "validation",
     "strategyqa": "test",
     "arc_challenge": "test",
@@ -724,6 +728,7 @@ if __name__ == "__main__":
 
     from eval.benchmarks import (
         load_arc_challenge,
+        load_asqa,
         load_fever,
         load_natural_questions,
         load_strategyqa,
@@ -739,9 +744,8 @@ if __name__ == "__main__":
         "fever": lambda: load_fever(split=CALIB_BENCHMARK_SPLITS["fever"]),
         "triviaqa": lambda: load_triviaqa(split=CALIB_BENCHMARK_SPLITS["triviaqa"]),
         "natural_questions": lambda: load_natural_questions(split=CALIB_BENCHMARK_SPLITS["natural_questions"]),
-        "truthfulqa": lambda: load_truthfulqa(),
-        "strategyqa": lambda: load_strategyqa(split=CALIB_BENCHMARK_SPLITS["strategyqa"]),
-        "arc_challenge": lambda: load_arc_challenge(split=CALIB_BENCHMARK_SPLITS["arc_challenge"]),
+        # asqa, truthfulqa, strategyqa, arc_challenge: transfer-only;
+        # no calibration pool under Branch C.
     }
 
     unknown_benchmarks = [bm for bm in requested_benchmarks if bm not in loader_by_benchmark]

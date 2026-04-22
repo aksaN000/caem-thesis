@@ -723,6 +723,18 @@ def make_synthetic_samples(
                 "benchmark": "natural_questions",
             })
 
+    elif benchmark == "asqa":
+        for i in range(n):
+            samples.append({
+                "question": f"When did multiple event_{i} variants occur?",
+                "answers": [
+                    f"Long-form synthesis discussing event_{i} variants A and B at time year_{i}."
+                ],
+                "gold_label": None,
+                "id": f"asqa_synth_{i}",
+                "benchmark": "asqa",
+            })
+
     elif benchmark == "arc_challenge":
         labels = ["A", "B", "C", "D"]
         for i in range(n):

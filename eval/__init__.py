@@ -12,7 +12,7 @@ harness.py    -- EvalHarness: run pipeline over samples, aggregate, save JSON
 Benchmark roles
 ---------------
 Training benchmarks (SIL pool -- train split):
-  fever, triviaqa, natural_questions
+  fever, triviaqa, asqa  (Branch C: ASQA replaces Natural Questions)
 
 Transfer eval benchmarks (held-out -- never used for SIL):
   truthfulqa, strategyqa, arc_challenge
@@ -39,6 +39,7 @@ from eval.baselines import (
     BaselineBase,
     CoTBaseline,
     CoTRAGBaseline,
+    FiveShotCoTBaseline,
     FLAREBaseline,
     RAGBaseline,
     ZeroShotBaseline,
@@ -47,6 +48,7 @@ from eval.benchmarks import (
     BenchmarkSample,
     load_benchmark,
     load_arc_challenge,
+    load_asqa,
     load_fever,
     load_natural_questions,
     load_strategyqa,
@@ -80,11 +82,13 @@ __all__ = [
     "CoTBaseline",
     "RAGBaseline",
     "CoTRAGBaseline",
+    "FiveShotCoTBaseline",
     "FLAREBaseline",
     # benchmarks
     "BenchmarkSample",
     "load_benchmark",
     "load_arc_challenge",
+    "load_asqa",
     "load_truthfulqa",
     "load_fever",
     "load_strategyqa",

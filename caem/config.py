@@ -37,15 +37,25 @@ from typing import Optional, Tuple
 # without a benchmark tag (source_benchmark=None) are treated as
 # training-eligible for legacy / unit-test paths.
 TRAINING_BENCHMARKS: Tuple[str, ...] = (
-    "natural_questions",
-    "triviaqa",
     "fever",
+    "triviaqa",
+    "natural_questions",
 )
+# Branch C 2026-04-22 evening decision: ASQA demoted to TRANSFER-ONLY.
+# Training panel capped at 3 benchmarks with large train splits (FEVER ~145k,
+# TriviaQA ~87k, NQ ~87k) — enough to sustain 10-cycle stream mode at
+# 5000 samples/cycle without reuse. ASQA's 4353 train is structurally
+# insufficient for stream mode. ASQA remains in the eval panel
+# (500 eval/cycle from dev) as Path B (Qwen-judge) long-form evidence.
+# See caem/benchmark_splits.py for authoritative panel definition.
 
 TRANSFER_BENCHMARKS: Tuple[str, ...] = (
     "truthfulqa",
     "strategyqa",
     "arc_challenge",
+    "asqa",  # Branch C 2026-04-22 evening: transfer-only for Path B (Qwen-judge)
+             # long-form evidence. Eval trajectory only; never trained on.
+             # Must stay in sync with caem/benchmark_splits.py TRANSFER_BENCHMARKS.
 )
 
 

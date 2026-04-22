@@ -79,7 +79,7 @@ logging.basicConfig(level=logging.INFO,
 
 BENCHMARKS = [
     "fever", "triviaqa", "natural_questions",
-    "truthfulqa", "strategyqa", "arc_challenge",
+    "truthfulqa", "strategyqa", "arc_challenge", "asqa",
 ]
 
 # All baselines pair against CAEM cycle 10 (post-training, strongest-claim

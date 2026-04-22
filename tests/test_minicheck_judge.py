@@ -179,6 +179,39 @@ def test_empty_pairs_returns_empty_lists():
     assert judge.batch_argmax_label([]) == []
 
 
+def test_batch_methods_accept_two_list_api():
+    """NLIJudgeInterface-conforming callers (AdaptiveNLIJudge,
+    calibrate_qwen_judge.py, extended calibration_minicheck_vs_roberta.py)
+    pass two separate (premises, hypotheses) lists rather than the legacy
+    list-of-tuples. The dual-API must yield identical results for the same
+    data under either calling convention.
+
+    Regression guard: before 2026-04-22, AdaptiveNLIJudge crashed on real
+    MiniCheckJudge because the tests used MockMiniCheckJudge whose signature
+    accepted two lists, masking the mismatch with the real judge.
+    """
+    yes = [3.0, -3.0, 0.0]
+    no = [-3.0, 3.0, 0.0]
+    judge = _make_judge(yes, no)
+
+    pairs = [("p1", "h1"), ("p2", "h2"), ("p3", "h3")]
+    premises = [p for p, _ in pairs]
+    hypotheses = [h for _, h in pairs]
+
+    out_pairs = judge.batch_entail_prob(pairs)
+    out_twolist = judge.batch_entail_prob(premises, hypotheses)
+    assert out_pairs == out_twolist
+
+    lbl_pairs = judge.batch_argmax_label(pairs)
+    lbl_twolist = judge.batch_argmax_label(premises, hypotheses)
+    assert lbl_pairs == lbl_twolist
+
+    # Empty inputs also work in either convention.
+    assert judge.batch_entail_prob([], []) == []
+    assert judge.batch_contradict_prob([], []) == []
+    assert judge.batch_argmax_label([], []) == []
+
+
 def test_bool_and_bundles_compat():
     judge = _make_judge([0.0], [0.0])
     assert bool(judge) is True

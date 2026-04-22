@@ -306,31 +306,68 @@ class _MiniCheckJudge:
         return _NEUTRAL
 
     # ---- Batched variants (called from verifier fast path) ------------- #
+    #
+    # Dual-API note: historically these methods took a single ``pairs`` arg
+    # as Sequence[Tuple[str, str]]. The verifier fast path
+    # (caem/verification/verifier.py) still passes that form. The Branch-C
+    # NLIJudgeInterface protocol (caem/verification/judge_interface.py) and
+    # its implementors (FrozenQwenJudge, AdaptiveNLIJudge) use
+    # ``(premises, hypotheses)`` as two separate Sequence[str] args.
+    #
+    # Without dual-API support, AdaptiveNLIJudge.batch_entail_prob and
+    # calibrate_qwen_judge.py crash when they delegate to the real
+    # MiniCheckJudge. The tests on these callers used MockMiniCheckJudge
+    # with the 2-arg signature and silently hid the mismatch.
+    #
+    # The overload rule: ``hypotheses is None`` means the old pairs-list
+    # API; otherwise the two-list API. Either way we end up with the same
+    # ``premises`` / ``hypotheses`` pair that ``_score_batch`` wants.
+
+    @staticmethod
+    def _coerce_batch_args(
+        pairs_or_premises, hypotheses,
+    ) -> Tuple[List[str], List[str]]:
+        """Translate either calling convention into (premises, hypotheses)."""
+        if hypotheses is None:
+            pairs = list(pairs_or_premises)
+            if not pairs:
+                return [], []
+            premises = [p for p, _ in pairs]
+            hyps = [h for _, h in pairs]
+        else:
+            premises = list(pairs_or_premises)
+            hyps = list(hypotheses)
+        return premises, hyps
 
     def batch_entail_prob(
-        self, pairs: Sequence[Tuple[str, str]]
+        self,
+        pairs_or_premises,
+        hypotheses=None,
     ) -> List[float]:
-        if not pairs:
+        premises, hyps = self._coerce_batch_args(pairs_or_premises, hypotheses)
+        if not premises:
             return []
-        premises = [p for p, _ in pairs]
-        hypotheses = [h for _, h in pairs]
-        arr = self._score_batch(premises, hypotheses)
+        arr = self._score_batch(premises, hyps)
         return [float(np.clip(x, 0.0, 1.0)) for x in arr]
 
     def batch_contradict_prob(
-        self, pairs: Sequence[Tuple[str, str]]
+        self,
+        pairs_or_premises,
+        hypotheses=None,
     ) -> List[float]:
         """Returns 0.0 per pair. See ``contradict_prob`` docstring for why."""
-        return [0.0] * len(pairs)
+        premises, _ = self._coerce_batch_args(pairs_or_premises, hypotheses)
+        return [0.0] * len(premises)
 
     def batch_argmax_label(
-        self, pairs: Sequence[Tuple[str, str]]
+        self,
+        pairs_or_premises,
+        hypotheses=None,
     ) -> List[int]:
-        if not pairs:
+        premises, hyps = self._coerce_batch_args(pairs_or_premises, hypotheses)
+        if not premises:
             return []
-        premises = [p for p, _ in pairs]
-        hypotheses = [h for _, h in pairs]
-        arr = self._score_batch(premises, hypotheses)
+        arr = self._score_batch(premises, hyps)
         out = []
         for p in arr:
             if p >= self.entail_threshold:

@@ -67,8 +67,13 @@ trap 'on_err $LINENO' ERR
 # that stresses Path B (AdaptiveNLIJudge routes long-hyp to Qwen-judge),
 # enabling the "modular verifier" claim without increasing compute.
 # TriviaQA retains the short-factoid multi-alias role.
-BENCHMARKS=(fever triviaqa asqa truthfulqa strategyqa arc_challenge)
-BASELINE_BENCHES="fever triviaqa asqa truthfulqa strategyqa arc_challenge"
+BENCHMARKS=(fever triviaqa natural_questions truthfulqa strategyqa arc_challenge asqa)
+BASELINE_BENCHES="fever triviaqa natural_questions truthfulqa strategyqa arc_challenge asqa"
+# Branch C 2026-04-22 evening panel (Option C). Training pool: {fever, triviaqa,
+# natural_questions} — all large-train benchmarks supporting 10-cycle stream at
+# n=5000/cycle. Transfer pool: {truthfulqa, strategyqa, arc_challenge, asqa}.
+# ASQA is transfer-only (4353 train too small for stream), but its long-form
+# dev samples provide Path B (Qwen-judge) eval trajectory evidence.
 
 # ============================================================================
 # Step 6 — Cold-start memory seeding under NEW uniform-scaffolded prompts
@@ -82,7 +87,7 @@ step_6_reseed() {
     band "Step 6 — cold-start seed (NEW prompts, cold-start override τ=0.50)"
     python -m scripts.seed_cold_start \
         --target_episodes 200 \
-        --benchmarks fever triviaqa asqa \
+        --benchmarks fever triviaqa natural_questions \
         --cold_start_store_threshold 0.50 \
         --output_dir "$out" 2>&1 | tee -a outputs/step6_seed.log
     python - <<'PY'
@@ -187,7 +192,7 @@ step_5_5_headhead() {
         --pairs_jsonl data/calibration/minicheck_pairs_500.jsonl \
         --output_json "$out" \
         --device cuda \
-        --backends minicheck roberta_nli 2>&1 | tee -a outputs/calibration/minicheck_vs_roberta_v5.log
+        --backends minicheck roberta_nli qwen_judge 2>&1 | tee -a outputs/calibration/minicheck_vs_roberta_v5.log
 }
 
 step_5_5_gate() {
@@ -408,6 +413,15 @@ PY
 # Step 7 — Main 10-cycle CAEM run at n_questions=5000 (Phase 1a headline)
 # ============================================================================
 step_7_main() {
+    # Skip if a legitimate completion exists: either run_complete.json marker
+    # (written by run_experiment.py for any successful run including early-stop)
+    # OR experiment_summary.csv with the full 11 rows (pre-marker runs).
+    if [[ -f outputs/full_run/run_complete.json ]]; then
+        local cstat
+        cstat=$(python -c 'import json; d=json.load(open("outputs/full_run/run_complete.json")); print(f"cycles={d[\"cycles_completed\"]}, early_stopped={d[\"early_stopped\"]}")' 2>/dev/null || echo "parse_failed")
+        log "Step 7: run_complete.json found ($cstat) — main run complete, skipping"
+        return 0
+    fi
     if [[ -f outputs/full_run/experiment_summary.csv ]]; then
         local rows
         rows=$(wc -l < outputs/full_run/experiment_summary.csv)
@@ -550,12 +564,16 @@ step_14_b6_vanilla_ft() {
         fi
     fi
     band "Step 14 — B6 vanilla FT (10 cycles, no L2 anchor, no MMLU guard, eval bs=32, gdrive offload ON)"
+    # Branch C 2026-04-22 evening: n_train_per_bench = n_cycles × chunk_size
+    # MUST equal CAEM's total (10 × 5000 = 50000) so chunk_size = 5000 matches
+    # the CAEM Step 7 main sil_train_chunks[cycle-1] byte-identically.
+    # Previous value 4000 gave chunk_size = 400 — broke matched-scale comparison.
     CAEM_GDRIVE_OFFLOAD=1 python -m scripts.run_simple_ft \
         --baseline_name vanilla_ft \
         --num_cycles 10 \
         --eval_benchmarks "${BENCHMARKS[@]}" \
-        --n_eval_per_bench 5000 \
-        --n_train_per_bench 4000 \
+        --n_eval_per_bench 500 \
+        --n_train_per_bench 50000 \
         --eval_batch_size 32 \
         --output_dir "$outdir" 2>&1 | tee outputs/baselines/B6_vanilla_ft.log
 }
@@ -571,14 +589,16 @@ step_15_b7_ewc_only() {
         fi
     fi
     band "Step 15 — B7 EWC-only FT (10 cycles, L2 anchor + MMLU guard on, eval bs=32, gdrive offload ON)"
+    # Branch C 2026-04-22 evening: n_train_per_bench matches CAEM total so
+    # chunk_size = 50000/10 = 5000, byte-identical to CAEM's per-cycle chunks.
     CAEM_GDRIVE_OFFLOAD=1 python -m scripts.run_simple_ft \
         --baseline_name ewc_only_ft \
         --use_l2_anchor \
         --use_mmlu_guard \
         --num_cycles 10 \
         --eval_benchmarks "${BENCHMARKS[@]}" \
-        --n_eval_per_bench 5000 \
-        --n_train_per_bench 4000 \
+        --n_eval_per_bench 500 \
+        --n_train_per_bench 50000 \
         --eval_batch_size 32 \
         --output_dir "$outdir" 2>&1 | tee outputs/baselines/B7_ewc_only_ft.log
 }

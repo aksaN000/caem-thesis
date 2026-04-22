@@ -158,33 +158,50 @@ def load_train_samples(benchmark: str, n: int, seed: int = 0) -> List[dict]:
         )
         return []
 
-    elif benchmark == "fever":
-        # Delegates to eval/benchmarks.py::load_fever(split="train", ...) so
-        # the cold-start seed pool shares exactly the same loader (and label
-        # map, prompt format, NEI-handling policy) as the main evaluation
-        # pipeline. Previously this branch was inlined with its own
-        # _FEVER_LABEL_MAP which introduced silent-drift risk if
-        # eval/benchmarks.py ever retargeted to a different HF source.
-        # Training split of lucadiliello/fever contains ~145K samples.
-        logger.info("Loading FEVER train split [lucadiliello/fever] (n=%d) ...", n)
-        from eval.benchmarks import load_fever
-        samples = load_fever(split="train", n=n, seed=seed, exclude_nei=False)
-        # Namespace-separate cold-start IDs from eval-time IDs so the two
-        # never collide in the episodic memory (same claim text seeded and
-        # later re-seen at eval would otherwise appear as a duplicate).
+    elif benchmark in ("fever", "triviaqa", "natural_questions"):
+        # Branch C 2026-04-22 evening: the cold-start seed pool MUST be drawn
+        # from the SAME benchmark_splits allocation Step 7.0+ will use, so
+        # that seed/purity/calib/train-chunks remain content-hash disjoint.
+        # Previously we used load_benchmark(split="train", n=n) with its own
+        # shuffle seed, which produced a DIFFERENT 1000-sample subset than
+        # benchmark_splits.py's first-200 seed pool → expected ~1-2 sample
+        # overlap leakage between cold-start memory and later purity/calib
+        # pools. Aligning here eliminates that channel entirely.
+        from caem.benchmark_splits import (
+            build_benchmark_pools, DEFAULT_SEED_SIZE,
+        )
+        logger.info(
+            "Loading %s seed pool from canonical benchmark_splits (DEFAULT_SEED_SIZE=%d, "
+            "matches Step 7.0 allocation) ...",
+            benchmark, DEFAULT_SEED_SIZE,
+        )
+        pools = build_benchmark_pools(
+            benchmark,
+            # Pool sizes use module defaults so this script and Step 7.0 /
+            # Step 7 main produce BYTE-IDENTICAL seed/purity/calib/train/eval
+            # pools. Do not override; changes must be made in
+            # caem/benchmark_splits.py defaults.
+            rng_seed=seed,
+        )
+        samples = list(pools.seed)
+        # Namespace-separate cold-start IDs from eval-time IDs so that
+        # sample dedup by `id` (where still used) won't confuse them.
         for s in samples:
-            s["id"] = f"{s['id']}_seed"
+            s["id"] = f"{s.get('id', 'unk')}_seed"
         return samples
 
-    elif benchmark == "triviaqa":
-        logger.info("Loading TriviaQA train split (rc.nocontext) (n=%d) ...", n)
-        from eval.benchmarks import load_triviaqa
-        return load_triviaqa(split="train", n=n, seed=seed)
-
-    elif benchmark == "natural_questions":
-        logger.info("Loading Natural Questions train split (nq_open) (n=%d) ...", n)
-        from eval.benchmarks import load_natural_questions
-        return load_natural_questions(split="train", n=n, seed=seed)
+    elif benchmark == "asqa":
+        # Branch C 2026-04-22: ASQA is transfer-only. Its 4353 train samples
+        # are structurally too small for stream-mode cold-start seeding, and
+        # seeding would contaminate transfer-eval with training distribution
+        # signal. This branch is kept for back-compat (explicit
+        # --benchmarks asqa) but emits a loud warning and returns an empty list.
+        logger.warning(
+            "ASQA is Branch C transfer-only and should NOT be seeded into "
+            "cold-start memory. Returning [] so downstream Step 6 assertions "
+            "proceed on the other seeded benchmarks only."
+        )
+        return []
 
     elif benchmark == "strategyqa":
         # EXP-08 fix: wics/strategy-qa uses a legacy script, load from GitHub instead.

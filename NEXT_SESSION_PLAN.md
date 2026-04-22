@@ -1,6 +1,122 @@
 # CAEM — Next Session Plan (Vast.ai Runbook)
 
-**Updated: 2026-04-20 | Phase 1a (Self-Funded) Line-by-Line Execution Plan**
+**Updated: 2026-04-22 evening | Phase 1a (Self-Funded) + Phase 1 Full (3-ablation) Execution Plan**
+
+---
+
+## Session 4 delta (2026-04-22, evening) — supersedes everything below on the topics listed
+
+This is the single source of truth for Branch C's Phase 1a + Phase 1 Full configuration as of the restart at 10:53Z UTC on 2026-04-22. Lower-numbered Session deltas (3, 2, 1) are historical record; where they conflict with the points below, these take precedence.
+
+### Architecture lock (Branch C shipped state)
+
+| Component | Value | Notes |
+|---|---|---|
+| Base generator | **Qwen-2.5-3B-Instruct** | bf16, ChatML, NO flash_attn on Blackwell sm_120 |
+| Verifier judge (short hypothesis ≤ 408 MC tokens) | **MiniCheck-Flan-T5-Large** | lytang/MiniCheck-Flan-T5-Large, scalar P(supported) |
+| Verifier judge (long hypothesis > 408 MC tokens) | **FrozenQwenJudge** (base Qwen-3B, frozen, yes/no constrained decoding) | Only active after step_platt_calibrate fits `qwen_judge_platt.json` |
+| Dispatcher | **AdaptiveNLIJudge** | Routes by MC-token count; MC fallback on Qwen-judge exception |
+| Reranker | BAAI/bge-reranker-v2-m3 cross-encoder | Used for passage rerank AND q_a_relevance signal |
+| Passage index | 21M Wikipedia (DPR + MPNet), FAISS IVF-PQ, **mmap-loaded** | `IO_FLAG_MMAP | IO_FLAG_READ_ONLY` — cgroup-reclaimable |
+| u_stored composite | **7-family / 10 underlying signals** | pground_mean(0.28), pground_atomic(0.14), nli(0.16), q_a_relevance(0.14, Branch C Goal 2), sc(0.14), uinternal(0.10), se(0.04) |
+
+### Benchmark panel (7) — Option C (Branch C 2026-04-22 evening, NQ restored)
+
+```
+BENCHMARKS=(fever triviaqa natural_questions truthfulqa strategyqa arc_challenge asqa)
+```
+
+- **Training-eligible (SIL pool, `TRAINING_BENCHMARKS`)**: fever, triviaqa, natural_questions
+- **Transfer-only (held out from SIL, `TRANSFER_BENCHMARKS`)**: truthfulqa, strategyqa, arc_challenge, asqa
+- Source of truth: `caem/benchmark_splits.py` (constants + `build_all_benchmark_pools(rng_seed=42)` pool builder).
+- ASQA stays on the panel as a **transfer-only** long-form benchmark: `din0s/asqa` (train 4353 too small for 10-cycle stream, dev 948). Scored via best-ROUGE-L across annotations; EM threshold 0.20. Stresses Path B (AdaptiveNLIJudge routes long-hypothesis samples to Qwen-judge after Platt calibration).
+- Earlier mid-session "ASQA replaces NQ" decision was **reverted**: NQ has enough train volume for stream-mode and its question distribution is distinct from FEVER/TriviaQA; ASQA's AmbigQA-derived distribution overlaps NQ too heavily to drop it.
+
+### Baseline panel (7) — FLARE removed, 5-shot CoT added
+
+```
+B1 zero_shot         | B2 cot            | B3 rag
+B4 cot_rag           | B5 fiveshot_cot   | B6 vanilla_ft (10 cyc)
+B7 ewc_only_ft (10 cyc, L2 anchor + MMLU guard)
+```
+
+- **Removed**: FLARE (B5 slot) — training-asymmetric, high cost, doesn't defend any thesis claim. `step_8_flare_smoke` and `step_13_b5` still exist in `run_phase1a.sh` but are no longer in `main()`.
+- **Added**: `FiveShotCoTBaseline` (Wei 2022) as B5 — in-context learning reference; 5 demos from fever train split, seed=42.
+
+### Phase 1 Full = Phase 1a + 3-ablation sweep (was 17-variant screening + confirmatory)
+
+Registry `caem/ablation/variants.py` is now **4 entries**: `full` + **3 ablations** (down from 23 mid-session). Each remaining ablation defends a specific numbered thesis Claim that cannot be answered by a directly-measured metric:
+
+| Variant | Defends | Why it survives audit |
+|---|---|---|
+| `full` | reference anchor | Phase 1a Step 7 main `outputs/full_run/` IS the anchor at cycle x* |
+| `no_retroverify` | Claim 2 time-dim + Claim 3 | Retroverify is THE cross-cycle memory hygiene mechanism |
+| `no_self_improvement` | Claim 3 upper bound | Only test of "what if SIL never ran" |
+| `no_forgetting_guard` | Claim 4 (no CF) | MMLU rollback is unique; methods text can't prove it at scale |
+
+**Dropped from the sweep** (covered by direct metrics or methods text): no_store_gate (→ Step 19 α metric), no_tier1 (→ `tier_{1,2,3}_frac` trajectory), roberta_nli_backend (→ Step 5.5.2 v5 3-way AUROC), equal_signal_weights + no_q_a_relevance + 14 other variants (→ Step 19.5 correlation matrix + methods-section literature priors). Full pruning rationale in variants.py module docstring + branch_C_log.md 2026-04-22 evening entries.
+
+**Wrapper**: `run_phase1_full_ablations.sh` (new) launches the 3 ablations in sequence, 5 cycles each at n=5000, with `CAEM_BATCH_U_TOK_DROP=1 CAEM_GDRIVE_OFFLOAD=1`. Cost ~$21 (was $85 for the 17-variant plan; ~75% cheaper).
+
+### Step 16–18 (screening + aggregate + confirmatory) — FULLY DELETED
+
+Replaced by direct 3-ablation confirmatory via `run_phase1_full_ablations.sh`. Screening sweep no longer exists; `scripts/run_screening.sh` is obsolete. Lines 1505-1660 of this document (the original Step 16-18 section) are **historical record only**.
+
+### Step 5.5.2 is now 3-way (MC + RoBERTa + Qwen-judge)
+
+`scripts/calibration_minicheck_vs_roberta.py` was extended to include `qwen_judge` backend (raw P(yes), no Platt — Platt lands separately at `step_platt_calibrate`). `run_phase1a.sh` passes `--backends minicheck roberta_nli qwen_judge`. Produces a 3-row AUROC/ECE/Brier table for Ch5 Appendix instead of a 2-row table.
+
+### New stages in `run_phase1a.sh` main() (order preserved)
+
+```
+step_6_reseed                    ← cold-start seed, τ=0.50 (tightened from 0.45)
+step_7_0_cycle0                  ← Cycle-0 eval on 6 benches incl ASQA, bs=32
+step_7_0_calibrate               ← fit τ_store/τ_defer/τ_train
+step_5_5_pairs                   ← build 500-pair calibration set
+step_5_5_headhead                ← 3-way MC/RoBERTa/Qwen AUROC
+# step_5_5_gate REMOVED (wording-guidance only)
+# step_prompt_ablation REMOVED (cross-era confound)
+step_19_2_slice                  ← freeze 500-sample Cycle-0 retention slice
+step_platt_calibrate             ← NEW: fit Qwen-judge Platt (a, b) on 500 overlap pairs
+step_hf_upload_pre_main          ← NEW: HF snapshot to aksaN000/caem-passage-index-21m:pre_main_snapshot/
+step_u_tok_drop_gate             ← REPLACES step_level_b_smoke; |Δ u_stored| < 0.02 gate
+# step_7_main now reads outputs/full_run/run_complete.json marker for early-stop-aware skip
+step_7_main                      ← HEADLINE 10-cycle (or earlier equilibrium)
+# step_8_flare_smoke REMOVED
+step_9_b1..step_15_b7_ewc_only   ← baselines (B5 = fiveshot_cot now, not flare)
+step_15_5_sig                    ← McNemar + bootstrap + Holm sig-tests
+step_19_purity                   ← α balanced-accuracy measurement per bench + pooled
+step_19_2_eval                   ← retention diagnostic on HIGHEST completed cycle (was hardcoded cycle 2)
+step_19_5_corr                   ← 10-signal correlation matrix (was 9-signal)
+step_20_aggregate                ← ablation_table.csv
+```
+
+### Runtime configuration (Branch C lockfile)
+
+- **Runner wrapper**: `run_phase1a_hardened.sh` (heartbeat sidecar, OOM counter snapshot, `MALLOC_TRIM_THRESHOLD_=131072`)
+- **Goal 5 Level B**: `BatchPipeline + PrefetchingBatchPipeline` at bs=32 in eval, bs=8 in seed
+- **Env flags**: `CAEM_BATCH_U_TOK_DROP=1` for Step 7 main (u_token + u_dropout pooled); `CAEM_GDRIVE_OFFLOAD=1` for B6/B7 + Step 7 main (rclone `gdrive:caem-phase1a/<run>/cycle_<n>/`)
+- **Checkpoint retention**: rolling-N local (keep cycle_0 + last 2 + final); full history in gdrive
+- **rclone**: configured with OAuth; remote name `gdrive:`. Verified with 1MB smoke-upload round-trip.
+- **Cold-start memory**: local only on Vast instance (not uploaded pre-run). Uploaded to HF pre_main_snapshot/ after Cycle-0 eval.
+- **Early-stop gate**: `caem/eval/equilibrium.py`, triple signal, fires cycle ≥ 5 when 2-of-3 triggered. Writes `outputs/full_run/run_complete.json` on exit (early or full).
+
+### Budget (2026-04-22 evening)
+
+- Phase 1a: ~$133 (current $102 + projected overhead)
+- Phase 1 Full (3 ablations × 5 cycles × n=5000): ~$21
+- **Total Phase 1**: ~$154, well under the $208 committed topup
+
+### Tests: 769 passing, 2 skipped on `feat/qwen-3b-goal1` (up from 735 mid-session)
+
+Latest additions: adaptive truncation + AdaptiveNLIJudge routing tests (10), dual-API regression tests for MiniCheckJudge (1), no_q_a_relevance rebalance tests (deleted with variant drop), run_complete.json marker tests.
+
+### Critical bugs fixed this session
+
+1. **MiniCheckJudge signature mismatch** — `batch_entail_prob(pairs)` vs AdaptiveNLIJudge's `batch_entail_prob(premises, hypotheses)` would have crashed step_platt_calibrate. Fixed with dual-API overload.
+2. **NQ hardcodes across scripts** — `scripts/run_experiment.py`, `run_purity_validation.py`, `run_simple_ft.py`, `build_calibration_pairs.py`, `baseline_sig_tests.py`, `seed_cold_start.py` all had `natural_questions` hardcodes that would have silently dropped ASQA from SIL pool / purity / sig-tests.
+3. **run_experiment.py early-stop skip bug** — `step_7_main` skip check required 12 CSV rows; early-stop at cycle 5-9 would have re-launched wasted cycles. Fixed via `run_complete.json` marker.
+4. **seed_cold_start.py asqa branch missing** — would have caused "Unknown benchmark asqa — skipping" during Step 6 (critical: runner currently in Step 6 at 2h+ uptime as of 2026-04-22 13:30Z).
 
 ---
 
@@ -139,9 +255,10 @@ code state. All items shipped; main branch commits in parens.
   uniform-scaffolded prompts ensures the training pool at Cycle 1+
   is format-consistent with Step 7's generator output. Re-seed adds
   3 h and ~$2 to the pre-launch window.
-- **Ablation registry bumped to 17 variants** (M6). `roberta_nli_backend`
-  is the 17th. Chapter 3 Table `tab:ablation-registry` and Chapter 5
-  `tab:ablation-main` both updated to reflect this.
+- **Ablation registry bumped to 17 variants** (M6, 2026-04-20). ~~`roberta_nli_backend`
+  is the 17th.~~ **[SUPERSEDED 2026-04-22]** Registry now has 4 entries
+  (full + 3 ablations: no_retroverify, no_self_improvement, no_forgetting_guard)
+  after the claim-vs-metric audit. See Session 4 delta at top.
 - **Hardware**: primary GPU is **RTX 5090 (32 GB)**; the system also
   fits on RTX 4090 (24 GB) by reducing deferred-buffer capacity from
   $10^4$ to $5 \times 10^3$. Chapters 1, 3, 4, 5 all updated with the
@@ -252,14 +369,19 @@ Addendum and Chapter 3 §3.5.
   (B1–B5), `scripts/run_simple_ft.py` (B6, B7), `scripts/run_cyclic_ablation.py`,
   `scripts/aggregate_ablation.py`, `scripts/run_purity_validation.py`,
   `scripts/build_passage_index.py`, `scripts/seed_cold_start.py`.
-- Ablation framework: **16 named variants** in `caem/ablation/variants.py`
-  (14 mechanism + 2 inference-time). Legacy AB1–AB7 labels are retired.
+- Ablation framework: ~~**16 named variants**~~ **[SUPERSEDED 2026-04-22]**
+  **4 named variants** in `caem/ablation/variants.py` (full + 3 cyclic ablations).
+  The remaining 3 defend specific numbered thesis Claims not covered by direct
+  metrics: no_retroverify (Claim 2 time-dim + Claim 3), no_self_improvement
+  (Claim 3 upper bound), no_forgetting_guard (Claim 4 no catastrophic forgetting).
+  See Session 4 delta (top of this document) for the full audit rationale.
 - External baseline panel: **B1–B7** (inference B1–B5 via `run_baseline.py`,
-  training B6–B7 via `run_simple_ft.py`). B8 Self-RAG is citation-only.
-  STaR is an optional ceiling reference (Step 10B).
-- Budget: ~USD 200 self-funded envelope for Phase 1, single seed = 42.
-  Phase 2 (+USD 700, seeds 123 and 456) re-runs the same confirmatory
-  commands with no code changes.
+  training B6–B7 via `run_simple_ft.py`). B5 slot = `fiveshot_cot` (Wei 2022)
+  after FLARE removal 2026-04-22. B8 Self-RAG is citation-only. STaR is an
+  optional ceiling reference (Step 10B).
+- Budget: ~USD 208 self-funded envelope for Phase 1a + Phase 1 Full (3 ablations),
+  single seed = 42. Phase 2 (seeds 123 and 456) re-runs the same commands with
+  no code changes.
 - Target GPU: **RTX 4090** on Vast.ai (~$0.40/hr). RTX 5090 is
   acceptable at ~$0.59/hr when a 4090 is not available. Upgrade to
   A100 SXM 80 GB only if wall-clock matters more than cost.
@@ -304,38 +426,47 @@ n_questions=5000 (after 1k calib+purity reservation × 3 benchmarks).
 (Upgrades 1–3, `caem/eval/equilibrium.py`)**; typical spend shown is
 gate-firing at c=7, worst case is full 10-cycle.
 
-| # | Step | Phase | Status | Wall-clock | Cost (5090 @ \$0.80/h) |
-|---|------|-------|:---:|-----------:|----------------:|
-| 1 | Pre-flight on local PC | 1a | ✅ | 5 min | \$0 |
-| 2 | Rent + connect RTX 5090 | 1a | ✅ | 10 min | ~\$0.10 |
-| 3 | Remote env setup (+ Qwen-3B cache + bitsandbytes) | 1a | ✅ | 25 min | ~\$0.25 |
-| 3B | Pytest unit-test gate (758 tests, 2 env-gated skips) | 1a | ✅ | 2 min | ~\$0.02 |
-| 3C | Live `test_load_qwen_3b` (slow, single-shot) | 1a | ✅ | 5 min | ~\$0.05 |
-| 4 | Passage index (21M, IVF-PQ, 2M training sample) | 1a | ✅ | ~8 h | ~\$5 |
-| 4.5 | FAISS index archived on HF Hub (`aksaN000/caem-passage-index-21m`) | 1a | ✅ | 10 min | ~\$0.10 |
-| 5 | Smoke test (1 cycle, n=50, MiniCheck + BGE reranker) | 1a | ✅ | 40 min | ~\$0.45 |
-| 5.5 | Verifier calibration diagnostic (MiniCheck vs RoBERTa + q_a_relevance) | 1a | ✅ | 20 min | ~\$0.20 |
-| **6** | **Cold-start memory seed** (200 × 3 benchmarks at τ\_store=0.45) | 1a | **🔄** | ~2.5 h | ~\$1.70 |
-| 7.0 | Cycle-0 eval + per-benchmark τ calibration | 1a | ⏳ | ~1.2 h | ~\$1.0 |
-| 7.0.E | Epistemic gate (faithfulness labels + Spearman ρ CI) | 1a | ⏳ | ~45 min | ~\$0.6 |
-| 7.0.P | Perf baseline row (`perf_baseline.py`, bs=1/8/16/32) | 1a | ⏳ | ~35 min | ~\$0.45 |
-| **7** | **CAEM 10-cycle main** (n\_questions=5000, 7-family composite, early-stop gate active) | 1a | ⏳ | 100–170 h | **\$130–\$170** |
-| 8 | FLARE pre-flight smoke (5 samples, Qwen-3B backbone) | 1a | ⏳ | 6 min | ~\$0.15 |
-| 9 | B1 Zero-shot (Qwen-3B ChatML) | 1a | ⏳ | 3.3 h | ~\$2.67 |
-| 10 | B2 Chain-of-Thought (Qwen-3B) | 1a | ⏳ | 5.0 h | ~\$4.00 |
-| 11 | B3 DPR-RAG (Qwen-3B + TierThreeRAG) | 1a | ⏳ | 8.3 h | ~\$6.64 |
-| 12 | B4 CoT + DPR-RAG (Qwen-3B) | 1a | ⏳ | 11.7 h | ~\$9.36 |
-| 13 | B5 FLARE (Qwen-3B, decoder-only slice) | 1a | ⏳ | 16.7 h | ~\$13.36 |
-| **14** | **B6 Vanilla-FT 10-cycle** (Full FT + 8-bit AdamW, early-stop gate active) | 1a | ⏳ | 50–78 h | **\$60–\$78** |
-| **15** | **B7 EWC-only FT 10-cycle** (λ fitted to match L2 anchor scale, early-stop gate active) | 1a | ⏳ | 60–89 h | **\$73–\$89** |
-| 15.5 | McNemar + bootstrap CI + Holm sig-tests | 1a | ⏳ | 20 min | ~\$0.40 |
-| 19 | Purity theorem validation (seven-family composite replay) | 1a | ⏳ | 1.4 h | ~\$1.12 |
-| 19.2 | Cycle-2 retention diagnostic (advisory flag) | 1a | ⏳ | 15 min | ~\$0.15 |
-| 19.5 | Ten-signal correlation matrix (includes q_a_relevance) | 1a | ⏳ | 10 min | CPU only |
-| 19.7 | Consolidation-audit review | 1a | ⏳ | 10 min | CPU only |
-| 20 | Aggregate outputs + perf_log.csv + download + stop instance | 1a | ⏳ | 30 min | ~\$0.24 |
+Status legend: ✅ done · 🔄 in progress · ⏳ pending · 🟡 removed from main chain (body preserved in `run_phase1a.sh` for Phase 2 reuse).
+
+Source of truth: `run_phase1a.sh main()` at lines 699–760. Each step is idempotent; reruns skip whatever canonical artefact already exists.
+
+| # | Step | Script / function | Status | Wall-clock | Cost (5090 @ \$0.80/h) |
+|---|------|-------------------|:---:|-----------:|----------------:|
+| 1 | Pre-flight on local PC | — | ✅ | 5 min | \$0 |
+| 2 | Rent + connect RTX 5090 | — | ✅ | 10 min | ~\$0.10 |
+| 3 | Remote env setup (+ Qwen-3B cache + bitsandbytes) | — | ✅ | 25 min | ~\$0.25 |
+| 3B | Pytest unit-test gate (769 passing, 2 env-gated skips) | `pytest` | ✅ | 2 min | ~\$0.02 |
+| 3C | Live `test_load_qwen_3b` (slow, single-shot) | `pytest -m slow` | ✅ | 5 min | ~\$0.05 |
+| 4 | Passage index (21M, IVF-PQ, 2M training sample) | `build_passage_index.py` | ✅ | ~8 h | ~\$5 |
+| 4.5 | FAISS index archived on HF Hub (`aksaN000/caem-passage-index-21m`) | — | ✅ | 10 min | ~\$0.10 |
+| 5 | Smoke test (1 cycle, n=50, MiniCheck + BGE reranker) | — | ✅ | 40 min | ~\$0.45 |
+| **6** | **Cold-start memory seed** (1000 × 3 benchmarks @ τ\_store=0.50; NEW uniform-scaffolded prompts) | `step_6_reseed` → `seed_cold_start.py` | **🔄** | ~2.5 h | ~\$1.70 |
+| 7.0 | Cycle-0 baseline eval (500/bench × 7 benchmarks, bs=32) | `step_7_0_cycle0` → `run_experiment.py --num_cycles 0` | ⏳ | ~1.5 h | ~\$1.20 |
+| 7.0.2 | Fit τ\_store / τ\_defer / τ\_train on 500-sample calibration fold | `step_7_0_calibrate` → `calibrate_thresholds.py` | ⏳ | ~5 min | ~\$0.07 |
+| 5.5.1 | Build 500-pair calibration set from Cycle-0 eval | `step_5_5_pairs` → `build_calibration_pairs.py` | ⏳ | ~10 min | ~\$0.13 |
+| 5.5.2 | 3-way MiniCheck / RoBERTa / Qwen-judge AUROC · ECE · Brier | `step_5_5_headhead` → `calibration_minicheck_vs_roberta.py` | ⏳ | ~15 min | ~\$0.20 |
+| 19.2.1 | Freeze 500-sample Cycle-0 retention slice (canonical `benchmark_pools[bm].test`) | `step_19_2_slice` → `cycle2_retention_diagnostic.py --make_slice` | ⏳ | ~2 min | ~\$0.03 |
+| 7.0.Platt | Path B Platt calibration (align Qwen-judge P(yes) ↔ MiniCheck P(supported)); required for AdaptiveNLIJudge | `step_platt_calibrate` → `calibrate_qwen_judge.py` | ⏳ | ~20 min | ~\$0.27 |
+| 4.6 | HF pre-Step-7 snapshot (credit-burnout recovery upload to `aksaN000/caem-passage-index-21m:pre_main_snapshot/`) | `step_hf_upload_pre_main` | ⏳ | ~10 min | ~\$0.13 |
+| 7.0.Gate | `u_tok_drop` pool correctness gate (N=32, \|Δ u\_stored\| < 0.02) — replaces Level B smoke | `step_u_tok_drop_gate` → `diff_verify_serial_vs_batch.py` | ⏳ | ~15 min | ~\$0.20 |
+| **7** | **CAEM 10-cycle main** (n\_questions=5000/bench/cycle, `CAEM_BATCH_U_TOK_DROP=1 CAEM_GDRIVE_OFFLOAD=1`, early-stop gate active) | `step_7_main` → `run_experiment.py --num_cycles 10` | ⏳ | 100–170 h | **\$130–\$170** |
+| 8 | FLARE pre-flight smoke (reserved — not in current main() chain) | `step_8_flare_smoke` | 🟡 | 6 min | ~\$0.15 |
+| 9 | B1 Zero-shot (7 benchmarks × 500/bench) | `step_9_b1` → `run_baseline.py --baseline zero_shot` | ⏳ | 3.3 h | ~\$2.67 |
+| 10 | B2 Chain-of-Thought | `step_10_b2` → `run_baseline.py --baseline cot` | ⏳ | 5.0 h | ~\$4.00 |
+| **11.5** | **B5 5-shot CoT (Wei 2022) — in-context reference, reclaimed B5 slot** | `step_11_5_b5` → `run_baseline.py --baseline fiveshot_cot` | ⏳ | 5.5 h | ~\$4.40 |
+| 11 | B3 DPR-RAG | `step_11_b3` → `run_baseline.py --baseline rag` | ⏳ | 8.3 h | ~\$6.64 |
+| 12 | B4 CoT + DPR-RAG | `step_12_b4` → `run_baseline.py --baseline cot_rag` | ⏳ | 11.7 h | ~\$9.36 |
+| 13 | B5 FLARE (decoder slice) — **removed from main chain** (training-asymmetric, defends no thesis claim; body preserved for Phase 2) | `step_13_b5` | 🟡 | — | — |
+| **14** | **B6 Vanilla-FT 10-cycle** (`--n_train_per_bench 50000` → chunk_size 5000 byte-identical to CAEM) | `step_14_b6_vanilla_ft` → `run_simple_ft.py` | ⏳ | 50–78 h | **\$60–\$78** |
+| **15** | **B7 EWC-only FT 10-cycle** (`--use_l2_anchor --use_mmlu_guard`, same 50k pool) | `step_15_b7_ewc_only` → `run_simple_ft.py` | ⏳ | 60–89 h | **\$73–\$89** |
+| 15.5 | McNemar + bootstrap CI + Holm-corrected sig-tests across CAEM vs B1–B7 | `step_15_5_sig` → `baseline_sig_tests.py` | ⏳ | 20 min | ~\$0.40 |
+| 19 | Purity theorem validation (α balanced-accuracy per bench + pooled) | `step_19_purity` → `run_purity_validation.py` | ⏳ | 1.4 h | ~\$1.12 |
+| 19.2.2 | Retention diagnostic on highest completed CAEM cycle (canonical `benchmark_pools[bm].test`) | `step_19_2_eval` → `cycle2_retention_diagnostic.py --evaluate` | ⏳ | 15 min | ~\$0.15 |
+| 19.5 | Nine-signal correlation matrix (u\_stored composite redundancy) | `step_19_5_corr` → `signal_correlation_matrix.py` | ⏳ | 10 min | CPU only |
+| 20.1 | Aggregate ablation (empty in 1a — populated by Phase 1 Full 3-variant sweep) | `step_20_aggregate` → `aggregate_ablation.py` | ⏳ | 5 min | CPU only |
+| 20.2 | scp `outputs/` down + stop Vast instance | manual | ⏳ | 30 min | ~\$0.24 |
 | **Phase 1a subtotal (typical, early-stop at c≈7)** | | | | **~200 h** | **~\$225** |
-| **Phase 1a subtotal (worst, no early-stop)** | | | | **~245 h** | **~\$272** |
+| **Phase 1a subtotal (worst, no 10-cycle early-stop)** | | | | **~245 h** | **~\$272** |
 | 16 | Screening sweep (19 landed variants × 3 cycles × n=1500) | Full | 🟡 | ~80 h | ~\$90 |
 | 17 | Aggregate screening + pick top-N | Full | 🟡 | 5 min | ~\$0.05 |
 | 18 | Confirmatory sweep (top-N + `full` + 4 planned variants\*, 10 cycles × n=5000) | Full | 🟡 | ~500 h | ~\$400 |
@@ -838,14 +969,21 @@ every later step.
 
 ---
 
-## Step 5.5 — Verifier-backend calibration diagnostic (run after Step 7.0)
+## Step 5.5 — Verifier-backend 3-way calibration diagnostic (run after Step 7.0)
 
 **[WHY]** The Ch4 purity theorem requires empirical α > ½ on the
-LM-generated claim distribution. This step measures AUROC / ECE /
-balanced-accuracy for both MiniCheck and legacy RoBERTa-MNLI on a
-stratified 500-pair labelled set derived from the Cycle-0 eval
-outputs, and ships the result into the Chapter 5 appendix as the
-empirical justification for defaulting to MiniCheck.
+LM-generated claim distribution, and Branch C's modularity claim
+(Claim 5) requires empirical evidence that the verifier slot is
+swap-safe. This step measures AUROC / ECE / balanced-accuracy for
+**three judges** — MiniCheck, legacy RoBERTa-MNLI, and Qwen-judge
+(raw P(yes), no Platt) — on a stratified 500-pair labelled set
+derived from the Cycle-0 eval outputs.
+
+**Updated 2026-04-22 evening**: script `calibration_minicheck_vs_roberta.py`
+now accepts `--backends minicheck roberta_nli qwen_judge`. Runbook
+invocation in `step_5_5_headhead` passes all three. Output JSON
+carries MC/RoBERTa/Qwen metrics + pairwise ΔAUROC between each pair.
+Ch5 Appendix gets a 3-row table instead of 2-row.
 
 **[ORDERING]** This step runs **after Step 7.0 Cycle-0 eval**, not
 here in the sequential position of the runbook. The pair builder
@@ -914,7 +1052,7 @@ episodes so the first cycle of the main run has retrieval targets.
 ```bash
 python -m scripts.seed_cold_start \
     --target_episodes 200 \
-    --benchmarks fever triviaqa natural_questions \
+    --benchmarks fever triviaqa asqa \
     --output_dir outputs/cold_start_memory
 ```
 
@@ -952,7 +1090,7 @@ python -m scripts.run_experiment \
     --num_cycles 0 \
     --n_questions 500 \
     --n_eval_questions 500 \
-    --benchmarks fever triviaqa natural_questions truthfulqa strategyqa arc_challenge \
+    --benchmarks fever triviaqa asqa truthfulqa strategyqa arc_challenge \
     --passage_index data/passage_index \
     --cold_start_memory outputs/cold_start_memory/memory_store \
     2>&1 | tee outputs/cycle_0/run.log
@@ -997,7 +1135,7 @@ by proportional scaling:
 |---|---|---|
 | FEVER | train ≈ 145k, dev ≈ 20k | full 500 for each fold |
 | TriviaQA | train ≈ 87k, dev ≈ 11k | full 500 for each fold |
-| Natural Questions | train ≈ 87k, dev ≈ 3k (dev subset) | may be n\_eval=≤3k / bench |
+| ASQA (Branch C) | train 4353, dev 948 | n\_eval ≤ 948; full 500 for each fold where possible |
 | TruthfulQA | single split 817 | n\_eval split ≤ 500; n\_cal and n\_purity not applicable (transfer-only, eval-only) |
 | StrategyQA | train 2k, dev 229 | n\_eval ≤ 229; transfer-only |
 | ARC-Challenge | train 1.1k, dev 299, test 1.2k | n\_eval ≤ 299; transfer-only |
@@ -1006,7 +1144,7 @@ Transfer-only benchmarks (TruthfulQA/StrategyQA/ARC) use the eval
 split entirely for `n_eval`; they contribute ZERO samples to the
 calibration or purity splits because there are no training splits to
 draw from. This is fine because the calibration/purity splits already
-cover the three in-training benchmarks (FEVER/TriviaQA/NQ) where
+cover the three in-training benchmarks (FEVER/TriviaQA/ASQA) where
 SIL memory population happens; the transfer benchmarks are just
 held-out evaluation.
 
@@ -1035,7 +1173,7 @@ python -m scripts.run_experiment \
     --num_cycles 10 \
     --n_questions 5000 \
     --n_eval_questions 500 \
-    --benchmarks fever triviaqa natural_questions truthfulqa strategyqa arc_challenge \
+    --benchmarks fever triviaqa asqa truthfulqa strategyqa arc_challenge \
     --passage_index data/passage_index \
     --cold_start_memory outputs/cold_start_memory/memory_store \
     --verifier_backend "$BACKEND" \
@@ -1139,7 +1277,7 @@ python -m scripts.run_experiment \
     --output_dir outputs/full_run \
     --num_cycles 2 \
     --n_questions 5000 \
-    --benchmarks fever triviaqa natural_questions truthfulqa strategyqa arc_challenge \
+    --benchmarks fever triviaqa asqa truthfulqa strategyqa arc_challenge \
     --passage_index data/passage_index \
     --cold_start_memory outputs/cold_start_memory/memory_store \
     2>&1 | tee outputs/full_run/run.log
@@ -1212,7 +1350,7 @@ python -m scripts.run_experiment \
     --num_cycles 10 \
     --resume_from_cycle 3 \
     --n_questions 5000 \
-    --benchmarks fever triviaqa natural_questions truthfulqa strategyqa arc_challenge \
+    --benchmarks fever triviaqa asqa truthfulqa strategyqa arc_challenge \
     --passage_index data/passage_index \
     --cold_start_memory outputs/cold_start_memory/memory_store \
     2>&1 | tee -a outputs/full_run/run.log
@@ -1255,7 +1393,13 @@ $0.50–1.00 vs the single-session run.
 
 ---
 
-## Step 8 — FLARE pre-flight smoke test (mandatory before B5)
+## Step 8 — FLARE pre-flight smoke test (REMOVED in Branch C — content kept as historical record)
+
+**STATUS: NOT RUN.** FLARE was removed from the Phase 1a baseline panel on 2026-04-22 as training-asymmetric and not defending any thesis claim. The `step_8_flare_smoke` and `step_13_b5` function bodies remain in `run_phase1a.sh` but are no longer called from `main()`. B5 slot now hosts **`FiveShotCoTBaseline`** (Wei 2022) — see Session 4 delta at top.
+
+Original FLARE instructions below are historical:
+
+## Step 8 — FLARE pre-flight smoke test (ORIGINAL / HISTORICAL)
 
 **[WHY]** `eval/baselines.py` had a decoder-slicing bug on T5
 encoder–decoder models. Confirm the fix still lands before burning
@@ -1311,7 +1455,7 @@ re-check.
 tmux new-session -s b1
 python -m scripts.run_baseline \
     --baseline zero_shot \
-    --benchmarks fever triviaqa natural_questions truthfulqa strategyqa arc_challenge \
+    --benchmarks fever triviaqa asqa truthfulqa strategyqa arc_challenge \
     --n_questions 5000 \
     --output_dir outputs/baselines \
     2>&1 | tee outputs/baselines/B1_zero_shot.log
@@ -1347,7 +1491,7 @@ prompt or loader bug.
 ```bash
 python -m scripts.run_baseline \
     --baseline cot \
-    --benchmarks fever triviaqa natural_questions truthfulqa strategyqa arc_challenge \
+    --benchmarks fever triviaqa asqa truthfulqa strategyqa arc_challenge \
     --n_questions 5000 \
     --output_dir outputs/baselines \
     2>&1 | tee outputs/baselines/B2_cot.log
@@ -1367,7 +1511,7 @@ python -m scripts.run_baseline \
 ```bash
 python -m scripts.run_baseline \
     --baseline rag \
-    --benchmarks fever triviaqa natural_questions truthfulqa strategyqa arc_challenge \
+    --benchmarks fever triviaqa asqa truthfulqa strategyqa arc_challenge \
     --n_questions 5000 \
     --passage_index data/passage_index \
     --output_dir outputs/baselines \
@@ -1387,7 +1531,7 @@ python -m scripts.run_baseline \
 ```bash
 python -m scripts.run_baseline \
     --baseline cot_rag \
-    --benchmarks fever triviaqa natural_questions truthfulqa strategyqa arc_challenge \
+    --benchmarks fever triviaqa asqa truthfulqa strategyqa arc_challenge \
     --n_questions 5000 \
     --passage_index data/passage_index \
     --output_dir outputs/baselines \
@@ -1398,7 +1542,27 @@ python -m scripts.run_baseline \
 
 ---
 
-## Step 13 — B5 FLARE baseline
+## Step 13 — B5 FLARE baseline (REMOVED — B5 slot now = FiveShotCoTBaseline)
+
+**STATUS: NOT RUN.** Replaced by `FiveShotCoTBaseline` (Wei 2022) in Branch C. The B5 slot in `run_phase1a.sh` now runs `_run_inference_baseline "B5" "fiveshot_cot" "fiveshot_cot"` (5 demos from fever train split, seed=42, bs=32). The FLARE function body remains in the shell file but isn't called from `main()`.
+
+### B5 replacement invocation (actual current command)
+
+```bash
+# Auto-runs as part of run_phase1a.sh main() via step_11_5_b5
+python -m scripts.run_baseline \
+    --baseline fiveshot_cot \
+    --benchmarks fever triviaqa asqa truthfulqa strategyqa arc_challenge \
+    --n_questions 5000 \
+    --eval_batch_size 32 \
+    --output_dir outputs/baselines
+```
+
+Cost: ~$3 (vs ~$16-80 FLARE estimate). No smoke-test needed.
+
+Original FLARE instructions below are historical:
+
+## Step 13 — B5 FLARE baseline (ORIGINAL / HISTORICAL)
 
 **[WHY]** Active retrieval reference. ~90 min. Runs only after Step 8
 smoke test passed.
@@ -1408,7 +1572,7 @@ smoke test passed.
 ```bash
 python -m scripts.run_baseline \
     --baseline flare \
-    --benchmarks fever triviaqa natural_questions truthfulqa strategyqa arc_challenge \
+    --benchmarks fever triviaqa asqa truthfulqa strategyqa arc_challenge \
     --n_questions 5000 \
     --passage_index data/passage_index \
     --flare_theta 0.4 \
@@ -1435,7 +1599,7 @@ tmux new-session -s b6
 python -m scripts.run_simple_ft \
     --baseline_name vanilla_ft \
     --num_cycles 10 \
-    --eval_benchmarks fever triviaqa natural_questions truthfulqa strategyqa arc_challenge \
+    --eval_benchmarks fever triviaqa asqa truthfulqa strategyqa arc_challenge \
     --n_eval_per_bench 5000 \
     --n_train_per_bench 4000 \
     --output_dir outputs/baselines/vanilla_ft \
@@ -1467,7 +1631,7 @@ python -m scripts.run_simple_ft \
     --use_l2_anchor \
     --use_mmlu_guard \
     --num_cycles 10 \
-    --eval_benchmarks fever triviaqa natural_questions truthfulqa strategyqa arc_challenge \
+    --eval_benchmarks fever triviaqa asqa truthfulqa strategyqa arc_challenge \
     --n_eval_per_bench 5000 \
     --n_train_per_bench 4000 \
     --output_dir outputs/baselines/ewc_only_ft \
@@ -1482,23 +1646,64 @@ every cycle; if the guard fires, the rollback is logged.
 
 ---
 
-## ===== PHASE 1a ENDS HERE — STEPS 16–18 DEFERRED =====
+## ===== PHASE 1a ENDS → PHASE 1 FULL BEGINS (3-ablation direct confirmatory) =====
 
-**[BUDGET GATE]** Steps 16–18 below are the 17-variant ablation
-sweep. They are **deferred** to Phase 1 Full (supervisor-funded
-tranche) per the two-phase model declared at the top of this
-runbook.
+**Superseded by Session 4 delta (top of this document).** The 17-variant
+screening / aggregate-screening / confirmatory sweep described in the
+sections below (original Steps 16–18) is **obsolete**. It was pruned
+to a direct 3-ablation confirmatory sweep on 2026-04-22 evening via a
+claim-vs-metric audit that found 14 of the 17 variants were redundant
+with directly-measured metrics (Step 19 α, `tier_{1,2,3}_frac`,
+Step 19.5 correlation matrix, Step 5.5.2 AUROC).
 
-**When to return here:**
-1. Phase 1a complete (Step 20 done, results downloaded locally).
-2. Supervisor approves Phase 1 Full funding (~\$640 GPU-credit).
-3. Resume a Vast rental (same image, pull FAISS from HF per Step 4
-   shortcut).
-4. Execute Steps 16–18 below, then re-run Step 20 with the
-   augmented output set.
+### Current Phase 1 Full procedure
 
-**If Phase 1a satisfies your defense requirement:** jump directly to
-Step 19 (purity theorem validation) and Step 20 (aggregate + stop).
+```bash
+# Launch the 3-ablation sweep after Phase 1a completes
+tmux new -d -s ablations './run_phase1_full_ablations.sh'
+```
+
+The wrapper runs:
+```
+VARIANTS=(no_retroverify no_self_improvement no_forgetting_guard)
+PHASE1_FULL_CYCLES=5
+PHASE1_FULL_N_SIL=5000
+PHASE1_FULL_N_EVAL=500
+```
+
+With `CAEM_BATCH_U_TOK_DROP=1 CAEM_GDRIVE_OFFLOAD=1` in the env.
+Reference row `full` is NOT re-run — `outputs/full_run/` from Phase 1a
+Step 7 main is the anchor at the same equilibrium cycle x*.
+
+### Cost
+
+~$21 total (was ~$85 in the 17-variant plan). Runs in ~35-50 GPU-h.
+
+### When to return here
+
+1. Phase 1a complete (`outputs/full_run/run_complete.json` written).
+2. Supervisor funding no longer a gate — budget covered.
+3. Resume the same Vast rental OR pull Phase 1a outputs from HF
+   pre_main_snapshot/ + `aksaN000/caem-passage-index-21m` passages on
+   a fresh instance.
+4. Run `./run_phase1_full_ablations.sh`, then `step_20_aggregate` on
+   the augmented output set for `ablation_table.csv`.
+
+### If Phase 1a satisfies your defense requirement on its own
+
+Skip the ablation sweep entirely. The 5 thesis claims defended by
+Phase 1a's direct metrics:
+- Claim 1 (memory routing) → `tier_{1,2,3}_frac` per cycle
+- Claim 2 (purity α>½) → Step 19 `purity_validation/theory_validation.json`
+- Claim 5 (modularity) → `NLIJudgeInterface` protocol + Step 5.5.2 3-way AUROC
+
+The 3 ablations add defense for Claims 2 (time-dim), 3 (SIL), 4 (no CF).
+
+---
+
+> **NOTE: The Steps 16-18 content below is HISTORICAL RECORD ONLY.**
+> Kept for trace. Do not execute. The 17-variant screening plan was
+> replaced by the direct 3-ablation sweep described above.
 
 ---
 
@@ -1799,7 +2004,7 @@ python -m scripts.run_simple_ft \
     --use_rationalisation \
     --num_cycles 10 \
     --passage_index data/passage_index \
-    --benchmarks fever triviaqa natural_questions truthfulqa strategyqa arc_challenge \
+    --benchmarks fever triviaqa asqa truthfulqa strategyqa arc_challenge \
     --n_questions 500 \
     --output_dir outputs/baselines/star \
     2>&1 | tee outputs/baselines/STaR_ceiling.log

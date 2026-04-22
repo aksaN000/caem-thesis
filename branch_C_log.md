@@ -18,6 +18,34 @@ Detail belongs in the commit message; the log is for quick rewind.
 
 ## 2026-04-22 (BDT — date rolls based on activity)
 
+### 2026-04-22 23:00 BDT  `[IMPL]`  Phase 1a runner launched after V5 audit — tmux `plan_a`, hardened wrapper
+
+After 5 rounds of whole-pipeline audits (V1–V5) that collapsed Option-C pool discipline into a single source of truth (`caem/benchmark_splits.py`) and fixed pool-alignment bugs across CAEM / B6 / B7 / ablations, the runner was restarted:
+
+```
+tmux new-session -d -s plan_a './run_phase1a_hardened.sh'   # 2026-04-22T17:00:23Z (23:00 BDT)
+```
+
+Pre-launch verification:
+- `pytest tests/test_benchmark_splits.py -q` → 24 passed (content_id, dedupe, cycle_chunk, leakage guards, cross-benchmark disjointness, panel definition, defaults, mock build).
+- `build_all_benchmark_pools(rng_seed=42)` → 3 training benches × {seed=1000, purity=500, calib=500, eval=500, test=500, 10×5000 chunks}; each chunk's SHA hash distinct (no within-pool duplication). Transfer benches (TruthfulQA 817, StrategyQA 687, ASQA 948) auto-clamped to available dev size.
+- `caem.config.TRAINING_BENCHMARKS == caem.benchmark_splits.TRAINING_BENCHMARKS == (fever, triviaqa, natural_questions)` — V3 misclassification bug no longer reproducible.
+- Dead code paths deleted from `run_experiment.py`, `run_baseline.py`, `run_simple_ft.py`, `run_cyclic_ablation.py`; the four ghost `--caem_splits_path` CLI args removed.
+
+V5-specific findings resolved this session:
+- V5-9 flagged `run_baseline.py`, `run_cyclic_ablation.py`, `aggregate_ablation.py` as "silent" on a `saved|wrote|OK|final` regex; on inspection all three report results cleanly — `run_baseline.py:393-398` prints a per-(baseline, bench) EM/F1 summary table, `run_cyclic_ablation.py:196-198` logs `"Manifest written -> ..."` + writes CES/variant-config JSON, `aggregate_ablation.py:367-392` prints the CES ranking table to stdout (plus 2 CSVs + aggregate manifest).
+- V4 fix preserved: `run_phase1a.sh` lines 576 + 601 use `--n_train_per_bench 50000` for B6/B7 → chunk_size 5000, byte-identical to CAEM's per-cycle SIL chunk. This keeps Ch5 sig-tests at matched scale.
+
+Launch telemetry (first 5 min):
+- cgroup memory 99% (92 GB / 90 GB limit is page cache from the 21M-passage FAISS mmap; reclaimable — verified by zero OOM counter delta).
+- OOM counter pre-launch = 6 (any new kernel kill in-run will show as counter > 6 in the hardened wrapper's exit block).
+- GPU: 8 → 17 GB VRAM climbing through Step 6 seed, utilization 34–74%.
+- `MALLOC_TRIM_THRESHOLD_=131072`, `PYTHONMALLOC=malloc` → glibc aggressively returns freed heap to the OS to avoid the 2026-04-21 cgroup-OOM pattern (RSS peaked at 231 GB against the 90 GB limit).
+
+Runner flow (22 steps, all idempotent, `main()` at `run_phase1a.sh:699-760`): Step 6 (cold-start seed, NEW prompts τ=0.50, re-seeded under tightened threshold) → 7.0 (Cycle-0 eval) → 7.0.2 (fit τ) → 5.5.1/2 (calibration pairs + 3-way AUROC) → 19.2.1 (freeze retention slice) → Platt (Path B) → HF pre-main snapshot → u\_tok\_drop gate → **Step 7 main 10-cycle (~335 h headline)** → B1/B2/B5-5shot/B3/B4 → B6/B7 FT → sig-tests → purity/retention/9-signal-corr → aggregate. FLARE (B5 legacy) and FLARE smoke (Step 8) bodies preserved in the script but removed from `main()`.
+
+Execution-order table in `NEXT_SESSION_PLAN.md` updated this session to match the above step-by-step flow with correct sub-steps, benchmark panel, and V4 chunk alignment.
+
 ### 2026-04-22 20:15 BDT  `[DECISION]`  NEW Theorem T4 + Corollary C7 — CAEM asymptotic hallucination elimination (benchmark-fixed), parameter-bounded open-domain rate
 
 User question 2026-04-22 20:00 BDT: "we reduce hallucination up to

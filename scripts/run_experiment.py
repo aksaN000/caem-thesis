@@ -285,129 +285,14 @@ def build_pipeline(config: Any, ns: Any, m: Dict[str, Any]) -> "CAEMPipeline":
 # Dataset loading
 # -----------------------------------------------------------------------------
 
-def load_sil_training_pool(ns: argparse.Namespace, m: Dict[str, Any]) -> Dict[str, list]:
-    """Load Train split data for episodic memory generation."""
-    n = ns.n_questions
-    samples = {}
-    requested = [bm.strip().lower() for bm in ns.benchmarks]
-    train_capable = {"fever", "triviaqa", "natural_questions"}
-    benchmarks = [bm for bm in requested if bm in train_capable]
-    if not benchmarks:
-        benchmarks = ["fever", "triviaqa", "natural_questions"]
-        logger.warning(
-            "No train-split SIL benchmarks requested; falling back to %s.",
-            benchmarks,
-        )
-
-    skipped = [bm for bm in requested if bm not in train_capable]
-    if skipped:
-        logger.info(
-            "Skipping SIL train-pool load for benchmarks without configured train-split SIL usage: %s",
-            skipped,
-        )
-
-    for bm in benchmarks:
-        logger.info("Loading SIL pool %s (n=%d) ...", bm, n)
-        split = "train"
-        samples[bm] = m["load_benchmark"](bm, split=split, n=n)
-    return samples
-
-def load_eval_transfer_pool(ns: argparse.Namespace, m: Dict[str, Any]) -> Dict[str, list]:
-    """Load Evaluation data (zero data leakage).
-
-    Uses ``--n_eval_questions`` when provided; otherwise falls back to
-    ``--n_questions``. Lets callers size the SIL pool and eval pool independently.
-    """
-    n = getattr(ns, "n_eval_questions", None) or ns.n_questions
-    samples = {}
-    benchmarks = [bm.strip().lower() for bm in ns.benchmarks]
-    split_map = {
-        "fever": "dev",              # lucadiliello/fever eval split (data-leakage safe; renamed from paper_dev)
-        "triviaqa": "validation",
-        "natural_questions": "validation",
-        "strategyqa": "test",
-        "arc_challenge": "test",
-    }
-
-    for bm in benchmarks:
-        logger.info("Loading Eval pool %s (n=%d) ...", bm, n)
-        if bm == "truthfulqa":
-            samples[bm] = m["load_benchmark"](bm, n=n)
-        else:
-            split = split_map.get(bm, "validation")
-            samples[bm] = m["load_benchmark"](bm, split=split, n=n)
-    return samples
-
-
-def split_calibration_sets(
-    samples: Dict[str, list],
-    calib_size: int = 500,
-    purity_size: int = 500,
-    seed: int = 42,
-) -> tuple:
-    """Split each benchmark's samples into purity / calibration / train sets.
-
-    Returns
-    -------
-    purity_samples  : dict[bm -> shuffled purity_size (or scaled down)]
-    calib_samples   : dict[bm -> shuffled calib_size (or scaled down)]
-    train_samples   : dict[bm -> remainder (used for SIL memory population)]
-
-    These three slices are strictly disjoint by index -- critical for
-    calibration-isolation (the calibration slice must NEVER be seen by the
-    generator during SIL) and for the memorisation-ceiling purity check.
-
-    Notes
-    -----
-    TruthfulQA has only 817 questions total. Using fixed 500+500 would leave
-    zero samples for train. For benchmarks where total < purity_size + calib_size,
-    we scale splits proportionally (plan §5.3 specifies 250/250/317 for TruthfulQA).
-
-    The per-benchmark list is shuffled with ``seed`` before slicing so that
-    purity / calibration / train draws are not biased by the benchmark's
-    native ordering (e.g. FEVER's heavily-correlated adjacent claims). The
-    shuffle is deterministic and keyed off the benchmark name so reruns with
-    the same ``seed`` produce the same partition.
-    """
-    import random
-    purity, calib, train = {}, {}, {}
-    for bm, slist in samples.items():
-        # Copy + shuffle deterministically so the original caller list is
-        # not mutated. Benchmark name is folded into the seed so different
-        # benchmarks get different (but still deterministic) orderings.
-        # Python 3.11+ rejects tuple seeds, and hash((seed, bm)) is unstable
-        # across runs because str hashing is PEP-456 randomised; the string
-        # form uses random.seed's SHA-512 path which is stable.
-        rng = random.Random(f"{seed}:{bm}")
-        slist = list(slist)
-        rng.shuffle(slist)
-        total = len(slist)
-        effective_purity = purity_size
-        effective_calib = calib_size
-
-        # Scale down proportionally when the dataset is too small to fit both
-        # purity + calibration windows (e.g. TruthfulQA: 817 < 500+500).
-        if total < purity_size + calib_size:
-            # Use ≈30% for purity, ≈30% for calibration, ≈40% for train --
-            # roughly matching the 250/250/317 ratio the plan specifies.
-            effective_purity = total // 3
-            effective_calib = total // 3
-            logger.warning(
-                "  %s: only %d samples -- scaling splits to "
-                "%d purity / %d calibration / %d train (plan §5.3)",
-                bm, total, effective_purity, effective_calib,
-                total - effective_purity - effective_calib,
-            )
-
-        purity[bm] = slist[:effective_purity]
-        calib[bm] = slist[effective_purity: effective_purity + effective_calib]
-        train[bm] = slist[effective_purity + effective_calib:]
-        logger.info(
-            "  %s: %d purity | %d calibration | %d train",
-            bm, len(purity[bm]), len(calib[bm]), len(train[bm]),
-        )
-    return purity, calib, train
-
+# NOTE: Branch C 2026-04-22 evening — load_sil_training_pool,
+# load_eval_transfer_pool, and split_calibration_sets were DELETED. They are
+# superseded by caem.benchmark_splits.build_all_benchmark_pools which produces
+# the same 6-way partition (seed + purity + calibration + sil_train×N + eval
+# + test) deterministically with content-hash leakage guards. All callers
+# (run_experiment.py main, run_cyclic_ablation.py, baselines) now invoke
+# build_all_benchmark_pools(rng_seed=42) directly. See git history for old
+# implementations if needed.
 
 # -----------------------------------------------------------------------------
 # General-domain data (anti-forgetting mix for fine-tuning)
@@ -934,6 +819,14 @@ def run_experiment(ns: argparse.Namespace) -> None:
             raise FileNotFoundError(f"Cold-start memory path not found: {faiss_file}")
 
     # -- Load datasets ------------------------------------------------------- #
+    # Branch C 2026-04-22 evening: stream-mode 6-way pool split with
+    # content-hash leakage guards. Replaces the legacy sil_pool + 3-way split
+    # + per-cycle reuse. Pools are built once; each cycle consumes a fresh
+    # disjoint chunk of sil_train_chunks[cycle_num - 1] for Step 4.
+    from caem.benchmark_splits import (
+        build_all_benchmark_pools, ALL_BENCHMARKS,
+    )
+
     if ns.smoke_test:
         logger.info("SMOKE TEST MODE -- using synthetic samples (n=10)")
         from eval.benchmarks import make_synthetic_samples
@@ -948,20 +841,52 @@ def run_experiment(ns: argparse.Namespace) -> None:
         purity_samples = {bm: s[:3] for bm, s in sil_pool.items()}
         calib_samples  = {bm: s[3:6] for bm, s in sil_pool.items()}
         train_samples  = {bm: s[6:]  for bm, s in sil_pool.items()}
+        # Smoke mode reuses the same tiny set every cycle; stream chunks
+        # are just len-1 tuples containing the whole train_samples dict.
+        cycle_stream_chunks = {bm: [list(s)] for bm, s in train_samples.items()}
+        benchmark_pools = None  # not built in smoke mode
     else:
-        sil_pool = load_sil_training_pool(ns, m)
-        eval_samples = load_eval_transfer_pool(ns, m)
-
-        # Purity, Calibration, and Train are carved into three DISJOINT slices
-        # of the SIL Train Pool. The calibration slice is NEVER shown to the
-        # generator during SIL (Gap-5 isolation; see §4.Verifier-Calibration
-        # discussion in Chapter 4).
-        purity_samples, calib_samples, train_samples = split_calibration_sets(
-            sil_pool,
-            calib_size=config.calibration_set_size,
-            purity_size=config.purity_validation_set_size,
-            seed=getattr(ns, "seed", 42),
+        # Build disjoint 6-way pool splits for every benchmark in the panel.
+        # Raises InsufficientBenchmarkDataError / PoolLeakageError on failure.
+        requested_benchmarks = [bm.strip().lower() for bm in ns.benchmarks]
+        panel = [bm for bm in ALL_BENCHMARKS if bm in requested_benchmarks] or list(ALL_BENCHMARKS)
+        logger.info("Building benchmark pools for panel: %s", panel)
+        benchmark_pools = build_all_benchmark_pools(
+            benchmarks=panel,
+            n_cycles=int(config.num_cycles),
+            train_chunk_size=int(ns.n_questions),
+            eval_size=int(getattr(ns, "n_eval_questions", None) or 500),
+            rng_seed=int(getattr(ns, "seed", 42)),
         )
+
+        # Extract per-purpose dicts the downstream code expects.
+        # Only training benchmarks populate seed/purity/calib/train; all
+        # benchmarks populate eval.
+        purity_samples = {
+            bm: list(p.purity) for bm, p in benchmark_pools.items() if p.is_training
+        }
+        calib_samples = {
+            bm: list(p.calibration) for bm, p in benchmark_pools.items() if p.is_training
+        }
+        # `train_samples` is now the CONCATENATED SIL training pool across
+        # all cycles — kept for legacy call-sites (dedup check, logging)
+        # but the live cycle loop uses per-cycle chunks from cycle_stream_chunks.
+        train_samples = {
+            bm: [s for chunk in p.sil_train_chunks for s in chunk]
+            for bm, p in benchmark_pools.items() if p.is_training
+        }
+        # Per-cycle stream chunks: cycle_stream_chunks[bm][cycle_num - 1] → List[dict]
+        cycle_stream_chunks = {
+            bm: [list(chunk) for chunk in p.sil_train_chunks]
+            for bm, p in benchmark_pools.items() if p.is_training
+        }
+        eval_samples = {bm: list(p.eval) for bm, p in benchmark_pools.items()}
+        # sil_pool is the union of seed/purity/calib/train — kept for
+        # content-id stamping loops below that iterate sil_pool[bm].
+        sil_pool = {
+            bm: list(p.seed) + list(p.purity) + list(p.calibration) + train_samples[bm]
+            for bm, p in benchmark_pools.items() if p.is_training
+        }
 
     # -- Content-hash stable IDs for disjointness checks ------------------- #
     # Problem: some HuggingFace dataset variants have non-unique native
@@ -1445,16 +1370,25 @@ def run_experiment(ns: argparse.Namespace) -> None:
         # Track per-cycle MMLU for summary CSV
         mmlu_per_cycle.append(mmlu_val)
 
-        # Step 4: Populate Memory by answering the SIL Train split (DISJOINT
-        # from the calibration slice) with store_to_memory=True. This occurs
-        # so that we populate the EpisodicMemoryStore with the *upgraded*
-        # fine-tuned model weights. Because this is for *generation*, we do
-        # not care about the benchmark scores.
+        # Step 4: Populate Memory by answering this cycle's FRESH SIL train
+        # chunk (disjoint from all other cycles, from calibration, purity,
+        # seed, eval, and test). Stream-mode (Branch C 2026-04-22):
+        # cycle_stream_chunks[bm][cycle_num - 1] is a content-hash-disjoint
+        # 5000-sample slice built by caem.benchmark_splits.
         #
-        # Gap-5 isolation: we pass `train_samples`, NOT `sil_pool`, so
-        # the calibration slice stays unseen by the generator during SIL.
-        logger.info("  Step 4: Generating Episodic Memory from SIL Train split (cycle=%d) ...", cycle_num)
-        harness.run_all(train_samples, cycle=cycle_num, store_to_memory=True)
+        # Gap-5 isolation: calibration slice never appears in any cycle chunk
+        # by construction (see caem/benchmark_splits.py).
+        this_cycle_chunk = {
+            bm: cycle_stream_chunks[bm][cycle_num - 1]
+            for bm in cycle_stream_chunks
+            if cycle_num - 1 < len(cycle_stream_chunks[bm])
+        }
+        chunk_sizes = {bm: len(s) for bm, s in this_cycle_chunk.items()}
+        logger.info(
+            "  Step 4: Generating Episodic Memory from CYCLE-%d stream chunk (sizes=%s)",
+            cycle_num, chunk_sizes,
+        )
+        harness.run_all(this_cycle_chunk, cycle=cycle_num, store_to_memory=True)
 
         # Step 5: Evaluate all benchmarks (Dev/Transfer split), NO Memory Leakage
         logger.info("  Step 5: Evaluating all benchmarks (cycle=%d) ...", cycle_num)
@@ -1600,6 +1534,28 @@ def run_experiment(ns: argparse.Namespace) -> None:
     save_summary_csv(all_cycle_results, output_dir, mmlu_per_cycle=mmlu_per_cycle)
     print_mechanism_table(all_cycle_results)
 
+    # -- Completion marker (Phase 1a restart-safety) ------------------------- #
+    # The runbook step_7_main checks this marker (OR rows>=12) before re-launching.
+    # Without it, a legitimate early-stop (6-10 rows) would re-run cycles 6..10
+    # on every wrapper restart, wasting ~30-80 GPU-h.
+    completion_marker = output_dir / "run_complete.json"
+    try:
+        completed_cycles = len(all_cycle_results)
+        early_stopped = completed_cycles < config.num_cycles + 1  # +1 for cycle-0 baseline
+        with open(completion_marker, "w") as _f:
+            json.dump({
+                "completed_at": __import__("datetime").datetime.utcnow().isoformat() + "Z",
+                "num_cycles_configured": int(config.num_cycles),
+                "cycles_completed": int(completed_cycles),
+                "early_stopped": bool(early_stopped),
+            }, _f, indent=2)
+        logger.info(
+            "Wrote completion marker %s (early_stopped=%s, cycles=%d).",
+            completion_marker, early_stopped, completed_cycles,
+        )
+    except Exception as exc:
+        logger.warning("Failed to write completion marker (%s).", exc)
+
     # -- Save full results JSON ----------------------------------------------- #
     full_results_path = output_dir / "all_cycle_results.json"
     with open(full_results_path, "w") as f:
@@ -1704,9 +1660,12 @@ def _parse_args() -> argparse.Namespace:
         type=int,
         default=42,
         help=(
-            "Global RNG seed for deterministic shuffles (split_calibration_sets, "
-            "SIL pool sampling, etc.). The MMLU retention probe uses its own "
-            "fixed seed for cross-run comparability."
+            "Global RNG seed for deterministic shuffles. Passed to "
+            "caem.benchmark_splits.build_all_benchmark_pools so every "
+            "downstream script (run_baseline, run_simple_ft, "
+            "run_cyclic_ablation, seed_cold_start, run_purity_validation) "
+            "sees byte-identical pool allocations. The MMLU retention "
+            "probe uses its own fixed seed for cross-run comparability."
         ),
     )
     p.add_argument(
@@ -1719,6 +1678,7 @@ def _parse_args() -> argparse.Namespace:
             "truthfulqa",
             "strategyqa",
             "arc_challenge",
+            "asqa",
         ],
         help="Benchmarks to evaluate each cycle (Dev + Transfer split).",
     )

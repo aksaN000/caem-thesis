@@ -50,9 +50,9 @@ class TestVariantRegistry:
         assert next(iter(VARIANT_REGISTRY)) == "full"
 
     def test_get_variant_known(self):
-        v = get_variant("no_verifier")
+        v = get_variant("no_retroverify")
         assert isinstance(v, AblationVariant)
-        assert v.name == "no_verifier"
+        assert v.name == "no_retroverify"
 
     def test_get_variant_unknown_raises_with_suggestions(self):
         with pytest.raises(KeyError) as exc_info:
@@ -105,149 +105,23 @@ class TestMutationBehaviour:
         after = dict(vars(cfg))
         assert snap == after, f"{name} is not bitwise-idempotent"
 
-    def test_no_verifier_does_not_change_config(self):
-        """skip_verifier is a pipeline-level flag; config should be unchanged."""
-        base = CAEMConfig()
-        mutated = get_variant("no_verifier").apply()
-        assert vars(base) == vars(mutated)
-
     def test_no_self_improvement_does_not_change_config(self):
-        """skip_self_improvement is also a pipeline-level flag."""
+        """skip_self_improvement is a pipeline-level flag; config unchanged."""
         base = CAEMConfig()
         mutated = get_variant("no_self_improvement").apply()
         assert vars(base) == vars(mutated)
 
-
-class TestUStoredWeightRescaling:
-    """Variants that zero u_stored signals must leave the composite on [0,1]."""
-
-    @pytest.mark.parametrize("name", [
-        "no_grounding", "no_internal_calibration", "no_semantic_entropy",
-        "no_q_a_relevance",
-    ])
-    def test_weights_sum_to_one(self, name):
-        cfg = get_variant(name).apply()
-        total = (
-            cfg.u_stored_weight_pground_mean
-            + cfg.u_stored_weight_pground_atomic
-            + cfg.u_stored_weight_nli
-            + cfg.u_stored_weight_q_a_relevance
-            + cfg.u_stored_weight_sc
-            + cfg.u_stored_weight_uinternal
-            + cfg.u_stored_weight_se
-        )
-        assert math.isclose(total, 1.0, abs_tol=1e-9), (
-            f"{name}: weights sum to {total}, expected 1.0"
-        )
-
-    def test_no_grounding_zeros_pground_only(self):
-        """After MAJOR-VR1 fix (Task #114): no_grounding zeros ONLY the two
-        external-grounding weights (pground_mean, pground_atomic). The nli
-        weight — which carries ``p_entail`` (chain -> answer entailment,
-        a self-consistency signal, not grounding) — must remain non-zero.
-        Prior behaviour conflated grounding with chain-answer NLI.
-        """
-        cfg = get_variant("no_grounding").apply()
-        assert cfg.u_stored_weight_pground_mean == 0.0
-        assert cfg.u_stored_weight_pground_atomic == 0.0
-        assert cfg.u_stored_weight_nli > 0.0, (
-            "nli is a self-consistency signal, not grounding — must not be "
-            "zeroed by no_grounding variant (see Task #114 / MAJOR-VR1)"
-        )
-        # Branch C Goal 2: q_a_relevance is also orthogonal to external
-        # grounding — it scores question↔answer relevance, not passage
-        # support. It MUST remain non-zero in the no_grounding ablation.
-        assert cfg.u_stored_weight_q_a_relevance > 0.0, (
-            "q_a_relevance is a question-answer relevance signal (Goal 2), "
-            "not external grounding -- must stay non-zero in no_grounding"
-        )
-
-    def test_no_internal_calibration_zeros_uinternal(self):
-        cfg = get_variant("no_internal_calibration").apply()
-        assert cfg.u_stored_weight_uinternal == 0.0
-
-    def test_no_semantic_entropy_zeros_se(self):
-        cfg = get_variant("no_semantic_entropy").apply()
-        assert cfg.u_stored_weight_se == 0.0
-
-    def test_no_q_a_relevance_zeros_qa_weight(self):
-        """Branch C Goal 2 ablation: zero q_a_relevance weight and
-        redistribute. The remaining six weights sum to 1.0 (already
-        covered by test_weights_sum_to_one).
-        """
-        cfg = get_variant("no_q_a_relevance").apply()
-        assert cfg.u_stored_weight_q_a_relevance == 0.0
-
-    def test_no_q_a_relevance_preserves_branch_c_ratios(self):
-        """Pro-rata rescale: the six legacy weights preserve their Branch-C
-        Goal-2 relative ratios (0.28 / 0.14 / 0.16 / 0.14 / 0.10 / 0.04 on
-        base, each divided by their sum 0.86 so the kept weights sum to 1).
-
-        Branch C does not try to recover Session-42 ratios — this is the
-        same rescale pattern every other ``_mut_no_*`` variant uses, and
-        keeps Chapter 5's comparison defined on a consistent composite
-        (Goal-2 with one axis removed vs Goal-2 full).
-        """
-        cfg = get_variant("no_q_a_relevance").apply()
-        # Expected = Branch-C Goal-2 weight / (1 - q_a_relevance weight) = / 0.86
-        base = CAEMConfig()  # untouched baseline
-        scale = 1.0 / (1.0 - base.u_stored_weight_q_a_relevance)
-        for field in (
-            "u_stored_weight_pground_mean",
-            "u_stored_weight_pground_atomic",
-            "u_stored_weight_nli",
-            "u_stored_weight_sc",
-            "u_stored_weight_uinternal",
-            "u_stored_weight_se",
-        ):
-            expected = getattr(base, field) * scale
-            actual = getattr(cfg, field)
-            assert math.isclose(actual, expected, abs_tol=1e-9), (
-                f"{field}: {actual} != {expected} after pro-rata rescale"
-            )
-
-    def test_equal_signal_weights_uses_seven_families(self):
-        """Branch C Goal 2: the equal-weights ablation must flatten across
-        the seven weighted families (1/7 each), not the pre-Goal-2 1/6.
-        """
-        cfg = get_variant("equal_signal_weights").apply()
-        expected = 1.0 / 7.0
-        for field in (
-            "u_stored_weight_pground_mean",
-            "u_stored_weight_pground_atomic",
-            "u_stored_weight_nli",
-            "u_stored_weight_q_a_relevance",
-            "u_stored_weight_sc",
-            "u_stored_weight_uinternal",
-            "u_stored_weight_se",
-        ):
-            assert math.isclose(
-                getattr(cfg, field), expected, abs_tol=1e-9,
-            ), f"{field} != 1/7 after equal_signal_weights mutation"
+    def test_no_retroverify_does_not_change_config(self):
+        """skip_retroverify is also a pipeline-level flag; config unchanged."""
+        base = CAEMConfig()
+        mutated = get_variant("no_retroverify").apply()
+        assert vars(base) == vars(mutated)
 
 
 class TestThresholdMutations:
-    def test_no_early_exit_disables_gate(self):
-        cfg = get_variant("no_early_exit").apply()
-        # Gate: u_internal >= floor AND p_ground_max <= ceiling.
-        # With floor > 1 and ceiling < 0, the AND is never satisfiable.
-        assert cfg.early_exit_u_internal > 1.0
-        assert cfg.early_exit_p_ground_max < 0.0
-
-    def test_no_tier1_raises_combined_threshold(self):
-        cfg = get_variant("no_tier1").apply()
-        assert cfg.tier1_combined_threshold > 1.0
-
-    def test_no_store_gate_zeroes_thresholds(self):
-        cfg = get_variant("no_store_gate").apply()
-        assert cfg.store_threshold == 0.0
-        assert cfg.defer_threshold == 0.0
-
-    def test_aggressive_store_raises_thresholds(self):
-        cfg = get_variant("aggressive_store").apply()
-        base = CAEMConfig()
-        assert cfg.store_threshold > base.store_threshold
-        assert cfg.defer_threshold > base.defer_threshold
+    def test_no_forgetting_guard_zeros_tolerance(self):
+        cfg = get_variant("no_forgetting_guard").apply()
+        assert cfg.forgetting_tolerance == 0.0
 
 
 class TestVariantListFilters:
@@ -255,10 +129,12 @@ class TestVariantListFilters:
         assert len(list_variants()) == len(VARIANT_REGISTRY)
 
     def test_filter_by_mechanism(self):
-        verification = list_variants(mechanism="verification")
-        assert len(verification) > 0
-        for v in verification:
-            assert v.mechanism_tag == "verification"
+        # self_improvement tag covers no_retroverify + no_self_improvement,
+        # which are guaranteed members of the Phase-1-Full 3-ablation set.
+        si = list_variants(mechanism="self_improvement")
+        assert len(si) > 0
+        for v in si:
+            assert v.mechanism_tag == "self_improvement"
 
     def test_filter_by_mechanism_unknown_returns_empty(self):
         assert list_variants(mechanism="nonexistent") == []

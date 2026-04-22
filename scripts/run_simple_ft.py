@@ -130,7 +130,7 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--eval_benchmarks", nargs="+",
                    default=[
                        "fever", "triviaqa", "natural_questions",
-                       "truthfulqa", "strategyqa", "arc_challenge",
+                       "truthfulqa", "strategyqa", "arc_challenge", "asqa",
                    ])
     p.add_argument("--n_train_per_bench", type=int, default=2000)
     p.add_argument("--n_eval_per_bench", type=int, default=500)
@@ -159,18 +159,10 @@ def _parse_args() -> argparse.Namespace:
                    help="Max new tokens when generating rationales.")
     p.add_argument("--rationalise_batch_size", type=int, default=8,
                    help="Batch size for the rationalisation generation pass.")
-    p.add_argument("--caem_splits_path", default="",
-                   help=(
-                       "Optional path to the CAEM main-run's "
-                       "dataset_splits.json (e.g. "
-                       "outputs/full_run/dataset_splits.json). When supplied, "
-                       "the per-cycle EVAL pool is filtered to the exact "
-                       "eval_ids CAEM used, guaranteeing the sig-test paired "
-                       "overlap is the full eval slice. The TRAINING pool is "
-                       "NOT filtered -- training data draws from the full "
-                       "train split independently. Empty string disables "
-                       "the filter (smoke runs)."
-                   ))
+    # --caem_splits_path removed 2026-04-22 evening. Pool alignment is now
+    # deterministic via caem.benchmark_splits.build_all_benchmark_pools
+    # (rng_seed=42 matches run_experiment.py). B6/B7 eval + train pools are
+    # byte-identical to CAEM's cycle-N pools by construction.
     return p.parse_args()
 
 
@@ -197,40 +189,91 @@ def _load_train_pool(
 ) -> Tuple[List, Dict[str, set]]:
     """Load raw (question, answer) pairs from each training benchmark.
 
-    Always pulls from ``split="train"`` -- the previous FEVER-only special
-    case silently pulled TriviaQA and NQ from their ``validation`` splits,
-    which are the same splits the per-cycle eval loop measures on. The
-    train/eval disjointness invariant asserted by the caller assumes all
-    training benchmarks are loaded from their dedicated train splits.
+    Branch C 2026-04-22 evening: pool now drawn from the SAME deterministic
+    content-hash split as CAEM's run_experiment.py stream chunks, via
+    caem.benchmark_splits.build_all_benchmark_pools. This guarantees B6/B7
+    see byte-identical per-cycle chunks to CAEM's Step 4 -- critical for
+    matched-scale comparison in the Ch5 sig-tests. The legacy
+    `load_benchmark(bench, n=n, split="train")` path is replaced because it
+    drew an independent random sample; the pool builder's content-hash split
+    enforces disjointness with CAEM's calib/purity/test/eval pools.
 
     Returns
     -------
-    (pool, train_qhashes_by_benchmark)
-        pool: shuffled flat list of QAPair instances.
-        train_qhashes_by_benchmark: {benchmark: set(question_hash)} used by
-            the caller to assert train/eval disjointness by question TEXT
-            (not by id) against the eval pool loaded at cycle-0 startup.
+    (pool, train_qhashes_by_benchmark, cycle_chunks_by_bm)
+        pool: shuffled flat list of QAPair instances (concatenated chunks).
+        train_qhashes_by_benchmark: {benchmark: set(question_hash)} for
+            disjointness assertions.
+        cycle_chunks_by_bm: {benchmark: [chunk_1, chunk_2, ...]} where each
+            chunk is a list of QAPair. Used by the cycle loop to draw the
+            exact same samples as CAEM cycle N.
     """
     from caem.training.self_improvement import QAPair
-    from eval.benchmarks import load_benchmark
+    from caem.benchmark_splits import (
+        build_all_benchmark_pools, TRAINING_BENCHMARKS,
+    )
+
+    # Only training-eligible benchmarks contribute SIL pool samples.
+    # Transfer benchmarks (truthfulqa, strategyqa, arc_challenge, asqa) have
+    # empty sil_train_chunks and are skipped by the pool builder.
+    train_capable = [bm for bm in ns.train_benchmarks if bm in TRAINING_BENCHMARKS]
+    if not train_capable:
+        raise RuntimeError(
+            f"No train-capable benchmarks in --train_benchmarks={ns.train_benchmarks}. "
+            f"Must include at least one of {TRAINING_BENCHMARKS}."
+        )
+
+    # n_train_per_bench maps to n_cycles * train_chunk_size in pool builder terms.
+    # The user's --n_train_per_bench was historically the TOTAL pool size; under
+    # stream mode we keep n_cycles * chunk = n_train_per_bench so the total pool
+    # footprint is unchanged but now split into disjoint per-cycle chunks.
+    n_total_per_bench = int(ns.n_train_per_bench)
+    chunk_size = max(1, n_total_per_bench // int(ns.num_cycles))
+    logger.info(
+        "Building benchmark pools for B6/B7 training: %s (n_cycles=%d, chunk=%d)",
+        train_capable, ns.num_cycles, chunk_size,
+    )
+    benchmark_pools = build_all_benchmark_pools(
+        benchmarks=train_capable,
+        n_cycles=int(ns.num_cycles),
+        train_chunk_size=chunk_size,
+        eval_size=500,  # not used here; eval loop uses benchmark_pools[bm].eval
+        rng_seed=int(ns.seed),
+    )
 
     pool: List[QAPair] = []
     train_qhashes_by_bm: Dict[str, set] = {}
-    for bench in ns.train_benchmarks:
-        n = ns.n_train_per_bench
-        logger.info("Loading %d train-split samples from %s ...", n, bench)
-        samples = load_benchmark(bench, n=n, split="train")
-        train_qhashes_by_bm[bench] = {_q_hash(s["question"])
-                                      for s in samples
-                                      if s.get("question")}
-        for s in samples:
-            answer = s["answers"][0] if s.get("answers") else ""
-            if s["question"] and answer:
-                pool.append(QAPair(question=s["question"], answer=answer))
+    cycle_chunks_by_bm: Dict[str, List[List[QAPair]]] = {}
+    for bench in train_capable:
+        pools = benchmark_pools[bench]
+        per_cycle_pairs: List[List[QAPair]] = []
+        bench_pairs: List[QAPair] = []
+        for chunk in pools.sil_train_chunks:
+            cycle_pairs_this = []
+            for s in chunk:
+                answer = s["answers"][0] if s.get("answers") else ""
+                if s.get("question") and answer:
+                    qp = QAPair(question=s["question"], answer=answer)
+                    cycle_pairs_this.append(qp)
+                    bench_pairs.append(qp)
+            per_cycle_pairs.append(cycle_pairs_this)
+        cycle_chunks_by_bm[bench] = per_cycle_pairs
+        pool.extend(bench_pairs)
+        train_qhashes_by_bm[bench] = {
+            _q_hash(s["question"]) for chunk in pools.sil_train_chunks
+            for s in chunk if s.get("question")
+        }
+        logger.info(
+            "  %s: %d chunks × ~%d pairs = %d total (matches CAEM cycle chunks exactly).",
+            bench, len(per_cycle_pairs),
+            len(per_cycle_pairs[0]) if per_cycle_pairs else 0,
+            len(bench_pairs),
+        )
+
     random.Random(ns.seed).shuffle(pool)
     logger.info("Total training pool: %d pairs across %d benchmarks.",
-                len(pool), len(ns.train_benchmarks))
-    return pool, train_qhashes_by_bm
+                len(pool), len(train_capable))
+    return pool, train_qhashes_by_bm, cycle_chunks_by_bm
 
 
 # -----------------------------------------------------------------------------
@@ -673,29 +716,15 @@ def main() -> None:
     eval_root.mkdir(parents=True, exist_ok=True)
     log_path = out_root / "training_log.jsonl"
 
-    # Optional CAEM-split filter for the EVAL pool only (NOT training).
-    # Mirrors run_purity_validation.py::load_and_filter so B6/B7 evaluate on
-    # the exact eval_ids CAEM used, guaranteeing 1:1 sig-test pairing.
+    # Branch C 2026-04-22 evening: eval_ids_by_bm superseded by
+    # benchmark_pools[bm].eval (deterministic via rng_seed=42 in
+    # caem.benchmark_splits.build_all_benchmark_pools). B6/B7 draw eval
+    # samples directly from the pool builder in the cycle loop below, so
+    # the legacy dataset_splits.json path is no longer needed. Kept
+    # eval_ids_by_bm empty for back-compat with downstream code that
+    # `gets` from it (all `.get()` calls return None, correctly skipping
+    # legacy filter logic).
     eval_ids_by_bm: Dict[str, set] = {}
-    if ns.caem_splits_path:
-        import json as _json
-        splits_path = Path(ns.caem_splits_path)
-        if splits_path.is_file():
-            try:
-                with splits_path.open("r", encoding="utf-8") as f:
-                    splits = _json.load(f)
-                for bm, meta in splits.items():
-                    if isinstance(meta, dict):
-                        eval_ids_by_bm[bm] = {str(i) for i
-                                              in meta.get("eval_ids", [])}
-                logger.info("Loaded eval_ids from %s for %d benchmarks.",
-                            splits_path, len(eval_ids_by_bm))
-            except Exception as exc:
-                logger.warning("Failed to parse %s (%s). Proceeding without "
-                               "eval_id filter.", splits_path, exc)
-        else:
-            logger.warning("--caem_splits_path %s not found. Proceeding "
-                           "without eval_id filter.", splits_path)
 
     logger.info("Loading %s ...", resolved_model_name)
     model, tokenizer = load_base_generator(
@@ -717,81 +746,19 @@ def main() -> None:
     # pre_mmlu will be updated per-cycle but pristine_mmlu stays fixed.
     pre_mmlu = pristine_mmlu
 
-    train_pool, train_qhashes_by_bm = _load_train_pool(ns)
+    train_pool, train_qhashes_by_bm, cycle_chunks_by_bm = _load_train_pool(ns)
     per_cycle_pool_size = max(len(train_pool) // ns.num_cycles, ns.batch_size)
 
     # -- Mandatory train/eval disjointness invariant ---------------------- #
-    # Guards against a loader-default change silently re-introducing the
-    # train/eval leak that the split="train" fix just closed. Compares
-    # the training-pool question TEXT (sha256 prefix) against the question
-    # text of the eval slice CAEM used. Comparing by question text (not by
-    # id) is immune to the fact that some HF datasets (notably nq_open) use
-    # numeric question_id values that collide across train/val splits even
-    # though the underlying questions are distinct.
-    #
-    # Raises RuntimeError (NOT assert -- survives `python -O`). Skipped
-    # only when --caem_splits_path is empty or absent; the skip path logs
-    # loudly so it's visible in the run log.
-    _EVAL_SPLIT_MAP = {
-        "fever": "dev",
-        "triviaqa": "validation",
-        "natural_questions": "validation",
-        "strategyqa": "test",
-        "arc_challenge": "test",
-        # truthfulqa: no split kwarg needed; load_benchmark dispatch returns
-        # the validation pool by default and truthfulqa isn't in the ID
-        # training set anyway, so this benchmark won't hit the guard.
-    }
-    if eval_ids_by_bm:
-        for bm, train_hashes in train_qhashes_by_bm.items():
-            e_ids = eval_ids_by_bm.get(bm)
-            if not e_ids:
-                logger.info(
-                    "train/eval disjointness check: SKIPPED for %s "
-                    "(benchmark not in dataset_splits.json eval_ids).", bm)
-                continue
-            eval_split = _EVAL_SPLIT_MAP.get(bm)
-            if eval_split:
-                eval_samples = load_benchmark(bm, n=ns.n_eval_per_bench,
-                                              split=eval_split)
-            else:
-                eval_samples = load_benchmark(bm, n=ns.n_eval_per_bench)
-            # Restrict to CAEM's exact eval ids where possible; if the
-            # filter leaves the set empty, fall back to the unfiltered pool
-            # so the invariant still fires (but log the degradation).
-            filtered = [s for i, s in enumerate(eval_samples)
-                        if str(s.get("id", i)) in e_ids]
-            if not filtered:
-                logger.warning(
-                    "train/eval disjointness check: %s filtered to 0 "
-                    "samples via eval_ids; falling back to unfiltered "
-                    "eval pool for the check.", bm)
-                filtered = eval_samples
-            eval_hashes = {_q_hash(s["question"])
-                           for s in filtered
-                           if s.get("question")}
-            overlap = train_hashes & eval_hashes
-            if overlap:
-                raise RuntimeError(
-                    f"train/eval LEAKAGE detected for {bm}: "
-                    f"{len(overlap)} question-text hashes appear in both "
-                    f"the training pool (split='train', "
-                    f"n_train_qhashes={len(train_hashes)}) and the eval "
-                    f"pool (n_eval_qhashes={len(eval_hashes)}). This "
-                    f"indicates a loader regression re-introducing the "
-                    f"bug closed by the split='train' fix. Refusing to "
-                    f"proceed to cycle 1."
-                )
-            logger.info(
-                "train/eval disjoint verified: %s N_train_q=%d N_eval_q=%d "
-                "overlap=0.", bm, len(train_hashes), len(eval_hashes))
-    else:
-        logger.warning(
-            "train/eval disjointness check: SKIPPED entirely -- no "
-            "--caem_splits_path provided or dataset_splits.json missing. "
-            "This is acceptable ONLY for smoke runs where the CAEM main "
-            "run has not written its splits file yet. Phase 1A real runs "
-            "MUST pass --caem_splits_path so this invariant fires.")
+    # Branch C 2026-04-22 evening: train/eval disjointness is now ENFORCED BY
+    # CONSTRUCTION via caem.benchmark_splits.build_all_benchmark_pools +
+    # assert_no_leakage + assert_cross_benchmark_disjoint. The legacy runtime
+    # check (question-text sha256 overlap between train_qhashes and eval_ids)
+    # is redundant because content-hash disjointness is a pool-builder
+    # invariant that raises PoolLeakageError at build time if violated.
+    # Retained `train_qhashes_by_bm` as a local artefact for forward
+    # compatibility with any debug tooling; the disjointness assertion
+    # block itself is deleted.
 
     for cycle in range(1, ns.num_cycles + 1):
         if cycle <= ns.resume_from_cycle:
@@ -802,24 +769,30 @@ def main() -> None:
         logger.info("CYCLE %d / %d -- %s", cycle, ns.num_cycles, ns.baseline_name)
         logger.info("=" * 72)
 
-        # Per-cycle slice of the pool (without replacement across cycles if
-        # possible, else wrap). This is B6/B7's deliberate contract: partition
-        # the shuffled-once pool into num_cycles disjoint windows so each
-        # sample is seen exactly once across the full run. Main CAEM instead
-        # resamples general_data per cycle and mixes in verifier-selected
-        # episodes; B7 is the "no verifier, no memory" baseline, so the fixed
-        # partitioning is the correct counterpart to CAEM's verifier-driven
-        # cycle composition. The DataLoader inside _finetune_one_cycle
-        # shuffles within the window, so within-cycle order is randomised.
-        # The modulo wrap is a defensive guard for pathological configs
-        # (num_cycles x per_cycle > pool_size); thesis configs never trigger
-        # it. The min(..., len(train_pool)) clamp may yield a short final
-        # cycle if pool size is not a multiple of per_cycle_pool_size --
-        # log a debug line so the truncation is visible.
-        start = ((cycle - 1) * per_cycle_pool_size) % max(len(train_pool), 1)
-        end = min(start + per_cycle_pool_size, len(train_pool))
-        cycle_pairs = train_pool[start:end]
-        logger.info("Cycle %d: training on %d pairs.", cycle, len(cycle_pairs))
+        # Branch C 2026-04-22 evening: draw this cycle's training pairs from
+        # cycle_chunks_by_bm, which maps 1:1 to CAEM's run_experiment.py
+        # sil_train_chunks[cycle - 1]. B6/B7 now train on byte-identical
+        # per-cycle samples as CAEM, giving apples-to-apples matched-scale
+        # comparison for Ch5 sig-tests. Cross-benchmark pairs are concatenated
+        # then shuffled (random.Random(seed + cycle)) for within-cycle order.
+        if cycle_chunks_by_bm:
+            cycle_pairs = []
+            for bm, chunks in cycle_chunks_by_bm.items():
+                if cycle - 1 < len(chunks):
+                    cycle_pairs.extend(chunks[cycle - 1])
+            random.Random(ns.seed + cycle).shuffle(cycle_pairs)
+            logger.info(
+                "Cycle %d: training on %d pairs (stream-mode chunks from "
+                "benchmark_splits, matches CAEM cycle %d).",
+                cycle, len(cycle_pairs), cycle,
+            )
+        else:
+            # Legacy fallback: partition the flat pool by cycle index
+            start = ((cycle - 1) * per_cycle_pool_size) % max(len(train_pool), 1)
+            end = min(start + per_cycle_pool_size, len(train_pool))
+            cycle_pairs = train_pool[start:end]
+            logger.info("Cycle %d: training on %d pairs (legacy partition).",
+                        cycle, len(cycle_pairs))
         if len(cycle_pairs) < per_cycle_pool_size:
             logger.debug(
                 "Cycle %d: short batch (%d < per_cycle_pool_size=%d) -- "
@@ -958,28 +931,37 @@ def main() -> None:
             batch_size=getattr(ns, "eval_batch_size", 1),
             use_prefetch=False,
         )
+        # Branch C 2026-04-22 evening: eval samples drawn from the shared
+        # benchmark_pools[bm].eval (same 500/bench as CAEM's cycle-N eval),
+        # ensuring matched-pool comparison for Ch5 sig-tests. Build pools
+        # once lazily on first cycle; they're deterministic given seed=42.
+        if not hasattr(main, "_eval_pools_cache") or not main._eval_pools_cache:  # type: ignore[attr-defined]
+            from caem.benchmark_splits import build_all_benchmark_pools as _bap, ALL_BENCHMARKS as _ALL
+            panel = [b for b in _ALL if b in ns.eval_benchmarks]
+            main._eval_pools_cache = _bap(  # type: ignore[attr-defined]
+                benchmarks=panel,
+                n_cycles=int(ns.num_cycles),
+                train_chunk_size=max(1, int(ns.n_train_per_bench) // int(ns.num_cycles)),
+                eval_size=int(ns.n_eval_per_bench),
+                rng_seed=int(ns.seed),
+            )
+        _eval_pools = main._eval_pools_cache  # type: ignore[attr-defined]
         for bench in ns.eval_benchmarks:
-            if bench == "fever":
-                samples = load_benchmark(bench, n=ns.n_eval_per_bench,
-                                         split="dev")
+            if bench in _eval_pools:
+                samples = list(_eval_pools[bench].eval)
+                logger.info(
+                    "Cycle %d eval on %s: %d samples from benchmark_pools (shared with CAEM).",
+                    cycle, bench, len(samples),
+                )
             else:
-                samples = load_benchmark(bench, n=ns.n_eval_per_bench)
-            allowed = eval_ids_by_bm.get(bench)
-            if allowed:
-                before = len(samples)
-                samples = [s for i, s in enumerate(samples)
-                           if str(s.get("id", i)) in allowed]
-                logger.info("eval_id filter: %s kept %d / %d samples (cycle %d).",
-                            bench, len(samples), before, cycle)
-                if not samples:
-                    logger.warning("eval_id filter left 0 samples for %s; "
-                                   "reloading unfiltered slice to avoid "
-                                   "empty-eval crash.", bench)
-                    if bench == "fever":
-                        samples = load_benchmark(bench, n=ns.n_eval_per_bench,
-                                                 split="dev")
-                    else:
-                        samples = load_benchmark(bench, n=ns.n_eval_per_bench)
+                logger.warning(
+                    "%s not in benchmark_pools; falling back to legacy load_benchmark.",
+                    bench,
+                )
+                if bench == "fever":
+                    samples = load_benchmark(bench, n=ns.n_eval_per_bench, split="dev")
+                else:
+                    samples = load_benchmark(bench, n=ns.n_eval_per_bench)
             harness.run(benchmark=bench, samples=samples, cycle=cycle,
                         store_to_memory=False)
 

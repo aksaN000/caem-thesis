@@ -77,32 +77,58 @@ def _make_slice(
     n_per_benchmark: int,
     seed: int,
 ) -> None:
-    rng = random.Random(seed)
+    """Freeze a retention slice matching benchmark_splits.py's canonical
+    `test` pool (Branch C 2026-04-22 evening). Previously sampled randomly
+    from Cycle-0 eval JSONs, which produced a non-canonical slice.
+
+    Each benchmark's test pool is already disjoint from eval/calib/purity/
+    train/seed by content-hash (enforced by benchmark_splits.assert_no_leakage).
+    We drop ``n_per_benchmark`` samples per benchmark from ``benchmark_pools[bm].test``
+    (or all of them if the test pool is smaller).
+    """
+    from caem.benchmark_splits import (
+        build_all_benchmark_pools, ALL_BENCHMARKS,
+    )
+    logger.info(
+        "Building canonical benchmark pools for retention slice "
+        "(matches run_experiment.py Cycle-0 allocation exactly)..."
+    )
+    pools = build_all_benchmark_pools(benchmarks=ALL_BENCHMARKS, rng_seed=seed)
+
+    rng = random.Random(seed)  # kept for deterministic subsampling within a benchmark
     rows: List[Dict[str, Any]] = []
-    evals = sorted(cycle0_eval_dir.glob("*_cycle0.json"))
-    if not evals:
-        logger.error("No *_cycle0.json under %s", cycle0_eval_dir)
-        sys.exit(1)
-    for p in evals:
-        with open(p) as f:
-            d = json.load(f)
-        samples = d.get("samples", [])
-        bench = d.get("meta", {}).get("benchmark", p.stem)
-        if len(samples) < n_per_benchmark:
+    for bench, bp in pools.items():
+        test_samples = list(bp.test)
+        if not test_samples:
             logger.warning(
-                "Benchmark %s has only %d samples; needed %d. Taking all.",
-                bench, len(samples), n_per_benchmark,
+                "Benchmark %s has no test pool (transfer-only with tight dev split); "
+                "skipping retention slice.", bench,
             )
-            picks = samples
+            continue
+        if len(test_samples) < n_per_benchmark:
+            logger.warning(
+                "Benchmark %s test pool has only %d samples; needed %d. Taking all.",
+                bench, len(test_samples), n_per_benchmark,
+            )
+            picks = test_samples
         else:
-            picks = rng.sample(samples, n_per_benchmark)
+            picks = rng.sample(test_samples, n_per_benchmark)
         for s in picks:
+            # BenchmarkSample schema uses "answers" (plural) for gold; eval
+            # JSON uses "gold_answers". Accept either so the slice works
+            # whether populated from pool builder or existing Cycle-0 JSON.
+            gold = s.get("gold_answers") or s.get("answers") or []
             rows.append({
                 "benchmark": bench,
                 "id": s.get("id"),
                 "question": s.get("question", ""),
-                "gold_answers": s.get("gold_answers", []),
+                "gold_answers": gold,
                 "gold_label": s.get("gold_label"),
+                # cycle0_prediction/em will be absent from pool-builder samples;
+                # they're only populated when the slice was derived from
+                # Cycle-0 eval JSONs. Under the canonical-pool flow these
+                # stay empty and the retention diagnostic computes them fresh
+                # by re-running the model on the frozen slice in --evaluate.
                 "cycle0_prediction": s.get("prediction", ""),
                 "cycle0_em": float(s.get("em", 0.0)),
             })
@@ -113,7 +139,7 @@ def _make_slice(
             f.write(json.dumps(r, ensure_ascii=False))
             f.write("\n")
     logger.info("Wrote %d samples across %d benchmarks to %s",
-                len(rows), len(evals), output_slice)
+                len(rows), len(pools), output_slice)
 
 
 # --------------------------------------------------------------------------- #

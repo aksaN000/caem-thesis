@@ -185,19 +185,11 @@ def _parse_args() -> argparse.Namespace:
             "run_experiment.py."
         ),
     )
-    p.add_argument(
-        "--caem_splits_path",
-        default="",
-        help=(
-            "Optional path to the CAEM main-run's dataset_splits.json "
-            "(e.g. outputs/full_run/dataset_splits.json). When supplied, "
-            "the baseline's per-benchmark sample list is filtered to the "
-            "exact eval_ids CAEM used, guaranteeing the sig-test paired "
-            "overlap is the full eval slice regardless of load_benchmark "
-            "determinism. Mirrors the pattern in run_purity_validation.py. "
-            "Empty string disables filtering (smoke runs)."
-        ),
-    )
+    # --caem_splits_path removed 2026-04-22 evening. Pool alignment is now
+    # deterministic via caem.benchmark_splits.build_all_benchmark_pools
+    # (same rng_seed=42 as run_experiment.py). External splits file no longer
+    # needed — baseline eval pool is byte-identical to CAEM's cycle-N eval
+    # by construction.
     return p.parse_args()
 
 
@@ -336,29 +328,25 @@ def main() -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     logger.info("Writing baseline results to %s", output_dir)
 
-    # Optional CAEM-split filter (belt-and-suspenders for sig-test pairing).
-    # When --caem_splits_path is set AND the file exists, we restrict each
-    # loaded benchmark's samples to the eval_ids CAEM actually evaluated on.
-    # Same pattern as run_purity_validation.py::load_and_filter.
-    eval_ids_by_bm: Dict[str, set] = {}
-    if ns.caem_splits_path:
-        splits_path = Path(ns.caem_splits_path)
-        if splits_path.is_file():
-            try:
-                with splits_path.open("r", encoding="utf-8") as f:
-                    splits = _json.load(f)
-                for bm, meta in splits.items():
-                    if isinstance(meta, dict):
-                        eval_ids_by_bm[bm] = {str(i) for i
-                                              in meta.get("eval_ids", [])}
-                logger.info("Loaded eval_ids from %s for %d benchmarks.",
-                            splits_path, len(eval_ids_by_bm))
-            except Exception as exc:
-                logger.warning("Failed to parse %s (%s). Proceeding without "
-                               "eval_id filter.", splits_path, exc)
-        else:
-            logger.warning("--caem_splits_path %s not found. Proceeding "
-                           "without eval_id filter.", splits_path)
+    # Branch C 2026-04-22 evening: baselines evaluate on the SAME eval pool
+    # as CAEM (deterministic content-hash split from caem.benchmark_splits).
+    # This guarantees apples-to-apples comparison with CAEM's cycle-N eval
+    # without needing an external splits file. The pool builder uses the
+    # SAME seed (42) as CAEM's run_experiment.py, so baseline and CAEM see
+    # byte-identical eval samples.
+    from caem.benchmark_splits import (
+        build_all_benchmark_pools, ALL_BENCHMARKS,
+    )
+    requested_benchmarks = [bm.strip().lower() for bm in ns.benchmarks]
+    panel = [bm for bm in ALL_BENCHMARKS if bm in requested_benchmarks] or requested_benchmarks
+    logger.info("Building deterministic pool splits for baseline eval: %s", panel)
+    benchmark_pools = build_all_benchmark_pools(
+        benchmarks=panel,
+        n_cycles=10,  # same cycles count as CAEM for chunk consistency
+        train_chunk_size=5000,
+        eval_size=int(getattr(ns, "n_questions", 500) or 500),
+        rng_seed=int(getattr(ns, "seed", 42)),
+    )
 
     baseline = _build_baseline(ns)
 
@@ -377,29 +365,23 @@ def main() -> None:
         logger.info("BASELINE=%s | BENCHMARK=%s | N=%d",
                     ns.baseline, bench, ns.n_questions)
         logger.info("=" * 72)
-        # FEVER is the only benchmark with a dedicated dev split; others fall
-        # back to the default split that load_benchmark picks for that task.
-        if bench == "fever":
-            samples = load_benchmark(bench, n=ns.n_questions, split=ns.split)
+        # Branch C: draw from the deterministic eval pool matching CAEM's split.
+        if bench in benchmark_pools:
+            samples = list(benchmark_pools[bench].eval)
+            logger.info(
+                "Loaded %d eval samples for %s from benchmark_pools "
+                "(content-hash disjoint from CAEM's train/calib/purity/test/seed).",
+                len(samples), bench,
+            )
         else:
-            samples = load_benchmark(bench, n=ns.n_questions)
-        # Filter to CAEM's exact eval slice when splits file was loaded.
-        allowed = eval_ids_by_bm.get(bench)
-        if allowed:
-            before = len(samples)
-            samples = [s for i, s in enumerate(samples)
-                       if str(s.get("id", i)) in allowed]
-            logger.info("eval_id filter: %s kept %d / %d samples.",
-                        bench, len(samples), before)
-            if not samples:
-                logger.warning("eval_id filter left 0 samples for %s; falling "
-                               "back to the unfiltered load_benchmark slice.",
-                               bench)
-                if bench == "fever":
-                    samples = load_benchmark(bench, n=ns.n_questions,
-                                             split=ns.split)
-                else:
-                    samples = load_benchmark(bench, n=ns.n_questions)
+            logger.warning(
+                "%s not in benchmark_pools; falling back to legacy load_benchmark.",
+                bench,
+            )
+            if bench == "fever":
+                samples = load_benchmark(bench, n=ns.n_questions, split=ns.split)
+            else:
+                samples = load_benchmark(bench, n=ns.n_questions)
         agg = harness.run(benchmark=bench, samples=samples, cycle=0,
                           store_to_memory=False)
         summaries[bench] = {

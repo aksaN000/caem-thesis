@@ -49,20 +49,20 @@ From the repo root:
 
     # Screening (Phase 1 — cheap selector)
     python -m scripts.run_cyclic_ablation \\
-        --variant no_grounding \\
+        --variant no_store_gate \\
         --seed 42 \\
         --screening_mode \\
         --output_dir outputs/ablation
 
     # Confirmatory (Phase 1 — single seed, top-3 + full + no_SIL)
     python -m scripts.run_cyclic_ablation \\
-        --variant no_grounding \\
+        --variant no_store_gate \\
         --seed 42 \\
         --output_dir outputs/ablation
 
     # Confirmatory upgrade (Phase 2 — add a new seed, same command)
     python -m scripts.run_cyclic_ablation \\
-        --variant no_grounding \\
+        --variant no_store_gate \\
         --seed 123 \\
         --output_dir outputs/ablation
 
@@ -336,9 +336,8 @@ def run_cyclic_ablation(ns: argparse.Namespace) -> None:
         _check_deps,
         _load_imports,
         build_pipeline,
-        load_sil_training_pool,
-        load_eval_transfer_pool,
-        split_calibration_sets,
+        # load_sil_training_pool, load_eval_transfer_pool, split_calibration_sets
+        # removed 2026-04-22 evening — use caem.benchmark_splits.build_all_benchmark_pools
         load_general_data,
         run_calibration_step,
         retroactive_reverification,
@@ -457,16 +456,44 @@ def run_cyclic_ablation(ns: argparse.Namespace) -> None:
         purity_samples = {bm: s[:split_point] for bm, s in sil_samples.items()}
         calib_samples = {bm: s[split_point:] for bm, s in sil_samples.items()}
     else:
-        sil_samples = load_sil_training_pool(ns_shim, m)
-        eval_samples = load_eval_transfer_pool(ns_shim, m)
-        # Trim eval samples to the profile cap (lets screening use fewer)
-        target_eval = int(profile["n_eval_per_benchmark"])
-        eval_samples = {bm: s[:target_eval] for bm, s in eval_samples.items()}
-        purity_samples, calib_samples, _ = split_calibration_sets(
-            sil_samples,
-            calib_size=config.calibration_set_size,
-            purity_size=config.purity_validation_set_size,
+        # Branch C 2026-04-22 evening: ablations use the SAME benchmark_pools
+        # as CAEM's run_experiment.py — deterministic content-hash split with
+        # cross-pool disjointness. Each variant's cycle-N consumes the same
+        # sil_train_chunks[cycle_num - 1] as CAEM's full_run, so the ablation
+        # delta (CES_full - CES_variant) is computed on matched-sample pairs.
+        from caem.benchmark_splits import (
+            build_all_benchmark_pools, ALL_BENCHMARKS,
         )
+        requested_bms = [b.strip().lower() for b in ns.benchmarks]
+        panel = [b for b in ALL_BENCHMARKS if b in requested_bms] or requested_bms
+        target_eval = int(profile["n_eval_per_benchmark"])
+        logger.info(
+            "Building benchmark pools for ablation %s (panel=%s)",
+            variant.name, panel,
+        )
+        _pools = build_all_benchmark_pools(
+            benchmarks=panel,
+            n_cycles=int(profile["max_cycles"]),
+            train_chunk_size=int(profile["n_sil_per_cycle"]),
+            eval_size=target_eval,
+            rng_seed=int(ns.seed),
+        )
+        # Flatten all sil_train_chunks for variants that don't do stream
+        # mode (e.g., purity/calibration still needs a sil_samples union),
+        # but the cycle loop below draws per-cycle chunks where available.
+        sil_samples = {
+            bm: [s for chunk in p.sil_train_chunks for s in chunk]
+            for bm, p in _pools.items() if p.is_training
+        }
+        eval_samples = {bm: list(p.eval) for bm, p in _pools.items()}
+        purity_samples = {bm: list(p.purity) for bm, p in _pools.items() if p.is_training}
+        calib_samples = {bm: list(p.calibration) for bm, p in _pools.items() if p.is_training}
+        # Per-cycle stream chunks for Step-4-like memory population in the
+        # variant's cycle loop. Transfer benchmarks have empty chunks.
+        cycle_stream_chunks_ablation = {
+            bm: [list(chunk) for chunk in p.sil_train_chunks]
+            for bm, p in _pools.items() if p.is_training
+        }
 
     # --- Harness + SIL loop ------------------------------------------------- #
     harness = m["EvalHarness"](
@@ -653,10 +680,28 @@ def run_cyclic_ablation(ns: argparse.Namespace) -> None:
                 )
 
                 # -- Step 3: memory population (upgraded weights) ------------- #
-                logger.info("Populating memory under variant config...")
-                harness.run_all(
-                    sil_samples, cycle=cycle_num, store_to_memory=True,
-                )
+                # Branch C 2026-04-22 evening: stream-mode per-cycle chunks
+                # matching CAEM's run_experiment.py (same seed, same panel →
+                # byte-identical chunks for matched-scale comparison).
+                if 'cycle_stream_chunks_ablation' in locals() and cycle_stream_chunks_ablation:
+                    this_cycle = {
+                        bm: cycle_stream_chunks_ablation[bm][cycle_num - 1]
+                        for bm in cycle_stream_chunks_ablation
+                        if cycle_num - 1 < len(cycle_stream_chunks_ablation[bm])
+                    }
+                    logger.info(
+                        "Populating memory under variant config (stream cycle-%d chunk, sizes=%s)...",
+                        cycle_num, {bm: len(s) for bm, s in this_cycle.items()},
+                    )
+                    harness.run_all(
+                        this_cycle, cycle=cycle_num, store_to_memory=True,
+                    )
+                else:
+                    # Legacy smoke-mode path (synthetic samples, tiny pool)
+                    logger.info("Populating memory under variant config (legacy smoke path)...")
+                    harness.run_all(
+                        sil_samples, cycle=cycle_num, store_to_memory=True,
+                    )
 
                 # -- Step 4: evaluation (no memory writes) -------------------- #
                 cycle_results = harness.run_all(
@@ -804,6 +849,7 @@ def _parse_args() -> argparse.Namespace:
             "truthfulqa",
             "strategyqa",
             "arc_challenge",
+            "asqa",
         ],
         help="Benchmarks to evaluate each cycle (Dev + Transfer split).",
     )

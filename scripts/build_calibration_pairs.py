@@ -98,7 +98,7 @@ def _load_eval_samples(paths: List[Path]) -> List[Dict[str, Any]]:
 # Benchmarks we include in the 5.5 diagnostic. StrategyQA / ARC are
 # multi-choice formats whose "claim" reconstruction is benchmark-
 # specific and is deferred from the Phase 1a 5.5 audit scope.
-SUPPORTED_BENCHMARKS = {"fever", "triviaqa", "natural_questions", "truthfulqa"}
+SUPPORTED_BENCHMARKS = {"fever", "triviaqa", "natural_questions", "asqa", "truthfulqa"}
 
 
 def _extract_claim(s: Dict[str, Any]) -> str:

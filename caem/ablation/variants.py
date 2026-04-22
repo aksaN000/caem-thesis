@@ -4,12 +4,56 @@ Each variant is a named mutation applied to a fresh CAEMConfig plus
 optional pipeline flags. The full-CAEM reference ("full") makes no
 mutation and serves as the anchor against which every lesion is scored.
 
+Phase 1 Full scope (2026-04-22 decision, revised claim-vs-metric audit)
+-----------------------------------------------------------------------
+Registry is hand-picked at 4 variants (full + 3 ablations); the wrapper
+runs the 3 ablations only (Phase 1a Step 7 main is the `full` anchor).
+Each ablation is tied to a specific numbered thesis Claim that cannot
+be answered by a directly-measured metric:
+
+  Claim 1 (memory routing)        -> [metric] tier_{1,2,3}_frac per cycle
+  Claim 2 (purity, α > ½)         -> [metric] Step 19 purity_validation
+                                     + no_retroverify (time dimension)
+  Claim 3 (SIL improvement)       -> no_self_improvement  +  no_retroverify
+  Claim 4 (no catastrophic CF)    -> no_forgetting_guard
+  Claim 5 (modularity)            -> [code] NLIJudgeInterface protocol
+                                     + [metric] Step 5.5.2 v5 diagnostic
+  Ch3 Eq 3.5 signal weighting     -> [metric] Step 19.5 correlation matrix
+                                     + methods-section literature priors
+  Branch C Goal 2 contribution    -> [metric] Step 19.5 correlation matrix
+                                     + methods-section sample-② narrative
+
+Earlier wider sweep candidates (17 screening variants + 5 initial
+load-bearing picks) were pruned against two tests: (a) is the claim
+defended by a direct metric? (b) is the evidence redundant with another
+kept ablation? Removed on 2026-04-22 per user audit:
+
+  no_store_gate           -> Step 19 purity_validation measures α directly
+  no_tier1                -> tier1_frac per-cycle trajectory is measured
+  roberta_nli_backend     -> Step 5.5.2 v5 gives AUROC/ECE on 500 pairs
+  equal_signal_weights    -> Step 19.5 correlation matrix shows non-redundancy;
+                             specific weights defended by methods-section priors
+  no_q_a_relevance        -> same symmetry as other 6 signals: Step 19.5
+                             correlation matrix shows q_a_relevance carries
+                             unique info; Goal 2 is a design choice (like
+                             "we use BGE reranker"), not a numbered Claim
+  no_verifier, no_grounding, no_internal_calibration,
+  no_semantic_entropy, no_early_exit, no_tier3_rag,
+  no_novelty_filter, no_recency_decay, no_memory_consolidation,
+  aggressive_store, no_u_dropout, no_m_chain,
+  no_cross_encoder_rerank, tau_store_0_50
+                          -> low load-bearing or covered by the
+                             9-signal correlation matrix (Step 19.5)
+                             + methods section wording.
+
+See branch_C_log.md for the pruning rationale.
+
 Design decisions
 ----------------
 * Mutations are **pure functions** over CAEMConfig, not constructor
   arguments. This keeps the CAEMConfig dataclass unchanged and makes
-  variants composable (e.g. a future "no_verifier + no_rag" combined
-  lesion is just a tuple of the two mutation functions).
+  variants composable (e.g. a future "no_store_gate + no_retroverify"
+  combined lesion is just a tuple of the two mutation functions).
 * Pipeline-level flags (e.g. ``skip_self_improvement``) are carried on
   the AblationVariant itself. The runner consumes them when driving
   the experiment.
@@ -70,215 +114,27 @@ class AblationVariant:
 # =============================================================================
 
 def _mut_noop(cfg: CAEMConfig) -> None:
-    """Full-CAEM reference. No mutation."""
+    """Full-CAEM reference. Also used by pipeline-flag-only variants
+    (no_retroverify, no_self_improvement) whose effect is entirely driven
+    by the AblationVariant's skip_* flag, not a config mutation."""
     return None
 
 
-# All Branch-C u_stored weight fields. Centralised so ablations that zero
-# one family and rescale the rest stay in sync with config.py when a new
-# signal is added (e.g. q_a_relevance in Goal 2, 2026-04-22).
-_U_STORED_WEIGHT_FIELDS: Tuple[str, ...] = (
-    "u_stored_weight_pground_mean",
-    "u_stored_weight_pground_atomic",
-    "u_stored_weight_nli",
-    "u_stored_weight_q_a_relevance",
-    "u_stored_weight_sc",
-    "u_stored_weight_uinternal",
-    "u_stored_weight_se",
-)
+def _mut_no_forgetting_guard(cfg: CAEMConfig) -> None:
+    """Disable the MMLU-retention rollback that aborts a cycle if
+    post/pre drops below forgetting_tolerance.
 
-
-def _rescale_u_stored_weights_excluding(
-    cfg: CAEMConfig,
-    *,
-    zeroed: Tuple[str, ...],
-) -> None:
-    """Zero every attribute in ``zeroed`` and rescale the remaining
-    ``_U_STORED_WEIGHT_FIELDS`` so the composite weights sum to 1.0.
-
-    Pathological input (all kept weights zero after the zero-out) falls
-    back to an equal split across the remaining fields so callers never
-    produce an all-zero composite that would silently floor u_stored.
+    Claim 4 defense: setting tolerance to 0.0 makes every finite retention
+    ratio pass the guard check. The guard snapshot (theta_prev) still
+    fires so compute cost is identical; only the rollback branch is
+    disarmed. If MMLU craters under this variant, the rollback is what's
+    preventing catastrophic forgetting.
     """
-    for field in zeroed:
-        setattr(cfg, field, 0.0)
-    kept = [f for f in _U_STORED_WEIGHT_FIELDS if f not in zeroed]
-    remaining = sum(getattr(cfg, f) for f in kept)
-    if remaining <= 0:
-        equal = 1.0 / max(len(kept), 1)
-        for f in kept:
-            setattr(cfg, f, equal)
-        return
-    scale = 1.0 / remaining
-    for f in kept:
-        setattr(cfg, f, getattr(cfg, f) * scale)
-
-
-def _mut_no_grounding(cfg: CAEMConfig) -> None:
-    """Zero EXTERNAL-grounding weights in u_stored; renormalise the rest.
-
-    Grounding in u_stored is carried by ``pground_mean`` and
-    ``pground_atomic`` only: both measure whether retrieved Wikipedia
-    passages entail the generated answer (passage -> answer entailment).
-
-    IMPORTANT: ``u_stored_weight_nli`` is NOT a grounding signal. Per
-    ``caem/config.py`` it weights ``p_entail`` (chain -> answer
-    entailment), which is a self-consistency / internal-coherence
-    signal — orthogonal to whether external passages support the claim.
-    The prior implementation zeroed ``u_stored_weight_nli`` alongside
-    the pground fields, which conflated two mechanism removals in one
-    variant (audit MAJOR-VR1 / Task #114). The post-fix behaviour zeroes
-    only the two pground weights and rescales the remaining five signals
-    (nli, q_a_relevance, sc, uinternal, se) to sum to 1.0.
-
-    Early-returns when grounding weights are already zero so repeated
-    application is bitwise-idempotent (avoiding FP drift in the rescale).
-    """
-    if (
-        cfg.u_stored_weight_pground_mean == 0.0
-        and cfg.u_stored_weight_pground_atomic == 0.0
-    ):
-        return
-    _rescale_u_stored_weights_excluding(cfg, zeroed=(
-        "u_stored_weight_pground_mean",
-        "u_stored_weight_pground_atomic",
-    ))
-
-
-def _mut_no_internal_calibration(cfg: CAEMConfig) -> None:
-    """Zero u_internal weight; rescale the remaining u_stored signals."""
-    if cfg.u_stored_weight_uinternal <= 0:
-        return
-    _rescale_u_stored_weights_excluding(cfg, zeroed=("u_stored_weight_uinternal",))
-
-
-def _mut_no_semantic_entropy(cfg: CAEMConfig) -> None:
-    """Disable semantic entropy (Farquhar 2024) in u_stored; rescale."""
-    if cfg.u_stored_weight_se <= 0:
-        return
-    _rescale_u_stored_weights_excluding(cfg, zeroed=("u_stored_weight_se",))
-
-
-def _mut_no_q_a_relevance(cfg: CAEMConfig) -> None:
-    """Zero q_a_relevance weight; redistribute mass to the six legacy signals.
-
-    Branch C Goal 2 ablation: Chapter 5 reports this variant alongside full
-    CAEM to quantify q_a_relevance's marginal contribution. If the delta is
-    statistically indistinguishable, the signal's 0.14 weight is cosmetic
-    and the thesis narrative has to walk the contribution claim back; if
-    the delta is significant, the signal's sample-② closure is load-bearing.
-
-    Mutation semantics:
-      - Zero ``u_stored_weight_q_a_relevance`` (0.14 -> 0.0).
-      - Rescale the six legacy weights (pground_mean, pground_atomic, nli,
-        sc, uinternal, se) **pro-rata** so they sum back to 1.0, preserving
-        their Branch-C Goal-2 relative ratios (the same pattern every
-        other ``_mut_no_*`` variant uses). The rescale does NOT recover
-        the pre-Goal-2 Session-42 ratios — that would require a different
-        mutation that explicitly reassigns each weight. The Ch5 delta is
-        still well-defined: "Goal-2 composite with q_a_relevance axis
-        removed" vs "full Goal-2 composite".
-
-    Idempotent: returns early when the weight is already zero.
-    """
-    if cfg.u_stored_weight_q_a_relevance <= 0:
-        return
-    _rescale_u_stored_weights_excluding(
-        cfg, zeroed=("u_stored_weight_q_a_relevance",),
-    )
-
-
-def _mut_no_early_exit(cfg: CAEMConfig) -> None:
-    """Defuse the confabulation gate by setting thresholds that never fire."""
-    cfg.early_exit_u_internal = 1.01
-    cfg.early_exit_p_ground_max = -0.01
-
-
-def _mut_no_tier1(cfg: CAEMConfig) -> None:
-    """Route every query through Stage 4+ by making Tier-1 unreachable."""
-    cfg.tier1_combined_threshold = 1.01
-
-
-def _mut_no_store_gate(cfg: CAEMConfig) -> None:
-    """Disable the storage gate: store every Tier-2/3 generation."""
-    cfg.store_threshold = 0.0
-    cfg.defer_threshold = 0.0
-    cfg.abstain_pground_ceiling = -0.01
-
-
-def _mut_aggressive_store(cfg: CAEMConfig) -> None:
-    """Counterpart to no_store_gate: raise the bar much higher."""
-    cfg.store_threshold = 0.85
-    cfg.defer_threshold = 0.75
-
-
-def _mut_no_novelty_filter(cfg: CAEMConfig) -> None:
-    """Permit duplicates in episodic memory by disabling novelty threshold."""
-    cfg.novelty_threshold = 1.01
-
-
-def _mut_no_memory_consolidation(cfg: CAEMConfig) -> None:
-    """Disable the Branch C Goal 4 item 3 cycle-boundary consolidation pass.
-
-    Ablation defense: Chapter 5 must be able to quantify consolidation's
-    marginal contribution vs. its risk (clusters that merge different-
-    answer entries despite the answer-consistency guard). If the ablation
-    shows negligible Tier-1 accuracy impact but meaningful memory-size
-    reduction, consolidation is a clean win. If accuracy drops, the
-    threshold / guards need tightening before the main run.
-    """
-    cfg.enable_consolidation = False
-
-
-def _mut_no_recency_decay(cfg: CAEMConfig) -> None:
-    """Flatten recency decay so pruning becomes pure importance ranking."""
-    cfg.recency_lambda = 0.0
-    cfg.value_recency_weight = 0.0
-    cfg.value_importance_weight = 1.0
-
-
-def _mut_roberta_nli_backend(cfg: CAEMConfig) -> None:
-    """Swap the verifier judge from MiniCheck back to legacy roberta-large-MNLI.
-
-    The main CAEM run uses MiniCheck-Flan-T5-Large (Tang 2024 ACL), trained
-    on LM-generated claim-support data. This ablation tests the counterfactual:
-    does CAEM still meet the Ch4 purity premise (alpha > 1/2) and the Ch5
-    acceptance criteria under a generic NLI model trained on human-written
-    MultiNLI / SNLI sentence pairs?
-
-    Literature prior: HaluEval 2025 / Semantic Illusion 2025 report ~100 percent
-    false positive rate at 95 percent recall for DeBERTa-v3-large-MNLI on LM
-    hallucinations. RoBERTa-large-MNLI is from the same training distribution
-    and is expected to exhibit the same miscalibration. This variant produces
-    per-cycle EM / EPI / CES trajectories under the weaker verifier so the
-    swap can be defended with trajectory evidence in addition to the one-shot
-    calibration diagnostic (scripts/calibration_minicheck_vs_roberta.py).
-    """
-    cfg.verifier_backend = "roberta_nli"
-
-
-def _mut_equal_signal_weights(cfg: CAEMConfig) -> None:
-    """Flatten composite u_stored signal weights to 1/N each (Ch3 Eq 3.5).
-
-    The full configuration uses deliberately unequal weights. Branch C
-    Goal 2 (2026-04-22) extended the composite from six to seven weighted
-    families by adding q_a_relevance; this ablation tests the
-    counterfactual: does the designed weighting actually buy anything, or
-    would a flat 1/N composite achieve comparable calibration / VER /
-    hallucination reduction?
-
-    Weight source is ``_U_STORED_WEIGHT_FIELDS`` so this mutation stays
-    correct if the registry gains additional signals in future phases.
-    Every u_stored weight is clobbered to the uniform value; no
-    normalisation step is needed (sum is exactly 1.0 by construction).
-    """
-    equal = 1.0 / len(_U_STORED_WEIGHT_FIELDS)
-    for field in _U_STORED_WEIGHT_FIELDS:
-        setattr(cfg, field, equal)
+    cfg.forgetting_tolerance = 0.0
 
 
 # =============================================================================
-# Variant registry
+# Variant registry — Phase 1 Full: full + 8 hand-picked ablations (2026-04-22)
 # =============================================================================
 
 # Each entry is an AblationVariant. "full" MUST come first so it's the
@@ -299,144 +155,50 @@ _ALL_VARIANTS: Tuple[AblationVariant, ...] = (
         mechanism_tag="reference",
         needs_cyclic_rerun=False,
     ),
-    # -- Verification / gating mechanisms ------------------------------------
+    # -- Claim 2 (purity) + Claim 3 (across-cycle) memory hygiene -----------
+    # Direct metric for Claim 2 α>½: outputs/purity_validation/theory_validation.json
+    # (Step 19). no_store_gate removed 2026-04-22 — was redundant with that metric.
     AblationVariant(
-        name="no_verifier",
-        description="Bypass UnifiedVerifier; store every Tier-2/3 generation",
+        name="no_retroverify",
+        description="Skip retroactive re-verification after each cycle (Claim 2 + 3 defense)",
         mutation=_mut_noop,
-        skip_verifier=True,
-        mechanism_tag="verification",
-        needs_cyclic_rerun=True,    # storage behaviour changes -> SIL pool diverges
+        skip_retroverify=True,
+        mechanism_tag="self_improvement",
+        needs_cyclic_rerun=True,    # memory quality trajectory diverges over cycles
     ),
-    AblationVariant(
-        name="no_grounding",
-        description="Disable external Wikipedia grounding in u_stored",
-        mutation=_mut_no_grounding,
-        mechanism_tag="verification",
-        needs_cyclic_rerun=True,    # u_stored distribution changes -> training picks differ
-    ),
-    AblationVariant(
-        name="no_store_gate",
-        description="Disable u_stored threshold; store every generation",
-        mutation=_mut_no_store_gate,
-        mechanism_tag="verification",
-        needs_cyclic_rerun=True,    # massive storage-rate change; re-run required
-    ),
-    # -- Calibration mechanisms ----------------------------------------------
-    AblationVariant(
-        name="no_internal_calibration",
-        description="Zero u_internal (token + dropout) weight in u_stored",
-        mutation=_mut_no_internal_calibration,
-        mechanism_tag="calibration",
-        needs_cyclic_rerun=True,    # u_stored mix -> different stored set
-    ),
-    AblationVariant(
-        name="no_semantic_entropy",
-        description="Drop Farquhar-2024 semantic entropy from u_stored",
-        mutation=_mut_no_semantic_entropy,
-        mechanism_tag="calibration",
-        needs_cyclic_rerun=True,
-    ),
-    AblationVariant(
-        name="no_q_a_relevance",
-        description="Zero q_a_relevance weight (Branch C Goal 2 contribution ablation)",
-        mutation=_mut_no_q_a_relevance,
-        mechanism_tag="verification",
-        needs_cyclic_rerun=True,    # u_stored distribution changes -> stored set diverges
-    ),
-    AblationVariant(
-        name="equal_signal_weights",
-        description="Revert to pre-calibration equal weights (0.25 each)",
-        mutation=_mut_equal_signal_weights,
-        mechanism_tag="calibration",
-        needs_cyclic_rerun=True,
-    ),
-    # -- Safety-gate mechanisms ----------------------------------------------
-    AblationVariant(
-        name="no_early_exit",
-        description="Defuse the early-exit confabulation gate",
-        mutation=_mut_no_early_exit,
-        mechanism_tag="safety_gate",
-        needs_cyclic_rerun=True,    # confabulations now reach the decision tree
-    ),
-    # -- Self-improvement mechanisms -----------------------------------------
+    # -- Claim 3 (SIL improvement) upper-bound ------------------------------
     AblationVariant(
         name="no_self_improvement",
-        description="Full pipeline, no fine-tuning: Cycle-0 eval only",
+        description="Full pipeline, no fine-tuning: Cycle-0 eval only (Claim 3 defense)",
         mutation=_mut_noop,
         skip_self_improvement=True,
         requires_baseline_only=True,
         mechanism_tag="self_improvement",
         needs_cyclic_rerun=False,   # never fine-tunes -- cycle 0 suffices
     ),
+    # -- Claim 4 (no catastrophic forgetting) defense -----------------------
     AblationVariant(
-        name="no_retroverify",
-        description="Skip retroactive re-verification after each cycle",
-        mutation=_mut_noop,
-        skip_retroverify=True,
-        mechanism_tag="self_improvement",
-        needs_cyclic_rerun=True,    # memory quality trajectory diverges over cycles
+        name="no_forgetting_guard",
+        description="Disable MMLU rollback; forgetting_tolerance=0.0 (Claim 4 defense)",
+        mutation=_mut_no_forgetting_guard,
+        mechanism_tag="safety_gate",
+        needs_cyclic_rerun=True,    # removing the guard changes which cycles commit -> divergent weights
     ),
-    # -- Retrieval / routing mechanisms --------------------------------------
-    AblationVariant(
-        name="no_tier1",
-        description="Force every query through Stage-4+ (no Tier-1 shortcut)",
-        mutation=_mut_no_tier1,
-        skip_tier1=True,
-        mechanism_tag="routing",
-        needs_cyclic_rerun=True,    # Tier-2/3 answers replace Tier-1 hits in
-                                    # the storage pool -> SIL training set
-                                    # diverges. Reclassified Session 43 after
-                                    # the counterfactual-confound audit.
-    ),
-    AblationVariant(
-        name="no_tier3_rag",
-        description="Disable Tier-3 Wikipedia RAG; Tier-3 falls back to zero-shot",
-        mutation=_mut_noop,
-        skip_tier3_rag=True,
-        mechanism_tag="retrieval",
-        needs_cyclic_rerun=True,    # Tier-3 answers feed the storage pool
-    ),
-    AblationVariant(
-        name="no_novelty_filter",
-        description="Allow duplicate episodes (no cosine-novelty threshold)",
-        mutation=_mut_no_novelty_filter,
-        mechanism_tag="retrieval",
-        needs_cyclic_rerun=True,    # memory composition diverges
-    ),
-    AblationVariant(
-        name="no_recency_decay",
-        description="Pure importance-based pruning; zero recency weight",
-        mutation=_mut_no_recency_decay,
-        mechanism_tag="retrieval",
-        needs_cyclic_rerun=True,    # pruning diverges per cycle
-    ),
-    AblationVariant(
-        name="no_memory_consolidation",
-        description=(
-            "Disable cycle-boundary SBERT cluster consolidation "
-            "(Branch C Goal 4 item 3 marginal-contribution ablation)"
-        ),
-        mutation=_mut_no_memory_consolidation,
-        mechanism_tag="retrieval",
-        needs_cyclic_rerun=True,    # memory composition diverges over cycles
-    ),
-    # -- Sensitivity sweep companion -----------------------------------------
-    AblationVariant(
-        name="aggressive_store",
-        description="Raise STORE threshold to 0.85 (CES-sensitivity sweep)",
-        mutation=_mut_aggressive_store,
-        mechanism_tag="verification",
-        needs_cyclic_rerun=True,
-    ),
-    # -- Verifier backend ablation ------------------------------------------
-    AblationVariant(
-        name="roberta_nli_backend",
-        description="Swap verifier backend MiniCheck -> legacy roberta-large-MNLI",
-        mutation=_mut_roberta_nli_backend,
-        mechanism_tag="verification",
-        needs_cyclic_rerun=True,    # different alpha/p_ground distribution -> different stored set
-    ),
+    # Claim 1 (memory routing) is defended by the tier_{1,2,3}_frac metric
+    # written to experiment_summary.csv and per-cycle JSONs each cycle;
+    # no_tier1 ablation removed 2026-04-22 as redundant with that trajectory.
+    # Claim 5 (modularity) is defended by the NLIJudgeInterface protocol +
+    # Step 5.5.2 v5 MiniCheck-vs-RoBERTa-vs-Qwen AUROC diagnostic;
+    # roberta_nli_backend removed 2026-04-22 as redundant with that diagnostic.
+
+    # 9-signal weighting (Ch3 Eq 3.5) is defended by the Step 19.5 correlation
+    # matrix (shows all 7 signals are non-redundant) + methods-section text
+    # citing per-signal literature priors. equal_signal_weights and
+    # no_q_a_relevance ablations both removed 2026-04-22: the correlation
+    # matrix provides the same evidence symmetrically for every signal
+    # (including q_a_relevance). Branch C Goal 2 is a design-level
+    # contribution defended in methods, not a numbered thesis Claim that
+    # requires per-signal ablation.
 )
 
 
