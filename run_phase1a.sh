@@ -390,6 +390,7 @@ step_7_main() {
         --defer_threshold "$tau_defer" \
         --train_threshold "$tau_train" \
         --eval_batch_size 32 \
+        --eval_prefetch \
         "${resume_args[@]}" \
         2>&1 | tee -a outputs/full_run/run.log
 
