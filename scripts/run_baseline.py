@@ -80,7 +80,7 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument(
         "--baseline",
         required=True,
-        choices=["zero_shot", "cot", "rag", "cot_rag", "flare"],
+        choices=["zero_shot", "cot", "fiveshot_cot", "rag", "cot_rag", "flare"],
         help="Which external baseline to run.",
     )
     p.add_argument(
@@ -229,7 +229,7 @@ def _build_baseline(ns: argparse.Namespace):
         dtype = dtype_map[ns.dtype]
 
     from eval.baselines import (
-        ZeroShotBaseline, CoTBaseline,
+        ZeroShotBaseline, CoTBaseline, FiveShotCoTBaseline,
         RAGBaseline, CoTRAGBaseline, FLAREBaseline,
     )
 
@@ -239,6 +239,29 @@ def _build_baseline(ns: argparse.Namespace):
         return ZeroShotBaseline(model_name=ns.model_name, device=ns.device, dtype=dtype)
     if name == "cot":
         return CoTBaseline(model_name=ns.model_name, device=ns.device, dtype=dtype)
+    if name == "fiveshot_cot":
+        # Demos drawn from the FIRST benchmark's training split (ns.benchmarks[0]).
+        # The same 5 demos are reused across all eval benchmarks in this run so the
+        # in-context examples are constant — matching Wei et al. 2022's convention
+        # of a fixed demo block for the whole eval panel.
+        from eval.benchmarks import load_benchmark
+        demo_bench = ns.benchmarks[0] if ns.benchmarks else "fever"
+        try:
+            demo_pool = load_benchmark(
+                demo_bench,
+                n=50,  # small pool; demos sampled from first 50 with seed 42
+                split="train" if demo_bench == "fever" else None,
+            )
+        except Exception as exc:
+            logger.warning(
+                "FiveShotCoTBaseline: failed to load demos from %s (%s); "
+                "falling back to zero-shot-CoT behaviour.", demo_bench, exc,
+            )
+            demo_pool = []
+        return FiveShotCoTBaseline(
+            model_name=ns.model_name, device=ns.device, dtype=dtype,
+            demo_samples=demo_pool, demo_seed=42,
+        )
 
     # Retrieval-augmented baselines: need a loaded passage store.
     from caem.retrieval.rag import PassageStore

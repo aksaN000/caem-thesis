@@ -428,11 +428,18 @@ step_7_main() {
     python - <<'PY'
 import csv
 rows = list(csv.reader(open("outputs/full_run/experiment_summary.csv")))
-assert len(rows) >= 12, f"experiment_summary.csv has {len(rows)} rows, expected >=12 (header+11)"
+# Early-stop can fire at any cycle >= 5, producing 7+ rows (header + 6 cycle
+# rows for cycles 0..5). Require at least that many; don't require the full
+# 12 (header + cycle 0..10) because early-stop is a legitimate success.
+n_data = len(rows) - 1
+assert n_data >= 6, f"experiment_summary.csv has {n_data} cycle rows; need >=6 (cycles 0..5) for Ch5 progression plot"
 header = rows[0]; idx = header.index("mmlu_retention_pct")
 bad = [r for r in rows[1:] if float(r[idx]) < 93.0]
 assert not bad, f"MMLU retention <93% on {len(bad)} cycles: {bad}"
-print("Step 7 OK: 11 cycle rows, MMLU retention >=93% on all cycles")
+last_cycle = n_data - 1  # cycle 0 is the pre-training baseline, so last SIL-trained cycle is n_data-1
+print(f"Step 7 OK: {n_data} cycle rows (cycles 0..{last_cycle}); "
+      f"{'early-stopped' if n_data < 11 else 'full 10 cycles'}; "
+      f"MMLU retention >=93% on all cycles")
 PY
 }
 
@@ -489,11 +496,15 @@ _run_inference_baseline() {
         2>&1 | tee "outputs/baselines/${step}_${name}.log"
 }
 
-step_9_b1()  { _run_inference_baseline "B1" "zero_shot" "zero_shot"; }
-step_10_b2() { _run_inference_baseline "B2" "cot"       "cot"; }
-step_11_b3() { _run_inference_baseline "B3" "rag"       "rag"       --passage_index data/passage_index; }
-step_12_b4() { _run_inference_baseline "B4" "cot_rag"   "cot_rag"   --passage_index data/passage_index; }
-step_13_b5() { _run_inference_baseline "B5" "flare"     "flare"     --passage_index data/passage_index --flare_theta 0.4 --flare_look_ahead 64; }
+step_9_b1()  { _run_inference_baseline "B1" "zero_shot"     "zero_shot"; }
+step_10_b2() { _run_inference_baseline "B2" "cot"           "cot"; }
+# B5 slot reclaimed for 5-shot CoT (Wei et al. 2022) after FLARE removal.
+# Runs between B2 and B3 to group inference-only / no-retrieval baselines
+# together (B1, B2, B5). 5 demos drawn from fever train split with seed 42.
+step_11_5_b5() { _run_inference_baseline "B5" "fiveshot_cot" "fiveshot_cot"; }
+step_11_b3() { _run_inference_baseline "B3" "rag"           "rag"       --passage_index data/passage_index; }
+step_12_b4() { _run_inference_baseline "B4" "cot_rag"       "cot_rag"   --passage_index data/passage_index; }
+step_13_b5() { _run_inference_baseline "B5" "flare"         "flare"     --passage_index data/passage_index --flare_theta 0.4 --flare_look_ahead 64; }
 
 step_14_b6_vanilla_ft() {
     local outdir="outputs/baselines/vanilla_ft"
@@ -671,6 +682,7 @@ main() {
     # step_13_b5 function bodies remain in-file for potential Phase 2 reuse.
     step_9_b1
     step_10_b2
+    step_11_5_b5                  # 5-shot CoT (Wei 2022) — reclaimed B5 slot
     step_11_b3
     step_12_b4
     step_14_b6_vanilla_ft

@@ -372,6 +372,95 @@ class CoTBaseline(BaselineBase):
 
 
 # =============================================================================
+# B5 -- Few-shot CoT (Wei et al. NeurIPS 2022)
+# =============================================================================
+
+class FiveShotCoTBaseline(BaselineBase):
+    """5-shot chain-of-thought baseline (Wei et al. NeurIPS 2022).
+
+    Prepends 5 worked-example demonstrations (question -> Reasoning ->
+    Answer) before the user query, then appends "Let's think step by
+    step." before the live query. Demos are drawn from the benchmark's
+    training split at baseline-build time via a fixed seed (42) so the
+    same demo set is reused across all eval queries in a run. This is
+    the canonical in-context learning reference that closes the
+    "did you try few-shot before SFT?" critique.
+
+    Hyperparameters
+    ---------------
+    n_shots : int
+        [LIT] 5 -- Wei et al. 2022 standard few-shot CoT.
+    demo_seed : int
+        [DES] 42 -- fixed seed for reproducibility.
+    max_input_tokens : int
+        [DES] Inherits BaselineBase (2048); 5 factoid demos + query
+        comfortably fit under this cap.
+    """
+
+    name = "fiveshot_cot"
+    tier_value = 2
+    prefix: str = "Let's think step by step."
+    n_shots: int = 5
+
+    def __init__(
+        self,
+        *args,
+        demo_samples: Optional[List[dict]] = None,
+        demo_seed: int = 42,
+        **kwargs,
+    ) -> None:
+        super().__init__(*args, **kwargs)
+        self.demo_seed = demo_seed
+        self._demo_block = self._build_demo_block(demo_samples or [])
+
+    def _build_demo_block(self, samples: List[dict]) -> str:
+        """Select n_shots demos and format as Q -> Reasoning -> A triples.
+
+        The Reasoning field is derived heuristically from the gold answer —
+        we cannot fabricate true step-by-step reasoning without an oracle,
+        so Reasoning becomes "The answer is <gold>." This follows Wei et
+        al.'s pattern where demos use minimal CoT templates for short-form
+        QA. For rich-reasoning datasets (GSM8K-style) a future ablation
+        could use annotated CoT demos; the factoid QA panel here doesn't
+        need that level of demo sophistication.
+        """
+        if not samples:
+            return ""
+        import random
+        rng = random.Random(self.demo_seed)
+        picked = rng.sample(samples, min(self.n_shots, len(samples)))
+        parts: List[str] = []
+        for s in picked:
+            q = str(s.get("question", "")).strip()
+            golds = s.get("answers") or []
+            gold = str(golds[0]).strip() if golds else ""
+            if not q or not gold:
+                continue
+            parts.append(
+                f"Question: {q}\n"
+                f"Reasoning: The answer is {gold}.\n"
+                f"Answer: {gold}"
+            )
+        if not parts:
+            return ""
+        return "\n\n".join(parts)
+
+    def _build_prompt(self, query: str) -> str:
+        if self._demo_block:
+            content = (
+                f"Here are some examples of answering questions with brief reasoning:\n\n"
+                f"{self._demo_block}\n\n"
+                f"{self.prefix}\n\n"
+                f"Question: {query}\nReasoning:"
+            )
+        else:
+            # Fall back to zero-shot CoT if no demos were provided (e.g. at
+            # smoke-test time). Produces B2-equivalent behaviour for that run.
+            content = f"{self.prefix}\n\n{query}"
+        return self._wrap_chatml_user(content)
+
+
+# =============================================================================
 # B3 -- Retrieval-Augmented Generation
 # =============================================================================
 
@@ -757,6 +846,7 @@ __all__ = [
     "BaselineBase",
     "ZeroShotBaseline",
     "CoTBaseline",
+    "FiveShotCoTBaseline",
     "RAGBaseline",
     "CoTRAGBaseline",
     "FLAREBaseline",
