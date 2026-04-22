@@ -358,7 +358,14 @@ step_7_main() {
             return 0
         fi
     fi
-    band "Step 7 — main 10-cycle CAEM run (n=5000/bench, ~335 GPU-h)"
+    band "Step 7 — main 10-cycle CAEM run (n=5000/bench, ~335 GPU-h) [u_tok_drop pools ON]"
+    # Enable the u_tok_drop verifier pools for this step only.
+    # Correctness: validated 2026-04-22 (|mean Δ u_token|=0.0004, |mean Δ u_dropout|=0.038).
+    # Thermals: at 45°C with oscillating 0-94% GPU util (2026-04-22 live), the
+    # sustained-100%-util thermal regression that caused the original revert
+    # does not apply. Fall-back to per-sample serial is automatic if any pooled
+    # row returns None, or if the env flag is unset in future launches.
+    export CAEM_BATCH_U_TOK_DROP=1
 
     local tau_store tau_defer tau_train backend
     tau_store=$(python -c 'import json; print(json.load(open("outputs/cycle_0/calibrated_thresholds.json"))["thresholds"]["store"])')

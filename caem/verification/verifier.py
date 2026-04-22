@@ -114,6 +114,7 @@ from __future__ import annotations
 import itertools
 import logging
 import math
+import os
 import re
 from dataclasses import dataclass, field
 from typing import Any, Callable, List, Optional, Sequence, Tuple
@@ -746,18 +747,25 @@ class UnifiedVerifier:
         top_passages_per_sample = self._retrieve_and_rerank_batch(queries, answers)
         t_rerank = _t.perf_counter()
 
-        # Profile v8 on the 5090 (2026-04-21) showed the u_token and
-        # u_dropout cross-sample pools do not net-save wall-clock time:
-        # the ~35 s/batch-32 they save in per-sample verify time is
-        # offset by a ~50 s regression in the cross-encoder rerank
-        # stage (sustained-utilisation thermal headroom: back-to-back
-        # heavy pools keep the 5090 at ~100% and the rerank kernel
-        # runs slower than when interleaved with per-sample Python
-        # orchestration). The helpers ``_pool_u_token_batch`` and
-        # ``_pool_u_dropout_batch`` remain in-file for future hardware
-        # that does not throttle the same way; verify_batch falls
-        # through to per-sample u_token/u_dropout computation inside
-        # the serial verify() loop below.
+        # Branch C Goal 5 u_tok_drop pools (2026-04-21 correctness-passed,
+        # 2026-04-22 thermally reverted). Gated on env CAEM_BATCH_U_TOK_DROP:
+        # when "1", run the pooled _pool_u_token_batch + _pool_u_dropout_batch
+        # forwards instead of the per-sample fallback inside verify(). Set this
+        # only when the live thermal envelope is cool enough that the pools'
+        # ~42 s/batch-32 saving isn't offset by a rerank-kernel regression
+        # (observed on 2026-04-22 with sustained 100 % util on 5090 @ v8
+        # config). Defaults to OFF to preserve the v4 shipped behaviour.
+        if os.environ.get("CAEM_BATCH_U_TOK_DROP", "0") == "1":
+            pooled_u_tok = self._pool_u_token_batch(queries, answers)
+            pooled_u_drop = self._pool_u_dropout_batch(queries)
+            for i in range(N):
+                if pooled_u_tok[i] is not None:
+                    u_tokens[i] = pooled_u_tok[i]
+                if pooled_u_drop[i] is not None:
+                    u_dropouts[i] = pooled_u_drop[i]
+        # If the pools are off or a given row returned None, the serial
+        # verify() loop below falls back to per-sample _compute_u_token /
+        # _compute_u_dropout (same error path as the 2026-04-22 shipped v4).
         t_u_pool = _t.perf_counter()
 
         # DO NOT pool atomic-decomposition across samples.
