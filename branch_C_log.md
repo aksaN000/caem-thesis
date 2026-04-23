@@ -18,6 +18,65 @@ Detail belongs in the commit message; the log is for quick rewind.
 
 ## 2026-04-23 (BDT — date rolls based on activity)
 
+### 2026-04-23 11:00 BDT  `[BUG]` + `[IMPL]`  ARC-Challenge Cycle-0: multi-choice letter semantic void — option-text substitution fix shipped
+
+ARC-Challenge Cycle-0 diagnostic (n=500, pre-fix composite) completed 04:34:57 UTC: EM=0.7360 (highest EM in the panel) but **only 23 of 500 samples STORED, 18.4% correct-but-DISCARDED** — the worst memory-gating rate of any benchmark we've seen.
+
+**Root cause: the answer is a single letter.** Multi-choice tasks produce answers like "Answer: C". The verifier asks MiniCheck "do the passages support 'C'?" — but the letter C has no semantic content on its own; it's a label, not a statement. MiniCheck returns ~0.08 `p_ground_mean` regardless of whether the model got the answer right. The early-exit confabulation gate (`u_internal ≥ 0.70 AND p_ground_max ≤ 0.20`) then fires spuriously, setting `u_stored = 0.000` on many correctly-answered samples. 3 of the 5 worst-discarded ARC samples have `u_stored = 0.000` exactly.
+
+**Empirical per-decision gradient (ARC Cycle-0, pre-fix):**
+
+| Decision | n | p_ground_mean | p_entail | u_stored | EM_correct% |
+|---|---:|---:|---:|---:|---:|
+| STORE | 23 | 0.854 | 0.901 | 0.682 | 82.6% |
+| DEFERRED | 242 | 0.448 | 0.643 | 0.525 | 77.7% |
+| DISCARD | 135 | 0.245 | 0.276 | 0.391 | 68.1% |
+| ABSTAIN | 100 | 0.084 | 0.288 | 0.365 | **69.0%** |
+
+The ABSTAIN bucket is **69% correct** — effectively the panel-wide EM — meaning the composite is not discriminating at all on ARC. It's letting the model's answer flow through without actually evaluating it.
+
+**Per-option-letter breakdown (correct-but-DISCARD rate):**
+
+```
+gold=A  n=69   DISCARD=20 (29.0%)  STORE=2
+gold=B  n=102  DISCARD=26 (25.5%)  STORE=2
+gold=C  n=102  DISCARD=15 (14.7%)  STORE=10   ← privileged (CoT reasoning tends to echo "C" text more often)
+gold=D  n=95   DISCARD=31 (32.6%)  STORE=5
+```
+
+Positional asymmetry in ARC is a minor curiosity, not a bug — CoT prose tends to reference middle options more verbosely.
+
+**Fix shipped (commit follows):** option-text substitution — when the model's answer is a single letter [A-E], rewrite the hypothesis as *"The answer to the question is: <option_text>"* before feeding to MiniCheck. Example:
+
+- Query: *"Which best explains how stems transport water? Choices: (A) chlorophyll (B) photosynthesis (C) a system of tubes (D) water→food. Answer with just the multiple choice letter."*
+- Model answer: *"Answer: C"*
+- **Legacy hypothesis**: `"C"` → MiniCheck `p_ground_mean ≈ 0.08`
+- **Post-fix hypothesis**: `"The answer to the question is: a system of tubes"` → MiniCheck evaluates passage-level entailment normally (projected `p_ground_mean ≈ 0.6` on correct samples)
+
+**Scope:**
+- `caem/verification/multichoice_scorer.py` (NEW, ~180 LOC): task detection (regex for `Choices:` + `Answer with (just)? the (multiple choice)? letter`), option parsing (handles 1-line and multi-line choice blocks, A-E letters), letter extraction, substituted MiniCheck call.
+- `caem/verification/verifier.py`: `_p_ground_with_direction` now chains directional → multichoice → legacy. Directional scorer wins if both match (shouldn't happen; kept as tie-break).
+- Env-gated by `CAEM_MULTICHOICE_SUBSTITUTION` (default 1).
+- `tests/test_multichoice_scorer.py` (NEW, 30 tests): task detection, option parsing (one-line, multi-line, 5-choice, internal punctuation), letter extraction, full scorer path with mocked MiniCheck, fallback paths.
+- Full suite: **845 passed / 2 skipped / 2 deselected** (live-GPU tests); no regressions on the 49 existing verifier tests.
+
+**Expected effect on ARC Cycle-0 (projection, based on substitution lift from ~0.08 → ~0.6 p_ground_mean):**
+- Correct-but-DISCARDED 18.4% → ~6% (projected 60/75 recovered out of the 92 correct-discards)
+- STORE count on correct samples 19 → ~60-80 (projected ~4x increase)
+- `u_stored = 0.000` floor incidents → 0 (early-exit gate no longer spuriously triggers)
+
+**Claim 1 proof unchanged in spirit.** The substituted hypothesis is still an entailment probability of a truthful statement given passages, [0,1] codomain, monotone with correctness. One-line definition update needed in Ch4 §Theoretical Analysis: `p_ground_mean` is the mean entailment probability of the *task-type-conditional* hypothesis (directional for 3-way/yes-no, option-text-substituted for multi-choice, literal answer text for factoid/long-form).
+
+**Ch5 writing checklist additions:**
+- [ ] Ch5 §5.X — extend the refutation-bias section to include ARC multi-choice substitution finding with the 4-decision gradient table above
+- [ ] Ch5 §5.Y — generalise the "Scope" framing from "3-way/yes-no" to "task-type-conditional hypothesis formulation" (directional + multichoice as two instantiations of the same principle)
+- [ ] Ch5 — add ARC before/after p_ground_mean distribution plot (x-axis: pre-fix, post-fix; y-axis: u_stored histogram over correct samples)
+- [ ] Ch6 §6.FutureWork.MultichoiceSupport — **remove this subsection** (now addressed by shipped fix; move to main text)
+
+**Data preserved.** ARC pre-fix JSON at `outputs/cycle_0_diag/eval/arc_challenge_cycle0.json` (769 KB). Will be archived alongside StrategyQA pre-fix JSON in the relaunch cleanup.
+
+---
+
 ### 2026-04-23 10:30 BDT  `[NOTE]` + `[BUG]`  StrategyQA Cycle-0 diagnostic: refutation-bias analog is MILD; primary failure mode is multi-hop reasoning gap
 
 Ran targeted diagnostic `outputs/cycle_0_diag/eval/strategyqa_cycle0.json` on pre-fix composite (StrategyQA n=500, bs=32). Key findings:

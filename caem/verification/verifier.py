@@ -483,22 +483,51 @@ class UnifiedVerifier:
             current = self._directional_scorer
         return current or None
 
+    def _get_multichoice_scorer(self):
+        # Same defensive getattr pattern as _get_directional_scorer.
+        current = getattr(self, "_multichoice_scorer", None)
+        if current is None:
+            try:
+                from caem.verification.multichoice_scorer import MultichoiceScorer
+                nli = getattr(self, "nli", None)
+                self._multichoice_scorer = MultichoiceScorer(nli)
+            except Exception as exc:
+                logger.warning(
+                    "MultichoiceScorer init failed (%s) — multichoice substitution disabled.",
+                    exc,
+                )
+                self._multichoice_scorer = False
+            current = self._multichoice_scorer
+        return current or None
+
     def _p_ground_with_direction(
         self, query: str, answer: str, passages: List[str],
     ) -> Optional[Tuple[float, float]]:
-        """Try directional path first; return None if not applicable / disabled.
+        """Try directional first, then multichoice, then fall through to legacy.
 
-        Caller should fall back to the legacy ``_score_p_ground(passages,
-        answer)`` when None is returned.
+        Returns (p_ground_max, p_ground_mean) from the first scorer that claims
+        the sample; returns None if no specialized scorer applies, in which case
+        the caller falls back to ``_score_p_ground(passages, answer)``.
         """
+        # Tier 1: directional (FEVER 3-way, StrategyQA yes/no).
         scorer = self._get_directional_scorer()
-        if scorer is None:
-            return None
-        try:
-            return scorer.score(query, answer, passages)
-        except Exception as exc:
-            logger.warning("Directional p_ground call failed (%s) — falling back.", exc)
-            return None
+        if scorer is not None:
+            try:
+                result = scorer.score(query, answer, passages)
+                if result is not None:
+                    return result
+            except Exception as exc:
+                logger.warning("Directional p_ground call failed (%s) — trying multichoice.", exc)
+        # Tier 2: multichoice substitution (ARC-Challenge, MMLU, OpenBookQA).
+        mc = self._get_multichoice_scorer()
+        if mc is not None:
+            try:
+                result = mc.score(query, answer, passages)
+                if result is not None:
+                    return result
+            except Exception as exc:
+                logger.warning("Multichoice p_ground call failed (%s) — falling back.", exc)
+        return None
 
     # ====================================================================== #
     # Public API                                                               #
