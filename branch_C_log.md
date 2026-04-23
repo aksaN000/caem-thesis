@@ -18,6 +18,36 @@ Detail belongs in the commit message; the log is for quick rewind.
 
 ## 2026-04-23 (BDT — date rolls based on activity)
 
+### 2026-04-23 15:26 BDT  `[IMPL]` + `[PERF]`  cuDNN-SDPA + torch.compile landed; hardened runner relaunched on full optimization stack
+
+Two attention-kernel optimizations landed after Step 6 first attempt (pre-SDPA) hit 21% FEVER store rate and identified the need for cleaner lineage + faster throughput for Step 7 main:
+
+**Optimization 1: cuDNN-SDPA (commit `f096e06`).** PyTorch's native `scaled_dot_product_attention` with `torch.nn.attention.sdpa_kernel([CUDNN_ATTENTION, FLASH_ATTENTION, EFFICIENT_ATTENTION])` priority order. Live-GPU benchmark on Qwen-2.5-3B bf16: 45 tok/s eager → 67 tok/s SDPA = **1.37×**. Research doc with ranked agent analysis at `research_attn_alternatives.md`.
+
+**Optimization 2: torch.compile on Qwen.forward (commit `ae03f9d`).** `mode="default"` + `dynamic=True` + `fullgraph=False`. Live benchmark: 67 tok/s SDPA → 107 tok/s compiled = **1.60× on top**. First-sample JIT cost ~215s amortized over 200k+ queries = 0.02% overhead. Modes "reduce-overhead" + CUDA-graph replay rejected due to incompatibility with HF generate() KV-cache reuse pattern.
+
+**Stacked validated speedup: ~2.2× over eager baseline** (107 tok/s vs 45 tok/s). Research doc `research_inference_speedup_v2.md` + honest Amdahl analysis of 5 levers.
+
+**#3 (cross-sample CUDA stream overlap) investigated and deferred.** Initial research projected 15-25% additional speedup. Analysis of the HuggingFace `generate()` loop's Python-blocking semantics revealed the realistic achievable gain is only 2-5% without restructuring the transformers generate API. Documented as Phase 2 future work requiring either non-HF inference (vLLM/TRT-LLM, incompatible with current dropout-requiring composite) or a threading-based worker pool (adds thread-safety surface area). Agent projection corrected post-investigation.
+
+**#1 (MiniCheck shared-encoder batching) partially attempted.** `attn_implementation="sdpa"` for Flan-T5 is not yet supported by transformers 4.57.6 (T5ForConditionalGeneration raises ValueError). Try/except falls back to eager with a WARNING log. Forward-compatible when upstream PR #31167 lands. Zero gain now; zero risk.
+
+**#4 (batch K=10 m-chains + K=5 MC-dropout)** — the agent's recommendation was based on incorrect assumption that code was serial. Code review confirmed both signal paths already batch via `num_return_sequences=K` in `_compute_u_dropout` (verifier.py:1295) and `_generate_m_chains` (verifier.py:1329). Cross-sample pool via `CAEM_BATCH_U_TOK_DROP=1` is gated in verify_batch. Zero additional code change needed.
+
+**Hardened runner relaunched 09:26:05 UTC (15:26 BDT) on commit `ae03f9d`.** Cold-start memory cleared for clean single-lineage post-fix seed under full optimization stack. Expected timeline:
+- Step 6 re-seed: ~1-1.5 h (vs 2.5 h pre-optimization)
+- Step 7.0: ~5-6 h (vs 12 h pre-optimization)
+- Step 7 main 10-cycle worst case: **~180 h (vs 270-400 h pre-optimization)**
+- Phase 1a total: **~\$190 (vs \$410 projected pre-optimization)**
+- Phase 1 total with ablations: **~\$360 (vs \$780 projected pre-optimization)**
+- Cumulative savings vs original eager baseline: **~\$420**
+
+Ch6 §FutureWork additions from this session:
+- `§6.FutureWork.CrossSampleStreamOverlap` — deferred; requires non-HF inference or threading refactor
+- `§6.FutureWork.T5SDPA` — land when transformers upstream adds `T5SdpaAttention` support (PR #31167)
+
+---
+
 ### 2026-04-23 11:00 BDT  `[BUG]` + `[IMPL]`  ARC-Challenge Cycle-0: multi-choice letter semantic void — option-text substitution fix shipped
 
 ARC-Challenge Cycle-0 diagnostic (n=500, pre-fix composite) completed 04:34:57 UTC: EM=0.7360 (highest EM in the panel) but **only 23 of 500 samples STORED, 18.4% correct-but-DISCARDED** — the worst memory-gating rate of any benchmark we've seen.
