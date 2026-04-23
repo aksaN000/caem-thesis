@@ -307,11 +307,15 @@ class CAEMConfig:
     # unchanged. Compounded with SDPA's variable kernel-selection
     # overhead across 6+ different input shapes, net is flat-to-negative.
     #
-    # DEFAULT FALSE until a real-workload speedup is validated on
-    # Blackwell. Re-enable if/when cuDNN-SDPA kernel dispatch becomes
-    # stable on multi-shape workloads (upstream issue). Or if a
-    # future workload uses Qwen more heavily (less verifier overhead).
-    use_sdpa: bool = False
+    # DEFAULT FLIPPED BACK TO TRUE 2026-04-23 post-TF32-bug fix. Previous
+    # "SDPA regression" on Step 6 turned out to be my own TF32-disable bug
+    # in _configure_sdpa_backends(), not SDPA itself. After the hotfix
+    # (commit e48fb4b-ish), eager + TF32 ON returned to archive's
+    # 10.3 s/sample baseline, confirming TF32 was the entire regression
+    # cause. Bench SDPA vs eager was a fair 1.49x comparison (both had
+    # TF32 off in the bug), so SDPA's genuine Qwen-generation speedup
+    # remains validated. Re-enabling to capture it on the real pipeline.
+    use_sdpa: bool = True
 
     # [DES] torch.compile on Qwen `model.forward`. Branch-C 2026-04-23:
     # FLIPPED BACK TO FALSE after empirical regression measurement on real
@@ -327,12 +331,14 @@ class CAEMConfig:
     # compile vs 10.4s without compile (on same commit) = ~20% REGRESSION
     # end-to-end on the real multi-mode pipeline. Disabled.
     #
-    # To re-enable for a single-path workload (e.g., B6/B7 pure inference
-    # baseline, which only runs main generate + no MC-dropout/atomic),
-    # explicitly pass use_torch_compile=True to load_base_generator in
-    # that script — Python default remains False for the multi-mode
-    # Step 6/7/main path.
-    use_torch_compile: bool = False
+    # 2026-04-23 FLIPPED BACK TO TRUE: the previous regression attributed
+    # to torch.compile was actually the _configure_sdpa_backends TF32
+    # bug — fixed in e48fb4b-ish. Compile test (scripts/test_compile_training.py)
+    # validated the compile + training path works cleanly with 4 training
+    # steps showing loss decrease. Re-enabling in the SDPA + compile + TF32
+    # ON combo to see if the bench's 1.60x compile speedup materialises
+    # on the real multi-mode pipeline (with TF32 restored).
+    use_torch_compile: bool = True
 
     # [DES] Full FT + 8-bit AdamW is the PRIMARY SIL training path on Qwen-3B
     # (verified 2026-04-22 to fit 32 GB 5090 at batch=4, grad checkpointing

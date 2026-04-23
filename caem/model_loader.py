@@ -110,13 +110,16 @@ def _configure_sdpa_backends() -> None:
     except AttributeError:
         pass
 
-    # TF32 would round bf16 matmuls; we want pure bf16 for Qwen-3B.
-    torch.backends.cuda.matmul.allow_tf32 = False
-
-    # cuDNN-attention kernels are not bitwise-deterministic across shapes.
-    # For CAEM's seeded-greedy + fixed-batch pipeline this is fine (EM/F1
-    # are stable), but we cannot also demand algorithmic determinism.
-    torch.use_deterministic_algorithms(False)
+    # NOTE: we do NOT disable TF32 or force deterministic_algorithms here.
+    # Previously this function disabled `matmul.allow_tf32` globally which
+    # degraded fp32 matmul throughput (layer norm, softmax normalization,
+    # etc.) by ~30-50% on the real pipeline — measured 50% regression on
+    # Step 6 before the 2026-04-23 hotfix.
+    # TF32's ~1e-5 precision delta on the fp32 residuals is well below the
+    # composite's bf16 noise floor; EM/F1 are stable.
+    # PyTorch defaults are: matmul.allow_tf32=True, deterministic_algorithms=
+    # False. Leaving them alone so they don't leak side effects into
+    # non-SDPA code paths (BGE, SBERT, MiniCheck eager, etc.).
 
     _SDPA_BACKENDS_CONFIGURED = True
 
