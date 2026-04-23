@@ -86,7 +86,13 @@ class QueryEncoder:
             ) from e
 
         logger.info("Loading Sentence-BERT model: %s on %s", self.model_name, self.device)
-        self._model = SentenceTransformer(self.model_name, device=self.device)
+        model_kwargs = {}
+        if self.device != "cpu":
+            import torch
+            model_kwargs = {"torch_dtype": torch.bfloat16}
+        self._model = SentenceTransformer(
+            self.model_name, device=self.device, model_kwargs=model_kwargs,
+        )
 
         # Validate dimension immediately after loading.
         probe = self._model.encode("probe", normalize_embeddings=False)

@@ -126,7 +126,11 @@ def main(argv=None) -> int:
     if cfg.cross_encoder_model:
         try:
             from sentence_transformers import CrossEncoder
-            cross_encoder = CrossEncoder(cfg.cross_encoder_model, device=ns.device)
+            cross_encoder = CrossEncoder(
+                cfg.cross_encoder_model,
+                device=ns.device,
+                automodel_args={"torch_dtype": torch.bfloat16} if ns.device != "cpu" else {},
+            )
         except Exception as exc:
             logger.warning("cross-encoder load failed (%s); rerank + "
                            "q_a_relevance degrade to defaults.", exc)

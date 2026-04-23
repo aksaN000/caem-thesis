@@ -479,7 +479,11 @@ def _run_live_model(
     if cfg.cross_encoder_model:
         try:
             from sentence_transformers import CrossEncoder
-            cross_encoder = CrossEncoder(cfg.cross_encoder_model, device=device)
+            cross_encoder = CrossEncoder(
+                cfg.cross_encoder_model,
+                device=device,
+                automodel_args={"torch_dtype": torch.bfloat16} if device != "cpu" else {},
+            )
             logger.info("Cross-encoder loaded.")
         except Exception as exc:
             logger.warning("Cross-encoder load failed (%s); continuing without.", exc)

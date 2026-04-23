@@ -320,7 +320,11 @@ def build_pipeline(config, device: str):
         try:
             from sentence_transformers import CrossEncoder
             logger.info("Loading cross-encoder %s ...", config.cross_encoder_model)
-            cross_encoder = CrossEncoder(config.cross_encoder_model, device=device)
+            cross_encoder = CrossEncoder(
+                config.cross_encoder_model,
+                device=device,
+                automodel_args={"torch_dtype": torch.bfloat16} if device != "cpu" else {},
+            )
             logger.info(
                 "Cross-encoder loaded -- passage rerank + "
                 "Goal-2 q_a_relevance scoring.",
