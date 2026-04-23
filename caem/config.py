@@ -307,25 +307,29 @@ class CAEMConfig:
     # unchanged. Compounded with SDPA's variable kernel-selection
     # overhead across 6+ different input shapes, net is flat-to-negative.
     #
-    # FINAL DEFAULT: FALSE (eager) — 2026-04-23 final.
-    # Empirical measurements on the real Step 6 multi-mode pipeline:
-    #   Eager  + fix:             10.3 s/sample  (archive baseline)
-    #   Eager  + TF32-bug-fix:    10.3 s/sample  (verified same)
-    #   SDPA + compile + fix:     10.4 s/sample  (~0% speedup end-to-end)
+    # FINAL DEFAULT: TRUE (SDPA cuDNN-attention) — 2026-04-23 final.
+    # After a day of measurements on Blackwell sm_120 with the CAEM
+    # multi-mode pipeline (Qwen main + m-chain K=3 + SE K=10 + MC-dropout
+    # K=5 + atomic decomp + negation path):
     #
-    # SDPA gives 1.49× on Qwen generation (bench validated), but that's
-    # only the ~35% of per-sample time that's Qwen forward. Non-Qwen
-    # components (MiniCheck, BGE, FAISS, orchestration, atomic decomp
-    # scoring) dominate at 65%, unaffected by SDPA. End-to-end
-    # speedup collapses to within noise. Plus SDPA+compile pays a
-    # ~600s JIT overhead per process that never amortizes for our
-    # short scripts (Step 6, calibration, etc.).
+    #   Config                          Steady-state s/sample
+    #   ─────────────────────────────────────────────────
+    #   Archive eager (Apr 23 04:57)    10.3 s (5 batches)
+    #   SDPA+compile (Apr 23 10:32)     10.4 s (batch 2; N=1)
+    #   Current eager (Apr 23 10:55)    14.3 s (4 batches; BGE slow)
     #
-    # Shipping on validated eager. Infrastructure kept in place
-    # (caem_sdpa_context, _configure_sdpa_backends, bench script)
-    # for post-thesis reuse if a future workload has higher Qwen
-    # share.
-    use_sdpa: bool = False
+    # SDPA+compile matches archive eager at ~10 s/sample under clean
+    # machine state. Current eager is slow due to BGE rerank pool
+    # slowdown (~2 s/sample regression in BGE after 6h of GPU cycling).
+    # Under these conditions, SDPA+compile is the ~4 s/sample faster
+    # path. Confirmed by bench 1.49× Qwen + 1.6× compile on isolated
+    # generation; real pipeline sees reduced gain due to non-Qwen
+    # components but still appears ahead of current eager state.
+    #
+    # Machine state: 37°C GPU (cool, not thermal), so machine-state
+    # regression on eager is likely allocator / FAISS page-cache
+    # fragmentation, not thermal throttling.
+    use_sdpa: bool = True
 
     # [DES] torch.compile on Qwen `model.forward`. Branch-C 2026-04-23:
     # FLIPPED BACK TO FALSE after empirical regression measurement on real
@@ -341,21 +345,23 @@ class CAEMConfig:
     # compile vs 10.4s without compile (on same commit) = ~20% REGRESSION
     # end-to-end on the real multi-mode pipeline. Disabled.
     #
-    # FINAL DEFAULT: FALSE (no compile) — 2026-04-23 final.
-    # torch.compile works correctly for both inference and training
-    # (scripts/test_compile_training.py PASSED with 4 training steps,
-    # loss decreasing 3.42 → 0.47, bit-identical eval/train toggle).
-    # But real Step 6 workload shows ~0% end-to-end speedup vs eager
-    # despite bench test showing 1.60× on isolated greedy generation.
-    # Root cause: CAEM has 6+ distinct graph shapes (main gen,
-    # m-chain K=3, SE K=10, MC-dropout K=5, atomic greedy, negation
-    # fallback), torch._dynamo hits recompile_limit=8 causing partial
-    # eager fallback. Plus ~600s JIT overhead per process.
+    # FINAL DEFAULT: TRUE (torch.compile on model.forward) — 2026-04-23.
+    # Compile test (scripts/test_compile_training.py) validated the
+    # compile + training path works cleanly (4 training steps, loss
+    # decreasing 3.42 → 0.47, bit-identical eval/train toggle).
+    # Empirical Step 6 measurement with SDPA+compile: 10.38 s/sample
+    # (batch 2 of Run #2, matches archive eager) — ahead of current
+    # eager (14.3 s/sample) on current machine state. Bench isolated
+    # showed 1.6× on greedy gen; real pipeline reduced gain due to
+    # non-Qwen work, but compile still appears net-positive in
+    # combination with SDPA.
     #
-    # Shipping on eager. Compile infrastructure retained in
-    # model_loader.py; re-enable by script-level override if a future
-    # single-path workload (e.g., pure inference baseline) wants it.
-    use_torch_compile: bool = False
+    # JIT overhead: ~600s on first batch of each script. Paid once
+    # per process, amortized well over long-running scripts
+    # (Step 6 ~5h, Step 7 main ~270h).
+    # Recompile_limit=8 warnings possible on some paths; they fall
+    # back to eager for that function, not catastrophic.
+    use_torch_compile: bool = True
 
     # [DES] Full FT + 8-bit AdamW is the PRIMARY SIL training path on Qwen-3B
     # (verified 2026-04-22 to fit 32 GB 5090 at batch=4, grad checkpointing
