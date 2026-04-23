@@ -400,11 +400,16 @@ def load_base_generator(
             "See branch_C.md §'T5 removal (2026-04-22)' for rationale."
         )
 
-    # Configure global SDPA backend preferences ONCE per process. Idempotent
-    # — call is a no-op on subsequent model loads. This sets cuDNN/Flash/
-    # Mem-efficient SDPA on and math-SDPA off (see _configure_sdpa_backends
-    # docstring).
-    _configure_sdpa_backends()
+    # Configure global SDPA backend preferences ONLY if we're actually
+    # using SDPA. Previously this was unconditional, which silently
+    # disabled TF32 for fp32 matmuls even on eager-attention runs — that
+    # caused a measured ~50% regression on Step 6 FEVER throughput
+    # (archive 10.3 s/sample → current 15.4 s/sample on identical
+    # post-fix code). Now gated: eager runs see PyTorch defaults
+    # (TF32 ON, math_sdp ON, deterministic OFF). Branch-C 2026-04-23
+    # hotfix for the unconditional-configure bug.
+    if use_sdpa or use_flash_attention_2:
+        _configure_sdpa_backends()
 
     model_kwargs: dict = {"dtype": dtype}
     flash_attn_requested_but_unavailable = False
