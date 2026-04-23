@@ -450,6 +450,56 @@ class UnifiedVerifier:
             self.nli_model = bundles[0][0] if bundles else None
             self.nli_tokenizer = bundles[0][1] if bundles else None
 
+        # Branch-C refutation-bias fix (2026-04-23): directional p_ground_mean
+        # scorer. When the model's answer carries a directional label
+        # (supports/refutes/NEI for FEVER; yes/no for StrategyQA), route the
+        # p_ground call through DirectionalScorer which rewrites the hypothesis
+        # to the truth-value-aligned form. Env-gated by CAEM_DIRECTIONAL_P_GROUND
+        # (default on). Lazy-init — constructed on first use so tests and
+        # non-3-way pipelines don't pay the Negator setup cost.
+        self._directional_scorer = None
+
+    def _get_directional_scorer(self):
+        # Defensive getattr: test-suite helpers sometimes construct a blank
+        # verifier via object.__new__ which bypasses __init__, so the
+        # ``_directional_scorer`` slot may not exist.
+        current = getattr(self, "_directional_scorer", None)
+        if current is None:
+            try:
+                from caem.verification.directional_p_ground import DirectionalScorer
+                from caem.verification.negation import Negator
+                model = getattr(self, "model", None)
+                tokenizer = getattr(self, "tokenizer", None)
+                nli = getattr(self, "nli", None)
+                negator = Negator(model=model, tokenizer=tokenizer, nli_judge=nli)
+                self._directional_scorer = DirectionalScorer(nli, negator)
+            except Exception as exc:
+                logger.warning(
+                    "DirectionalScorer init failed (%s) — directional p_ground disabled.",
+                    exc,
+                )
+                # Sentinel so we don't retry on every call.
+                self._directional_scorer = False
+            current = self._directional_scorer
+        return current or None
+
+    def _p_ground_with_direction(
+        self, query: str, answer: str, passages: List[str],
+    ) -> Optional[Tuple[float, float]]:
+        """Try directional path first; return None if not applicable / disabled.
+
+        Caller should fall back to the legacy ``_score_p_ground(passages,
+        answer)`` when None is returned.
+        """
+        scorer = self._get_directional_scorer()
+        if scorer is None:
+            return None
+        try:
+            return scorer.score(query, answer, passages)
+        except Exception as exc:
+            logger.warning("Directional p_ground call failed (%s) — falling back.", exc)
+            return None
+
     # ====================================================================== #
     # Public API                                                               #
     # ====================================================================== #
@@ -526,7 +576,14 @@ class UnifiedVerifier:
         _per_stage_ms["retrieve_rerank"] = (_t.perf_counter() - _ts) * 1000.0
 
         _ts = _t.perf_counter()
-        p_ground_max, p_ground_mean = self._score_p_ground(top_passages, answer)
+        # Branch-C directional p_ground fix: for 3-way / yes-no tasks, rewrite
+        # the hypothesis so it reads as the TRUTHFUL statement aligned with the
+        # model's label. Falls back to legacy for factoid / multi-choice tasks.
+        _dir = self._p_ground_with_direction(query, answer, top_passages)
+        if _dir is not None:
+            p_ground_max, p_ground_mean = _dir
+        else:
+            p_ground_max, p_ground_mean = self._score_p_ground(top_passages, answer)
         _per_stage_ms["p_ground_nli"] = (_t.perf_counter() - _ts) * 1000.0
 
         _ts = _t.perf_counter()

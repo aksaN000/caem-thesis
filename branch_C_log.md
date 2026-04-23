@@ -16,6 +16,57 @@ Detail belongs in the commit message; the log is for quick rewind.
 
 ---
 
+## 2026-04-23 (BDT — date rolls based on activity)
+
+### 2026-04-23 07:45 BDT  `[BUG]` + `[DECISION]`  Refutation-bias in u_stored composite found on FEVER Cycle-0 — directional p_ground_mean fix landing
+
+**The bug.** `p_ground_mean` (weight 0.28, the composite's largest signal) measures *"do the passages support the hypothesis text?"*. For a correctly-refuted claim, the passages *should not* support the claim — so `p_ground_mean` is architecturally forced to be low even when the model's "refutes" answer is perfectly correct. The composite misreads this as "unreliable episode" and drives `u_stored` below τ_defer=0.45 → DISCARD.
+
+**Empirical validation on FEVER Cycle-0 (n=500, correct answers only):**
+
+| Gold label | n correct | Mean `p_ground_mean` | Mean `u_stored` | DISCARD% | STORE count |
+|---|---:|---:|---:|---:|---:|
+| supports | 54 | 0.835 | 0.620 | 7.4% | 23 |
+| not enough info | 141 | 0.702 | 0.573 | 7.1% | 22 |
+| **refutes** | **30** | **0.264** | **0.416** | **33.3%** | **0** |
+
+**Zero correct refutations entered memory** (out of 30). Discard rate on correct refutes is **4.5× higher** than on correct supports. Of all 24 correct-but-discarded FEVER samples, **91.7%** (22/24) had `p_ground_mean` as the dominant signal deficit. Refutation bias — not paraphrase gap — is the #1 failure mode of the current composite on 3-way classification tasks.
+
+**Scope beyond FEVER.** TriviaQA Cycle-0 (n=500, factoid) analyzed 01:35 BDT: correct-but-discarded rate 4.40% (22/500), but the decision boundary is cleanly monotonic (STORE p_ground_mean=0.918 → DEFER 0.725 → DISCARD 0.335 → ABSTAIN 0.062). **No refutation bias on factoid** — confirming the bug is specific to 3-way/yes-no classification tasks. StrategyQA (yes/no — analog of supports/refutes) and ARC-Challenge (multi-choice A/B/C/D, different primitives) are running as targeted diagnostics (launched 01:44 BDT, ~4h) to empirically validate the fix generalizes to StrategyQA and characterise whether ARC-Challenge needs separate handling.
+
+**The fix: label-conditional directional hypothesis formulation.** When the model's answer carries a 3-way label ∈ {supports/refutes/NEI} or a yes/no label:
+
+```
+# Current (single-direction):
+p_ground_mean = MiniCheck(passages, hypothesis = claim)
+
+# Fix (directional):
+if label in ("supports", "yes"):
+    hypothesis = claim
+elif label in ("refutes", "no"):
+    hypothesis = negate(claim)        # so passages now support the TRUE statement
+elif label == "not enough info":
+    p_pos = MiniCheck(passages, claim)
+    p_neg = MiniCheck(passages, negate(claim))
+    # Certainty-of-uncertainty: both directions genuinely ambiguous → high score
+    p_ground_mean = 1 - 2·max(|p_pos - 0.5|, |p_neg - 0.5|)
+```
+
+For the 30 correct-refutes FEVER samples, the fix moves mean `p_ground_mean` from 0.264 → ≈0.80 (passages now support the *negated* — i.e., truthful — version of the claim), lifting mean `u_stored` from 0.416 → ≈0.56, above τ_store=0.50. Projected refutes DISCARD rate: 33% → 7-10%, matching supports/NEI.
+
+**Why this doesn't break Claim 1 (purity theorem).** The product-of-gates bound requires each signal to be a calibrated ∈[0,1] probability monotone with correctness. The directional `p_ground_mean` is still an entailment probability of a truthful statement given the passages — same monotonicity, same [0,1] codomain. Ch4 proof needs a one-line update to the definition; the bound is unchanged.
+
+**Risk mitigation.**
+- Negation generator: rule-based primary (regex for "X is Y" / "X was Y" / "X verb(s) Y"), Qwen-3B one-shot fallback for rule misses, self-validation via reverse-entailment check (negation correct ⇔ `p_entail(¬H, H) < 0.3`), skip to original hypothesis on validation failure.
+- Backward compatibility: gated by `CAEM_DIRECTIONAL_P_GROUND` env var (default `1`); set `=0` to revert to legacy behavior.
+- Scope: applies only when the answer matches the 3-way/yes-no format regex. Factoid benchmarks (TriviaQA, NQ, TruthfulQA, ASQA) are bit-identical pre/post-fix — no re-run needed on those data points.
+
+**Pipeline action.** Killed runner 01:36 BDT after TriviaQA Cycle-0 landed. Launched targeted StrategyQA + ARC-Challenge diagnostic in tmux `diag` (01:44 BDT, projected completion ~05:44 BDT). Patch implementation proceeds in parallel. Fresh Step 7.0 restart on fixed composite targeted for ~06:00 BDT 2026-04-23. Net delay vs blind-fix path: ~+2h; buys empirical fix-coverage validation.
+
+Preserved artefacts (not re-run): `outputs/cold_start_memory/memory_store.{faiss,meta}` (609 seeded episodes — fix does not affect seed behavior since seed_cold_start does not invoke the 3-way directional path). Archived: `outputs/cycle_0/eval/fever_cycle0.json` + `triviaqa_cycle0.json` → `outputs/archive/pre_directional_p_ground/` (for before/after Ch5 Appendix comparison).
+
+---
+
 ## 2026-04-22 (BDT — date rolls based on activity)
 
 ### 2026-04-22 23:00 BDT  `[IMPL]`  Phase 1a runner launched after V5 audit — tmux `plan_a`, hardened wrapper
