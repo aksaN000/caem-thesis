@@ -449,7 +449,7 @@ Source of truth: `run_phase1a.sh main()` at lines 699–760. Each step is idempo
 | 7.0.Platt | Path B Platt calibration (align Qwen-judge P(yes) ↔ MiniCheck P(supported)); required for AdaptiveNLIJudge | `step_platt_calibrate` → `calibrate_qwen_judge.py` | ⏳ | ~20 min | ~\$0.27 |
 | 4.6 | HF pre-Step-7 snapshot (credit-burnout recovery upload to `aksaN000/caem-passage-index-21m:pre_main_snapshot/`) | `step_hf_upload_pre_main` | ⏳ | ~10 min | ~\$0.13 |
 | 7.0.Gate | `u_tok_drop` pool correctness gate (N=32, \|Δ u\_stored\| < 0.02) — replaces Level B smoke | `step_u_tok_drop_gate` → `diff_verify_serial_vs_batch.py` | ⏳ | ~15 min | ~\$0.20 |
-| **7** | **CAEM 10-cycle main** (n\_questions=5000/bench/cycle, `CAEM_BATCH_U_TOK_DROP=1 CAEM_GDRIVE_OFFLOAD=1`, early-stop gate active) | `step_7_main` → `run_experiment.py --num_cycles 10` | ⏳ | 100–170 h | **\$130–\$170** |
+| **7** | **CAEM 10-cycle main** (n\_questions=5000/bench/cycle for 3 training benches + 500 eval/bench for all 7; `CAEM_BATCH_U_TOK_DROP=1 CAEM_GDRIVE_OFFLOAD=1`, early-stop gate active at cycle ≥ 5) | `step_7_main` → `run_experiment.py --num_cycles 10` | ⏳ | **270–400 h** (early-stop c≈7 typical → full c=10 worst) | **\$216–\$320** |
 | 8 | FLARE pre-flight smoke (reserved — not in current main() chain) | `step_8_flare_smoke` | 🟡 | 6 min | ~\$0.15 |
 | 9 | B1 Zero-shot (7 benchmarks × 500/bench) | `step_9_b1` → `run_baseline.py --baseline zero_shot` | ⏳ | 3.3 h | ~\$2.67 |
 | 10 | B2 Chain-of-Thought | `step_10_b2` → `run_baseline.py --baseline cot` | ⏳ | 5.0 h | ~\$4.00 |
@@ -465,19 +465,36 @@ Source of truth: `run_phase1a.sh main()` at lines 699–760. Each step is idempo
 | 19.5 | Nine-signal correlation matrix (u\_stored composite redundancy) | `step_19_5_corr` → `signal_correlation_matrix.py` | ⏳ | 10 min | CPU only |
 | 20.1 | Aggregate ablation (empty in 1a — populated by Phase 1 Full 3-variant sweep) | `step_20_aggregate` → `aggregate_ablation.py` | ⏳ | 5 min | CPU only |
 | 20.2 | scp `outputs/` down + stop Vast instance | manual | ⏳ | 30 min | ~\$0.24 |
-| **Phase 1a subtotal (typical, early-stop at c≈7)** | | | | **~200 h** | **~\$225** |
-| **Phase 1a subtotal (worst, no 10-cycle early-stop)** | | | | **~245 h** | **~\$272** |
-| 16 | Screening sweep (19 landed variants × 3 cycles × n=1500) | Full | 🟡 | ~80 h | ~\$90 |
-| 17 | Aggregate screening + pick top-N | Full | 🟡 | 5 min | ~\$0.05 |
-| 18 | Confirmatory sweep (top-N + `full` + 4 planned variants\*, 10 cycles × n=5000) | Full | 🟡 | ~500 h | ~\$400 |
-| **Phase 1 Full subtotal (deferred)** | | | | **~580 h** | **~\$490** |
-| 20B | **(Optional)** STaR ceiling run | 20B | 🟡 | 7-9 h | ~\$6 |
+| **Phase 1a subtotal (typical, early-stop at c≈7)**  *(excludes ablations — see Phase 1 Full below)* | | | | **~405 h** | **~\$410** |
+| **Phase 1a subtotal (worst, full 10 cycles, no early-stop)**  *(excludes ablations)* | | | | **~530 h** | **~\$530** |
+| **16–18 STALE — replaced 2026-04-22 by direct 3-ablation confirmatory sweep (see row below).** Original 17-variant screening + pick-top-N + confirmatory plan is now historical record only. | — | 🟡 | — | — |
+| **Phase 1 Full — 3-ablation confirmatory sweep** (`no_retroverify` + `no_self_improvement` + `no_forgetting_guard`; **5 cycles × n=5000 per variant, same pipeline as Step 7 main**); `run_phase1_full_ablations.sh` wrapper. Each variant's cycle profile matches Step 7 main scaled to 5 cycles ≈ ½ per-variant cost. | `run_phase1_full_ablations.sh` | ⏳ | **~460–600 h** (3 × ~155–200 h) | **~\$370–\$480** |
+| 20B | **(Optional)** STaR ceiling run | 20B | 🟡 | 7–9 h | ~\$6 |
+| **Phase 1a + Phase 1 Full total (typical, early-stop c≈7)** | | | | **~865 h** | **~\$780** |
+| **Phase 1a + Phase 1 Full total (worst, full 10 cycles)** | | | | **~1130 h** | **~\$1010** |
 
-**Budget status (2026-04-22):** current Vast credit \$102, committed
-topup to \$208, projected spend \$225 typical (moderate overrun risk
-\$17), worst case \$272 (−\$64). Live burn-rate check after cycle 2 of
-Step 7 flags if trajectory heads toward the worst case; can cut
-n\_questions mid-run to 4000 or 3000 as the fallback.
+**Budget status (2026-04-23, revised after empirical Step 7.0 pacing audit):**
+
+Prior budget estimates understated Step 7-main and ablation per-cycle
+cost by ~2-3× — the original "~\$225 typical" figure was set against a
+4-benchmark panel pre-Goal-2 (before q\_a\_relevance BGE signal + 7-benchmark
+expansion + full u\_stored composite at 12.4 s/q baseline). At the current
+panel and profile the honest numbers are:
+
+- **Phase 1a typical (early-stop at c≈7, no ablations):** ~\$410
+- **Phase 1a worst (full 10 cycles, no early-stop):** ~\$530
+- **Phase 1 Full 3-ablation sweep (5 cycles each):** ~\$370–\$480
+- **Phase 1 TOTAL typical:** ~\$780 (committed \$208 topup is insufficient; need additional ~\$570 OR adopt a mitigation below)
+- **Phase 1 TOTAL worst:** ~\$1010
+
+**Mitigations if budget constrained:**
+
+1. Skip Phase 1 Full ablations entirely (3 ablation variants each defend a numbered Claim that isn't directly measurable via metrics; Ch6 Discussion can acknowledge as future work instead of running them). Saves \$320-480 — Phase 1 thesis still defensible via Phase 1a Step 7 main + direct metrics for Claims 1, 2, 5 + correlation matrix for Ch3 Eq 3.5 weights.
+2. Reduce `n_questions` mid-run from 5000 to 3000 on Step 7 main (~40% time savings, ~20% statistical power loss). Budget live-check after Cycle 2 decides.
+3. Skip B5 FLARE (already done — removed from main chain 2026-04-22).
+4. Defer B6 or B7 if MMLU retention gate halts their run early.
+
+Live burn-rate check after Cycle 2 of Step 7 flags trajectory; escalation path is (1) → (2).
 
 **Deferred to Future Work (post-thesis):** Claim 4 (solver-verifier gap
 via coupled-ODE fit on held-out probe, \$16) and Claim 5
