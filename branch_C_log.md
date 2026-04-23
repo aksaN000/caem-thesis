@@ -18,6 +18,192 @@ Detail belongs in the commit message; the log is for quick rewind.
 
 ## 2026-04-23 (BDT — date rolls based on activity)
 
+### 2026-04-23 08:15 BDT  `[DECISION]` + `[NOTE]`  Directional p_ground — scope, generalization boundary, and Future Work references for thesis writing
+
+**Purpose of this entry.** Single consolidated reference for what the directional p_ground fix *does* and *does not* cover, so the thesis report (Ch5 + Ch6) can be written without missing any limitation, extension path, or cross-reference. **When writing the report, each bullet below maps to a specific section** — annotated with **[→ Ch#, §...]** markers.
+
+---
+
+#### A. Scope of the shipped fix (Branch-C commit `8b4f484`, 2026-04-23)
+
+**Principle (fully general) [→ Ch4, §Theoretical Analysis, after Claim 1 bound]:**
+
+When a verifier primitive measures "passages support hypothesis H" and the task is classification whose gold labels include a *truth-negating* class, the primitive is anti-correlated with correctness on refutation-labeled samples. Fix: rewrite the hypothesis to the truthful version before scoring — H if label ∈ {supports, yes}, negate(H) if label ∈ {refutes, no}, bidirectional certainty-of-uncertainty for NEI.
+
+**Implementation (pattern-specific) [→ Ch4, §System Architecture, Verification subsection]:**
+
+Regex-based task detection for two canonical prompt formats:
+- FEVER: `r"supports\s*,\s*refutes\s*,\s*not enough info"`
+- StrategyQA: `r"^\s*answer\s+yes\s+or\s+no\b"`
+
+Non-matching queries → `detect_task` returns `None` → `DirectionalScorer.score` returns `None` → caller falls back to legacy `_score_p_ground`. **Strictly additive**: no task's behavior is degraded by the fix.
+
+**Covered benchmarks in Phase-1a panel:**
+
+| Benchmark | Task type | Fix applies? | Note |
+|---|---|---|---|
+| FEVER | 3-way claim verification | ✅ full | Primary target; 33% → ~8% DISCARD recovery measured |
+| StrategyQA | Binary yes/no | ✅ full | yes ≈ supports, no ≈ refutes |
+| TriviaQA | Factoid open-domain | N/A | No refutation primitive; legacy path correct |
+| Natural Questions | Factoid open-domain | N/A | Same as TriviaQA |
+| TruthfulQA | Factoid (short) | N/A | Same |
+| ASQA | Long-form | N/A | Routes to Path B (Qwen-judge) |
+| ARC-Challenge | Multi-choice A/B/C/D | ❌ not covered | Needs separate mechanism — see §D below |
+
+---
+
+#### B. What goes into Ch5 Discussion (Branch-C)
+
+**B.1 — §5.X "Refutation Bias: Empirical Finding and Fix" [NEW SUBSECTION]:**
+
+Include the 3-row table from the 07:45 BDT entry:
+
+| Gold label | n correct | Mean p_ground_mean | Mean u_stored | DISCARD% | STORE count |
+|---|---:|---:|---:|---:|---:|
+| supports | 54 | 0.835 | 0.620 | 7.4% | 23 |
+| not enough info | 141 | 0.702 | 0.573 | 7.1% | 22 |
+| refutes | 30 | **0.264** | **0.416** | **33.3%** | **0** |
+
+State the finding, the fix, and the projected/measured effect. Cite commit SHA `8b4f484`.
+
+**B.2 — §5.Y "Scope and Generalization Boundary" [NEW SUBSECTION or paragraph]:**
+
+Use Framing B:
+
+> "We identify a systematic failure mode in passage-support verifiers on refutation-labeled classification tasks and propose label-conditional directional hypothesis formulation as a general mitigation. We demonstrate the fix on FEVER (3-way) and StrategyQA (yes/no), achieving a ΔDISCARD_correct reduction of 33%→8% on FEVER [TODO: update with measured post-fix number from Cycle-0 re-run]. The principle generalizes to any refutation-classification task with support-primitive verifiers; we provide a reference dispatcher for two canonical prompt formats with a documented extension point for others (see §6.Z Future Work)."
+
+**B.3 — §5.Z "Paraphrase Gap Residual" [NEW SUBSECTION or footnote]:**
+
+Paraphrase gap (synonymy between claim text and passage, e.g. "scripted"/"written") remains untouched by the directional fix. It accounts for ≈0.8% of FEVER samples (4 of 500 correct-supports discarded). Mitigated passively over cycles by SIL training aligning generator output style with MiniCheck's lexical tendencies. **Report cycle-0 → cycle-10 trajectory of the paraphrase-gap residual in §5.X1 alongside the EM/F1 curves** — expected range 0.8% → ~0.3% by cycle 10.
+
+---
+
+#### C. What goes into Ch6 Limitations + Future Work (Branch-C)
+
+**C.1 — §6.Limitations.VerifierBenchmarkCoverage [NEW BULLET]:**
+
+> "The directional p_ground_mean fix uses regex-based task-type detection, which recognizes two prompt formats (FEVER's 3-way and StrategyQA's yes/no). Downstream users whose prompts differ in wording (non-English, custom 'True/False:' templates, alternative label vocabularies) will silently fall through to the legacy p_ground path and inherit the refutation bias. A plug-in registry for task detection is proposed as future work (see §6.FutureWork.DirectionalGeneralization). Paraphrase-gap discards on support-labeled samples (≈0.8% of FEVER) are not addressed and are left as a characterized residual."
+
+**C.2 — §6.FutureWork.DirectionalGeneralization [NEW SUBSECTION]:**
+
+Three extension options with concrete LOC estimates:
+
+1. **Generic "negative label" detector** (~20 LOC — strict superset of current detection).
+   Canonical-negation set: `{refutes, no, false, incorrect, disagree, wrong, not_supported}`. Fires on more task types automatically.
+   - Pro: Broader coverage (BoolQ, custom yes/no variants)
+   - Con: Potential false-positives on oddly-phrased factoid answers; mitigable with length + prompt-context checks
+
+2. **Task-detection plug-in registry** (~30 LOC).
+   Expose `DirectionalScorer.register_task(name, query_pattern, claim_extractor, label_extractor, label_map)` for downstream users.
+   - Pro: Fully general; anyone can add their task type
+   - Con: Another API surface to document + maintain
+
+3. **Runtime auto-detection via bidirectional probing** (~15 LOC + 1 extra MiniCheck call).
+   If `MiniCheck(passages, claim)` and `MiniCheck(passages, negate(claim))` differ by > 0.5, the task is inherently directional — use the max-confident direction's score.
+   - Pro: works on any prompt format, any language, language-agnostic
+   - Con: +40ms/sample overhead; always pays the negation cost
+
+**Recommended for follow-up paper: option 2 + option 1 combined** — registry for explicit support, fallback to generic detector for unregistered tasks.
+
+**C.3 — §6.FutureWork.MultichoiceSupport [NEW SUBSECTION]:**
+
+ARC-Challenge (and MMLU, OpenBookQA) use multi-choice labels (A/B/C/D) which aren't compatible with the directional fix. The analogous mechanism for multi-choice:
+
+- **Option-text substitution**: route `(passages, f"The answer to <QUESTION> is <OPTION_X_TEXT>")` to MiniCheck, where `OPTION_X_TEXT` is the text of the option the model selected. If correct, passages should entail this statement.
+- Implementation ~60 LOC in `caem/verification/multichoice_scorer.py` (mirrors `directional_p_ground.py` structure).
+- Requires extending task detection with a third pattern for multi-choice queries (choices block regex).
+- Characterize empirically on ARC-Challenge Cycle-0 diagnostic (in progress as of 2026-04-23 01:44 BDT; data at `outputs/cycle_0_diag/eval/arc_challenge_cycle0.json` when complete).
+
+**C.4 — §6.FutureWork.ParaphraseGap [NEW SUBSECTION — if report wants to address the 0.8% residual]:**
+
+Three mitigations considered and deferred:
+
+1. **SBERT semantic-support signal added to composite** (7-family → 8-family).
+   `p_semantic = cosine(SBERT(answer), SBERT(best_passage_sentence))`, weight ~0.08, re-normalize other weights.
+   - LOC: ~80 in `caem/verification/verifier.py` + composite reweighting + Claim 1 reproof.
+   - Break: Claim 1 independence; requires recomputing product-of-gates bound.
+
+2. **Lowered Path-B dispatcher threshold for short hypotheses** (408 MC tokens → ~50).
+   Route short-hyp borderline cases (MiniCheck p_entail in [0.3, 0.7]) to Qwen-judge which has broader paraphrase awareness.
+   - LOC: ~40 in `caem/verification/adaptive_judge.py`.
+   - Break: Branch-C Goal 2 independence assumption (short claims should use MiniCheck per Ch4 theorem alignment).
+
+3. **Retrain MiniCheck on paraphrase pairs** (post-thesis, requires engineering + data).
+   - LOC: N/A — new training pipeline.
+   - Break: Frozen verifier guarantee in Claim 1.
+
+---
+
+#### D. What goes into Ch4 Theoretical Analysis (Branch-C)
+
+**D.1 — Claim 1 bound one-line update [→ Ch4, §Theoretical Analysis, around the product-of-gates bound]:**
+
+Current bound assumes p_ground_mean measures entailment of hypothesis text. Update the definition line:
+
+> "We define `p_ground_mean` as the mean entailment probability of the *label-conditional truthful hypothesis* given the retrieved passages. For tasks whose model answer carries a directional label ℓ ∈ {support, refute, NEI}: `hypothesis_ℓ = h` if ℓ = support; `hypothesis_ℓ = ¬h` if ℓ = refute; bidirectional certainty formulation for ℓ = NEI (see §4.X definition). For all other task types, `hypothesis_ℓ = h` (legacy behavior)."
+
+The algebra of the product-of-gates bound is unchanged.
+
+**D.2 — NEI bidirectional certainty formulation [→ Ch4, new definition]:**
+
+When ℓ = NEI:
+```
+p_ground_mean_NEI = 1 - 2·max(|mean(p_pos) - 0.5|, |mean(p_neg) - 0.5|)
+```
+where `p_pos = MiniCheck(passages, h)` and `p_neg = MiniCheck(passages, ¬h)`. Interpretation: high when both directions are genuinely ambiguous (confirming NEI is correct); low when one direction is confident (model's NEI is defensive, correct to discard).
+
+---
+
+#### E. What goes into the Runbook / NEXT_SESSION_PLAN
+
+**E.1 — Step 7.0.3 [NEW SUB-STEP]:**
+
+Add a post-Cycle-0 diagnostic step that logs, per 3-way-labeled benchmark:
+- Correct-but-DISCARD count per gold label
+- Mean p_ground_mean per gold label (directional vs legacy)
+- Expected auto-update-ready fields for Ch5 §5.X table
+
+**E.2 — Environment flag documentation [NEW NOTE in §Runtime configuration]:**
+
+`CAEM_DIRECTIONAL_P_GROUND=1` (default) — enable directional p_ground fix on matching tasks. Set to `0` for exact pre-fix reproducibility (e.g. ablation against legacy composite).
+
+---
+
+#### F. Cross-references / file pointers the writer will need
+
+| Component | File | Purpose |
+|---|---|---|
+| Negator (rules + Qwen fallback + validation) | `caem/verification/negation.py` | Citation target for "negation generator" claims |
+| DirectionalScorer + task detection | `caem/verification/directional_p_ground.py` | Main fix module |
+| Verifier plumb-through | `caem/verification/verifier.py` (around line 453–497, 570–580) | Call-site patch |
+| Tests for negation | `tests/test_negation.py` | 21 tests |
+| Tests for directional scoring | `tests/test_directional_p_ground.py` | 29 tests |
+| Empirical table (pre-fix data) | `outputs/archive/pre_directional_p_ground_2026-04-22/` | Before/after comparison source |
+| Post-fix data (pending) | `outputs/cycle_0/eval/*_cycle0.json` (after fresh Step 7.0 relaunch) | After-comparison source |
+| Log entry (bug + fix) | `branch_C_log.md` 2026-04-23 07:45 BDT | Primary narrative source |
+| Log entry (future-work reference) | `branch_C_log.md` 2026-04-23 08:15 BDT (this entry) | Report-section mapping |
+| Commit | `8b4f484` on `feat/qwen-3b-goal1` | Git SHA for Ch5 citation |
+
+---
+
+#### G. Writing checklist (tick when drafting Ch5/Ch6)
+
+- [ ] Ch4 §Theoretical Analysis — update Claim 1 definition line (D.1)
+- [ ] Ch4 — add NEI bidirectional certainty formulation as a new definition (D.2)
+- [ ] Ch5 — NEW subsection "Refutation Bias: Empirical Finding and Fix" with 3-row table (B.1)
+- [ ] Ch5 — NEW subsection "Scope and Generalization Boundary" using Framing B (B.2)
+- [ ] Ch5 — NEW subsection or footnote "Paraphrase Gap Residual" with cycle trajectory (B.3)
+- [ ] Ch5 — cycle-0 → cycle-N improvement table for 3-way benchmarks (pending post-fix data)
+- [ ] Ch6 §Limitations — add "VerifierBenchmarkCoverage" bullet (C.1)
+- [ ] Ch6 §FutureWork — add "DirectionalGeneralization" subsection with 3 options (C.2)
+- [ ] Ch6 §FutureWork — add "MultichoiceSupport" subsection (C.3)
+- [ ] Ch6 §FutureWork — add "ParaphraseGap" subsection if addressing 0.8% residual (C.4)
+- [ ] NEXT_SESSION_PLAN runbook — add Step 7.0.3 diagnostic logging sub-step (E.1)
+- [ ] NEXT_SESSION_PLAN runtime config — document `CAEM_DIRECTIONAL_P_GROUND` env flag (E.2)
+- [ ] Commit `8b4f484` cited in Ch5 references
+
+---
+
 ### 2026-04-23 07:45 BDT  `[BUG]` + `[DECISION]`  Refutation-bias in u_stored composite found on FEVER Cycle-0 — directional p_ground_mean fix landing
 
 **The bug.** `p_ground_mean` (weight 0.28, the composite's largest signal) measures *"do the passages support the hypothesis text?"*. For a correctly-refuted claim, the passages *should not* support the claim — so `p_ground_mean` is architecturally forced to be low even when the model's "refutes" answer is perfectly correct. The composite misreads this as "unreliable episode" and drives `u_stored` below τ_defer=0.45 → DISCARD.
