@@ -52,6 +52,7 @@ from dataclasses import fields as _dc_fields
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from caem.production.confidence import render_dict as _render_production_response
 from caem.verification.verifier import UnifiedVerifierOutput
 from eval.benchmarks import BenchmarkSample, make_synthetic_samples
 from eval.metrics import (
@@ -313,6 +314,35 @@ class EvalHarness:
     # ------------------------------------------------------------------ #
 
     @staticmethod
+    def _attach_production_response(record: Dict[str, Any]) -> None:
+        """Populate ``record['production_response']`` from the sample's
+        decision + u_stored.
+
+        Additive: only fills the field when a valid Stage-5 decision is
+        present (decision in {STORE, DEFERRED, DISCARD, ABSTAIN}). Tier 1
+        hits, baselines without a CAEM decision, and pipeline errors leave
+        the field as None. Schema stays rectangular — the key is always
+        added, value is None when not applicable.
+
+        Uses the display_answer as the user-visible text (falls back to
+        prediction if display_answer is absent). No caveat kwargs here;
+        Ship 2's live server passes deferred_eta/deferred_cadence for
+        deployment-specific phrasing.
+        """
+        decision = record.get("decision")
+        u_stored = record.get("u_stored")
+        answer = record.get("display_answer") or record.get("prediction") or ""
+        if decision is None or u_stored is None:
+            record["production_response"] = None
+            return
+        try:
+            record["production_response"] = _render_production_response(
+                answer=answer, u_stored=float(u_stored), decision=str(decision),
+            )
+        except Exception:  # never break the eval writer
+            record["production_response"] = None
+
+    @staticmethod
     def _extract_verifier_signals(vout) -> Dict[str, Any]:
         """Flatten a UnifiedVerifierOutput into a sample-record dict.
 
@@ -387,6 +417,7 @@ class EvalHarness:
             "pipeline_error": pipeline_error,
         }
         record.update(verifier_signals)
+        self._attach_production_response(record)
         return record
 
     def _record_from_error(
@@ -418,6 +449,7 @@ class EvalHarness:
             "pipeline_error": f"{type(exc).__name__}: {exc}",
         }
         record.update(self._extract_verifier_signals(None))
+        self._attach_production_response(record)
         return record
 
     def _run_batched(
