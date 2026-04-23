@@ -18,6 +18,52 @@ Detail belongs in the commit message; the log is for quick rewind.
 
 ## 2026-04-23 (BDT — date rolls based on activity)
 
+### 2026-04-23 10:30 BDT  `[NOTE]` + `[BUG]`  StrategyQA Cycle-0 diagnostic: refutation-bias analog is MILD; primary failure mode is multi-hop reasoning gap
+
+Ran targeted diagnostic `outputs/cycle_0_diag/eval/strategyqa_cycle0.json` on pre-fix composite (StrategyQA n=500, bs=32). Key findings:
+
+**Refutation-bias analog check — much weaker than FEVER:**
+
+| Benchmark | Class | n correct | mean p_ground_mean | mean u_stored | DISCARD% | STORE |
+|---|---|---:|---:|---:|---:|---:|
+| FEVER | refutes | 30 | **0.264** | 0.416 | **33.3%** | **0/30** |
+| StrategyQA | no | 251 | **0.540** | 0.534 | 15.9% | 29/251 |
+| StrategyQA | yes | 45 | 0.500 | 0.496 | 22.2% | 5/45 |
+
+**The refutation bias does NOT reproduce on StrategyQA.** The yes/no analog to FEVER's supports/refutes produces only a 0.040-point p_ground_mean gap vs FEVER's 0.571-point gap. Correct-no samples still land with decent p_ground_mean (0.540), and 29/251 (11.5%) enter memory — not the 0/30 on FEVER.
+
+**Root cause: model has severe "always say no" bias.** 240 yes-gold → model got 45 correct (18.75%); 260 no-gold → 251 correct (96.5%). The rare "correctly yes" cases have genuinely weaker passage evidence (multi-hop), driving u_stored just below τ_store — not a directional bias.
+
+**StrategyQA's primary Cycle-0 failure mode is multi-hop reasoning gap** — 10% correct-but-DISCARDED, driven by questions like "Do German Shepherds worry about the Abitur?" where the correct answer requires combining facts across passages but no single passage supports the composite answer, so per-passage p_ground_mean stays low even when the chain is coherent.
+
+**Implications for the directional p_ground fix (`8b4f484`):**
+- Still ships — it's strictly additive and provides marginal StrategyQA improvement (projected +15-20 extra stores out of 251 correct-no samples via +0.045 u_stored lift).
+- **The Ch5 narrative must change from "fix resolves refutation bias across 3-way-like tasks" to "fix resolves severe refutation bias on FEVER; marginal improvement on StrategyQA; StrategyQA's primary failure mode is a different one (multi-hop gap) characterized separately".**
+- Multi-hop reasoning gap → NEW §6.FutureWork.MultihopReasoningGap subsection (below).
+
+**Update to future-work reference map (08:15 BDT entry above):**
+Add the following to §C.2:
+
+> **§6.FutureWork.MultihopReasoningGap [NEW SUBSECTION]:**
+>
+> StrategyQA Cycle-0 diagnostic (n=500, pre-fix composite) revealed 10% correct-but-DISCARD rate driven by multi-hop reasoning: the correct answer requires combining facts across multiple passages, but the composite's `p_ground_mean` is per-passage mean entailment which stays low when no single passage supports the composite answer. Distinct from FEVER's refutation bias (resolved by directional p_ground fix, commit `8b4f484`).
+>
+> Three mitigations:
+> 1. **Chain-level entailment signal (post-thesis).** Replace `p_ground_mean` with `p_ground_chain` = MiniCheck on the concatenation of top-K passages. LOC: ~40 in `caem/verification/verifier.py`. Risk: long context truncation on >512 MC tokens.
+> 2. **Atomic-fact chain decomposition (partial — already in composite).** The existing `p_ground_atomic` signal decomposes the answer into atomic claims and requires each to be grounded. Helps if the atomic facts each have individual passage support. For multi-hop where no single fact is in any passage, doesn't help.
+> 3. **Evidence graph construction (research-scale).** Build a per-query evidence DAG linking passages via shared entities; score answer against the graph's semantic coverage. Multi-hop QA literature has explored this (HotpotQA evaluation metrics). Future work.
+>
+> Currently measured: 10% of StrategyQA Cycle-0 correct samples discarded due to this. Expected trajectory over 10 cycles of SIL: minor improvement (~10% → ~7%) as the model learns to produce single-passage-supportable phrasings. Primary mitigation is reported in Ch5 cycle curve.
+
+**Ch5 writing checklist additions:**
+- [ ] Ch5 §5.Y — extend to note StrategyQA's mild refutation-bias analog and different primary failure mode
+- [ ] Ch5 §5.X1 — include StrategyQA multi-hop gap trajectory alongside paraphrase-gap trajectory
+- [ ] Ch6 §6.FutureWork.MultihopReasoningGap — new subsection per above
+
+**Data preserved.** StrategyQA pre-fix JSON at `outputs/cycle_0_diag/eval/strategyqa_cycle0.json` (638 KB). Will be archived with the fresh Step 7.0 relaunch cleanup.
+
+---
+
 ### 2026-04-23 08:15 BDT  `[DECISION]` + `[NOTE]`  Directional p_ground — scope, generalization boundary, and Future Work references for thesis writing
 
 **Purpose of this entry.** Single consolidated reference for what the directional p_ground fix *does* and *does not* cover, so the thesis report (Ch5 + Ch6) can be written without missing any limitation, extension path, or cross-reference. **When writing the report, each bullet below maps to a specific section** — annotated with **[→ Ch#, §...]** markers.
