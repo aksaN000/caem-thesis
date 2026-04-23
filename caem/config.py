@@ -292,13 +292,26 @@ class CAEMConfig:
     use_flash_attention_2: bool = False
 
     # [DES] SDPA (PyTorch-native scaled_dot_product_attention) — on
-    # Blackwell this dispatches to cuDNN-attention for 4-6x Qwen-3B
-    # throughput (~40 → ~200 tok/s) with zero composite-architecture
-    # impact. Requires PyTorch 2.9+ and cuDNN 9.15+ (both present on
-    # our Vast image). Set False to revert to eager attention — only
-    # useful for an ablation comparing attention-kernel throughput.
-    # Branch-C landing: 2026-04-23, research_attn_alternatives.md.
-    use_sdpa: bool = True
+    # Blackwell this dispatches to cuDNN-attention. Isolated bench
+    # (scripts/bench_sdpa_vs_eager.py) measured 1.49x speedup on
+    # single-prompt Qwen-3B greedy generation (45 -> 67 tok/s).
+    #
+    # HOWEVER — Branch-C 2026-04-23 empirical test on the real Step 6
+    # multi-mode pipeline (main gen + m-chain K=3 + SE K=10 + MC-dropout
+    # K=5 + atomic decomp + negation path + bidirectional NEI) showed
+    # NO measurable speedup vs eager on the matched first-5-batch
+    # window, and actually ~30% regression on batches 2-3. Root cause:
+    # the kernel-level 1.49x advantage only applies to the ~40% of
+    # per-sample time that's Qwen forward. Other 60% (MiniCheck-T5
+    # eager, BGE rerank, FAISS search, SBERT, orchestration) is
+    # unchanged. Compounded with SDPA's variable kernel-selection
+    # overhead across 6+ different input shapes, net is flat-to-negative.
+    #
+    # DEFAULT FALSE until a real-workload speedup is validated on
+    # Blackwell. Re-enable if/when cuDNN-SDPA kernel dispatch becomes
+    # stable on multi-shape workloads (upstream issue). Or if a
+    # future workload uses Qwen more heavily (less verifier overhead).
+    use_sdpa: bool = False
 
     # [DES] torch.compile on Qwen `model.forward`. Branch-C 2026-04-23:
     # FLIPPED BACK TO FALSE after empirical regression measurement on real
