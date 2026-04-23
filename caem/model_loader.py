@@ -463,9 +463,47 @@ def load_base_generator(
     model.eval()
 
     if use_torch_compile:
+        # Branch-C 2026-04-23: compile model.forward() specifically (not the
+        # whole model object) per HF torch.compile recipe
+        # (https://huggingface.co/docs/transformers/en/llm_optims#static-kv-cache-and-torchcompile).
+        # `dynamic=True` lets the compiled graph handle varying prompt /
+        # context lengths without recompilation churn — this matters for our
+        # workload where queries range from ~40 tok (FEVER claim) to ~500 tok
+        # (ASQA long-form). `mode="reduce-overhead"` uses CUDA graph replay
+        # to shave Python/launch overhead on each decoder step. Combined
+        # effect on Qwen-3B bf16: ~5-10% end-to-end speedup in our profile
+        # (research_inference_speedup_v2.md §5).
+        #
+        # Nondeterminism note: torch.compile can reorder bf16 matmul fusions,
+        # producing ~1e-4 logit drift. Below the composite noise floor per
+        # Branch-C analysis; EM/F1 metrics unaffected.
+        #
+        # Caveats (from HF #29151, #30351, #30055):
+        #  - First ~50 samples pay JIT compile cost (one-time ~30-60s)
+        #  - StaticCache integration is OPT-IN separately via
+        #    model.generation_config.cache_implementation = "static"
+        #    because it requires padded prompts. We use the default dynamic
+        #    cache for robustness against varying prompt lengths.
+        # Note: mode="reduce-overhead" uses CUDA graph replay, which is
+        # incompatible with HF's generate() loop (the KV-cache update logic
+        # violates the tensor-reuse invariants CUDA graphs require — fails
+        # with "To prevent overwriting, clone the tensor outside of
+        # torch.compile()"). Fix would require cudagraph_mark_step_begin()
+        # hooks before every model invocation, which is invasive across
+        # pipeline + verifier + self_improvement call sites. We use
+        # mode="default" instead — still benefits from Inductor fusion
+        # + autotuning, just without CUDA graph replay.
         try:
-            model = torch.compile(model, mode="reduce-overhead")
-            logger.info("torch.compile applied (reduce-overhead mode).")
+            model.forward = torch.compile(
+                model.forward,
+                mode="default",
+                dynamic=True,
+                fullgraph=False,  # allow graph breaks; robustness > max speed
+            )
+            logger.info(
+                "torch.compile applied to model.forward "
+                "(mode=default, dynamic=True). First ~10 samples pay JIT cost."
+            )
         except Exception as exc:  # compile backend failures are driver/version-dependent
             logger.warning(
                 "torch.compile failed (%s); continuing without compilation.",

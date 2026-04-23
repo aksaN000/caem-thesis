@@ -300,11 +300,15 @@ class CAEMConfig:
     # Branch-C landing: 2026-04-23, research_attn_alternatives.md.
     use_sdpa: bool = True
 
-    # [DES] torch.compile on the generator forward pass. Nondeterminism risk
-    # (~1e-4 logit drift) is below u_stored composite's grounding-signal noise
-    # floor per Branch-C analysis. Start False during port+smoke; enable after
-    # regression gate validation on perf_log.csv.
-    use_torch_compile: bool = False
+    # [DES] torch.compile on Qwen `model.forward`. Branch-C 2026-04-23:
+    # flipped default True after SDPA adoption + research_inference_speedup_v2.md
+    # analysis showed ~5-10% end-to-end gain from CUDA-graph replay under
+    # mode="reduce-overhead". Graceful try/except fallback if compile fails
+    # at load time. Nondeterminism risk (~1e-4 logit drift) is below the
+    # u_stored composite's grounding-signal noise floor; EM/F1 stable.
+    # Set False to revert (useful for isolating ablation effects or if a
+    # specific driver version triggers the regression).
+    use_torch_compile: bool = True
 
     # [DES] Full FT + 8-bit AdamW is the PRIMARY SIL training path on Qwen-3B
     # (verified 2026-04-22 to fit 32 GB 5090 at batch=4, grad checkpointing

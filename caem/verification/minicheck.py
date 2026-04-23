@@ -404,9 +404,25 @@ def load_minicheck_judge(
 
     logger.info("Loading MiniCheck judge %s on %s (%s)", model_name, device, dtype)
     tokenizer = AutoTokenizer.from_pretrained(model_name)
-    model = T5ForConditionalGeneration.from_pretrained(
-        model_name, torch_dtype=dtype
-    ).to(device)
+    # Branch-C 2026-04-23: force attn_implementation="sdpa" so T5's encoder
+    # dispatches through cuDNN-attention / mem-efficient SDPA on Blackwell
+    # rather than eager attention. T5 uses bucketed relative-position bias
+    # which does NOT dispatch to FA2 but DOES dispatch to cuDNN/efficient
+    # SDPA via transformers PR #31167 (T5SdpaAttention). Falls back to
+    # eager if the loaded transformers version pre-dates that PR.
+    try:
+        model = T5ForConditionalGeneration.from_pretrained(
+            model_name, torch_dtype=dtype, attn_implementation="sdpa",
+        ).to(device)
+        logger.info("MiniCheck attn_implementation=sdpa")
+    except (ValueError, TypeError) as exc:
+        logger.warning(
+            "MiniCheck SDPA attn_implementation rejected (%s); falling back "
+            "to eager. Verify transformers >= 4.39 for T5SdpaAttention.", exc,
+        )
+        model = T5ForConditionalGeneration.from_pretrained(
+            model_name, torch_dtype=dtype,
+        ).to(device)
     model.eval()
     return _MiniCheckJudge(
         model=model,

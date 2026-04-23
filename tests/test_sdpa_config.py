@@ -111,13 +111,21 @@ class TestLoadBaseGeneratorIntegration:
         cfg = CAEMConfig()
         assert cfg.use_flash_attention_2 is False
 
-    def test_config_has_both_attn_fields(self):
-        """Both use_sdpa and use_flash_attention_2 must exist for
-        back-compat with callers that pass either."""
+    def test_use_torch_compile_default_true(self):
+        """CAEMConfig default flipped True on 2026-04-23 after SDPA
+        adoption + research_inference_speedup_v2.md recommendation."""
+        from caem.config import CAEMConfig
+        cfg = CAEMConfig()
+        assert cfg.use_torch_compile is True
+
+    def test_config_has_all_attn_fields(self):
+        """All three attention-config fields must exist for back-compat
+        with callers that pass any of them."""
         from caem.config import CAEMConfig
         cfg = CAEMConfig()
         assert hasattr(cfg, "use_sdpa")
         assert hasattr(cfg, "use_flash_attention_2")
+        assert hasattr(cfg, "use_torch_compile")
 
 
 # =====================================================================
