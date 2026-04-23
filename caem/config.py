@@ -285,10 +285,20 @@ class CAEMConfig:
     # ------------------------------------------------------------------ #
     # Goal 5 — hardware-utilization optimizations (Branch C)               #
     # ------------------------------------------------------------------ #
-    # [DES] Enable Flash Attention 2 if the `flash_attn` library is installed on
-    # the rental. Gracefully falls back to eager attention (with log warning) on
-    # unavailable. Typically yields 10-15% generator throughput on 5090.
-    use_flash_attention_2: bool = True
+    # [DES] Flash Attention 2 — Blackwell sm_120 (RTX 5090) has no prebuilt
+    # flash-attn wheels and source-built FA2 is SLOWER than cuDNN-attention
+    # SDPA per published benchmarks (gau-nernst 5090). Default now False;
+    # see ``use_sdpa`` below for the Branch-C primary attention path.
+    use_flash_attention_2: bool = False
+
+    # [DES] SDPA (PyTorch-native scaled_dot_product_attention) — on
+    # Blackwell this dispatches to cuDNN-attention for 4-6x Qwen-3B
+    # throughput (~40 → ~200 tok/s) with zero composite-architecture
+    # impact. Requires PyTorch 2.9+ and cuDNN 9.15+ (both present on
+    # our Vast image). Set False to revert to eager attention — only
+    # useful for an ablation comparing attention-kernel throughput.
+    # Branch-C landing: 2026-04-23, research_attn_alternatives.md.
+    use_sdpa: bool = True
 
     # [DES] torch.compile on the generator forward pass. Nondeterminism risk
     # (~1e-4 logit drift) is below u_stored composite's grounding-signal noise

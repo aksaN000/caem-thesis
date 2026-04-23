@@ -27,12 +27,142 @@ from __future__ import annotations
 import logging
 import os
 import subprocess
+from contextlib import contextmanager
 from typing import Any, List, Tuple
 
 import torch
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
 logger = logging.getLogger(__name__)
+
+
+# =============================================================================
+# SDPA backend configuration (Branch-C cuDNN-attention adoption, 2026-04-23)
+# =============================================================================
+#
+# On RTX 5090 (Blackwell sm_120), flash-attn 2.x does not have prebuilt wheels
+# and source-built flash-attn 2.8.3 is actually SLOWER than PyTorch's native
+# cuDNN-attention SDPA backend per published RTX 5090 benchmarks
+# (gau-nernst.github.io/fa-5090, verified bf16 head_dim=128 matches Qwen-3B
+# config). PyTorch 2.7+ added sm_120 gencode to FLASH and EFFICIENT SDPA
+# backends (PR #145602); cuDNN >= 9.15 adds the Fused-Flash kernel that
+# achieves 150-250 tok/s on Qwen-3B bf16 (4-6x vs eager).
+#
+# We:
+#   1. Globally enable cuDNN / Flash / Mem-efficient SDPA backends, disable
+#      the slow math fallback.
+#   2. Load Qwen with ``attn_implementation="sdpa"`` so every forward pass
+#      dispatches through the SDPA path.
+#   3. Expose ``caem_sdpa_context()`` as a context manager that can wrap
+#      ``model.generate()`` call sites for defense-in-depth — forces the
+#      [CUDNN, FLASH, EFFICIENT] priority order even if global flags drift.
+#
+# See research_attn_alternatives.md for the full landscape analysis and
+# branch_C_log.md 2026-04-23 for the landing entry.
+
+
+_SDPA_BACKENDS_CONFIGURED = False
+
+
+def _configure_sdpa_backends() -> None:
+    """Configure PyTorch SDPA backend preferences for Blackwell-class GPUs.
+
+    Idempotent — safe to call multiple times. Enables cuDNN/Flash/Efficient
+    backends (in that priority order) and disables the math fallback to
+    ensure we never accidentally land on the slow bf16 math kernel.
+
+    Determinism note: ``torch.use_deterministic_algorithms(False)`` is set
+    because cuDNN-attention is not bitwise-deterministic across shapes; for
+    our seeded greedy + fixed-batch inference path this produces the same
+    EM/F1 metrics (determinism at the metric level, not bit level).
+    """
+    global _SDPA_BACKENDS_CONFIGURED
+    if _SDPA_BACKENDS_CONFIGURED:
+        return
+    if not torch.cuda.is_available():
+        logger.info("SDPA backend configuration skipped — CUDA not available.")
+        _SDPA_BACKENDS_CONFIGURED = True
+        return
+
+    # Enable cuDNN-SDPA if this PyTorch build supports it (2.9+ did).
+    # Older builds silently lack this attribute; fall through to Flash.
+    try:
+        torch.backends.cuda.enable_cudnn_sdp(True)
+        logger.info("SDPA backend: cuDNN-attention ENABLED (primary).")
+    except AttributeError:
+        logger.warning(
+            "SDPA backend: cuDNN-attention NOT available in this PyTorch "
+            "build — falling back to Flash-SDPA (expected ~1.3-1.6x vs "
+            "eager, not the full 4-6x of cuDNN-SDPA)."
+        )
+
+    # Flash and memory-efficient: always enable where supported.
+    try:
+        torch.backends.cuda.enable_flash_sdp(True)
+        torch.backends.cuda.enable_mem_efficient_sdp(True)
+    except AttributeError:
+        pass
+
+    # Math-SDPA is the slow bf16 fallback. Disable to prevent accidental
+    # dispatch when cuDNN/Flash/Efficient all refuse a particular shape.
+    try:
+        torch.backends.cuda.enable_math_sdp(False)
+    except AttributeError:
+        pass
+
+    # TF32 would round bf16 matmuls; we want pure bf16 for Qwen-3B.
+    torch.backends.cuda.matmul.allow_tf32 = False
+
+    # cuDNN-attention kernels are not bitwise-deterministic across shapes.
+    # For CAEM's seeded-greedy + fixed-batch pipeline this is fine (EM/F1
+    # are stable), but we cannot also demand algorithmic determinism.
+    torch.use_deterministic_algorithms(False)
+
+    _SDPA_BACKENDS_CONFIGURED = True
+
+
+@contextmanager
+def caem_sdpa_context():
+    """Context manager that forces the [cuDNN, Flash, Efficient] SDPA
+    priority order on wrapped ``model.generate()`` / forward calls.
+
+    Usage
+    -----
+    >>> from caem.model_loader import caem_sdpa_context
+    >>> with caem_sdpa_context():
+    ...     out = model.generate(**inputs, max_new_tokens=200)
+
+    This is belt-and-suspenders over the global flags set by
+    ``_configure_sdpa_backends()``. If for any reason the global config
+    gets reset (e.g., by a subprocess / import side effect), the
+    context manager still enforces the right priority.
+
+    On non-CUDA hosts or old PyTorch builds without ``sdpa_kernel``, this
+    degrades to a no-op.
+    """
+    if not torch.cuda.is_available():
+        yield
+        return
+    try:
+        from torch.nn.attention import sdpa_kernel, SDPBackend
+    except ImportError:
+        # PT < 2.2: no sdpa_kernel API. No-op.
+        yield
+        return
+
+    # Build the backend priority list — include cuDNN first if this PT
+    # build supports it, then Flash, then Efficient. Skip backends that
+    # raise (unsupported on this build).
+    backends = []
+    for name in ("CUDNN_ATTENTION", "FLASH_ATTENTION", "EFFICIENT_ATTENTION"):
+        if hasattr(SDPBackend, name):
+            backends.append(getattr(SDPBackend, name))
+    if not backends:
+        yield
+        return
+
+    with sdpa_kernel(backends):
+        yield
 
 
 # =============================================================================
@@ -210,7 +340,8 @@ def load_base_generator(
     *,
     device: str = "cuda",
     dtype: torch.dtype = torch.bfloat16,
-    use_flash_attention_2: bool = True,
+    use_flash_attention_2: bool = False,
+    use_sdpa: bool = True,
     use_torch_compile: bool = False,
 ) -> Tuple[Any, Any]:
     """Load a decoder-only base generator.
@@ -269,15 +400,39 @@ def load_base_generator(
             "See branch_C.md §'T5 removal (2026-04-22)' for rationale."
         )
 
+    # Configure global SDPA backend preferences ONCE per process. Idempotent
+    # — call is a no-op on subsequent model loads. This sets cuDNN/Flash/
+    # Mem-efficient SDPA on and math-SDPA off (see _configure_sdpa_backends
+    # docstring).
+    _configure_sdpa_backends()
+
     model_kwargs: dict = {"dtype": dtype}
     flash_attn_requested_but_unavailable = False
+    # Attention implementation selection (priority order):
+    #   1. flash_attention_2 if explicitly requested AND installed
+    #   2. sdpa (PyTorch-native, dispatches to cuDNN-attention on Blackwell)
+    #   3. eager (fallback; slow, only if 1 and 2 fail)
     if use_flash_attention_2:
         try:
             import flash_attn  # noqa: F401
             model_kwargs["attn_implementation"] = "flash_attention_2"
-            logger.info("Flash Attention 2 enabled.")
+            logger.info("Flash Attention 2 enabled (explicit request).")
         except ImportError:
             flash_attn_requested_but_unavailable = True
+            # Fall through to SDPA if that's enabled
+            if use_sdpa:
+                model_kwargs["attn_implementation"] = "sdpa"
+                logger.info(
+                    "flash-attn not installed — using SDPA (cuDNN-attention "
+                    "backend on Blackwell; 4-6x vs eager per published "
+                    "RTX 5090 benchmarks)."
+                )
+    elif use_sdpa:
+        model_kwargs["attn_implementation"] = "sdpa"
+        logger.info(
+            "SDPA enabled (cuDNN-attention backend on Blackwell; 4-6x vs "
+            "eager). Use attn_implementation='eager' to revert."
+        )
 
     try:
         model = AutoModelForCausalLM.from_pretrained(model_name, **model_kwargs)
@@ -317,22 +472,24 @@ def load_base_generator(
                 exc,
             )
 
-    if flash_attn_requested_but_unavailable:
+    if flash_attn_requested_but_unavailable and not use_sdpa:
         logger.warning(
-            "use_flash_attention_2=True but `flash_attn` is not installed; "
-            "loaded with eager attention. Install with: "
-            "`pip install flash-attn --no-build-isolation` on a CUDA-enabled host."
+            "use_flash_attention_2=True but `flash_attn` is not installed "
+            "and use_sdpa=False; loaded with eager attention (slow). Install "
+            "flash-attn OR set use_sdpa=True for the cuDNN-attention SDPA "
+            "backend (recommended on Blackwell sm_120)."
         )
 
+    attn_impl = model_kwargs.get("attn_implementation", "eager")
     n_params = sum(p.numel() for p in model.parameters())
     logger.info(
         "Loaded base generator: name=%s  params=%s  device=%s  dtype=%s  "
-        "flash_attn_2=%s  compiled=%s",
+        "attn_implementation=%s  compiled=%s",
         model_name,
         f"{n_params:,}",
         device,
         dtype,
-        "yes" if "attn_implementation" in model_kwargs else "no",
+        attn_impl,
         "yes" if use_torch_compile else "no",
     )
     return model, tokenizer
