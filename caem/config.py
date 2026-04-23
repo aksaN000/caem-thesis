@@ -301,14 +301,25 @@ class CAEMConfig:
     use_sdpa: bool = True
 
     # [DES] torch.compile on Qwen `model.forward`. Branch-C 2026-04-23:
-    # flipped default True after SDPA adoption + research_inference_speedup_v2.md
-    # analysis showed ~5-10% end-to-end gain from CUDA-graph replay under
-    # mode="reduce-overhead". Graceful try/except fallback if compile fails
-    # at load time. Nondeterminism risk (~1e-4 logit drift) is below the
-    # u_stored composite's grounding-signal noise floor; EM/F1 stable.
-    # Set False to revert (useful for isolating ablation effects or if a
-    # specific driver version triggers the regression).
-    use_torch_compile: bool = True
+    # FLIPPED BACK TO FALSE after empirical regression measurement on real
+    # Step 6 workload. Isolated bench (scripts/bench_sdpa_vs_eager.py) on
+    # simple single-prompt greedy generation showed 1.60x speedup from
+    # compile on top of SDPA. But real Step 6 pipeline has 6+ different
+    # graph shapes (main gen, m-chain sampling num_return_sequences=3,
+    # SE samples num_return_sequences=10, MC-dropout train-mode K=5,
+    # atomic decomposition greedy, negation fallback in refutes path)
+    # and torch._dynamo hits its config.recompile_limit=8 on multi-mode
+    # workloads, causing eager fallback on some paths plus compile-overhead
+    # on all others. Net measured Step 6 batch-2/3 per-sample: 12.5s with
+    # compile vs 10.4s without compile (on same commit) = ~20% REGRESSION
+    # end-to-end on the real multi-mode pipeline. Disabled.
+    #
+    # To re-enable for a single-path workload (e.g., B6/B7 pure inference
+    # baseline, which only runs main generate + no MC-dropout/atomic),
+    # explicitly pass use_torch_compile=True to load_base_generator in
+    # that script — Python default remains False for the multi-mode
+    # Step 6/7/main path.
+    use_torch_compile: bool = False
 
     # [DES] Full FT + 8-bit AdamW is the PRIMARY SIL training path on Qwen-3B
     # (verified 2026-04-22 to fit 32 GB 5090 at batch=4, grad checkpointing
