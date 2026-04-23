@@ -307,15 +307,25 @@ class CAEMConfig:
     # unchanged. Compounded with SDPA's variable kernel-selection
     # overhead across 6+ different input shapes, net is flat-to-negative.
     #
-    # DEFAULT FLIPPED BACK TO TRUE 2026-04-23 post-TF32-bug fix. Previous
-    # "SDPA regression" on Step 6 turned out to be my own TF32-disable bug
-    # in _configure_sdpa_backends(), not SDPA itself. After the hotfix
-    # (commit e48fb4b-ish), eager + TF32 ON returned to archive's
-    # 10.3 s/sample baseline, confirming TF32 was the entire regression
-    # cause. Bench SDPA vs eager was a fair 1.49x comparison (both had
-    # TF32 off in the bug), so SDPA's genuine Qwen-generation speedup
-    # remains validated. Re-enabling to capture it on the real pipeline.
-    use_sdpa: bool = True
+    # FINAL DEFAULT: FALSE (eager) — 2026-04-23 final.
+    # Empirical measurements on the real Step 6 multi-mode pipeline:
+    #   Eager  + fix:             10.3 s/sample  (archive baseline)
+    #   Eager  + TF32-bug-fix:    10.3 s/sample  (verified same)
+    #   SDPA + compile + fix:     10.4 s/sample  (~0% speedup end-to-end)
+    #
+    # SDPA gives 1.49× on Qwen generation (bench validated), but that's
+    # only the ~35% of per-sample time that's Qwen forward. Non-Qwen
+    # components (MiniCheck, BGE, FAISS, orchestration, atomic decomp
+    # scoring) dominate at 65%, unaffected by SDPA. End-to-end
+    # speedup collapses to within noise. Plus SDPA+compile pays a
+    # ~600s JIT overhead per process that never amortizes for our
+    # short scripts (Step 6, calibration, etc.).
+    #
+    # Shipping on validated eager. Infrastructure kept in place
+    # (caem_sdpa_context, _configure_sdpa_backends, bench script)
+    # for post-thesis reuse if a future workload has higher Qwen
+    # share.
+    use_sdpa: bool = False
 
     # [DES] torch.compile on Qwen `model.forward`. Branch-C 2026-04-23:
     # FLIPPED BACK TO FALSE after empirical regression measurement on real
@@ -331,14 +341,21 @@ class CAEMConfig:
     # compile vs 10.4s without compile (on same commit) = ~20% REGRESSION
     # end-to-end on the real multi-mode pipeline. Disabled.
     #
-    # 2026-04-23 FLIPPED BACK TO TRUE: the previous regression attributed
-    # to torch.compile was actually the _configure_sdpa_backends TF32
-    # bug — fixed in e48fb4b-ish. Compile test (scripts/test_compile_training.py)
-    # validated the compile + training path works cleanly with 4 training
-    # steps showing loss decrease. Re-enabling in the SDPA + compile + TF32
-    # ON combo to see if the bench's 1.60x compile speedup materialises
-    # on the real multi-mode pipeline (with TF32 restored).
-    use_torch_compile: bool = True
+    # FINAL DEFAULT: FALSE (no compile) — 2026-04-23 final.
+    # torch.compile works correctly for both inference and training
+    # (scripts/test_compile_training.py PASSED with 4 training steps,
+    # loss decreasing 3.42 → 0.47, bit-identical eval/train toggle).
+    # But real Step 6 workload shows ~0% end-to-end speedup vs eager
+    # despite bench test showing 1.60× on isolated greedy generation.
+    # Root cause: CAEM has 6+ distinct graph shapes (main gen,
+    # m-chain K=3, SE K=10, MC-dropout K=5, atomic greedy, negation
+    # fallback), torch._dynamo hits recompile_limit=8 causing partial
+    # eager fallback. Plus ~600s JIT overhead per process.
+    #
+    # Shipping on eager. Compile infrastructure retained in
+    # model_loader.py; re-enable by script-level override if a future
+    # single-path workload (e.g., pure inference baseline) wants it.
+    use_torch_compile: bool = False
 
     # [DES] Full FT + 8-bit AdamW is the PRIMARY SIL training path on Qwen-3B
     # (verified 2026-04-22 to fit 32 GB 5090 at batch=4, grad checkpointing
