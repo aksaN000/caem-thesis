@@ -11,7 +11,7 @@ that contains::
 
     tab_headline.csv     -- Table 5.1 + CES summary
     tab_calibration.csv  -- Table 5.2
-    tab_halluc.csv       -- Table 5.3
+    tab_halluc_subtypes.csv -- Table 5.3 (CHM + 9-subtype taxonomy)
     tab_grounding.csv    -- Table 5.4
     tab_purity.csv       -- Table 5.5
     tab_continual.csv    -- Table 5.6
@@ -96,15 +96,17 @@ TABLE_META: Dict[str, Dict[str, str]] = {
         ),
         "label": "tab:ch5-calibration",
     },
-    "halluc": {
+    "halluc_subtypes": {
         "caption": (
-            "Hallucination decomposition per (cycle, benchmark). "
-            "\\emph{Hallucination} = wrong under the composite $\\hat{u}_{\\text{stored}}$ "
-            "gate. \\emph{Confabulation} = wrong under the internal-only gate "
-            "$u_{\\text{internal}} \\geq 0.70$ (Farquhar et al.\\ 2024). "
-            "\\emph{Early-exit rate} counts the Stage-5 confabulation gate firings."
+            "Hallucination taxonomy decomposition per (cycle, benchmark). "
+            "CHM is the equal-weighted mean of the 8 subtypes measurable under "
+            "the CAEM-default MiniCheck backend; \\emph{union\\_rate} is the "
+            "fraction of samples firing any subtype. \\emph{Factual-contradiction} "
+            "is reported but excluded from the CHM denominator because "
+            "MiniCheck's binary supported/unsupported output has no contradiction "
+            "class -- activated under the \\texttt{roberta\\_nli\\_backend} ablation."
         ),
-        "label": "tab:ch5-halluc",
+        "label": "tab:ch5-halluc-subtypes",
     },
     "grounding": {
         "caption": (

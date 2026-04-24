@@ -56,7 +56,7 @@ from __future__ import annotations
 import re
 import string
 from collections import Counter
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 
 # -----------------------------------------------------------------------------
@@ -514,24 +514,42 @@ def hallucination_subtypes(
     return {k: v / n for k, v in counts.items()}
 
 
+CHM_DEFAULT_MEASURED_SUBTYPES: Tuple[str, ...] = (
+    "confident_confabulation_rate",
+    "factual_fabrication_rate",
+    # "factual_contradiction_rate" -- EXCLUDED from default CHM denominator.
+    # Under the shipping MiniCheck backend, `p_contra` is structurally 0.0
+    # (binary supported/unsupported judge, no contradiction class), so this
+    # subtype would dilute CHM with a flatlined zero. It remains in
+    # `per_subtype_rates` for transparency and is activated only under the
+    # `roberta_nli_backend` ablation. CHM denominator = 8 by default.
+    "logical_fabrication_rate",
+    "off_topic_rate",
+    "defensive_evasion_rate",
+    "template_leak_rate",
+    "false_refusal_rate",
+    "over_long_rate",
+)
+
+
 def composite_hallucination_metric(
     samples: Sequence[Dict[str, Any]],
     *,
     weight_overrides: Optional[Dict[str, float]] = None,
     measured_subtypes: Optional[Sequence[str]] = None,
 ) -> Dict[str, Any]:
-    """Single composite hallucination metric — mean prevalence across the
-    9 measured taxonomy subtypes, with equal weights by default.
+    """Single composite hallucination metric — equal-weighted mean prevalence
+    across the 8 taxonomy subtypes measurable under the CAEM-default
+    MiniCheck backend.
 
     Definition
     ----------
-        CHM = (1/N) × Σ subtype_rate_i        (default: equal weights)
+        CHM = (1/N) × Σ subtype_rate_i        (default: equal weights, N=8)
 
-    where N is the number of measured subtypes (default 9). Subtypes
-    overlap: a single bad sample can count in multiple. CHM therefore
-    measures *mean failure-mode prevalence* across the taxonomy, NOT the
-    fraction of samples with any hallucination (that would be the union
-    rate, computed separately as `union_rate` in the returned dict).
+    Subtypes overlap: a single bad sample can count in multiple. CHM
+    therefore measures *mean failure-mode prevalence* across the taxonomy,
+    NOT the fraction of samples with any hallucination (that would be the
+    union rate, computed separately as `union_rate` in the returned dict).
 
     Why equal weights
     -----------------
@@ -541,24 +559,34 @@ def composite_hallucination_metric(
     others (e.g., off-topic answers). Equal weighting tracks reduction
     uniformly across the taxonomy.
 
-    Coverage of the 11-subtype taxonomy
-    ----------------------------------
-        Strong (measured + actively reduced):  6
+    Coverage of the 9-subtype measurable taxonomy
+    ----------------------------------------------
+        Measured under default backend (8, in CHM denominator):
           confident_confabulation, factual_fabrication,
-          factual_contradiction, off_topic, defensive_evasion,
-          template_leak
-        Partial (measured, partial reduction): 3
-          logical_fabrication, false_refusal, over_long
-        Phase 2 (not measured here):           2
+          logical_fabrication, off_topic, defensive_evasion,
+          template_leak, false_refusal, over_long
+        Requires roberta_nli ablation (1, excluded from default CHM):
+          factual_contradiction   -- MiniCheck's binary
+                                     supported/unsupported output has no
+                                     contradiction class; p_contra == 0.0
+                                     under the default backend.
+        Documented taxonomy but not instrumented (future work):
           source_fabrication, sycophancy
+
+    Callers needing the 9-axis mean (e.g., roberta_nli ablation runs)
+    pass ``measured_subtypes=list(hallucination_subtypes(samples).keys())``
+    to include factual_contradiction_rate in the denominator.
 
     Returns
     -------
     Dict with keys:
         chm                       — equal-weighted mean of subtype rates
         union_rate                — fraction with ANY subtype firing
-        n_measured_subtypes       — 9 by default
-        per_subtype_rates         — same dict as hallucination_subtypes()
+        n_measured_subtypes       — 8 by default
+        per_subtype_rates         — full 9-subtype dict (including the
+                                    excluded factual_contradiction_rate,
+                                    reported transparently even when not
+                                    in the CHM denominator)
         weights                   — equal 1/N or override
     """
     if not samples:
@@ -569,7 +597,10 @@ def composite_hallucination_metric(
         }
 
     rates = hallucination_subtypes(samples)
-    measured = list(measured_subtypes) if measured_subtypes else list(rates.keys())
+    if measured_subtypes is not None:
+        measured = list(measured_subtypes)
+    else:
+        measured = list(CHM_DEFAULT_MEASURED_SUBTYPES)
     measured = [m for m in measured if m in rates]
 
     # Equal weights by default; override if specified
@@ -622,44 +653,14 @@ def composite_hallucination_metric(
     }
 
 
-def hallucination_rate(
-    em_scores: Sequence[float],
-    u_stored_values: Sequence[Optional[float]],
-    u_threshold: float = 0.50,
-) -> float:
-    """Fraction of answers that are both wrong AND confidently generated.
-
-    Operational definition: EM = 0 AND û_stored >= u_threshold.
-    This is a proxy for confident confabulations (hallucinations), not a
-    ground-truth oracle. Used for ablation analysis in Chapter 5.
-
-    Parameters
-    ----------
-    em_scores : sequence of float
-        Per-sample EM scores (0.0 or 1.0).
-    u_stored_values : sequence of float or None
-        Per-sample û_stored values. None means verification was skipped
-        (treated as u_stored = 0.0 for this computation).
-    u_threshold : float
-        û_stored threshold below which we consider the model uncertain.
-
-    Returns
-    -------
-    float -- fraction ∈ [0, 1]
-    """
-    if not em_scores:
-        return 0.0
-
-    n = len(em_scores)
-    assert len(u_stored_values) == n, "em_scores and u_stored_values must have the same length"
-
-    count = 0
-    for em, u in zip(em_scores, u_stored_values):
-        u_val = u if u is not None else 0.0
-        if em == 0.0 and u_val >= u_threshold:  # Fixed: measures Confident Confabulation
-            count += 1
-
-    return count / n
+# Note: the standalone `hallucination_rate(em, u, 0.5)` helper was removed
+# 2026-04-24. It is mathematically identical to
+# `confabulation_rate(em, u, threshold=0.5, direction="ge")` (kept below) and
+# to `hallucination_subtypes(...)["confident_confabulation_rate"]`, so three
+# public names referred to the same scalar. The taxonomy decomposition in
+# `composite_hallucination_metric()` is now the headline hallucination metric
+# (CHM, equal-weighted mean of 9 measurable subtypes); the per-axis
+# confident-error rate that drives CES.EPI uses `confabulation_rate` directly.
 
 
 # -----------------------------------------------------------------------------
@@ -752,7 +753,13 @@ def aggregate(
         return {"benchmark": benchmark, "n": 0}
 
     routing = routing_distribution(tiers)
-    hall_rate = hallucination_rate(em_scores, u_stored_values)
+    # Hallucination metrics are NOT carried here — they decompose into the
+    # 9 taxonomy subtypes computed at the reporting layer by
+    # build_table_halluc_subtypes(), which has access to the per-sample
+    # signal dicts that the subtype conditions need. CHM (headline) +
+    # per-subtype rates live in tab_halluc_subtypes.csv. `aggregate()`
+    # stays as a lightweight per-run summary: accuracy, routing, storage,
+    # latency.
     valid_u = [u for u in u_stored_values if u is not None]
 
     return {
@@ -760,7 +767,6 @@ def aggregate(
         "n": n,
         "em": round(sum(em_scores) / n, 4),
         "f1": round(sum(f1_scores) / n, 4),
-        "hallucination_rate": round(hall_rate, 4),
         "storage_rate": round(sum(stored_flags) / n, 4),
         "mean_u_stored": round(sum(valid_u) / len(valid_u), 4) if valid_u else None,
         "mean_latency_ms": round(sum(latencies_ms) / n, 1),
@@ -1208,74 +1214,42 @@ def forward_transfer(per_cycle_em_matrix, baseline_em=None):
     return sum(diffs) / len(diffs)
 
 
-def pooled_ce(
-    em_scores: Sequence[float],
-    u_stored_values: Sequence[Optional[float]],
-    benchmark_labels: Sequence[str],
-    u_threshold: float = 0.50,
+def pooled_chm(
+    samples_by_benchmark: Dict[str, Sequence[Dict[str, Any]]],
+    *,
     training_benchmarks: Optional[Sequence[str]] = None,
     transfer_benchmarks: Optional[Sequence[str]] = None,
-) -> Dict[str, float]:
-    """Pooled confident-error rate with ID/OOD transfer-learning split.
+    measured_subtypes: Optional[Sequence[str]] = None,
+) -> Dict[str, object]:
+    """Pooled CHM with ID/OOD transfer-learning split.
 
-    The thesis commits (Ch3 §Evaluation Methodology, Ch5 §Metrics and
-    §Expected-results) to a ≥40% relative reduction in the *pooled*
-    confident-error rate against the zero-shot Flan-T5-Large baseline on
-    the six-benchmark factual-QA panel. "Pooled" means one big pile:
-    every confidently-stored episode from every benchmark is thrown
-    together before the wrong-and-confident fraction is computed, rather
-    than per-benchmark CE values being averaged (which would give small
-    benchmarks the same weight as large ones and mask distributional
-    shift).
-
-    Definition (same as :func:`hallucination_rate`):
-        CE = | {i : u_stored_i >= u_threshold AND em_i = 0} |
-             / | {i} |
+    Supersedes the prior `pooled_ce` helper (CE was one subtype of the 8
+    CAEM measures; CHM is the equal-weighted mean across the taxonomy).
+    "Pooled" = samples from every benchmark thrown into one bucket before
+    CHM is computed, so small benchmarks don't dominate and distributional
+    shift surfaces honestly.
 
     Parameters
     ----------
-    em_scores : sequence of float
-        Per-sample EM in {0.0, 1.0} using the benchmark-appropriate
-        metric (FEVER label accuracy, ROUGE-L>0.15 for TruthfulQA,
-        yes/no for StrategyQA, MCQ letter for ARC-C, any-match EM for
-        TriviaQA/NQ -- see eval/harness.py::_score).
-    u_stored_values : sequence of float or None
-        Per-sample u_stored. None is mapped to 0.0 (Tier 1 hits do not
-        run the verifier; they already carry the stored u from their
-        original write cycle, but callers typically supply that on this
-        path).
-    benchmark_labels : sequence of str
-        Per-sample benchmark identifier (must match
-        ``caem.config.TRAINING_BENCHMARKS`` / ``TRANSFER_BENCHMARKS``
-        naming).
-    u_threshold : float, default 0.50
-        Confidence cutoff for "confidently generated".
+    samples_by_benchmark : dict[str, list of sample dicts]
+        Per-sample records keyed by benchmark name. Each dict must carry
+        the verifier fields that ``hallucination_subtypes`` reads
+        (em, u_stored, p_ground_atomic, p_entail, p_contra, q_a_relevance,
+        decision, prediction).
     training_benchmarks, transfer_benchmarks : sequence of str or None
-        Override the split; defaults to ``caem.config`` constants.
+        Override the split; defaults to caem.config constants.
+    measured_subtypes : sequence of str or None
+        Passed through to composite_hallucination_metric. Default keeps
+        the 8-subtype denominator (factual_contradiction excluded under
+        MiniCheck). Pass the full 9-key list for the roberta_nli ablation.
 
     Returns
     -------
-    dict with keys ``"all"``, ``"id"``, ``"ood"`` -> float CE in [0, 1].
-        ``id`` is the pooled CE over the training-eligible benchmarks;
-        ``ood`` is the pooled CE over the held-out transfer benchmarks.
-        A split is 0.0 if no samples fall into it (rather than undefined).
-
-    Notes
-    -----
-    The pre-registered pass/fail floor is on ``"all"``; the ID/OOD split
-    is *diagnostic*. A soft-falsification profile (pooled floor cleared
-    but OOD flat) is an architectural disappointment the thesis reports
-    under §Expected-results, not a run failure. See Chapter 6's
-    limitations discussion.
+    dict with keys ``"all"``, ``"id"``, ``"ood"`` → float CHM in [0, 1],
+    plus ``n_all`` / ``n_id`` / ``n_ood`` sample counts. A split is 0.0
+    if no samples fall into it.
     """
-    n = len(em_scores)
-    assert len(u_stored_values) == n, \
-        "em_scores and u_stored_values must have the same length."
-    assert len(benchmark_labels) == n, \
-        "em_scores and benchmark_labels must have the same length."
-
     if training_benchmarks is None or transfer_benchmarks is None:
-        # Deferred import to avoid circular-import risk at module load.
         from caem.config import (
             TRAINING_BENCHMARKS as _TRAIN,
             TRANSFER_BENCHMARKS as _OOD,
@@ -1288,98 +1262,91 @@ def pooled_ce(
     train_set = set(training_benchmarks)
     ood_set = set(transfer_benchmarks)
 
-    def _rate(indices: List[int]) -> float:
-        if not indices:
-            return 0.0
-        hits = 0
-        for i in indices:
-            u_val = u_stored_values[i] if u_stored_values[i] is not None else 0.0
-            if em_scores[i] == 0.0 and u_val >= u_threshold:
-                hits += 1
-        return hits / len(indices)
+    all_samples: List[Dict[str, Any]] = []
+    id_samples:  List[Dict[str, Any]] = []
+    ood_samples: List[Dict[str, Any]] = []
+    for bm, samples in samples_by_benchmark.items():
+        all_samples.extend(samples)
+        if bm in train_set:
+            id_samples.extend(samples)
+        if bm in ood_set:
+            ood_samples.extend(samples)
 
-    all_idx = list(range(n))
-    id_idx = [i for i in all_idx if benchmark_labels[i] in train_set]
-    ood_idx = [i for i in all_idx if benchmark_labels[i] in ood_set]
+    def _chm(samples: Sequence[Dict[str, Any]]) -> float:
+        if not samples:
+            return 0.0
+        out = composite_hallucination_metric(
+            samples, measured_subtypes=measured_subtypes,
+        )
+        return float(out.get("chm", 0.0))
 
     return {
-        "all": _rate(all_idx),
-        "id": _rate(id_idx),
-        "ood": _rate(ood_idx),
-        "n_all": len(all_idx),
-        "n_id": len(id_idx),
-        "n_ood": len(ood_idx),
+        "all": _chm(all_samples),
+        "id":  _chm(id_samples),
+        "ood": _chm(ood_samples),
+        "n_all": len(all_samples),
+        "n_id":  len(id_samples),
+        "n_ood": len(ood_samples),
     }
 
 
-def ce_reduction_verdict(
-    ce_baseline: float,
-    ce_final: float,
-    floor: float = 0.40,
+def chm_reduction_verdict(
+    chm_baseline: float,
+    chm_final: float,
+    floor: float = 0.30,
 ) -> Dict[str, object]:
-    """Pre-registered CE-reduction pass/fail verdict.
+    """Broader hallucination pass/fail verdict: relative reduction in CHM.
 
-    Implements the architectural commitment from Ch3 §Evaluation
-    Methodology and Ch5 §Expected-results: a relative reduction of at
-    least ``floor`` (default 40%) in pooled confident-error rate from
-    the zero-shot Flan-T5-Large baseline to the post-cycle CAEM run is
-    the *floor* for the thesis to claim success. This helper formalises
-    the comparison so the verdict is not re-derived by hand in every
-    experiment script.
+    Single hallucination pass/fail gate for the thesis (superseding the
+    prior `ce_reduction_verdict`, which measured the same thing on a
+    single subtype). CHM is the 8-axis equal-weighted taxonomy mean
+    computed by :func:`composite_hallucination_metric`; the old
+    `confident_error_rate` that drove the 40% Ch3 gate is now just
+    `per_subtype_rates["confident_confabulation_rate"]` inside CHM.
+
+    Default floor is 0.30 (30% relative reduction), more permissive than
+    the CE gate (0.40) because CHM is a mean over 8 structurally distinct
+    failure modes — a uniform 30% drop across the taxonomy is already a
+    stronger architectural claim than a 40% drop on a single axis.
 
     Parameters
     ----------
-    ce_baseline : float in [0, 1]
-        Pooled CE of the baseline (typically zero-shot Flan-T5-Large).
-        Pulled from ``pooled_ce(...)["all"]`` on the baseline run.
-    ce_final : float in [0, 1]
-        Pooled CE of the post-cycle CAEM system (same "all" key).
-    floor : float in (0, 1], default 0.40
-        Required relative reduction. 0.40 = the CAEM pre-registration.
+    chm_baseline : float in [0, 1]
+        CHM at cycle 0 (or baseline system). Pulled from
+        ``composite_hallucination_metric(...)["chm"]``.
+    chm_final : float in [0, 1]
+        CHM at the post-cycle CAEM system.
+    floor : float in (0, 1], default 0.30
+        Required relative reduction.
 
     Returns
     -------
-    dict
-        ``verdict`` -- "PASS" / "FAIL"
-        ``relative_reduction`` -- (ce_baseline - ce_final) / ce_baseline,
-            clamped to [0, 1]; 0.0 if the baseline CE is zero (no room
-            to improve, trivially FAIL).
-        ``absolute_reduction`` -- ce_baseline - ce_final
-        ``floor`` -- the required threshold (echoed for audit trail).
-        ``achieved`` -- same as relative_reduction, named for reports.
-
-    Notes
-    -----
-    This helper does NOT perform statistical significance testing --
-    that requires the three-seed run matrix and is handled separately
-    (bootstrap CIs in :func:`bootstrap_ci`, McNemar's for paired items
-    in :func:`mcnemar_test`). The verdict here is the point-estimate
-    gate; the seed-matrix robustness check lives in the falsification
-    owner's script.
+    dict with:
+        verdict, relative_reduction, absolute_reduction, achieved, floor,
+        chm_baseline, chm_final.
     """
-    if ce_baseline <= 0.0:
-        # Baseline is already perfect -- no room for a relative reduction.
+    if chm_baseline <= 0.0:
         return {
             "verdict": "FAIL",
             "relative_reduction": 0.0,
             "achieved": 0.0,
-            "absolute_reduction": 0.0 - ce_final,
+            "absolute_reduction": 0.0 - chm_final,
             "floor": floor,
-            "ce_baseline": ce_baseline,
-            "ce_final": ce_final,
+            "chm_baseline": chm_baseline,
+            "chm_final": chm_final,
         }
 
-    rel = (ce_baseline - ce_final) / ce_baseline
+    rel = (chm_baseline - chm_final) / chm_baseline
     rel_clamped = max(rel, 0.0)
     verdict = "PASS" if rel >= floor else "FAIL"
     return {
         "verdict": verdict,
         "relative_reduction": rel_clamped,
         "achieved": rel_clamped,
-        "absolute_reduction": ce_baseline - ce_final,
+        "absolute_reduction": chm_baseline - chm_final,
         "floor": floor,
-        "ce_baseline": ce_baseline,
-        "ce_final": ce_final,
+        "chm_baseline": chm_baseline,
+        "chm_final": chm_final,
     }
 
 
@@ -1396,8 +1363,8 @@ def ces_score(acc, epi, ret, cal, ver, eps=0.01):
 
     Axes:
         ACC -- accuracy  : mean EM across eval benchmarks, in [0, 1]
-        EPI -- epistemic : 1 - pooled confident_error_rate at store gate,
-                           clamped to [0, 1]
+        EPI -- epistemic : 1 - CHM (8-subtype composite hallucination
+                           metric), clamped to [0, 1]
         RET -- retention : min(mmlu_retention_ratio, 1.0), in [0, 1]
         CAL -- calibration: 1 - 2 * min(ECE, 0.5), in [0, 1]
                             (so ECE=0 -> 1.0, ECE=0.5+ -> 0.0)

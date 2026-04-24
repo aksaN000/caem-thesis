@@ -27,9 +27,15 @@ Per-sample (SampleResult dict):
   run (Tier 1 hits, verifier errors, or fail_on_error=False fall-throughs).
 
 Aggregate (EvalResult dict -- one per run):
-  benchmark, cycle, n, em, f1, hallucination_rate,
+  benchmark, cycle, n, em, f1,
   storage_rate, mean_u_stored, mean_latency_ms,
-  tier1_frac, tier2_frac, tier3_frac
+  tier1_frac, tier2_frac, tier3_frac, crash_frac
+
+  Hallucination metrics are NOT in this aggregate dict — they require the
+  full per-sample verifier signals (not just em+u_stored lists). The
+  9-subtype taxonomy + CHM headline live in
+  eval.reporting.build_table_halluc_subtypes, which reads the per-sample
+  JSONs written alongside this aggregate.
 
 Usage
 -----

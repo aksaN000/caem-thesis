@@ -78,9 +78,11 @@ given in \texttt{branch\_C.md} \S``Evaluation protocol''.
 
 \Cref{sec:exp-setup} defines the evaluation protocol used across the
 remainder of this chapter: the six benchmarks \caem{} is evaluated on,
-the metric suite applied to each benchmark at each cycle, and the eight
-external baselines against which \caem{} is compared (B1--B8), plus an
-optional STaR ceiling reference reported when compute permits. The
+the metric suite applied to each benchmark at each cycle, and the seven
+external baselines against which \caem{} is compared numerically
+(B1--B7), one citation-only positioning reference (B8 Self-RAG, not run
+numerically; see \S\ref{sec:baselines}), plus an optional STaR ceiling
+reference reported when compute permits. The
 metric suite is deliberately broader than prior single-number
 evaluations of hallucination systems: a single exact-match score cannot
 disentangle accuracy from calibration, grounding, confabulation, or
@@ -395,12 +397,13 @@ with $B = 1000$ resamples. Both computations use the existing
 \texttt{eval/metrics.py}, which were written and tested before the
 experiment phase.
 
-Because \caem{} is compared against up to eight baselines across the
+Because \caem{} is compared against seven running baselines across the
 six factual-QA benchmarks (MMLU is a retention control, not a
-baseline-comparison target), the raw test count is at most
-$8 \times 6 = 48$ pairwise McNemar tests per cycle, and a naive
+baseline-comparison target, and B8 Self-RAG is citation-only, contributing
+no numerical row), the raw test count is at most
+$7 \times 6 = 42$ pairwise McNemar tests per cycle, and a naive
 $p < 0.05$ threshold would inflate the family-wise error rate to
-approximately $1 - 0.95^{48} \approx 0.91$. We therefore apply the
+approximately $1 - 0.95^{42} \approx 0.88$. We therefore apply the
 Holm--Bonferroni step-down correction~\cite{holm1979simple} within
 each benchmark family: the per-baseline \caem{}-vs-baseline
 $p$-values within a benchmark are sorted in ascending order, and
@@ -409,9 +412,10 @@ $m$ is the number of baselines actually present in the
 \texttt{outputs/baselines/} directory at the time
 \texttt{scripts/baseline\_sig\_tests.py} is run (and hence the number
 of tests within each benchmark family). For Phase 1A, Plan A runs
-$m = 7$ inference + training baselines (B1--B5, B6, B7); the
-STaR ceiling reference (B8) is executed only if budget allows
-and, when absent, is not padded into the correction. This
+$m = 7$ inference + training baselines (B1--B7); the
+optional STaR ceiling reference is executed only if budget allows
+and, when absent, is not padded into the correction. B8 Self-RAG
+is citation-only and is never folded into the Holm correction. This
 is uniformly more powerful than plain Bonferroni while preserving the
 family-wise error rate at $\alpha_{\text{fam}} = 0.05$, and is the
 accepted correction for structured pairwise-comparison panels of
@@ -1506,13 +1510,17 @@ hold for \caem{} versus B1--B4 (the test-time-only baselines) on all
 three training benchmarks, and for \caem{} versus B6--B7 (vanilla
 fine-tuning and EWC-only fine-tuning) on at least two of the three
 training benchmarks. We do \emph{not} pre-register a prediction of
-significance against B5 (FLARE) and B8 (Self-RAG citation-only),
-because those baselines may match or exceed CAEM on the grounding
-and citation-quality dimensions respectively and the paired contrast
-there is expected to be close to zero. This asymmetry is deliberate:
-pre-registering a significance claim only where the mechanism of
-CAEM differentiates it from the baseline prevents overclaiming on
-comparisons where the baselines are designed-for-task.
+significance against B5 (5-shot CoT; Wei et al.\ 2022), because
+few-shot prompting already closes a substantial fraction of the gap
+on the training-pool benchmarks and \caem{}'s differentiation from
+B5 is the memory+verifier rather than the prompting pattern --- the
+paired contrast there is expected to be close to zero on those
+benchmarks where strong prompting suffices. B8 Self-RAG is
+citation-only and is therefore not pre-registered either. This
+asymmetry is deliberate: pre-registering a significance claim only
+where the mechanism of \caem{} differentiates it from the baseline
+prevents overclaiming on comparisons where the baselines are
+designed-for-task.
 
 % ---- Placeholder scaffolds for the seven metric-category tables ----
 \begin{table}[t]
@@ -1781,10 +1789,11 @@ Cycle & $P_c$ & $\Delta P_c$ & Envelope bound \\
 \begin{table}[t]
 \centering
 \caption{Statistical significance of \caem{} versus each external
-baseline (B1--B8). Paired McNemar test with Edwards correction per
-benchmark, bootstrap-resampled 95\% CI for EM difference, and
-Holm--Bonferroni-adjusted $p$ across the $m=8$ baseline contrasts
-within a benchmark.}
+running baseline (B1--B7). Paired McNemar test with Edwards correction
+per benchmark, bootstrap-resampled 95\% CI for EM difference, and
+Holm--Bonferroni-adjusted $p$ across the $m=7$ baseline contrasts
+within a benchmark. B8 Self-RAG is citation-only and is not
+included in the correction.}
 \label{tab:sig-test}
 \begin{tabular}{llrrr}
 \toprule

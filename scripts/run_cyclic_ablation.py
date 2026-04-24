@@ -98,7 +98,7 @@ import math
 import tempfile
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Mapping, Optional
 
 # -- Logging -----------------------------------------------------------------
 logging.basicConfig(
@@ -248,14 +248,29 @@ def _axes_for_cycle(
         meta = data.get("meta", {})
         extracted = _extract_em_and_u_from_samples(samples_field)
 
+        # Track whether we have full per-sample dicts for the CHM-based EPI
+        # path in ces_axes_from_cycle. When the fallback below kicks in
+        # (samples missing or parse error), we deliberately pass samples=None
+        # so _epi_axis falls back to the legacy confabulation_rate formula
+        # rather than computing CHM on a broadcast-empty record set (which
+        # would yield chm=0 → EPI=1.0, silently inflating the score).
+        pass_samples: Optional[List[Mapping[str, Any]]] = None
+
         if not extracted["em"]:
-            # Use meta scalars as last-resort fallback
+            # Use meta scalars as last-resort fallback. Note: broadcasting
+            # the meta em/u_stored over N samples destroys per-sample
+            # variance — EPI/CAL collapse to constants. This mirrors
+            # caem.ablation.runner's documented concern (Audit MAJOR-RN2);
+            # runner.py raises instead. Here we keep the fallback for
+            # resume-safety but do NOT promise a usable CES.
             n = int(meta.get("n", 0))
             em_list = [float(meta.get("em", 0.0))] * max(n, 1)
             u_list = [float(meta.get("mean_u_stored", 0.0))] * max(n, 1)
         else:
             em_list = extracted["em"]
             u_list = extracted["u_stored"]
+            # Only feed the CHM path when we actually have per-sample dicts.
+            pass_samples = list(samples_field)
 
         axes = ces_axes_from_cycle(
             em_flags=em_list,
@@ -264,6 +279,7 @@ def _axes_for_cycle(
             baseline_mmlu=baseline_mmlu,
             verifier_balanced_accuracy=None,   # VER placeholder 0.5
             requires_baseline_only=requires_baseline_only,
+            samples=pass_samples,
         )
         per_bm[bm] = axes
         per_bm_meta[bm] = dict(meta)

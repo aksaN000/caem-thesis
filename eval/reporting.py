@@ -11,8 +11,8 @@ Relationship to sibling modules
     the atomic source of truth. Each file carries a ``meta`` aggregate
     dict and a ``samples`` list of rectangular per-sample records (the
     twelve-field Session-42 verifier capture plus EM/F1/tier/latency).
-* ``eval/metrics.py``  provides the twelve primitive helpers
-    (hallucination_rate, confabulation_rate, reliability_bins,
+* ``eval/metrics.py``  provides the primitive helpers
+    (composite_hallucination_metric, confabulation_rate, reliability_bins,
     decision_breakdown, backward_transfer, ces_score, ...). Reporting
     composes them; it does not invent new metrics.
 * ``scripts/run_experiment.py``  calls ``build_ch5_tables(output_dir)``
@@ -27,7 +27,7 @@ Seven-table layout (Chapter 5 §5.1 preface)
 -------------------------------------------
 * ``tab_headline.csv``    -- Table 5.1  accuracy, latency, routing, CES
 * ``tab_calibration.csv`` -- Table 5.2  ECE, Brier, reliability bins
-* ``tab_halluc.csv``      -- Table 5.3  hallucination decomposition
+* ``tab_halluc_subtypes.csv`` -- Table 5.3  9-subtype taxonomy + CHM headline
 * ``tab_grounding.csv``   -- Table 5.4  p_ground*, unsupported-correct
 * ``tab_purity.csv``      -- Table 5.5  decision breakdown, mean u_stored
 * ``tab_continual.csv``   -- Table 5.6  MMLU retention, forgetting,
@@ -39,8 +39,9 @@ Seven-table layout (Chapter 5 §5.1 preface)
                                          with ``tab_sig_test.csv`` below.
 
 The CAEM-vs-baseline significance table that chapter_5.tex references as
-``\\ref{tab:sig-test}`` (CAEM vs each B1-B8 baseline, Holm-corrected
-per-benchmark family with dagger/star markers) is produced by a separate
+``\\ref{tab:sig-test}`` (CAEM vs each B1-B7 running baseline, Holm-corrected
+per-benchmark family with dagger/star markers; B8 Self-RAG is
+citation-only and not in the correction) is produced by a separate
 script ``scripts/baseline_sig_tests.py`` and lands as ``tab_sig_test.csv``
 alongside the files above. That script runs post-baselines in the Plan A
 runner; this module only covers the within-CAEM tables.
@@ -95,7 +96,6 @@ from eval.metrics import (
     composite_hallucination_metric,
     decision_breakdown,
     forward_transfer,
-    hallucination_rate,
     hallucination_subtypes,
     mcnemar_test,
     reliability_bins,
@@ -116,8 +116,8 @@ logger = logging.getLogger(__name__)
 # verifier dataclass was the failure mode fixed by MAJOR-H3 / Task #118.
 from eval.harness import VERIFIER_FIELDS  # noqa: E402  (re-export)
 
-# Threshold used by the hallucination_rate helper's companion,
-# unsupported_correct_rate, when the caller does not override it.
+# Threshold used by the unsupported_correct_rate helper when the caller
+# does not override it.
 DEFAULT_GROUND_THRESHOLD = 0.30
 
 # Threshold used by the "confident" side of the confabulation rate --
@@ -338,21 +338,26 @@ def build_table_headline(cycles_data, mmlu_per_cycle=None) -> Tuple[List[str], L
         ems = [p.get("meta", {}).get("em", float("nan")) for p in bm_map.values()]
         mean_em = _safe_mean(ems)
 
-        # CES inputs: ACC is mean-EM; EPI is 1 - confident-error-rate
-        # (hallucination_rate proxy at the u_stored=0.5 gate); RET uses
-        # MMLU retention ratio if supplied; CAL is 1 - 2*ECE clipped;
-        # VER is left at 0.5 in this lightweight compute (the actual
-        # verifier balanced-accuracy requires gold labels for STORE vs
-        # DISCARD, which are not available from eval alone).
+        # CES inputs: ACC is mean-EM; EPI is 1 - CHM (the equal-weighted
+        # mean across the 8 measurable taxonomy subtypes, sourced from
+        # composite_hallucination_metric so CES.EPI speaks the same
+        # language as the headline CHM scalar); RET uses MMLU retention
+        # ratio if supplied; CAL is 1 - 2*ECE clipped; VER is left at
+        # 0.5 in this lightweight compute (verifier balanced-accuracy
+        # needs STORE/DISCARD gold labels, not available from eval alone).
         per_cycle = _collect_per_cycle({cycle: bm_map})[cycle]
         acc = mean_em if not _isnan(mean_em) else 0.0
 
         try:
-            epi = 1.0 - hallucination_rate(
-                per_cycle["em"],
-                per_cycle["u_stored"],
-                u_threshold=0.50,
-            )
+            # Gather every per-sample dict across benchmarks for this cycle.
+            cycle_samples: List[Dict[str, Any]] = []
+            for _bm, _payload in bm_map.items():
+                cycle_samples.extend(_payload.get("samples", []))
+            if cycle_samples:
+                chm_out = composite_hallucination_metric(cycle_samples)
+                epi = 1.0 - float(chm_out.get("chm", 0.0))
+            else:
+                epi = float("nan")
         except Exception:
             epi = float("nan")
 
@@ -467,64 +472,17 @@ def build_table_calibration(cycles_data) -> Tuple[List[str], List[Dict[str, Any]
 
 
 # -----------------------------------------------------------------------------
-# Table 5.3 -- Hallucination decomposition
-# -----------------------------------------------------------------------------
-
-def build_table_halluc(cycles_data) -> Tuple[List[str], List[Dict[str, Any]]]:
-    """Chapter 5 Table 5.3: hallucination rate by sub-type.
-
-    Three rates per cycle per benchmark:
-      * ``hallucination_rate`` -- wrong & high-u_stored (u >= 0.50).
-      * ``confabulation_rate`` -- wrong & high-u_internal (>= 0.70)
-                                   (the Farquhar/2024 definition).
-      * ``early_exit_rate``    -- fraction of samples where the
-                                   Stage-5 confabulation gate fired.
-    """
-    fieldnames = [
-        "cycle", "benchmark", "n",
-        "hallucination_rate", "confabulation_rate", "early_exit_rate",
-    ]
-    rows: List[Dict[str, Any]] = []
-
-    for cycle, bm_map in cycles_data.items():
-        for bm, payload in bm_map.items():
-            samples = payload.get("samples", [])
-            n = len(samples)
-            em = [s.get("em", 0.0) for s in samples]
-            u_stored = [s.get("u_stored") for s in samples]
-            u_internal = [s.get("u_internal") for s in samples]
-            early_exit = [bool(s.get("early_exit_triggered", False)) for s in samples]
-
-            try:
-                hr = hallucination_rate(em, u_stored, u_threshold=0.50)
-            except Exception:
-                hr = float("nan")
-
-            try:
-                cr = confabulation_rate(
-                    em, u_internal,
-                    threshold=DEFAULT_U_INTERNAL_CONFIDENT,
-                    direction="ge",
-                )
-            except Exception:
-                cr = float("nan")
-
-            early_rate = (sum(early_exit) / n) if n else float("nan")
-
-            rows.append({
-                "cycle": cycle,
-                "benchmark": bm,
-                "n": n,
-                "hallucination_rate": _round_or_nan(hr),
-                "confabulation_rate": _round_or_nan(cr),
-                "early_exit_rate": _round_or_nan(early_rate),
-            })
-
-    return fieldnames, rows
-
-
-# -----------------------------------------------------------------------------
 # Table 5.4 -- Grounding
+# -----------------------------------------------------------------------------
+# Note: the legacy `build_table_halluc` (3-column hallucination_rate /
+# confabulation_rate / early_exit_rate) was removed 2026-04-24 in favour of
+# `build_table_halluc_subtypes`, which decomposes the aggregate into the
+# 9-axis taxonomy + CHM headline scalar. The 3 legacy columns are a strict
+# subset of the 9-subtype decomposition (hallucination_rate ==
+# confident_confabulation_rate at u_stored>=0.50; confabulation_rate there
+# was on u_internal which is a per-signal diagnostic, now reported as a
+# separate calibration ablation; early_exit_rate still has a home as
+# decision_breakdown's DISCARD fraction).
 # -----------------------------------------------------------------------------
 
 def build_table_grounding(cycles_data) -> Tuple[List[str], List[Dict[str, Any]]]:
@@ -767,7 +725,8 @@ def build_table_cycle_progression(cycles_data) -> Tuple[List[str], List[Dict[str
     """Within-CAEM cycle-over-cycle progression: bootstrap CI + McNemar per benchmark.
 
     Not to be confused with chapter_5.tex \\ref{tab:sig-test}, which compares
-    CAEM against each external baseline (B1-B8) and is produced by
+    CAEM against each running external baseline (B1-B7; B8 Self-RAG is
+    citation-only and not in the correction) and is produced by
     scripts/baseline_sig_tests.py. This function answers a different question:
     does CAEM's cycle-N improve over its own cycle-0 on each benchmark?
 
@@ -845,10 +804,9 @@ def build_table_cycle_progression(cycles_data) -> Tuple[List[str], List[Dict[str
 TABLE_FILES = {
     "headline":          "tab_headline.csv",
     "calibration":       "tab_calibration.csv",
-    "halluc":            "tab_halluc.csv",
     "grounding":         "tab_grounding.csv",
     "purity":            "tab_purity.csv",
-    "halluc_subtypes":   "tab_halluc_subtypes.csv",  # 2026-04-24 — taxonomy decomposition
+    "halluc_subtypes":   "tab_halluc_subtypes.csv",  # taxonomy decomposition + CHM
     "continual":         "tab_continual.csv",
     # Within-CAEM cycle-over-cycle progression (cycle N vs. cycle 0). The
     # CAEM-vs-baseline significance table (chapter_5.tex \ref{tab:sig-test})
@@ -899,7 +857,6 @@ def build_ch5_tables(
     builders = {
         "headline":    lambda: build_table_headline(cycles_data, mmlu_per_cycle),
         "calibration": lambda: build_table_calibration(cycles_data),
-        "halluc":      lambda: build_table_halluc(cycles_data),
         "grounding":   lambda: build_table_grounding(cycles_data),
         "purity":      lambda: build_table_purity(cycles_data),
         "halluc_subtypes": lambda: build_table_halluc_subtypes(cycles_data),
@@ -931,7 +888,6 @@ __all__ = [
     "write_per_sample_signals_jsonl",
     "build_table_headline",
     "build_table_calibration",
-    "build_table_halluc",
     "build_table_grounding",
     "build_table_purity",
     "build_table_halluc_subtypes",

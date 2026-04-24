@@ -8,7 +8,12 @@ to within floating-point noise.
 Axis definitions
 ----------------
   ACC : mean EM across benchmarks in the cycle.
-  EPI : 1 - hallucination_rate at u_stored >= 0.50.
+  EPI : 1 - CHM (equal-weighted 8-subtype composite hallucination metric)
+        when full sample dicts are supplied; falls back to
+        1 - confabulation_rate(em, u, 0.5, "ge") when only em/u_stored
+        lists are available (this makes EPI identical to the pre-2026-04-24
+        `hallucination_rate` definition, preserving ablation continuity for
+        existing callers that don't yet pass rich sample records).
   RET : MMLU retention ratio (cycle_mmlu / baseline_mmlu), clipped to 1.
         For variants with ``requires_baseline_only=True`` the ratio is
         1.0 by fiat (the model is unchanged).
@@ -33,7 +38,8 @@ from typing import Iterable, List, Optional, Sequence
 
 from eval.metrics import (
     ces_score,
-    hallucination_rate,
+    composite_hallucination_metric,
+    confabulation_rate,
     reliability_bins,
 )
 
@@ -62,7 +68,11 @@ class CESAxes:
 
 # Thresholds and constants -- keep in lockstep with eval/reporting.py --------
 CES_EPS = 0.01                      # axis clamp (matches ces_score eps)
-HALLUCINATION_U_THRESHOLD = 0.50    # EPI = 1 - hall_rate(u >= 0.50)
+HALLUCINATION_U_THRESHOLD = 0.50    # Legacy-path fallback: EPI = 1 - confabulation_rate
+                                    # at u_stored>=0.50. Only used when _epi_axis is
+                                    # called without full sample dicts; the primary
+                                    # path now computes EPI = 1 - CHM via
+                                    # composite_hallucination_metric.
 DEFAULT_N_RELIABILITY_BINS = 10     # ECE bin count (matches reporting.py)
 VER_PLACEHOLDER = 0.5               # until STORE/DISCARD gold labels land
 CAL_MAX_ECE_CAP = 0.5               # CAL = 1 - 2*min(ECE, 0.5) stays in [0,1]
@@ -94,14 +104,27 @@ def _epi_axis(
     em_flags: Sequence[float],
     u_stored: Sequence[Optional[float]],
     u_threshold: float = HALLUCINATION_U_THRESHOLD,
+    samples: Optional[Sequence[dict]] = None,
 ) -> float:
-    """EPI = 1 - hallucination_rate(em, u, threshold).
+    """EPI axis.
 
-    Returns NaN if no confident samples are available, so the caller
-    applies the eps clamp before feeding ces_score.
+    - When ``samples`` (full per-sample dicts with the 12 verifier fields)
+      is supplied, EPI = 1 - CHM (8-subtype composite) for consistency
+      with the headline hallucination metric.
+    - Otherwise, falls back to 1 - confabulation_rate(em, u, t, "ge"),
+      which is identical to the pre-2026-04-24 ``hallucination_rate`` so
+      legacy callers keep their previous axis semantics.
+
+    Returns NaN on empty inputs; the caller applies the eps clamp before
+    feeding ``ces_score``.
     """
-    # eval.metrics.hallucination_rate already handles short-circuiting
-    # when the input lists are empty; we mirror its behaviour here.
+    if samples is not None and len(samples) > 0:
+        try:
+            chm_out = composite_hallucination_metric(list(samples))
+            return 1.0 - float(chm_out.get("chm", 0.0))
+        except Exception:
+            return float("nan")
+
     em_clean: List[float] = []
     u_clean: List[float] = []
     for e, u in zip(em_flags, u_stored):
@@ -112,7 +135,9 @@ def _epi_axis(
     if not em_clean:
         return float("nan")
     try:
-        return 1.0 - hallucination_rate(em_clean, u_clean, u_threshold=u_threshold)
+        return 1.0 - confabulation_rate(
+            em_clean, u_clean, threshold=u_threshold, direction="ge",
+        )
     except Exception:
         return float("nan")
 
@@ -205,6 +230,7 @@ def ces_axes_from_cycle(
     verifier_balanced_accuracy: Optional[float] = None,
     requires_baseline_only: bool = False,
     n_reliability_bins: int = DEFAULT_N_RELIABILITY_BINS,
+    samples: Optional[Sequence[dict]] = None,
 ) -> CESAxes:
     """Compute the five CES axes + composite from a single cycle's samples.
 
@@ -231,7 +257,7 @@ def ces_axes_from_cycle(
     # ACC: mean EM. NaN/None entries filtered by _safe_mean.
     acc = _safe_mean(em_flags)
 
-    epi = _epi_axis(em_flags, u_stored)
+    epi = _epi_axis(em_flags, u_stored, samples=samples)
 
     ret = _ret_axis(
         cycle_mmlu=cycle_mmlu,

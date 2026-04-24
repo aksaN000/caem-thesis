@@ -644,9 +644,10 @@ def save_summary_csv(
 ) -> None:
     """Save the five-mechanism evidence table as a CSV (Table 1 in Chapter 5).
 
-    Columns: cycle, benchmark, em, f1, hallucination_rate,
+    Columns: cycle, benchmark, em, f1,
              tier{1,2,3}_frac_pct, storage_rate_pct, mean_u_stored,
              mean_latency_ms, mmlu_retention_pct, mmlu_retention_ratio_pct.
+             (Hallucination metrics live in tab_halluc_subtypes.csv.)
 
     Parameters
     ----------
@@ -679,7 +680,6 @@ def save_summary_csv(
         "benchmark",
         "em",
         "f1",
-        "hallucination_rate",
         "tier1_frac_pct",
         "tier2_frac_pct",
         "tier3_frac_pct",
@@ -722,7 +722,6 @@ def save_summary_csv(
                 "benchmark":          bm,
                 "em":                 round(res.get("em", 0.0), 4),
                 "f1":                 round(res.get("f1", 0.0), 4),
-                "hallucination_rate": round(res.get("hallucination_rate", 0.0), 4),
                 "tier1_frac_pct":     round(res.get("tier1_frac", 0.0) * 100, 1),
                 "tier2_frac_pct":     round(res.get("tier2_frac", 0.0) * 100, 1),
                 "tier3_frac_pct":     round(res.get("tier3_frac", 0.0) * 100, 1),

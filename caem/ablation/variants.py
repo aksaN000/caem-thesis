@@ -134,7 +134,8 @@ def _mut_no_forgetting_guard(cfg: CAEMConfig) -> None:
 
 
 # =============================================================================
-# Variant registry — Phase 1 Full: full + 8 hand-picked ablations (2026-04-22)
+# Variant registry — Phase 1 Full: full + 3 hand-picked ablations
+# (2026-04-22 decision; each defending a specific numbered thesis Claim)
 # =============================================================================
 
 # Each entry is an AblationVariant. "full" MUST come first so it's the

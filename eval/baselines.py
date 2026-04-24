@@ -18,21 +18,40 @@ keeps the main-panel comparison apples-to-apples: CAEM vs. baselines are
 measured on the same generator and the delta attributes cleanly to the
 CAEM machinery rather than to backbone differences.
 
-Baselines
----------
-ZeroShotBaseline  (B1) -- Qwen-3B, single-turn ChatML, no CoT, no retrieval.
-                          Floor.
-CoTBaseline       (B2) -- Qwen-3B ChatML with a ``"Let's think step by step."``
-                          trigger prepended to the user message.
-RAGBaseline       (B3) -- DPR top-k retrieval + Qwen-3B context-conditioned
-                          generation via ``caem.retrieval.rag.TierThreeRAG``.
-CoTRAGBaseline    (B4) -- RAG context + explicit CoT trigger injected into
-                          the prefill.
-FLAREBaseline     (B5) -- Jiang et al. EMNLP 2023 active retrieval with
-                          confidence-threshold look-ahead. Decoder-only
-                          slicing: the generated suffix is ``out.sequences
-                          [0, input_len:]`` (prompt echoed in the generate
-                          output for causal LMs).
+Baselines (running panel: B1..B7 in run_phase1a.sh Steps 9-15)
+---------------------------------------------------------------
+ZeroShotBaseline    (B1) -- Qwen-3B, single-turn ChatML, no CoT, no retrieval.
+                            Floor.
+CoTBaseline         (B2) -- Qwen-3B ChatML with a ``"Let's think step by step."``
+                            trigger prepended to the user message.
+RAGBaseline         (B3) -- DPR top-k retrieval + Qwen-3B context-conditioned
+                            generation via ``caem.retrieval.rag.TierThreeRAG``.
+CoTRAGBaseline      (B4) -- RAG context + explicit CoT trigger injected into
+                            the prefill.
+FiveShotCoTBaseline (B5) -- Five in-context (question, answer) demonstrations
+                            drawn from the TriviaQA train split, then Kojima-style
+                            CoT trigger. Reclaimed the B5 slot on 2026-04-22
+                            after FLARE was removed from the running chain.
+                            Wei et al. NeurIPS 2022.
+
+Training baselines (produced by their own scripts, not via run_baseline.py):
+                    (B6) -- Vanilla SFT, no L2 anchor, no MMLU retention guard.
+                            run_simple_ft.py + scripts/run_experiment.py.
+                    (B7) -- EWC-only fine-tuning (L2 anchor + MMLU guard on,
+                            memory + verifier + routing stripped).
+
+Dormant (class retained but not in the running panel):
+FLAREBaseline       ( -- ) -- Jiang et al. EMNLP 2023 active retrieval with
+                              confidence-threshold look-ahead. Removed from
+                              the running chain on 2026-04-22 (see
+                              run_phase1a.sh comment). Class kept for
+                              ablation / smoke tests; do NOT add back to the
+                              significance panel without updating Ch5 § 5.3.
+
+Citation-only (mentioned in Ch 2 literature review, not executed numerically):
+                    (B8) -- Self-RAG (Asai et al. 2024). LLaMA-specific critic
+                            tokens make cross-backbone replication measure
+                            prompt engineering more than architecture.
 
 Mapping to PipelineResult fields
 --------------------------------
@@ -70,6 +89,7 @@ from caem.model_loader import load_base_generator
 from caem.pipeline import PipelineResult
 from caem.prompts import FORCED_PREFIX, build_tier3_prompt
 from caem.retrieval.rag import PassageStore, TierThreeRAG
+from eval.metrics import extract_cot_answer
 
 logger = logging.getLogger(__name__)
 
@@ -280,6 +300,12 @@ class BaselineBase:
             PipelineResult(
                 query=q,
                 answer=ans,
+                # Baselines have no verifier, so display_answer is the
+                # CoT-extracted answer (same final-answer extraction the
+                # harness's _score() applies before EM/F1). Keeps per-sample
+                # JSON schema-compatible with CAEM records for the
+                # reporting layer.
+                display_answer=extract_cot_answer(ans),
                 tier=self.tier_value,
                 stored=False,
                 latency_ms=per_sample_ms,
@@ -310,6 +336,7 @@ class BaselineBase:
         return PipelineResult(
             query=query,
             answer=answer_str,
+            display_answer=extract_cot_answer(answer_str),
             tier=tier,
             stored=False,
             latency_ms=latency_ms,
@@ -536,7 +563,9 @@ class RAGBaseline(BaselineBase):
         per_sample_ms = batch_ms / max(len(queries), 1)
         return [
             PipelineResult(
-                query=q, answer=ans, tier=self.tier_value,
+                query=q, answer=ans,
+                display_answer=extract_cot_answer(ans),
+                tier=self.tier_value,
                 stored=False, latency_ms=per_sample_ms,
                 routing_decision=None, pre_confidence=None, post_confidence=None,
                 verifier_output=None, u_stored=None, entry_id=None, escalated=False,
@@ -622,7 +651,9 @@ class CoTRAGBaseline(RAGBaseline):
         for q, cont, fp in zip(queries, continuations, forced_prefixes):
             answer_str = f"{fp}{cont}" if cont else fp
             results.append(PipelineResult(
-                query=q, answer=answer_str, tier=self.tier_value,
+                query=q, answer=answer_str,
+                display_answer=extract_cot_answer(answer_str),
+                tier=self.tier_value,
                 stored=False, latency_ms=per_sample_ms,
                 routing_decision=None, pre_confidence=None, post_confidence=None,
                 verifier_output=None, u_stored=None, entry_id=None, escalated=False,
@@ -631,8 +662,15 @@ class CoTRAGBaseline(RAGBaseline):
 
 
 # =============================================================================
-# B5 -- FLARE (Jiang et al. EMNLP 2023)
+# FLARE (Jiang et al. EMNLP 2023) -- DORMANT, not in the B1-B7 running panel
 # =============================================================================
+# Removed from the active numerical baseline chain 2026-04-22 (see
+# run_phase1a.sh comment "B5 FLARE and its pre-gate removed from the chain").
+# The B5 slot was reclaimed for 5-shot CoT. FLAREBaseline stays available for
+# ablation/smoke tests and for the `--baseline flare` CLI path in
+# scripts/run_baseline.py, but it is NOT one of the thesis's running
+# baselines and should not be referenced from the Chapter-5 significance
+# panel (tab_sig_test.csv covers B1-B7 only).
 
 class FLAREBaseline(RAGBaseline):
     """FLARE: active retrieval augmented generation via look-ahead confidence.

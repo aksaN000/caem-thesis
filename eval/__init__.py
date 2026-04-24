@@ -5,17 +5,29 @@ Evaluation harness for the CAEM benchmark experiments.
 
 Components
 ----------
-metrics.py    -- EM, F1, FEVER accuracy, hallucination rate, routing distribution
+metrics.py    -- EM, F1, FEVER accuracy, CHM (composite hallucination
+                 metric over 8 taxonomy subtypes), routing distribution,
+                 pooled_chm + chm_reduction_verdict pass/fail gate
 benchmarks.py -- benchmark loaders + synthetic data factory
 harness.py    -- EvalHarness: run pipeline over samples, aggregate, save JSON
+reporting.py  -- 6 Chapter-5 tables + per_sample_signals.jsonl
+baselines.py  -- B1..B7 external baselines (B5 = 5-shot CoT, not FLARE)
 
-Benchmark roles
----------------
+Benchmark roles (Branch C 2026-04-22 evening decision, authoritative in
+caem/config.py::TRAINING_BENCHMARKS / TRANSFER_BENCHMARKS)
+-----------------------------------------------------------------------
 Training benchmarks (SIL pool -- train split):
-  fever, triviaqa, asqa  (Branch C: ASQA replaces Natural Questions)
+  fever, triviaqa, natural_questions
+  (Training panel capped at 3 high-volume benchmarks -- FEVER ~145k,
+  TriviaQA ~87k, NQ ~87k -- to sustain 10-cycle stream mode at 5000
+  samples/cycle without reuse. ASQA's 4,353 train samples are
+  structurally too small for stream mode, so ASQA was demoted to
+  transfer-only; NQ returned to the training pool.)
 
 Transfer eval benchmarks (held-out -- never used for SIL):
-  truthfulqa, strategyqa, arc_challenge
+  truthfulqa, strategyqa, arc_challenge, asqa
+  (ASQA stays in the eval panel as Path B / Qwen-judge long-form
+  evidence; eval trajectory only.)
 
 Quick start
 -----------
@@ -67,8 +79,8 @@ from eval.metrics import (
     extract_fever_label,
     extract_strategyqa_label,
     fever_accuracy,
+    chm_reduction_verdict,
     composite_hallucination_metric,
-    hallucination_rate,
     hallucination_subtypes,
     mcnemar_test,
     normalise,
@@ -112,8 +124,8 @@ __all__ = [
     "extract_strategyqa_label",
     "extract_arc_label",
     "rouge_l",
+    "chm_reduction_verdict",
     "composite_hallucination_metric",
-    "hallucination_rate",
     "hallucination_subtypes",
     "routing_distribution",
     "aggregate",

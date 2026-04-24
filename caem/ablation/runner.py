@@ -290,6 +290,12 @@ def run_variant(
         per_sample_path = harness_output_dir / f"{bm}_cycle{cycle}.json"
         em_list: List[float] = []
         u_list: List[Optional[float]] = []
+        # samples_field carries the full per-sample dicts (12 verifier fields
+        # each) — passed to ces_axes_from_cycle so the EPI axis uses the
+        # CHM path (matches the headline reporting.build_table_headline).
+        # Empty list triggers _epi_axis's legacy confabulation_rate fallback,
+        # which is the right behaviour for baselines with no verifier output.
+        samples_field: List[Mapping[str, Any]] = []
         if per_sample_path.exists():
             try:
                 with open(per_sample_path, "r", encoding="utf-8") as f:
@@ -334,6 +340,7 @@ def run_variant(
             baseline_mmlu=baseline_mmlu,
             verifier_balanced_accuracy=verifier_balanced_accuracy,
             requires_baseline_only=variant.requires_baseline_only,
+            samples=list(samples_field),
         )
         per_bm_axes[bm] = axes
 

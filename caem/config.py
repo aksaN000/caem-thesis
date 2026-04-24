@@ -620,7 +620,7 @@ class CAEMConfig:
     #   (truthfulqa, strategyqa, arc_challenge)
     # Benchmark list is passed via CLI --benchmarks; the 3/3 split is
     # enforced at training-time in _collect_episodes and at scoring time
-    # in pooled_ce(), not here.
+    # in pooled_chm(), not here.
     # num_cycles: the pre-registered CAEM experiment runs for TEN cycles
     # (see Ch1 §Scope, Ch1 §Constrained Self-Improvement Loop, Ch3 §FR3,
     # and Ch5). Ten cycles gives the episodic memory enough horizon to

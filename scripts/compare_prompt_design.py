@@ -105,8 +105,12 @@ def _metrics(samples: List[Dict[str, Any]]) -> Dict[str, float]:
     for s in samples:
         d = s.get("decision") or "NONE"
         decision_count[d] = decision_count.get(d, 0) + 1
-    # Confident-error: u_stored >= 0.50 AND em == 0
-    confident_errors = sum(
+    # confident_confabulation_rate: u_stored >= 0.50 AND em == 0
+    # (Matches the naming in eval/metrics.py::hallucination_subtypes so the
+    # two-prompt comparison reads in the same vocabulary as the main CHM
+    # taxonomy. Identical formula to the legacy `confident_error_rate`,
+    # kept as one of the 9 subtypes rather than a standalone scalar.)
+    confident_confabulations = sum(
         1
         for s in samples
         if (s.get("u_stored") or 0.0) >= 0.50 and float(s.get("em", 0.0)) == 0.0
@@ -123,7 +127,7 @@ def _metrics(samples: List[Dict[str, Any]]) -> Dict[str, float]:
         "deferred_rate": decision_count.get("DEFERRED", 0) / n,
         "abstain_rate": decision_count.get("ABSTAIN", 0) / n,
         "discard_rate": decision_count.get("DISCARD", 0) / n,
-        "confident_error_rate": confident_errors / n,
+        "confident_confabulation_rate": confident_confabulations / n,
         "mean_pred_words": pred_words / n,
         "n": n,
     }

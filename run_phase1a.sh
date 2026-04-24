@@ -769,6 +769,134 @@ step_20_aggregate() {
 }
 
 # ============================================================================
+# Step 21 — LaTeX tables (Ch5 \input{} snippets from tab_*.csv)
+# ============================================================================
+# eval.reporting.build_ch5_tables (invoked from run_experiment.py) writes the
+# .csv files; make_tables.py converts each into the .tex body chapter_5.tex
+# ingests via \input{tab_*.tex}. Without this step the CSVs exist on disk
+# but the thesis has no populated tables.
+step_21_tables() {
+    local out="outputs/full_run/tab_headline.tex"
+    if [[ -f "$out" ]]; then
+        log "Step 21: LaTeX tables already generated — skipping"
+        return 0
+    fi
+    if [[ ! -f outputs/full_run/tab_headline.csv ]]; then
+        log "Step 21: tab_headline.csv missing — run_experiment.py did not emit it; skipping"
+        return 0
+    fi
+    band "Step 21 — generate Ch5 LaTeX tables from tab_*.csv"
+    python -m scripts.make_tables outputs/full_run \
+        2>&1 | tee -a "$RUNNER_LOG" || {
+            log "Step 21: make_tables returned non-zero; tables may be partial."
+        }
+}
+
+# ============================================================================
+# Step 22 — Chapter 5 figures (PNG + PDF per figure)
+# ============================================================================
+# Reads tab_*.csv + per_sample_signals.jsonl from outputs/full_run and writes
+# the 7 Ch5 figures (ces_radar, reliability, chm_trajectory, grounding,
+# purity, continual, em_progression).
+step_22_figures() {
+    local out="outputs/full_run/fig5_3_chm_trajectory.pdf"
+    if [[ -f "$out" ]]; then
+        log "Step 22: Ch5 figures already generated — skipping"
+        return 0
+    fi
+    if [[ ! -f outputs/full_run/tab_halluc_subtypes.csv ]]; then
+        log "Step 22: tab_halluc_subtypes.csv missing — skipping figures"
+        return 0
+    fi
+    band "Step 22 — render Ch5 figures (PNG + PDF) from tab_*.csv + per-sample JSONL"
+    python -m scripts.make_figures outputs/full_run \
+        2>&1 | tee -a "$RUNNER_LOG" || {
+            log "Step 22: make_figures returned non-zero; some figures may be missing."
+        }
+}
+
+# ============================================================================
+# Step 23 — Per-cycle calibration trajectory (τ / T / memory-size aggregator)
+# ============================================================================
+# Produces the Ch5 §calibration "per-cycle calibration trajectory" table
+# and the matching τ-trajectory + store-rate figure. Reads cycle_N
+# calibrated_thresholds.json + cycle_N/memory snapshots from Step 7 main.
+step_23_calib_traj() {
+    local csv_out="outputs/full_run/calibration_trajectory.csv"
+    if [[ -f "$csv_out" ]]; then
+        log "Step 23: calibration trajectory already aggregated — skipping"
+        return 0
+    fi
+    if [[ ! -d outputs/full_run ]]; then
+        log "Step 23: outputs/full_run missing — skipping"
+        return 0
+    fi
+    band "Step 23 — aggregate per-cycle calibration trajectory (τ, T, store-rate, memory size)"
+    python scripts/aggregate_calibration_trajectory.py \
+        --run_dir outputs/full_run \
+        --cycle_0_dir outputs/cycle_0 \
+        --csv_out "$csv_out" \
+        --tex_out "pre thesis 1 report/tables/tab_calibration_trajectory.tex" \
+        --fig_out "pre thesis 1 report/figures/fig_tau_trajectory.pdf" \
+        2>&1 | tee -a "$RUNNER_LOG" || {
+            log "Step 23: aggregator returned non-zero; some per-cycle data may be absent."
+        }
+}
+
+# ============================================================================
+# Step 24 — Session 5 audit artifacts (before/after, taxonomy map, α-trajectory)
+# ============================================================================
+# tab_audit_summary + tab_claim_evidence_map are static (no data dep);
+# fig_audit_before_after, fig_composite_discrim_trajectory, fig_memory_growth,
+# fig_alpha_trajectory all read from outputs/full_run + outputs/cycle_0 +
+# outputs/purity_validation. Feeds Ch5 §5.X audit discussion + Ch6.
+step_24_session5_artifacts() {
+    local out="pre thesis 1 report/tables/tab_audit_summary.tex"
+    if [[ -f "$out" ]]; then
+        log "Step 24: Session 5 artifacts already emitted — skipping"
+        return 0
+    fi
+    band "Step 24 — generate Session 5 audit artifacts (2 tables + 4 figures)"
+    python scripts/generate_session5_artifacts.py \
+        2>&1 | tee -a "$RUNNER_LOG" || {
+            log "Step 24: artifact generator returned non-zero; review stdout for missing inputs."
+        }
+}
+
+# ============================================================================
+# Step 25 — T1 routing robustness validation (5 paraphrase strategies)
+# ============================================================================
+# Validates T1 routing math experimentally: for each of 5 paraphrase
+# strategies (exact / synonym / reorder / rephrase / different), measures
+# how close sim(query, stored) must be for Tier 1 to fire on a typical
+# u_stored=0.7 episode. Uses the last completed cycle's memory store.
+step_25_t1_robustness() {
+    local out_dir="outputs/t1_routing_test"
+    if [[ -f "$out_dir/results.json" ]]; then
+        log "Step 25: T1 routing robustness already validated — skipping"
+        return 0
+    fi
+    # Find the last completed cycle's memory store (matches the
+    # step_19_2_eval pattern used for retention diagnostic).
+    local last_cycle
+    last_cycle=$(ls -d outputs/full_run/cycle_*/memory_store 2>/dev/null \
+        | sed 's#.*/cycle_\([0-9]\+\)/memory_store#\1#' | sort -n | tail -1)
+    if [[ -z "${last_cycle:-}" ]]; then
+        log "Step 25: no outputs/full_run/cycle_*/memory_store found — skipping"
+        return 0
+    fi
+    local mem_path="outputs/full_run/cycle_${last_cycle}/memory_store"
+    band "Step 25 — T1 routing robustness on cycle-${last_cycle} memory (n=50 episodes, 5 strategies)"
+    python scripts/test_t1_routing_robustness.py \
+        --memory_store "$mem_path" \
+        --n_episodes 50 \
+        --output_dir "$out_dir" \
+        2>&1 | tee -a "$RUNNER_LOG" || {
+            log "Step 25: T1 routing test returned non-zero; review output."
+        }
+}
+
+# ============================================================================
 # Main
 # ============================================================================
 main() {
@@ -832,8 +960,24 @@ main() {
     step_19_5_corr
     step_20_aggregate
 
+    # --- Ch5/Ch6 artefact generation (added 2026-04-24) ---
+    # These convert the tab_*.csv / jsonl / cycle_* data into the .tex +
+    # .pdf files that chapter_5.tex \input{}s and \includegraphics{}s. Each
+    # step is idempotent (skips if output already present) and each
+    # individually non-fatal (logs + continues if inputs are partial).
+    step_21_tables                # LaTeX table bodies
+    step_22_figures               # 7 Ch5 PNG/PDF figures (incl. CHM trajectory)
+    step_23_calib_traj            # per-cycle τ/T/memory calibration table + figure
+    step_24_session5_artifacts    # audit summary + before/after + α-trajectory
+    step_25_t1_robustness         # T1 routing robustness validation
+
     band "Phase 1a runner COMPLETE at $(ts)"
     log "Next: scp outputs/ down locally (Step 20.2), then Vast.ai Stop."
 }
 
-main "$@"
+# Only fire main() when this script is invoked directly. This lets
+# run_post_step7.sh source us to reuse step_* function definitions without
+# triggering the whole Phase 1a chain.
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi

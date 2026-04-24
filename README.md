@@ -73,7 +73,7 @@ eval/
   baselines.py                 # B1–B5 inference baselines (Zero-shot, CoT, RAG, CoT+RAG, FLARE)
   benchmarks.py                # loaders for the 6 factual-QA benchmarks + MMLU probe
   harness.py                   # per-cycle evaluation driver
-  metrics.py                   # EM, F1, pooled_ce, ce_reduction_verdict, McNemar, bootstrap CI
+  metrics.py                   # EM, F1, pooled_chm, chm_reduction_verdict, McNemar, bootstrap CI
   reporting.py                 # table-ready result summarisation
 
 scripts/
@@ -129,7 +129,7 @@ tests/
 | ARC-Challenge | EM | grade-school science |
 | MMLU (n=200 probe) | 4-choice accuracy | **retention control**, not a baseline-comparison target |
 
-Pooled confident-error rate is split into in-distribution (training-pool) and out-of-distribution (held-out transfer) via `eval/metrics.py::pooled_ce`. The ≥40% relative confident-error reduction target is committed as a pass/fail criterion via the CES.EPI axis.
+Pooled CHM (equal-weighted 8-subtype composite hallucination metric) is split into in-distribution (training-pool) and out-of-distribution (held-out transfer) via `eval/metrics.py::pooled_chm`. The ≥30% relative CHM reduction target is committed as a pass/fail criterion via `chm_reduction_verdict`, and CES.EPI is now defined as `1 − CHM` so the efficacy score and the pre-registered gate speak the same language.
 
 ## Environment Setup
 

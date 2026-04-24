@@ -16,7 +16,7 @@ Coverage
 Legacy helpers (Phase 4 harness):
   - normalise, exact_match, any_match_em, token_f1, best_token_f1
   - fever_accuracy, extract_fever_label, extract_strategyqa_label
-  - hallucination_rate, routing_distribution, aggregate
+  - composite_hallucination_metric (CHM), routing_distribution, aggregate
   - bootstrap_ci, mcnemar_test
 Session 42 helpers (Ch. 5 seven-table suite):
   - extract_cot_answer, rouge_l, extract_arc_label
@@ -57,6 +57,7 @@ from eval.metrics import (
     bootstrap_ci,
     brier_score,
     ces_score,
+    composite_hallucination_metric,
     confabulation_rate,
     decision_breakdown,
     em_by_tier,
@@ -67,7 +68,7 @@ from eval.metrics import (
     extract_strategyqa_label,
     fever_accuracy,
     forward_transfer,
-    hallucination_rate,
+    hallucination_subtypes,
     mcnemar_test,
     mean_latency_by_tier,
     normalise,
@@ -306,33 +307,63 @@ class TestExtractStrategyQALabel:
 
 
 # -----------------------------------------------------------------------------
-# metrics.py -- hallucination_rate
+# metrics.py -- composite_hallucination_metric (CHM) + hallucination_subtypes
 # -----------------------------------------------------------------------------
 
-class TestHallucinationRate:
-    def test_all_wrong_uncertain(self):
-        em = [0.0, 0.0, 0.0]
-        u = [0.3, 0.2, 0.1]
-        assert hallucination_rate(em, u) == pytest.approx(0.0)
+class TestCompositeHallucinationMetric:
+    """CHM (Composite Hallucination Metric) replaces the removed
+    `hallucination_rate` helper; it is the equal-weighted mean of the 8
+    taxonomy subtypes measurable under the CAEM-default MiniCheck backend.
+    """
 
-    def test_all_correct(self):
-        em = [1.0, 1.0]
-        u = [0.3, 0.2]
-        assert hallucination_rate(em, u) == pytest.approx(0.0)
+    def _sample(self, *, em=0.0, u=0.5, p_ga=0.5, p_pe=0.5, q_ar=0.8,
+                decision="STORE", pred="an answer"):
+        return {
+            "em": em, "u_stored": u,
+            "p_ground_atomic": p_ga, "p_entail": p_pe, "p_contra": 0.0,
+            "q_a_relevance": q_ar, "decision": decision, "prediction": pred,
+        }
 
-    def test_mixed(self):
-        em = [0.0, 1.0, 0.0, 1.0]
-        u = [0.3, 0.3, 0.8, 0.3]
-        rate = hallucination_rate(em, u)
-        assert rate == pytest.approx(0.25)
+    def test_empty_returns_zero_chm(self):
+        out = composite_hallucination_metric([])
+        assert out["chm"] == 0.0
+        assert out["n_measured_subtypes"] == 0
 
-    def test_none_u_stored_treated_as_zero(self):
-        em = [0.0]
-        u = [None]
-        assert hallucination_rate(em, u) == pytest.approx(0.0)
+    def test_all_clean_samples_chm_zero(self):
+        samples = [self._sample(em=1.0, u=0.2) for _ in range(5)]
+        out = composite_hallucination_metric(samples)
+        assert out["chm"] == pytest.approx(0.0)
 
-    def test_empty(self):
-        assert hallucination_rate([], []) == pytest.approx(0.0)
+    def test_confident_wrong_fires_confabulation(self):
+        s = self._sample(em=0.0, u=0.80, p_ga=0.8, p_pe=0.8, q_ar=0.8)
+        out = composite_hallucination_metric([s])
+        rates = out["per_subtype_rates"]
+        assert rates["confident_confabulation_rate"] == pytest.approx(1.0)
+        # union counts any-subtype firing for the sample.
+        assert out["union_rate"] == pytest.approx(1.0)
+
+    def test_denominator_excludes_contradiction_by_default(self):
+        # CHM denominator defaults to 8 (factual_contradiction excluded
+        # because p_contra is structurally 0 under MiniCheck).
+        samples = [self._sample(em=1.0) for _ in range(3)]
+        out = composite_hallucination_metric(samples)
+        assert out["n_measured_subtypes"] == 8
+
+    def test_override_measured_includes_all_nine(self):
+        # Callers running the roberta_nli ablation can opt into all 9
+        # subtypes by passing the full key list.
+        samples = [self._sample(em=1.0) for _ in range(3)]
+        all_keys = list(hallucination_subtypes(samples).keys())
+        out = composite_hallucination_metric(samples, measured_subtypes=all_keys)
+        assert out["n_measured_subtypes"] == 9
+
+    def test_template_leak_fires_regardless_of_em(self):
+        # template_leak condition is EM-agnostic: regex-match fires even
+        # on correct answers (e.g., prompt-echo leak on a right answer).
+        s = self._sample(em=1.0, pred="<concise factual answer>")
+        out = composite_hallucination_metric([s])
+        rates = out["per_subtype_rates"]
+        assert rates["template_leak_rate"] == pytest.approx(1.0)
 
 
 # -----------------------------------------------------------------------------
@@ -401,7 +432,7 @@ class TestAggregate:
             stored_flags=[True, False],
             latencies_ms=[100.0, 200.0],
         )
-        for key in ["benchmark", "n", "em", "f1", "hallucination_rate",
+        for key in ["benchmark", "n", "em", "f1",
                     "storage_rate", "mean_u_stored", "mean_latency_ms",
                     "tier1_frac", "tier2_frac", "tier3_frac"]:
             assert key in agg, f"Missing key: {key}"
@@ -495,7 +526,7 @@ class TestEvalHarness:
         samples = make_synthetic_samples("natural_questions", n=2)
         r = harness.run("natural_questions", samples, cycle=0)
         for key in ["em", "f1", "n", "cycle", "tier1_frac", "tier2_frac", "tier3_frac",
-                    "storage_rate", "hallucination_rate", "mean_latency_ms"]:
+                    "storage_rate", "mean_latency_ms"]:
             assert key in r, f"Missing key: {key}"
 
     def test_n_correct(self):

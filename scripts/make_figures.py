@@ -7,7 +7,8 @@ scripts/make_tables.py consumes.
 Figure manifest (indexing matches Ch.5):
   Fig 5.1  CES radar         -- 5-axis (ACC, EPI, RET, CAL, VER) per cycle overlay
   Fig 5.2  Reliability diag. -- calibration bins from per_sample_signals.jsonl
-  Fig 5.3  Halluc. decomp.   -- grouped bars: hallucination / confab. / early-exit
+  Fig 5.3  CHM trajectory    -- composite hallucination metric (equal-weighted 8)
+                                + per-subtype stacked bars across cycles
   Fig 5.4  Grounding evol.   -- p_ground_max / _mean / _atomic / p_contra across cycles
   Fig 5.5  Purity breakdown  -- stacked bar STORE / DEFERRED / ABSTAIN / DISCARD
   Fig 5.6  Continual learn.  -- MMLU retention + per-benchmark EM trajectories
@@ -19,7 +20,7 @@ Directory containing (at minimum):
   * per_sample_signals.jsonl       -- from eval.reporting.write_per_sample_signals_jsonl
   * tab_headline.csv               -- Table 5.1 data (required for Figures 5.1/5.7)
   * tab_calibration.csv            -- Table 5.2
-  * tab_halluc.csv                 -- Table 5.3
+  * tab_halluc_subtypes.csv        -- Table 5.3 (CHM + 9-subtype taxonomy)
   * tab_grounding.csv              -- Table 5.4
   * tab_purity.csv                 -- Table 5.5
   * tab_continual.csv              -- Table 5.6
@@ -85,7 +86,7 @@ logger = logging.getLogger("caem.make_figures")
 FIGURE_FILES: Dict[str, str] = {
     "ces_radar":      "fig5_1_ces_radar",
     "reliability":    "fig5_2_reliability",
-    "halluc_decomp":  "fig5_3_halluc_decomp",
+    "chm_trajectory": "fig5_3_chm_trajectory",
     "grounding":      "fig5_4_grounding",
     "purity":         "fig5_5_purity",
     "continual":      "fig5_6_continual",
@@ -174,7 +175,8 @@ def _ces_axes_from_headline(headline_rows: Sequence[Mapping[str, Any]],
     CSVs where they live:
 
       ACC = mean EM on the __cycle__ summary row  (tab_headline)
-      EPI = clip(1 - hallucination_rate_mean, 0, 1)(tab_halluc via caller)
+      EPI = clip(1 - confident_confabulation_rate, 0, 1)
+                                                   (tab_halluc_subtypes via caller)
       RET = mmlu_retention_ratio                   (tab_continual)
       CAL = clip(1 - 2 * ECE, 0, 1)                (tab_calibration)
 
@@ -240,11 +242,13 @@ def figure_ces_radar(
         logger.warning("figure_ces_radar: could not recover CES axes; skipping.")
         return None
 
-    # EPI from the cross-benchmark mean hallucination rate per cycle.
+    # EPI from the cross-benchmark mean confident-confabulation rate per
+    # cycle -- the same formula the removed `hallucination_rate` helper
+    # computed, now sourced from the 9-subtype taxonomy table column.
     epi_by_cycle: Dict[int, List[float]] = {}
     for row in halluc_rows:
         cycle = int(_parse_float(row.get("cycle")) or 0)
-        hr = _parse_float(row.get("hallucination_rate"))
+        hr = _parse_float(row.get("confident_confabulation_rate"))
         if hr is not None:
             epi_by_cycle.setdefault(cycle, []).append(hr)
     for cycle, vals in epi_by_cycle.items():
@@ -380,57 +384,110 @@ def figure_reliability(
 
 
 # -----------------------------------------------------------------------------
-# Figure 5.3 -- Hallucination decomposition
+# Figure 5.3 -- CHM trajectory + 9-subtype decomposition
 # -----------------------------------------------------------------------------
 
-def figure_halluc_decomp(
+# Subtype order for the per-subtype panel: most-salient confident errors
+# first, then grounding failures, then formatting failures. Keeps the
+# stacked-bar / grouped-bar legend readable.
+_CHM_SUBTYPE_COLS: Tuple[str, ...] = (
+    "confident_confabulation_rate",
+    "factual_fabrication_rate",
+    "factual_contradiction_rate",
+    "logical_fabrication_rate",
+    "off_topic_rate",
+    "defensive_evasion_rate",
+    "template_leak_rate",
+    "false_refusal_rate",
+    "over_long_rate",
+)
+
+
+def figure_chm_trajectory(
     out_dir: Path,
-    halluc_rows: Sequence[Mapping[str, Any]],
+    halluc_subtypes_rows: Sequence[Mapping[str, Any]],
 ) -> Optional[Tuple[Path, Path]]:
-    """Render Figure 5.3 (hallucination / confabulation / early-exit bars)."""
-    if not halluc_rows:
-        logger.warning("figure_halluc_decomp: no hallucination data; skipping.")
+    """Figure 5.3: CHM trajectory (headline line) + 9-subtype grouped bars.
+
+    Two panels:
+      top    -- CHM headline line across cycles (cross-benchmark mean)
+      bottom -- grouped bars of each measurable subtype per cycle
+    """
+    if not halluc_subtypes_rows:
+        logger.warning("figure_chm_trajectory: no halluc subtypes data; skipping.")
         return None
 
-    # Average across benchmarks per cycle -- the chapter's thesis statement
-    # is about the aggregated trend, not per-benchmark comparisons.
+    # Aggregate per-cycle cross-benchmark means.
     per_cycle: Dict[int, Dict[str, List[float]]] = {}
-    for row in halluc_rows:
+    for row in halluc_subtypes_rows:
         cycle = int(_parse_float(row.get("cycle")) or 0)
-        slot = per_cycle.setdefault(cycle, {"hr": [], "cr": [], "ee": []})
-        for key, col in (("hr", "hallucination_rate"),
-                         ("cr", "confabulation_rate"),
-                         ("ee", "early_exit_rate")):
+        slot = per_cycle.setdefault(
+            cycle,
+            {"chm": [], **{col: [] for col in _CHM_SUBTYPE_COLS}},
+        )
+        chm_val = _parse_float(row.get("chm_equal_weighted"))
+        if chm_val is not None:
+            slot["chm"].append(chm_val)
+        for col in _CHM_SUBTYPE_COLS:
             v = _parse_float(row.get(col))
             if v is not None:
-                slot[key].append(v)
+                slot[col].append(v)
 
     cycles = sorted(per_cycle.keys())
     if not cycles:
-        logger.warning("figure_halluc_decomp: no rows after parsing; skipping.")
+        logger.warning("figure_chm_trajectory: no rows after parsing; skipping.")
         return None
 
     def mean(xs: List[float]) -> float:
-        return sum(xs) / len(xs) if xs else 0.0
+        return sum(xs) / len(xs) if xs else float("nan")
 
-    hr = [mean(per_cycle[c]["hr"]) for c in cycles]
-    cr = [mean(per_cycle[c]["cr"]) for c in cycles]
-    ee = [mean(per_cycle[c]["ee"]) for c in cycles]
+    chm_series = [mean(per_cycle[c]["chm"]) for c in cycles]
+    subtype_series: Dict[str, List[float]] = {
+        col: [mean(per_cycle[c][col]) for c in cycles] for col in _CHM_SUBTYPE_COLS
+    }
 
+    fig, (ax_top, ax_bot) = plt.subplots(
+        2, 1, figsize=(max(7, 1 + 1.1 * len(cycles)), 8),
+        gridspec_kw={"height_ratios": [1, 2]},
+    )
+
+    # Top: CHM headline line.
+    ax_top.plot(cycles, chm_series, "-o", color="#d7263d", linewidth=2.4,
+                markersize=7, label="CHM (equal-weighted 8)")
+    ax_top.set_xticks(cycles)
+    ax_top.set_xlabel("Cycle")
+    ax_top.set_ylabel("CHM")
+    chm_max = max([v for v in chm_series if not math.isnan(v)], default=0.0)
+    ax_top.set_ylim(0, max(0.1, chm_max * 1.4))
+    ax_top.grid(True, alpha=0.3)
+    ax_top.set_title("Composite Hallucination Metric across cycles")
+    ax_top.legend(loc="upper right", fontsize=9, frameon=False)
+
+    # Bottom: 9 grouped bars per cycle.
     x = np.arange(len(cycles))
-    width = 0.25
-    fig, ax = plt.subplots(figsize=(max(6, 1 + 1.2 * len(cycles)), 4.5))
-    ax.bar(x - width, hr, width, label="Hallucination rate", color="#d7263d")
-    ax.bar(x,         cr, width, label="Confabulation rate", color="#f46036")
-    ax.bar(x + width, ee, width, label="Early-exit rate",    color="#2e86ab")
-    ax.set_xticks(x)
-    ax.set_xticklabels([f"Cycle {c}" for c in cycles])
-    ax.set_ylabel("Rate")
-    ax.set_ylim(0, max(1.0, max(hr + cr + ee) * 1.2) if (hr + cr + ee) else 1.0)
-    ax.set_title("Hallucination decomposition across cycles")
-    ax.grid(True, axis="y", alpha=0.3)
-    ax.legend(loc="upper right", fontsize=9, frameon=False)
-    return _save(fig, out_dir, FIGURE_FILES["halluc_decomp"])
+    n_sub = len(_CHM_SUBTYPE_COLS)
+    bar_w = 0.9 / n_sub
+    cmap = plt.get_cmap("tab10")
+    for i, col in enumerate(_CHM_SUBTYPE_COLS):
+        vals = subtype_series[col]
+        # Replace NaN with 0 for plotting (bar height) but keep label "(n/a)"
+        # for the structurally-zero factual_contradiction_rate under MiniCheck.
+        plot_vals = [0.0 if math.isnan(v) else v for v in vals]
+        offset = (i - (n_sub - 1) / 2) * bar_w
+        label = col.replace("_rate", "").replace("_", " ")
+        if col == "factual_contradiction_rate":
+            label += " (roberta ablation)"
+        ax_bot.bar(x + offset, plot_vals, bar_w, label=label, color=cmap(i % 10))
+
+    ax_bot.set_xticks(x)
+    ax_bot.set_xticklabels([f"Cycle {c}" for c in cycles])
+    ax_bot.set_ylabel("Subtype rate")
+    ax_bot.set_title("Per-subtype hallucination decomposition")
+    ax_bot.grid(True, axis="y", alpha=0.3)
+    ax_bot.legend(loc="upper center", bbox_to_anchor=(0.5, -0.15),
+                  ncol=3, fontsize=8, frameon=False)
+    fig.tight_layout()
+    return _save(fig, out_dir, FIGURE_FILES["chm_trajectory"])
 
 
 # -----------------------------------------------------------------------------
@@ -711,21 +768,21 @@ def build_all_figures(output_dir: Path) -> Dict[str, Tuple[Path, Path]]:
     """Generate every Chapter 5 figure for which input data is present."""
     output_dir = Path(output_dir)
 
-    headline_rows  = _read_csv_rows(output_dir / "tab_headline.csv")
-    calib_rows     = _read_csv_rows(output_dir / "tab_calibration.csv")
-    halluc_rows    = _read_csv_rows(output_dir / "tab_halluc.csv")
-    grounding_rows = _read_csv_rows(output_dir / "tab_grounding.csv")
-    purity_rows    = _read_csv_rows(output_dir / "tab_purity.csv")
-    continual_rows = _read_csv_rows(output_dir / "tab_continual.csv")
-    jsonl_rows     = _read_jsonl(output_dir / "per_sample_signals.jsonl")
+    headline_rows   = _read_csv_rows(output_dir / "tab_headline.csv")
+    calib_rows      = _read_csv_rows(output_dir / "tab_calibration.csv")
+    halluc_sub_rows = _read_csv_rows(output_dir / "tab_halluc_subtypes.csv")
+    grounding_rows  = _read_csv_rows(output_dir / "tab_grounding.csv")
+    purity_rows     = _read_csv_rows(output_dir / "tab_purity.csv")
+    continual_rows  = _read_csv_rows(output_dir / "tab_continual.csv")
+    jsonl_rows      = _read_jsonl(output_dir / "per_sample_signals.jsonl")
 
     manifest: Dict[str, Tuple[Path, Path]] = {}
 
     builders = [
         ("ces_radar", lambda: figure_ces_radar(
-            output_dir, headline_rows, halluc_rows, calib_rows, continual_rows)),
+            output_dir, headline_rows, halluc_sub_rows, calib_rows, continual_rows)),
         ("reliability", lambda: figure_reliability(output_dir, jsonl_rows)),
-        ("halluc_decomp", lambda: figure_halluc_decomp(output_dir, halluc_rows)),
+        ("chm_trajectory", lambda: figure_chm_trajectory(output_dir, halluc_sub_rows)),
         ("grounding", lambda: figure_grounding(output_dir, grounding_rows)),
         ("purity", lambda: figure_purity(output_dir, purity_rows)),
         ("continual", lambda: figure_continual(output_dir, continual_rows, headline_rows)),

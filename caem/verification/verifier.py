@@ -60,15 +60,26 @@ are not consulted when this fires.
 
 Decision tree outcomes
 ----------------------
-    STORE     : û_stored ≥ 0.65  AND  p_contra < 0.30
-    DEFERRED  : 0.45 ≤ û_stored < 0.65  AND  p_contra < 0.30
+    STORE     : û_stored ≥ 0.65
+    DEFERRED  : 0.45 ≤ û_stored < 0.65
                 -- held in the deferred review queue; re-checked by the
                    retroverify pass each cycle
-    ABSTAIN   : û_stored < 0.45  AND  top-3 p_ground_max < 0.20
+    ABSTAIN   : û_stored < 0.45  AND  p_ground_max < 0.20
                 -- no evidence either way; emit "I don't know" instead of
                    silently storing or discarding
-    DISCARD   : anything else (contradiction veto hit, or composite too
-                low with some grounding present)
+    DISCARD   : û_stored < 0.45  AND  p_ground_max ≥ 0.20
+                -- evidence exists but composite rejects the answer
+
+Note: the earlier Session-42 contradiction veto
+(``p_contra ≥ 0.30 → DISCARD``) was removed on 2026-04-22. MiniCheck
+(the default judge) is a binary supported/unsupported model that
+returns ``p_contra = 0.0`` by construction, so the veto could never
+fire under the default backend and the ``no_contradiction_veto``
+ablation was a no-op. ``p_contra`` remains in the verifier output
+schema as a diagnostic column, but no decision logic reads it.
+Grounding weakness is absorbed into ``u_stored`` through the
+``p_ground_*`` terms of the composite. See ``_decide()`` for the
+authoritative implementation.
 
 All thresholds and weights above are read from CAEMConfig with
 `getattr(cfg, name, default)` so this module continues to work during the

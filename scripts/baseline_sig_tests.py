@@ -14,10 +14,12 @@ Pairing rules (chapter_5.tex §5.3)
 ----------------------------------
 All baselines are paired against **CAEM cycle 10** — the post-training
 state. For inference-only baselines (B1-B5: ``zero_shot``, ``cot``,
-``rag``, ``cot_rag``, ``flare``) there is no training budget to match,
-so the comparison is "CAEM's final state vs. the off-the-shelf recipe"
-— the strongest CAEM-positive claim. For training baselines (B6
-``vanilla_ft``, B7 ``ewc_only_ft``) cycle 10 additionally gives matched
+``rag``, ``cot_rag``, ``fiveshot_cot`` -- the last reclaimed the B5
+slot when FLARE was removed from the running panel on 2026-04-22)
+there is no training budget to match, so the comparison is "CAEM's
+final state vs. the off-the-shelf recipe" — the strongest CAEM-positive
+claim. For training baselines (B6 ``vanilla_ft``, B7 ``ewc_only_ft``)
+cycle 10 additionally gives matched
 training budget (both sides have completed the same number of fine-tuning
 cycles on matched per-benchmark pair counts). Within-CAEM cycle-over-cycle
 trajectory is reported separately in ``tab_cycle_progression.csv``.

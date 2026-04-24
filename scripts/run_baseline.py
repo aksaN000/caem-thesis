@@ -4,14 +4,20 @@ scripts/run_baseline.py
 Run an external baseline from eval/baselines.py over the CAEM benchmark panel.
 
 Supported baselines (--baseline):
-  zero_shot   B1   Flan-T5-Large, no CoT, no retrieval.
-  cot         B2   Chain-of-Thought prompting.
-  rag         B3   DPR top-k retrieval + Flan-T5-Large.
-  cot_rag     B4   RAG with CoT prefix.
-  flare       B5   FLARE active retrieval (Jiang et al. EMNLP 2023).
+  zero_shot       B1   Qwen2.5-3B-Instruct, no CoT, no retrieval.
+  cot             B2   Chain-of-Thought prompting (Kojima et al. 2022).
+  rag             B3   DPR top-k retrieval + generator.
+  cot_rag         B4   RAG with CoT prefix.
+  fiveshot_cot    B5   5-shot CoT (Wei et al. 2022) -- current B5 slot.
+  flare           --   Dormant: Jiang et al. EMNLP 2023 active retrieval.
+                       Class retained for ablation experiments, but not
+                       part of the running B1-B7 numerical panel (removed
+                       2026-04-22; reclaimed B5 slot for 5-shot CoT).
 
-Training baselines (Vanilla FT, EWC-only FT) are handled by their own
-scripts; this runner is inference-only.
+Training baselines B6 (vanilla SFT) and B7 (EWC-only FT) are handled
+by their own scripts; this runner is inference-only.
+
+Self-RAG (B8) is citation-only; not executed numerically.
 
 Output
 ------
