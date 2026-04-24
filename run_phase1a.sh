@@ -89,10 +89,26 @@ step_5_9_prompt_smoke() {
     fi
     band "Step 5.9 — prompt smoke test (validate 2026-04-24 prompt revision)"
     mkdir -p outputs/prompt_smoke
+    # 2026-04-24: prefer real questions from the most recent archived
+    # eval directory (more reliable signal than synthetic stubs which
+    # have no retrieved passages and would always produce NEI).
+    local eval_src=""
+    local archived_eval
+    archived_eval=$(ls -d outputs/archive/*/cycle_0/eval 2>/dev/null | tail -1)
+    if [[ -n "$archived_eval" ]]; then
+        eval_src="--eval_source_dir $archived_eval"
+        log "  using real questions from $archived_eval (real passages, tighter NEI threshold)"
+        local nei_threshold="--max_fever_nei_rate 0.55"
+    else
+        log "  no archived eval found; using synthetic samples (loose NEI threshold)"
+        local nei_threshold="--max_fever_nei_rate 0.95"
+    fi
     if ! python scripts/prompt_smoke_test.py \
         --n 10 \
         --benchmarks fever triviaqa natural_questions \
         --output "$out" \
+        $eval_src \
+        $nei_threshold \
         2>&1 | tee outputs/prompt_smoke/run.log; then
         log "FATAL: prompt smoke FAILED. Review $out, tune prompts, re-run."
         return 2

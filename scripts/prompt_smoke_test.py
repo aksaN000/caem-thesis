@@ -59,14 +59,17 @@ def _parse_args() -> argparse.Namespace:
                    default=["fever", "triviaqa", "natural_questions"])
     p.add_argument("--output", type=Path, required=True)
     p.add_argument("--passage_index", type=Path, default=Path("data/passage_index"))
+    # NEW 2026-04-24: load REAL questions from a previous eval JSON dir
+    # (e.g. outputs/archive/.../cycle_0/eval). These have the actual
+    # retrieved passages available via the live pipeline, so all 3 thresholds
+    # (leak, evasive, fever_nei) become meaningful. Without this, falls back
+    # to synthetic samples and the FEVER NEI threshold is loosened to 0.95.
+    p.add_argument("--eval_source_dir", type=Path, default=None,
+                   help="Directory of previous eval JSONs to source real "
+                        "questions from. If absent, uses synthetic samples.")
     p.add_argument("--max_leak_rate", type=float, default=0.02)
     p.add_argument("--max_evasive_rate", type=float, default=0.30)
-    # FEVER NEI rate is meaningful only when real passages are retrieved.
-    # Synthetic-sample mode (no real FAISS passages) legitimately yields
-    # 100% NEI — model has no evidence so "not enough info" IS the correct
-    # answer. The threshold below is lenient by default (0.95). Set to a
-    # tighter value (e.g. 0.55) when running this script on real-passage
-    # samples (Step 6 input mix).
+    # FEVER NEI: 0.55 when real-passage source, 0.95 when synthetic (loose)
     p.add_argument("--max_fever_nei_rate", type=float, default=0.95)
     return p.parse_args()
 
@@ -113,9 +116,30 @@ def _build_pipeline():
     return pipeline
 
 
-def _test_samples_for_bench(bench: str, n: int) -> List[str]:
-    """Return N test questions per benchmark. Uses benchmark_splits if
-    available, else falls back to hand-picked canonical examples."""
+def _test_samples_for_bench(
+    bench: str,
+    n: int,
+    eval_source_dir: "Path | None" = None,
+) -> List[str]:
+    """Return N test questions per benchmark. Source priority:
+      1. eval_source_dir (real questions from previous eval JSON; preferred)
+      2. eval.benchmarks.make_synthetic_samples (degenerate stubs)
+      3. Hand-picked canonical examples (fallback)
+    """
+    # Priority 1: real questions from a previous eval JSON
+    if eval_source_dir is not None:
+        cand = list(eval_source_dir.glob(f"{bench}_cycle*.json"))
+        if cand:
+            try:
+                d = json.load(open(cand[0]))
+                samples = d.get("samples") or d.get("results") or []
+                # Take a deterministic sample (first N) for reproducibility
+                qs = [s["question"] for s in samples[:n] if s.get("question")]
+                if qs:
+                    return qs[:n]
+            except Exception as exc:
+                logger.warning("Failed to load %s (%s); falling back.", cand[0], exc)
+
     try:
         from eval.benchmarks import make_synthetic_samples
         samples = make_synthetic_samples(bench, n=n)
@@ -160,7 +184,7 @@ def main() -> int:
     }
 
     for bench in ns.benchmarks:
-        questions = _test_samples_for_bench(bench, ns.n)
+        questions = _test_samples_for_bench(bench, ns.n, eval_source_dir=ns.eval_source_dir)
         if not questions:
             logger.warning("no samples for %s; skipping", bench)
             continue
