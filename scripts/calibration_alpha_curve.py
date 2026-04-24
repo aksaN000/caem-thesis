@@ -154,6 +154,15 @@ def main() -> None:
                     default=Path("outputs/purity_validation/per_sample"))
     ap.add_argument("--calibrated_thresholds", type=Path,
                     default=Path("outputs/cycle_0/calibrated_thresholds.json"))
+    # 2026-04-24: support adaptive thresholds (per-cycle τ files).
+    # When provided, α-at-fitted-τ is computed using THAT CYCLE's τ_store
+    # rather than the Step 7.0 baseline τ. Sweep grid still anchored to
+    # baseline for cross-cycle comparability.
+    ap.add_argument("--per_cycle_thresholds_dir", type=Path, default=None,
+                    help="Directory of per-cycle calibrated_thresholds.json "
+                         "(e.g. outputs/full_run); enables adaptive-threshold "
+                         "α-at-fitted-τ lookup. If absent, baseline τ is used "
+                         "for all cycles (frozen-mode behavior).")
     ap.add_argument("--contra_veto", type=float, default=DEFAULT_CONTRA_VETO,
                     help="Contradiction veto threshold (held fixed during sweep).")
     ap.add_argument("--output_json", type=Path,
@@ -202,17 +211,33 @@ def main() -> None:
         bench_map = cycles_data[cycle]
         all_records = [r for recs in bench_map.values() for r in recs]
 
+        # 2026-04-24: under adaptive thresholds, lookup THIS cycle's τ
+        cycle_tau_store = tau_store_fit
+        cycle_tau_defer = tau_defer_fit
+        if args.per_cycle_thresholds_dir is not None:
+            per_cycle_file = args.per_cycle_thresholds_dir / f"cycle_{cycle}" / "calibrated_thresholds.json"
+            if per_cycle_file.exists():
+                try:
+                    pc = json.load(open(per_cycle_file))
+                    pct = pc.get("thresholds") or pc
+                    cycle_tau_store = float(pct["store"])
+                    cycle_tau_defer = float(pct["defer"])
+                    logger.info("Cycle %d: using adaptive τ_store=%.4f (was baseline %.4f)",
+                                cycle, cycle_tau_store, tau_store_fit)
+                except Exception as exc:
+                    logger.warning("Cycle %d: failed to load per-cycle thresholds (%s); using baseline.", cycle, exc)
+
         pooled_curve = [
-            (float(t), _alpha_at(all_records, t, tau_defer_fit, args.contra_veto)[0])
+            (float(t), _alpha_at(all_records, t, cycle_tau_defer, args.contra_veto)[0])
             for t in tau_grid
         ]
         per_bench_curves = {
-            b: [(float(t), _alpha_at(recs, t, tau_defer_fit, args.contra_veto)[0])
+            b: [(float(t), _alpha_at(recs, t, cycle_tau_defer, args.contra_veto)[0])
                 for t in tau_grid]
             for b, recs in bench_map.items()
         }
         alpha_at_fitted, tp, tn, fp, fn = _alpha_at(
-            all_records, tau_store_fit, tau_defer_fit, args.contra_veto
+            all_records, cycle_tau_store, cycle_tau_defer, args.contra_veto
         )
 
         results["by_cycle"][str(cycle)] = {
