@@ -92,23 +92,29 @@ step_5_9_prompt_smoke() {
     # 2026-04-24: prefer real questions from the most recent archived
     # eval directory (more reliable signal than synthetic stubs which
     # have no retrieved passages and would always produce NEI).
+    # NEI rate threshold is loose (0.95) regardless of source, because
+    # n=10-30 smoke samples have too much variance to make hard claims
+    # about NEI behavior. The proper FEVER NEI check happens at Step 7.0
+    # (500 samples per bench) and the per-bench STORE/DISCARD em gap
+    # check at step_7_0_3_validate_weights catches real NEI regressions.
+    # Smoke test focuses on what's reliably catchable at small n:
+    #   - template leaks (any leak is a real bug, easy to detect)
+    #   - evasive patterns (regex-detectable, n=10 sufficient)
     local eval_src=""
     local archived_eval
     archived_eval=$(ls -d outputs/archive/*/cycle_0/eval 2>/dev/null | tail -1)
     if [[ -n "$archived_eval" ]]; then
         eval_src="--eval_source_dir $archived_eval"
-        log "  using real questions from $archived_eval (real passages, tighter NEI threshold)"
-        local nei_threshold="--max_fever_nei_rate 0.55"
+        log "  using real questions from $archived_eval (real passages)"
     else
-        log "  no archived eval found; using synthetic samples (loose NEI threshold)"
-        local nei_threshold="--max_fever_nei_rate 0.95"
+        log "  no archived eval found; using synthetic samples"
     fi
     if ! python scripts/prompt_smoke_test.py \
         --n 10 \
         --benchmarks fever triviaqa natural_questions \
         --output "$out" \
         $eval_src \
-        $nei_threshold \
+        --max_fever_nei_rate 0.95 \
         2>&1 | tee outputs/prompt_smoke/run.log; then
         log "FATAL: prompt smoke FAILED. Review $out, tune prompts, re-run."
         return 2
