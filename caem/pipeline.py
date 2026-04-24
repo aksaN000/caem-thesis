@@ -177,6 +177,40 @@ def _compute_display_answer(answer_str: str, vout) -> str:
     return _strip_scaffold(answer_str)
 
 
+_TEMPLATE_LEAK_PATTERNS = [
+    r"<(?:concise|factual|your|scaffold|answer)[a-z_ ]*>",
+    r"\[(?:your\s+answer|answer\s+here)\]",
+    r"<(?:supports|refutes|yes|no)/",
+]
+_EVASIVE_PATTERNS = [
+    r"the\s+context\s+(?:does\s*not|doesn'?t)\s+(?:mention|provide|contain|discuss)",
+    r"no\s+information\s+(?:is\s+)?(?:provided|given|available|mentioned)",
+    r"information\s+(?:is\s+)?not\s+provided",
+    r"cannot\s+(?:determine|verify|be\s+determined)",
+    r"(?:none\s+of\s+the\s+given|none\s+of\s+the\s+listed)\s+(?:options|choices|models|items)",
+]
+
+
+def _answer_is_unstorable(answer_str: str) -> bool:
+    """E22/E23 sanitizer: reject answers containing template-leak placeholders
+    or clearly-evasive patterns. Prevents cold-start memory from accumulating
+    ``<concise factual answer>`` literals and ``"the context doesn't mention"``
+    responses that add no informational value.
+
+    Returns True if the answer should NOT be stored.
+    """
+    import re as _re
+    if not answer_str:
+        return True
+    for pat in _TEMPLATE_LEAK_PATTERNS:
+        if _re.search(pat, answer_str, _re.IGNORECASE):
+            return True
+    for pat in _EVASIVE_PATTERNS:
+        if _re.search(pat, answer_str, _re.IGNORECASE):
+            return True
+    return False
+
+
 def _strip_scaffold(answer_str: str) -> str:
     """Extract just the final answer from a "Reasoning: X Answer: Y"
     scaffolded output. Returns the input unchanged if no scaffold markers
@@ -871,15 +905,35 @@ class CAEMPipeline:
             logger.debug("Not storing: near-duplicate already in memory.")
             return None, False
 
+        # E22/E23 FIX (2026-04-24): quality sanitizer. Reject storage if the
+        # answer exhibits template-leak or evasive patterns. Without this,
+        # the cold-start memory accumulated ~30% unusable entries (template
+        # placeholders like `<concise factual answer>` literally in the
+        # stored string, and "context doesn't mention X" evasive answers).
+        # See branch_C_log.md 2026-04-24 audit.
+        if _answer_is_unstorable(answer):
+            logger.info(
+                "Not storing: answer failed quality sanitizer "
+                "(template leak or evasive pattern)."
+            )
+            return None, False
+
         # Auto-prune if approaching capacity
         if self.memory_store._should_prune():
             logger.info("Memory store near capacity -- pruning before storing.")
             self.memory_store.prune()
 
+        # E24 FIX (2026-04-24): store the short extracted answer in the
+        # `answer` field, not the full verbose reasoning. Tier 1 memory
+        # hits in subsequent cycles retrieve `answer` directly; storing
+        # the verbose reasoning chain caused the user-facing answer to be
+        # ~333 chars of scaffold instead of e.g. "Mitch Murray". The full
+        # reasoning is preserved in `reasoning_chain` for diagnostic use.
+        display_answer = _strip_scaffold(answer)
         entry = EpisodicEntry(
             question=query,
-            reasoning_chain=answer,   # Flan-T5 output serves as the chain
-            answer=answer,
+            reasoning_chain=answer,   # Full CoT preserved for diagnostics
+            answer=display_answer if display_answer else answer,
             embedding=query_embedding,
             storage_cycle=self.current_cycle,
             source_benchmark=source_benchmark,

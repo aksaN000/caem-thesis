@@ -126,6 +126,21 @@ import torch.nn.functional as F
 from caem.config import CAEMConfig
 from caem._profile import section
 
+
+def _extract_display_answer(answer_str: str) -> str:
+    """Strip the 'Reasoning: ... Answer: Y' scaffold and return just Y.
+
+    Lazy import of eval.metrics.extract_cot_answer to avoid circular deps.
+    Returns the input unchanged if extraction fails (no scaffold markers).
+    """
+    if not answer_str:
+        return ""
+    try:
+        from eval.metrics import extract_cot_answer
+        return extract_cot_answer(answer_str)
+    except Exception:
+        return answer_str
+
 logger = logging.getLogger(__name__)
 
 
@@ -570,6 +585,18 @@ class UnifiedVerifier:
         import time as _t
         _per_stage_ms = {}
 
+        # 2026-04-24 field-routing fix (bugs A1-A4): extract the short
+        # display_answer once and pass it to all hypothesis-scoring calls.
+        # Previously the full verbose "Reasoning: ... Answer: Y" string was
+        # passed as the hypothesis, making MiniCheck score long OOD strings
+        # and atomic decomposition include scaffold claims that could not be
+        # grounded. See branch_C_log.md 2026-04-24 audit for details.
+        # The directional p_ground and multichoice scorers handle both
+        # formats via their own label extraction, so we can safely pass
+        # display_answer even to those paths.
+        display_answer = _extract_display_answer(answer)
+        scoring_answer = display_answer if display_answer else answer
+
         # ---------- internal calibration (cheap) -------------------------- #
         _ts = _t.perf_counter()
         with section("verifier.u_token_dropout"):
@@ -586,7 +613,8 @@ class UnifiedVerifier:
             if chains is None:
                 chains = self._generate_m_chains(input_ids)
             s_avg = self._score_s_avg(chains)
-            p_entail = self._score_p_entail(chains, answer)
+            # A1 FIX: p_entail scores chain->display_answer (short hypothesis)
+            p_entail = self._score_p_entail(chains, scoring_answer)
             if se_samples is None:
                 h_norm = self._compute_h_norm(input_ids)
             else:
@@ -599,6 +627,8 @@ class UnifiedVerifier:
         # (_retrieve_and_rerank_batch), reuse them and skip the per-sample
         # FAISS + rerank call. This was 57.6% of per-sample verify time
         # in Profile v3; pooling drops it to near-zero here.
+        # Retrieve uses the FULL answer (reasoning included) for the
+        # cross-encoder pair, since long text helps reranker disambiguate.
         _ts = _t.perf_counter()
         if top_passages is None:
             top_passages = self._retrieve_and_rerank(query, answer)
@@ -608,14 +638,19 @@ class UnifiedVerifier:
         # Branch-C directional p_ground fix: for 3-way / yes-no tasks, rewrite
         # the hypothesis so it reads as the TRUTHFUL statement aligned with the
         # model's label. Falls back to legacy for factoid / multi-choice tasks.
+        # Directional scorer uses regex to extract label from either
+        # verbose or short answer form, so `answer` still works here.
         _dir = self._p_ground_with_direction(query, answer, top_passages)
         if _dir is not None:
             p_ground_max, p_ground_mean = _dir
         else:
-            p_ground_max, p_ground_mean = self._score_p_ground(top_passages, answer)
+            # A3 FIX: legacy p_ground path uses display_answer
+            p_ground_max, p_ground_mean = self._score_p_ground(top_passages, scoring_answer)
         _per_stage_ms["p_ground_nli"] = (_t.perf_counter() - _ts) * 1000.0
 
         _ts = _t.perf_counter()
+        # p_contra kept on full answer — contradiction detection is more
+        # sensitive to context and rarely fires under MiniCheck anyway.
         p_contra = self._score_p_contra(top_passages, answer)
         _per_stage_ms["p_contra"] = (_t.perf_counter() - _ts) * 1000.0
 
@@ -633,15 +668,17 @@ class UnifiedVerifier:
                 atomic_facts, per_atom_entail = [], []
                 p_ground_atomic = float(p_ground_mean)
         else:
+            # A2 FIX: atomic decomposition runs on display_answer (no scaffold)
             atomic_facts, per_atom_entail, p_ground_atomic = self._score_atomic(
-                top_passages, answer, fallback=p_ground_mean
+                top_passages, scoring_answer, fallback=p_ground_mean
             )
         _per_stage_ms["atomic"] = (_t.perf_counter() - _ts) * 1000.0
 
         # ---------- question-answer relevance (Branch C Goal 2) ----------- #
         _ts = _t.perf_counter()
         with section("verifier.q_a_relevance"):
-            q_a_relevance = self._compute_q_a_relevance(query, answer)
+            # A4 FIX: score (question, display_answer), not (question, verbose)
+            q_a_relevance = self._compute_q_a_relevance(query, scoring_answer)
         _per_stage_ms["q_a_relevance"] = (_t.perf_counter() - _ts) * 1000.0
 
         # Accumulate onto instance (batch-level rollup done by verify_batch).
@@ -691,6 +728,7 @@ class UnifiedVerifier:
             u_internal=u_internal,
             p_entail=p_entail,
             q_a_relevance=q_a_relevance,
+            p_ground_max=p_ground_max,
         )
 
         # ---------- decision tree ----------------------------------------- #
@@ -2152,6 +2190,7 @@ class UnifiedVerifier:
         u_internal: float,
         p_entail: float,
         q_a_relevance: float = 0.5,
+        p_ground_max: float = 0.0,
     ) -> float:
         cfg = self.config
         w_pg_mean = cfg.u_stored_weight_pground_mean
@@ -2164,6 +2203,10 @@ class UnifiedVerifier:
         # pre-Goal-2 CAEMConfig (zero weight -> q_a_relevance contribution is
         # silenced, matches Session-42 baseline numerics exactly).
         w_qarel = getattr(cfg, "u_stored_weight_q_a_relevance", 0.0)
+        # 2026-04-24: p_ground_max added to composite. getattr guards
+        # against pre-2026-04-24 CAEMConfig (zero weight → signal silenced,
+        # matches prior numerics exactly).
+        w_pgmax = getattr(cfg, "u_stored_weight_pground_max", 0.0)
 
         u = (
             w_pg_mean * p_ground_mean
@@ -2173,6 +2216,7 @@ class UnifiedVerifier:
             + w_uint * u_internal
             + w_pent * p_entail
             + w_qarel * q_a_relevance
+            + w_pgmax * p_ground_max
         )
         return float(np.clip(u, 0.0, 1.0))
 

@@ -233,13 +233,21 @@ class CAEMConfig:
     # question). None of the other grounding or entailment signals check the
     # question↔answer relevance axis; this is CAEM's pipeline-level
     # contribution for Goal 2. See branch_C.md §"Goal 2".
-    u_stored_weight_pground_mean: float = 0.28
-    u_stored_weight_pground_atomic: float = 0.14
-    u_stored_weight_nli: float = 0.16          # p_entail (chain -> answer)
-    u_stored_weight_q_a_relevance: float = 0.14   # [DES] NEW (Branch C Goal 2)
-    u_stored_weight_sc: float = 0.14           # s_avg (pairwise SBERT cosine)
-    u_stored_weight_uinternal: float = 0.10    # 0.5·u_token + 0.5·(1 - u_dropout)
-    u_stored_weight_se: float = 0.04           # applied as (1 - h_norm)
+    # Weights revised 2026-04-24 based on empirical Cohen's d on 1500-sample
+    # Cycle-0 eval audit. Changes: (1) add p_ground_max to composite with
+    # weight 0.18 (d=+0.148, was computed and ignored), (2) upweight
+    # q_a_relevance to 0.20 (d=+0.367 strongest signal, was 0.14), (3)
+    # downweight p_ground_atomic to 0.06 (99% crashed under verbose-prediction
+    # bug; will upweight if post-fix validation shows recovery). See
+    # branch_C_log.md 2026-04-24 audit. Sum preserved at 1.00.
+    u_stored_weight_pground_mean: float = 0.22     # was 0.28
+    u_stored_weight_pground_max: float = 0.18      # NEW (was not in composite)
+    u_stored_weight_pground_atomic: float = 0.06   # was 0.14 (conservative floor)
+    u_stored_weight_nli: float = 0.14              # p_entail, was 0.16
+    u_stored_weight_q_a_relevance: float = 0.20    # was 0.14 (strongest signal)
+    u_stored_weight_sc: float = 0.10               # s_avg, was 0.14
+    u_stored_weight_uinternal: float = 0.08        # was 0.10
+    u_stored_weight_se: float = 0.02               # (1 - h_norm), was 0.04
 
     # ------------------------------------------------------------------ #
     # Tier 3 RAG (Stage 6)                                                 #

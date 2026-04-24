@@ -85,7 +85,10 @@ def _task_spec(task: str, query: str, with_passages: bool) -> Tuple[str, str]:
         return (
             f"Claim: {claim}\n"
             f"Determine whether the claim is SUPPORTS, REFUTES, or "
-            f"NOT ENOUGH INFO based on {basis}.",
+            f"NOT ENOUGH INFO based on {basis}. "
+            f"Choose 'not enough info' ONLY when {basis} contains no "
+            f"relevant information about the claim. If {basis} contains "
+            f"evidence, commit to 'supports' or 'refutes'.",
             "supports | refutes | not enough info",
         )
     if task == "strategyqa":
@@ -107,8 +110,10 @@ def _task_spec(task: str, query: str, with_passages: bool) -> Tuple[str, str]:
     basis = " based on the context above" if with_passages else ""
     return (
         f"Question: {query}\n"
-        f"Answer the question{basis}.",
-        "<concise factual answer>",
+        f"Answer the question{basis}. Give a SHORT answer (1-5 words preferred). "
+        f"If you cannot find the answer{basis}, reply exactly: I do not know. "
+        f"Do not say 'the context does not mention' or similar evasive phrases.",
+        "short factual answer (or 'I do not know')",
     )
 
 

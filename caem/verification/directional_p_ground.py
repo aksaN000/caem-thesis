@@ -220,8 +220,15 @@ class DirectionalScorer:
             cert_pos = abs(pos_mean - 0.5)
             cert_neg = abs(neg_mean - 0.5)
             strongest_direction = max(cert_pos, cert_neg)
-            # Score: high when BOTH directions are near 0.5 (genuine NEI)
-            p_ground_mean = float(np.clip(1.0 - 2.0 * strongest_direction, 0.0, 1.0))
+            # G30 FIX 2026-04-24: tighten bidirectional NEI threshold.
+            # The original formula (1 - 2·strongest_direction) was too
+            # permissive: defensive NEI with pos_mean ~0.45 and neg_mean
+            # ~0.45 would score 0.9+ and pass storage. In the Cycle-0
+            # audit, 3/3 stored NEI samples were defensive (wrong).
+            # Require BOTH directions within 0.10 of 0.5 for high score
+            # (otherwise stronger decay: 1 - 4·max).
+            decay = 4.0 if strongest_direction > 0.10 else 2.0
+            p_ground_mean = float(np.clip(1.0 - decay * strongest_direction, 0.0, 1.0))
             # For the MAX, use the symmetric peak of either direction.
             p_ground_max = float(np.clip(max(pos_max, neg_max), 0.0, 1.0))
             return (p_ground_max, p_ground_mean)
