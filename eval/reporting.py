@@ -95,6 +95,7 @@ from eval.metrics import (
     decision_breakdown,
     forward_transfer,
     hallucination_rate,
+    hallucination_subtypes,
     mcnemar_test,
     reliability_bins,
     unsupported_correct_rate,
@@ -571,6 +572,54 @@ def build_table_grounding(cycles_data) -> Tuple[List[str], List[Dict[str, Any]]]
 
 
 # -----------------------------------------------------------------------------
+# Table 5.3b -- Hallucination subtypes (taxonomy decomposition, 2026-04-24)
+# -----------------------------------------------------------------------------
+
+def build_table_halluc_subtypes(cycles_data) -> Tuple[List[str], List[Dict[str, Any]]]:
+    """Per-cycle per-benchmark hallucination subtype rates.
+
+    Decomposes the aggregate `hallucination_rate` into 9 measurable
+    subtypes covering the LLM hallucination taxonomy (Huang et al. 2024
+    survey). See `eval.metrics.hallucination_subtypes` for definitions.
+
+    Subtypes overlap deliberately — a single confidently-wrong off-topic
+    answer counts in `confident_confabulation_rate`, `off_topic_rate`,
+    and likely `factual_fabrication_rate`. The aggregate is NOT the sum;
+    subtypes surface failure-mode composition for diagnosis.
+    """
+    fieldnames = [
+        "cycle", "benchmark", "n",
+        "confident_confabulation_rate",
+        "factual_fabrication_rate",
+        "factual_contradiction_rate",
+        "logical_fabrication_rate",
+        "off_topic_rate",
+        "defensive_evasion_rate",
+        "template_leak_rate",
+        "false_refusal_rate",
+        "over_long_rate",
+    ]
+    rows: List[Dict[str, Any]] = []
+
+    for cycle, bm_map in cycles_data.items():
+        for bm, payload in bm_map.items():
+            samples = payload.get("samples", [])
+            n = len(samples)
+            try:
+                subtypes = hallucination_subtypes(samples)
+            except Exception:
+                subtypes = {}
+            row = {"cycle": cycle, "benchmark": bm, "n": n}
+            for k in fieldnames:
+                if k not in row:
+                    v = subtypes.get(k)
+                    row[k] = _round_or_nan(v) if v is not None else float("nan")
+            rows.append(row)
+
+    return fieldnames, rows
+
+
+# -----------------------------------------------------------------------------
 # Table 5.5 -- Data Purity (Stage-5 decision breakdown)
 # -----------------------------------------------------------------------------
 
@@ -787,6 +836,7 @@ TABLE_FILES = {
     "halluc":            "tab_halluc.csv",
     "grounding":         "tab_grounding.csv",
     "purity":            "tab_purity.csv",
+    "halluc_subtypes":   "tab_halluc_subtypes.csv",  # 2026-04-24 — taxonomy decomposition
     "continual":         "tab_continual.csv",
     # Within-CAEM cycle-over-cycle progression (cycle N vs. cycle 0). The
     # CAEM-vs-baseline significance table (chapter_5.tex \ref{tab:sig-test})
@@ -840,6 +890,7 @@ def build_ch5_tables(
         "halluc":      lambda: build_table_halluc(cycles_data),
         "grounding":   lambda: build_table_grounding(cycles_data),
         "purity":      lambda: build_table_purity(cycles_data),
+        "halluc_subtypes": lambda: build_table_halluc_subtypes(cycles_data),
         "continual":   lambda: build_table_continual(cycles_data, mmlu_per_cycle),
         "cycle_progression": lambda: build_table_cycle_progression(cycles_data),
     }
@@ -871,6 +922,7 @@ __all__ = [
     "build_table_halluc",
     "build_table_grounding",
     "build_table_purity",
+    "build_table_halluc_subtypes",
     "build_table_continual",
     "build_table_cycle_progression",
     "build_ch5_tables",

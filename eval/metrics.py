@@ -394,6 +394,126 @@ def extract_arc_label(text: str) -> str:
 # Hallucination rate (operational proxy)
 # -----------------------------------------------------------------------------
 
+_EVASIVE_RX = re.compile(
+    r"the\s+context\s+(?:does\s*not|doesn'?t)\s+(?:mention|provide|contain|discuss)|"
+    r"no\s+information\s+(?:is\s+)?(?:provided|given|available|mentioned)|"
+    r"information\s+(?:is\s+)?not\s+provided|"
+    r"cannot\s+(?:determine|verify|be\s+determined)",
+    re.IGNORECASE,
+)
+_TEMPLATE_LEAK_RX = re.compile(
+    r"<(?:concise|factual|your|scaffold|answer)[a-z_ ]*>|"
+    r"\[(?:your\s+answer|answer\s+here)\]",
+    re.IGNORECASE,
+)
+
+
+def hallucination_subtypes(
+    samples: Sequence[Dict[str, Any]],
+    *,
+    u_threshold: float = 0.50,
+    p_ground_atomic_threshold: float = 0.30,
+    p_entail_threshold: float = 0.30,
+    p_contra_threshold: float = 0.30,
+    q_a_relevance_threshold: float = 0.50,
+    long_prediction_chars: int = 600,
+) -> Dict[str, float]:
+    """Decompose hallucination rate into 7 measurable subtypes.
+
+    Each rate = #samples matching the subtype condition / #samples total.
+    Some subtypes are not mutually exclusive — a single sample may count
+    in multiple subtypes (e.g., a confident wrong off-topic answer counts
+    in `confident_confabulation_rate`, `off_topic_rate`, and possibly
+    `factual_fabrication_rate`). The aggregate `hallucination_rate` is
+    NOT the sum; subtypes overlap deliberately to surface failure modes.
+
+    Subtypes
+    --------
+    confident_confabulation_rate
+        EM=0 AND u_stored ≥ u_threshold. Same as hallucination_rate(),
+        kept here for symmetry. Costliest — model wrong + apparently
+        confident enough to pass the gate.
+    factual_fabrication_rate
+        EM=0 AND p_ground_atomic < p_ground_atomic_threshold. Atomic
+        claims in the answer fail per-claim grounding — model invented
+        sub-facts.
+    factual_contradiction_rate
+        EM=0 AND p_contra > p_contra_threshold. Retrieved passages
+        actively contradict the answer. Note: under MiniCheck (the
+        default), p_contra ≈ 0 by construction so this rate is 0;
+        meaningful only under the roberta_nli_backend ablation.
+    logical_fabrication_rate
+        EM=0 AND p_entail < p_entail_threshold. Reasoning chain doesn't
+        derive the answer — answer doesn't logically follow.
+    off_topic_rate
+        EM=0 AND q_a_relevance < q_a_relevance_threshold. Answer is
+        topically unrelated to the question.
+    defensive_evasion_rate
+        EM=0 AND prediction matches evasive pattern regex. "Context
+        doesn't mention X" instead of attempting an answer when evidence
+        was actually present.
+    template_leak_rate
+        Prediction matches template-leak regex regardless of EM.
+        Catches placeholder strings (<concise factual answer>) that
+        leaked from the prompt template.
+    false_refusal_rate
+        Decision in {ABSTAIN, DISCARD} AND EM=1.0. Model refused to
+        answer when it actually had the right answer in its prediction.
+    over_long_rate
+        EM=0 AND len(prediction) > long_prediction_chars. Verbose
+        padding correlated with wrongness.
+
+    Returns
+    -------
+    Dict[str, float] -- per-subtype rate ∈ [0, 1]
+    """
+    if not samples:
+        return {}
+    n = len(samples)
+    counts = {
+        "confident_confabulation_rate": 0,
+        "factual_fabrication_rate":     0,
+        "factual_contradiction_rate":   0,
+        "logical_fabrication_rate":     0,
+        "off_topic_rate":               0,
+        "defensive_evasion_rate":       0,
+        "template_leak_rate":           0,
+        "false_refusal_rate":           0,
+        "over_long_rate":               0,
+    }
+    for s in samples:
+        em = s.get("em") or 0.0
+        is_wrong = em == 0.0
+        is_correct = em == 1.0
+        u_stored = s.get("u_stored") or 0.0
+        p_ga = s.get("p_ground_atomic")
+        p_pe = s.get("p_entail")
+        p_co = s.get("p_contra") or 0.0
+        q_ar = s.get("q_a_relevance")
+        decision = s.get("decision")
+        pred = s.get("prediction") or ""
+
+        if is_wrong and u_stored >= u_threshold:
+            counts["confident_confabulation_rate"] += 1
+        if is_wrong and p_ga is not None and p_ga < p_ground_atomic_threshold:
+            counts["factual_fabrication_rate"] += 1
+        if is_wrong and p_co > p_contra_threshold:
+            counts["factual_contradiction_rate"] += 1
+        if is_wrong and p_pe is not None and p_pe < p_entail_threshold:
+            counts["logical_fabrication_rate"] += 1
+        if is_wrong and q_ar is not None and q_ar < q_a_relevance_threshold:
+            counts["off_topic_rate"] += 1
+        if is_wrong and _EVASIVE_RX.search(pred):
+            counts["defensive_evasion_rate"] += 1
+        if _TEMPLATE_LEAK_RX.search(pred):
+            counts["template_leak_rate"] += 1
+        if is_correct and decision in ("ABSTAIN", "DISCARD"):
+            counts["false_refusal_rate"] += 1
+        if is_wrong and len(pred) > long_prediction_chars:
+            counts["over_long_rate"] += 1
+    return {k: v / n for k, v in counts.items()}
+
+
 def hallucination_rate(
     em_scores: Sequence[float],
     u_stored_values: Sequence[Optional[float]],
