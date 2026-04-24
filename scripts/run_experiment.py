@@ -493,7 +493,11 @@ def run_per_cycle_recalibration(
     output_dir: Path,
     cycle: int,
 ) -> None:
-    """Unconditional per-cycle temperature re-fit at the end of Cycle `cycle`.
+    """Per-cycle temperature re-fit at the end of Cycle `cycle`.
+
+    2026-04-24: now respects CAEMConfig.skip_per_cycle_temperature.
+    When True (production mode without labels), this is a silent no-op
+    and T stays at its current value (frozen until offline refresh).
 
     Conservative recalibration protocol (Ovadia et al. NeurIPS 2019,
     Thulasidasan et al. 2019): T is the only runtime-active calibration
@@ -509,6 +513,15 @@ def run_per_cycle_recalibration(
     Called at the end of each cycle, after retroactive re-verification
     and memory-store save, before the next cycle's fine-tuning.
     """
+    # Production-mode skip: no labels available for ECE → T stays frozen
+    if getattr(config, "skip_per_cycle_temperature", False):
+        logger.info(
+            "Cycle %d: skip_per_cycle_temperature=True (production mode); "
+            "T frozen at %.4f. Refresh T offline via labeled batch.",
+            cycle, getattr(config, "temperature_scalar", 1.0),
+        )
+        return
+
     calib_dir = output_dir / "calibration"
     calib_dir.mkdir(parents=True, exist_ok=True)
 

@@ -263,6 +263,25 @@ class CAEMConfig:
     # Higher alpha = slower drift (more stable). 0.7 is a moderate default.
     adaptive_thresholds_ema_alpha: float = 0.7
 
+    # 2026-04-24: granular T-skip for production deployment.
+    # ─── When False (research/default) ────────────────────────────────
+    #   Per-cycle T re-fit runs as before (calibrate_pipeline_temperature_only),
+    #   using gold labels from the calibration fold to minimize ECE.
+    # ─── When True (production deployment) ────────────────────────────
+    #   Per-cycle T re-fit is bypassed. T stays at its current value
+    #   (typically frozen from research-time fit). Use this in production
+    #   where gold labels are unavailable; refresh T periodically offline
+    #   via aggregated user feedback or quarterly human-labeled batches.
+    #
+    # Interaction with adaptive_thresholds_per_cycle:
+    #   - Both False: classic frozen-everything mode (legacy)
+    #   - Both True (research default): label-driven recalibration of both
+    #     T and thresholds at every cycle
+    #   - skip_T=True, adaptive_thresholds=True (production deploy):
+    #     thresholds keep adapting label-free; T frozen until offline refresh
+    #   - skip_T=True, adaptive_thresholds=False: degenerate (no adaptation)
+    skip_per_cycle_temperature: bool = False
+
     # Weights revised 2026-04-24 based on empirical Cohen's d on 1500-sample
     # Cycle-0 eval audit. Changes: (1) add p_ground_max to composite with
     # weight 0.18 (d=+0.148, was computed and ignored), (2) upweight
