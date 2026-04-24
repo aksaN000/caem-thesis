@@ -349,6 +349,145 @@ def emit_memory_growth(run_dir: Path, out_fig: Path) -> None:
 
 
 # ────────────────────────────────────────────────────────────────────── #
+# Artifact 5: Per-cycle α(t) trajectory — strengthened Claim 2 evidence
+# ────────────────────────────────────────────────────────────────────── #
+
+def emit_alpha_trajectory(
+    purity_results_json: Path,
+    out_fig: Path,
+) -> None:
+    """Per-cycle α (verification balanced accuracy) trajectory per benchmark.
+
+    Backs the strengthened Claim 2 (α(t) > ½ uniformly across all cycles).
+    Reads outputs/purity_validation/results.json which Step 19 writes,
+    structured as: rows: [{"benchmark": ..., "alpha_values": [α_0, α_1, ...]}]
+    """
+    if not purity_results_json.exists():
+        print(f"[fig] skip alpha-trajectory: {purity_results_json} not found "
+              f"(Step 19 purity validation hasn't run)")
+        return
+    try:
+        results = json.load(open(purity_results_json))
+    except Exception as exc:
+        print(f"[fig] failed to load {purity_results_json}: {exc}")
+        return
+
+    rows = results.get("rows") or results.get("per_benchmark") or []
+    bench_alphas: Dict[str, List[float]] = {}
+    for r in rows:
+        bm = r.get("benchmark")
+        a_vals = r.get("alpha_values") or []
+        if bm and a_vals:
+            bench_alphas[bm] = [float(v) for v in a_vals]
+    if not bench_alphas:
+        print(f"[fig] skip alpha-trajectory: no per-benchmark alpha data in {purity_results_json}")
+        return
+
+    try:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+    except Exception as exc:
+        print(f"[fig] matplotlib unavailable ({exc})")
+        return
+
+    fig, ax = plt.subplots(figsize=(8, 5))
+    colors = ["#1b9e77", "#d95f02", "#7570b3", "#e7298a", "#66a61e", "#e6ab02", "#a6761d"]
+    for i, (bm, vals) in enumerate(sorted(bench_alphas.items())):
+        cycles = list(range(len(vals)))
+        ax.plot(cycles, vals, "-o", color=colors[i % len(colors)], label=bm, alpha=0.8)
+    # Threshold line at α = 0.5 (Claim 2 floor)
+    ax.axhline(0.5, color="black", linestyle="--", alpha=0.6, linewidth=1.2,
+               label=r"$\alpha = 0.5$ (Claim 2 floor)")
+    ax.set_xlabel("Cycle")
+    ax.set_ylabel(r"$\alpha$ (verification balanced accuracy)")
+    ax.set_ylim(0, 1.05)
+    ax.set_title(r"Strengthened Claim 2: $\alpha(t) > 0.5$ uniformly across cycles + benchmarks")
+    ax.grid(True, alpha=0.3)
+    ax.legend(loc="lower right", ncol=2, fontsize=9)
+    plt.tight_layout()
+    out_fig.parent.mkdir(parents=True, exist_ok=True)
+    plt.savefig(out_fig, dpi=150)
+    plt.close()
+    print(f"[fig] {out_fig}")
+
+
+# ────────────────────────────────────────────────────────────────────── #
+# Artifact 6: Claim-evidence map (table)
+# ────────────────────────────────────────────────────────────────────── #
+
+CLAIM_EVIDENCE_MAP = [
+    # (Claim, Statement, Evidence artifact, Script)
+    ("Claim 1", "Memory routing emerges over cycles "
+                "(tier-1 frac climbs from 0\\% to plateau)",
+                "tab\\_headline.csv (tier1/2/3 frac per cycle); figure 5.7",
+                "make\\_tables.py + make\\_figures.py"),
+    ("Claim 2", "Purity bound: stored entries have $\\alpha > 0.5$ "
+                "for each cycle and benchmark",
+                "outputs/purity\\_validation/results.json (alpha\\_values per bench)",
+                "scripts/run\\_purity\\_validation.py (Step 19)"),
+    ("Claim 2*", "Strengthened: $\\alpha(t) > 0.5$ uniformly "
+                 "across all cycles and benchmarks",
+                 "fig\\_alpha\\_trajectory.pdf (per-cycle bench-overlay)",
+                 "scripts/generate\\_session5\\_artifacts.py (NEW)"),
+    ("Claim 3", "Self-improvement loop drives EM upward "
+                "across cycles on fixed eval fold",
+                "tab\\_headline (em per cycle per bench); figure 5.7",
+                "make\\_tables.py + make\\_figures.py"),
+    ("Claim 4", "No catastrophic forgetting: MMLU retention $\\geq$ floor",
+                "tab\\_continual (mmlu\\_retention\\_pct per cycle); figure 5.6",
+                "make\\_tables.py + make\\_figures.py"),
+    ("Claim 5", "NLIJudgeInterface modularity (NLI backend swappable)",
+                "Step 5.5.2 v5 diagnostic + caem/verification/judge\\_interface.py",
+                "scripts/calibration\\_minicheck\\_vs\\_roberta.py"),
+    ("Goal 2",  "q\\_a\\_relevance closes sample-2 failure (off-topic with "
+                "high p\\_ground)",
+                "Step 19.5 correlation matrix (q\\_a\\_relevance non-redundant)",
+                "scripts/signal\\_correlation\\_matrix.py"),
+    ("Session 5", "Adaptive thresholds: self-tuning $\\tau$ across cycles "
+                  "with target store rate $\\sim$30\\%",
+                  "fig\\_tau\\_trajectory.pdf + tab\\_calibration\\_trajectory",
+                  "scripts/aggregate\\_calibration\\_trajectory.py"),
+    ("Session 5", "Composite discrimination improved post-audit "
+                  "(Cohen's d $> 0.20$ per cycle)",
+                  "fig\\_composite\\_discrim\\_trajectory.pdf",
+                  "scripts/generate\\_session5\\_artifacts.py"),
+    ("Session 5", "Audit reduced memory poisoning "
+                  "(pre vs post comparison)",
+                  "fig\\_audit\\_before\\_after.pdf",
+                  "scripts/generate\\_session5\\_artifacts.py"),
+    ("Session 5", "4-surface calibration architecture "
+                  "(label-free $\\tau$ + offline T)",
+                  "Methods Ch 4 \\S production-deployment",
+                  "thesis prose"),
+]
+
+
+def emit_claim_evidence_map(out: Path) -> None:
+    lines = [
+        r"% Auto-generated by scripts/generate_session5_artifacts.py",
+        r"% Ch 5 §Claim-Evidence Map — every thesis claim mapped to its empirical artifact.",
+        r"\begin{table}[h]",
+        r"\centering\small",
+        r"\caption{Claim-evidence map: each thesis claim and the empirical "
+        r"artifact (table, figure, code) that backs it. Facilitates defense "
+        r"review and cross-reference verification.}",
+        r"\label{tab:claim_evidence_map}",
+        r"\begin{tabularx}{\linewidth}{l X X l}",
+        r"\toprule",
+        r"\textbf{Claim} & \textbf{Statement} & \textbf{Evidence artifact} & \textbf{Generated by} \\",
+        r"\midrule",
+    ]
+    for claim, statement, evidence, script in CLAIM_EVIDENCE_MAP:
+        lines.append(f"{claim} & {statement} & {evidence} & {script} \\\\")
+        lines.append(r"\addlinespace[2pt]")
+    lines += [r"\bottomrule", r"\end{tabularx}", r"\end{table}"]
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text("\n".join(lines) + "\n")
+    print(f"[tex] {out}")
+
+
+# ────────────────────────────────────────────────────────────────────── #
 # CLI
 # ────────────────────────────────────────────────────────────────────── #
 
@@ -366,8 +505,9 @@ def main() -> int:
                    default=Path("pre thesis 1 report/tables"))
     ns = p.parse_args()
 
-    # Always emit the static audit summary (no data dependency)
+    # Always emit the static tables (no data dependency)
     emit_audit_summary_tex(ns.out_tables / "tab_audit_summary.tex")
+    emit_claim_evidence_map(ns.out_tables / "tab_claim_evidence_map.tex")
 
     # Data-dependent artifacts
     emit_audit_before_after(
@@ -383,6 +523,11 @@ def main() -> int:
     emit_memory_growth(
         run_dir=ns.post_fix_run_dir,
         out_fig=ns.out_figures / "fig_memory_growth.pdf",
+    )
+    # Strengthened Claim 2 evidence — per-cycle α(t) trajectory
+    emit_alpha_trajectory(
+        purity_results_json=Path("outputs/purity_validation/results.json"),
+        out_fig=ns.out_figures / "fig_alpha_trajectory.pdf",
     )
     return 0
 
