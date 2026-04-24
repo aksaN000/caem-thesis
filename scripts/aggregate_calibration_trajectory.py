@@ -144,11 +144,14 @@ def collect_trajectory(run_dir: Path, cycle_0_dir: Path) -> List[Dict[str, Any]]
         "alpha_purity":      None,
     })
 
-    # Cycles 1..N from the full_run output
+    # Cycles 1..N from the full_run output (skip cycle_0 if it duplicates cycle_0_dir)
     if run_dir.exists():
         cycle_dirs = sorted(run_dir.glob("cycle_*"), key=lambda p: int(p.name.split("_")[1]))
         for cdir in cycle_dirs:
             n = int(cdir.name.split("_")[1])
+            # Skip cycle_0 in run_dir if cycle_0_dir already covered it
+            if n == 0:
+                continue
             row = {
                 "cycle": n,
                 "tau_store": None, "tau_defer": None, "tau_train": None,
@@ -189,9 +192,16 @@ def write_csv(rows: List[Dict[str, Any]], out: Path) -> None:
     out.parent.mkdir(parents=True, exist_ok=True)
     if not rows:
         return
-    keys = list(rows[0].keys())
+    # Union of all keys across rows; cycle-0 may be missing some that cycle-N has
+    keys: List[str] = []
+    seen = set()
+    for r in rows:
+        for k in r.keys():
+            if k not in seen:
+                seen.add(k)
+                keys.append(k)
     with open(out, "w", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=keys)
+        w = csv.DictWriter(f, fieldnames=keys, extrasaction="ignore")
         w.writeheader()
         for r in rows:
             w.writerow(r)
@@ -230,7 +240,7 @@ def write_latex(rows: List[Dict[str, Any]], out: Path) -> None:
             f"{r['cycle']} & "
             f"{fmt(r['tau_store'])} & {fmt(r['tau_defer'])} & {fmt(r['tau_train'])} & "
             f"{fmt(r['T'])} & "
-            f"{fmt_pct(r.get('store_rate'))} & {fmt_pct(r.get('defer_rate'))} & "
+            f"{fmt_pct(r.get('store_rate'))} & {fmt_pct(r.get('deferred_rate'))} & "
             f"{fmt_pct(r.get('discard_rate'))} & {fmt_pct(r.get('abstain_rate'))} & "
             f"{r.get('memory_size_total') or '--'} & "
             f"{fmt(r.get('alpha_purity'))} \\\\"
