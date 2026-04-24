@@ -234,12 +234,13 @@ class CAEMConfig:
     # question↔answer relevance axis; this is CAEM's pipeline-level
     # contribution for Goal 2. See branch_C.md §"Goal 2".
     # ------------------------------------------------------------------ #
-    # Adaptive thresholds (Phase 2 / production deployment)               #
+    # Adaptive thresholds (research + production)                         #
     # ------------------------------------------------------------------ #
-    # Default OFF for Phase 1a to preserve clean Claim 3 (SIL improvement)
-    # attribution: with frozen thresholds, em improvement over cycles is
-    # purely "model improved" rather than "model improved OR thresholds
-    # tightened to filter junk earlier" (confounded under adaptive mode).
+    # Default ON 2026-04-24: matches the existing per-cycle T re-fit
+    # pattern (Ovadia 2019, Thulasidasan 2019). Memory cap is 1M episodes
+    # so memory-bloat concerns from frozen mode don't apply at thesis
+    # scale, and Claim 3 (SIL improvement) is measured on a FIXED held-out
+    # eval fold so adaptive thresholds don't confound the trajectory.
     #
     # When ON, scripts/recalibrate_thresholds_at_cycle.py runs at every
     # cycle boundary, re-fitting (tau_store, tau_defer, tau_train) on the
@@ -250,11 +251,14 @@ class CAEMConfig:
     #   - Matches existing per-cycle T (temperature) re-fit pattern
     #     (run_per_cycle_recalibration in run_experiment.py)
     #   - Keeps composite weights frozen (Claim 2 anchor preserved)
+    #   - Label-free (only reads u_stored values, no gold answers needed)
     #
-    # Production deployments should enable this; research thesis runs
-    # leave it OFF for cleaner cross-cycle attribution.
+    # Production deployment uses the SAME setting (research-production
+    # parity). T calibration is the ONE label-dependent surface; in
+    # production it's frozen at research-time value and refreshed offline
+    # quarterly via aggregated user feedback or human-labeled batches.
     # See thesis Ch 6 §Production Deployment.
-    adaptive_thresholds_per_cycle: bool = False
+    adaptive_thresholds_per_cycle: bool = True
     # EMA smoothing factor: tau_new = alpha * tau_prev + (1-alpha) * tau_fit
     # Higher alpha = slower drift (more stable). 0.7 is a moderate default.
     adaptive_thresholds_ema_alpha: float = 0.7
