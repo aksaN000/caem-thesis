@@ -213,6 +213,7 @@ class TestComposite:
         cfg = CAEMConfig()
         w_sum = (
             cfg.u_stored_weight_pground_mean
+            + cfg.u_stored_weight_pground_max     # 2026-04-24: new in composite
             + cfg.u_stored_weight_pground_atomic
             + cfg.u_stored_weight_sc
             + cfg.u_stored_weight_se
@@ -227,7 +228,8 @@ class TestComposite:
         u = v._composite(p_ground_mean=1.0, p_ground_atomic=1.0,
                          s_avg=1.0, h_norm=0.0,
                          u_internal=1.0, p_entail=1.0,
-                         q_a_relevance=1.0)
+                         q_a_relevance=1.0,
+                         p_ground_max=1.0)     # 2026-04-24: new signal
         assert u == pytest.approx(1.0)
 
     def test_zero_inputs_land_at_zero(self):

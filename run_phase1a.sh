@@ -76,6 +76,31 @@ BASELINE_BENCHES="fever triviaqa natural_questions truthfulqa strategyqa arc_cha
 # dev samples provide Path B (Qwen-judge) eval trajectory evidence.
 
 # ============================================================================
+# Step 5.9 — Prompt smoke test (post-2026-04-24 prompt revision)
+# ============================================================================
+# After the G27/G28/G29 prompt revisions, confirm the new prompts still
+# produce parseable outputs with reduced evasion + no template leaks.
+# ~15 min on 5090 (loads Qwen, answers 30-50 probe questions).
+step_5_9_prompt_smoke() {
+    local out="outputs/prompt_smoke/results.json"
+    if [[ -f "$out" ]]; then
+        log "Step 5.9: prompt smoke test already done — skipping"
+        return 0
+    fi
+    band "Step 5.9 — prompt smoke test (validate 2026-04-24 prompt revision)"
+    mkdir -p outputs/prompt_smoke
+    if ! python scripts/prompt_smoke_test.py \
+        --n 10 \
+        --benchmarks fever triviaqa natural_questions \
+        --output "$out" \
+        2>&1 | tee outputs/prompt_smoke/run.log; then
+        log "FATAL: prompt smoke FAILED. Review $out, tune prompts, re-run."
+        return 2
+    fi
+    log "Step 5.9: prompt smoke PASSED — safe to re-seed"
+}
+
+# ============================================================================
 # Step 6 — Cold-start memory seeding under NEW uniform-scaffolded prompts
 # ============================================================================
 step_6_reseed() {
@@ -159,6 +184,34 @@ assert t["train"] > t["store"] > t["defer"], (
 print(f"Step 7.0.2 OK: backend={d.get('verifier_backend')}  "
       f"store={t['store']:.3f}  defer={t['defer']:.3f}  train={t['train']:.3f}")
 PY
+}
+
+# ============================================================================
+# Step 7.0.3 — Weight validation checkpoint (post-audit 2026-04-24)
+# ============================================================================
+# Analyzes Cycle-0 eval JSONs for composite discrimination power.
+# If weights are demonstrably broken (Cohen's d low, memory poisoning high,
+# inverted per-benchmark STORE advantage), exits non-zero to halt the runner
+# before 14-day Step 7 main commits. User reviews weight_validation.json,
+# tunes caem/config.py if needed, re-runs step_7_0_calibrate, resumes.
+step_7_0_3_validate_weights() {
+    local out="outputs/cycle_0/weight_validation.json"
+    if [[ -f "$out" ]]; then
+        log "Step 7.0.3: weight validation already done — skipping"
+        return 0
+    fi
+    band "Step 7.0.3 — validate u_stored weights on Cycle-0 eval data"
+    if ! python scripts/validate_composite_weights.py \
+        --eval_dir outputs/cycle_0/eval \
+        --output "$out" \
+        --cohen_d_threshold 0.20 \
+        --store_discard_gap 0.05 \
+        --max_poisoning_rate 0.30 \
+        2>&1 | tee -a outputs/cycle_0/run.log; then
+        log "FATAL: weight validation failed. Review $out, tune config.py, re-run."
+        return 2
+    fi
+    log "Step 7.0.3: weight validation PASSED — safe to proceed to Step 7 main"
 }
 
 # ============================================================================
@@ -701,9 +754,11 @@ main() {
     log "Repo: $PWD    Branch: $(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo '?')    Commit: $(git rev-parse --short HEAD 2>/dev/null || echo '?')"
 
     # --- Pre-launch (~10 h) ---
+    step_5_9_prompt_smoke   # 2026-04-24 audit: validate prompt revision before seeding
     step_6_reseed
     step_7_0_cycle0
     step_7_0_calibrate
+    step_7_0_3_validate_weights   # 2026-04-24 audit: validate composite weights before Step 7 main
     step_5_5_pairs
     step_5_5_headhead
     # step_5_5_gate: REMOVED (scenario classifier, 2026-04-20 decision is

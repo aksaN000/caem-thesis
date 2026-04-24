@@ -1350,9 +1350,21 @@ class UnifiedVerifier:
             self.model.eval()
             if len(samples) < 2:
                 return 0.5
+            # B5 FIX 2026-04-24: normalize on EXTRACTED answer, not full CoT.
+            # Previously full verbose reasoning chains were hashed — 5 dropout
+            # samples almost always produced 5 different chain texts (different
+            # reasoning paths, same answer), saturating var=0.8 on 84.6% of
+            # inputs. Now we extract the short answer from each chain so
+            # "Reasoning: A...\nAnswer: X" and "Reasoning: B...\nAnswer: X"
+            # hash identically → max_count reflects answer-level consensus
+            # rather than chain-level variance.
             counts: dict = {}
             for s in samples:
-                k = re.sub(r"[^\w\s]", "", s.lower()).strip()
+                extracted = _extract_display_answer(s)
+                k = re.sub(r"[^\w\s]", "", extracted.lower()).strip()
+                if not k:
+                    # fallback: hash on full string if extraction returned empty
+                    k = re.sub(r"[^\w\s]", "", s.lower()).strip()
                 counts[k] = counts.get(k, 0) + 1
             max_count = max(counts.values())
             var = 1.0 - (max_count / float(K))

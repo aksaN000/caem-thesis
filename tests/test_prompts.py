@@ -93,7 +93,8 @@ def test_chatml_tier2_structure_open():
     # Open-ended few-shot (Great Wall) should appear
     assert "Great Wall of China" in prompt
     assert "Who painted the Mona Lisa?" in prompt
-    assert "<concise factual answer>" in prompt
+    # 2026-04-24: placeholder revised to short factual answer spec (G29 fix)
+    assert "short factual answer" in prompt
 
 
 def test_chatml_tier3_includes_real_passages():
@@ -152,7 +153,7 @@ def test_chatml_tier2_all_four_benchmarks_answer_format():
          "Answer with just the multiple choice letter.",
          "A | B | C | D"),
         ("Who was the first person on the moon?",
-         "<concise factual answer>"),
+         "short factual answer"),
     ]
     for q, expected_format in cases:
         prompt, _ = build_tier2_prompt(q, tokenizer=tok)

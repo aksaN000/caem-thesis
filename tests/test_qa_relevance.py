@@ -143,6 +143,7 @@ class TestComposite:
         cfg = CAEMConfig()
         w_sum = (
             cfg.u_stored_weight_pground_mean
+            + cfg.u_stored_weight_pground_max     # 2026-04-24: new in composite
             + cfg.u_stored_weight_pground_atomic
             + cfg.u_stored_weight_sc
             + cfg.u_stored_weight_se
@@ -161,6 +162,7 @@ class TestComposite:
                 s_avg=target, h_norm=1.0 - target,
                 u_internal=target, p_entail=target,
                 q_a_relevance=target,
+                p_ground_max=target,    # 2026-04-24: new signal
             )
             assert u == pytest.approx(target, abs=1e-6)
 
@@ -178,14 +180,19 @@ class TestComposite:
     def test_qa_relevance_default_keeps_composite_runnable(self):
         v = _blank_verifier()
         # Exercise the default-argument branch -- legacy callers that do
-        # not thread q_a_relevance through still produce a finite composite
-        # (value depends on the other six signals + the 0.5 q_a default).
+        # not thread q_a_relevance / p_ground_max through still produce a
+        # finite composite (value depends on the other signals at 1.0 +
+        # q_a defaults to 0.5, p_ground_max defaults to 0.0).
         u = v._composite(
             p_ground_mean=1.0, p_ground_atomic=1.0, s_avg=1.0,
             h_norm=0.0, u_internal=1.0, p_entail=1.0,
         )
-        # 0.86 * 1.0 + 0.14 * 0.5 = 0.93
-        assert u == pytest.approx(0.93, abs=1e-6)
+        # 2026-04-24 weights: everything-at-1 contributes:
+        # p_ground_mean(0.22) + p_ground_atomic(0.06) + s_avg(0.10)
+        # + (1-h_norm)*se(0.02) + u_internal(0.08) + p_entail(0.14)
+        # + q_a_relevance_default_0.5 * 0.20 + p_ground_max_default_0.0 * 0.18
+        # = 0.22 + 0.06 + 0.10 + 0.02 + 0.08 + 0.14 + 0.10 + 0 = 0.72
+        assert u == pytest.approx(0.72, abs=1e-6)
 
 
 # -----------------------------------------------------------------------------
