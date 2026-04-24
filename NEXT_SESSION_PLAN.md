@@ -1,6 +1,160 @@
 # CAEM — Next Session Plan (Vast.ai Runbook)
 
-**Updated: 2026-04-22 evening | Phase 1a (Self-Funded) + Phase 1 Full (3-ablation) Execution Plan**
+**Updated: 2026-04-24 03:30 UTC | Session 5 — Audit + Adaptive Calibration**
+
+---
+
+## Session 5 delta (2026-04-24) — supersedes earlier sessions on the topics listed
+
+### What this session did
+
+A 4-pass audit of the verifier on 1500 cycle-0 samples uncovered 30 bugs across input field routing, signal calibration, composite formula, decision tree, memory poisoning, prompts, and validation gaps. **27 bugs fixed** in 12 commits; 3 are architecturally correct-by-design. The runner was relaunched and currently runs Step 6 reseed under all fixes.
+
+### Headline architectural changes
+
+| Change | Status | Commit |
+|---|---|---|
+| **Adaptive thresholds per cycle (label-free)** | DEFAULT ON | `100fda4` |
+| **Granular `skip_per_cycle_temperature` flag (production mode)** | Added, default False | `27c783a` |
+| **Composite weights revised + p_ground_max added** | Live | `817ecbc` |
+| **Input field routing: pass display_answer to verifier** | Live | `817ecbc` |
+| **Storage sanitizer (template + evasive pattern blockers)** | Live | `817ecbc` |
+| **u_dropout saturation fix (extract answer before hash)** | Live | `d2d0f94` |
+| **Bidirectional NEI threshold tightened (4× decay > 0.10)** | Live | `817ecbc` |
+| **Prompt revision (G27/G28/G29: anti-evasion + no template leak)** | Live | `817ecbc` |
+| **Memory schema: entry.answer = display_answer** | Live | `817ecbc` |
+| **Step 5.9 prompt smoke gate (pre-Step-6)** | Added | `d2d0f94` |
+| **Step 7.0.3 weight validation gate (post-7.0.2)** | Added | `d2d0f94` |
+| **scripts/aggregate_calibration_trajectory.py (thesis tables)** | Added, tested | `27c783a + a64da3e` |
+| **Ship 1: production confidence envelope (continuous + tag)** | Added | `637df25` |
+| **Ship 2: CLI REPL + FastAPI demo server** | Added | `9996131` |
+
+### Updated u_stored composite (revised 2026-04-24, sum=1.00)
+
+```
+0.22·p_ground_mean + 0.18·p_ground_max  + 0.06·p_ground_atomic
++ 0.14·p_entail    + 0.20·q_a_relevance + 0.10·s_avg
++ 0.08·u_internal  + 0.02·(1 − h_norm)
+```
+
+Changes vs Session 4 weights:
+- `q_a_relevance` 0.14 → 0.20 (strongest signal Cohen's d=+0.367)
+- `p_ground_max` 0 → 0.18 (was computed but ignored; d=+0.148)
+- `p_ground_atomic` 0.14 → 0.06 (99% crashed under verbose-prediction bug; conservative floor pending validation)
+- All others trimmed proportionally
+
+### CAEM 4-surface calibration architecture
+
+| Surface | Research mode (Phase 1a) | Production deployment |
+|---|---|---|
+| **Adaptive thresholds τ** | Per-cycle EMA-smoothed quantile re-fit (label-free) | Same — label-free |
+| **Temperature T** | Per-cycle re-fit using gold labels (ECE-driven) | Frozen + offline quarterly refresh via `scripts/run_calibration.py` with human-labeled batch |
+| **Memory entry u_stored** | Per-retrieval feedback_loop_eta (continuous) | Same |
+| **Composite weights** | Frozen by design (Claim 2 anchor) | Same |
+
+`CAEMConfig.skip_per_cycle_temperature: bool = False` — set True in production deploy to skip T re-fit; frozen T stays at last value.
+
+### Updated `run_phase1a.sh` main() order (Session 5)
+
+```
+step_5_9_prompt_smoke               ← NEW: validates prompt revision pre-Step-6
+step_6_reseed
+step_7_0_cycle0
+step_7_0_calibrate
+step_7_0_3_validate_weights         ← NEW: Cohen's d gate, halts on regression
+step_5_5_pairs
+step_5_5_headhead
+step_19_2_slice
+step_platt_calibrate
+step_hf_upload_pre_main
+step_u_tok_drop_gate
+step_7_main                         ← 14-day headline (10 cycles)
+                                    ── HALT here, rewire baselines/ablations cycle count ──
+step_9_b1
+step_10_b2
+step_11_5_b5
+step_11_b3
+step_12_b4
+step_14_b6_vanilla_ft               ← NEEDS rewire (currently hardcodes cycles=10)
+step_15_b7_ewc_only_ft              ← NEEDS rewire (same)
+step_15_5_sig
+step_19_purity
+step_19_2_eval
+step_19_5_corr
+step_20_aggregate
+```
+
+### What the runner executes WITHOUT manual intervention
+
+- **All steps from Step 5.9 through step_20_aggregate** will execute automatically
+- **Auto-halts only on validation failure**: step_5_9_prompt_smoke (FATAL exit 2) or step_7_0_3_validate_weights (FATAL exit 2)
+- **Manual halt recommended after step_7_main** to rewire B6/B7 + ablation cycle counts (per memory `caem_stop_after_step7_main.md`)
+- **NOT auto-launched**: `run_phase1_full_ablations.sh` is a separate script; run manually after baselines complete
+
+### What's stale from earlier sessions
+
+- ~~Session 4 §"u_stored composite weights"~~ — superseded by Session 5 weights table above
+- ~~Session 4 §"Phase 1a runner main() order"~~ — superseded by updated order above (steps 5.9 + 7.0.3 added)
+- Lower sessions: **historical record only**; defer to Session 5 on any conflict
+
+### Forward plan
+
+```
+Phase A  Phase 1a runner (in progress, ~17-20 days)
+  ├── Step 6 reseed (in progress, started 03:05 UTC)
+  ├── Step 7.0 cycle_0 eval (~8h)
+  ├── pre-main steps 7.0.2-7.0.3-5.5-19.2-platt-HF-u_tok_drop (~2h)
+  ├── Step 7 main (10 cycles, 14 days) ← HALT to rewire B6/B7
+  ├── Baselines B1-B5 (~8h batched), B6+B7 (~50h FT)
+  ├── Ablation sweep (manual launch, ~75h)
+  └── Diagnostics 19_purity + 19.2 + 19.5 + 20
+
+Phase B  Artifact generation (1 day)
+  ├── scripts/aggregate_calibration_trajectory.py
+  ├── scripts/render_production_samples.py
+  ├── scripts/calibration_alpha_curve.py --per_cycle_thresholds_dir
+  ├── scripts/make_figures.py + make_tables.py
+  └── scripts/baseline_sig_tests.py + aggregate_ablation.py
+
+Phase C  Thesis writing (~10 days, can parallelize with Phase A's Step 7 main)
+  ├── Ch 4 §Calibration: adaptive thresholds + production deployment paragraphs
+  ├── Ch 4 Theory: 4 proofs (uniformity, EMA convergence, label-free, cross-cycle)
+  ├── Ch 5 §Results: per-cycle calibration trajectory, production envelope
+  ├── Ch 6 §Deployment: 4-surface architecture, research-production parity
+  └── Ch 6 §Limitations: distribution-pathology, T-offline-refresh, signal-orthogonality
+
+Phase D  Defense prep (~1 week)
+  ├── Ship 2 polish (live demo against cycle_10 memory)
+  ├── Backup demo video
+  ├── Ship 3 (optional ollama parity)
+  └── Practice with examiner-style probe questions
+
+Phase E  Submission + defense day
+```
+
+### Critical commits to reference (Session 5)
+
+- `8926117` bf16 reranker
+- `637df25` Ship 1
+- `9996131` Ship 2
+- `817ecbc` Audit fix batch 1 (input routing + prompt + sanitizer + composite)
+- `d2d0f94` Audit fix batch 2 (B5 u_dropout + validation gates + tests)
+- `b672a73` Smoke threshold + adaptive opt-in flag
+- `f680a6f` Smoke uses real archived questions
+- `100fda4` Adaptive thresholds default flipped ON
+- `0a3740c` Smoke NEI threshold deferred to Step 7.0
+- `27c783a` Granular T-skip + trajectory aggregator
+- `094ecb4` calibration_alpha_curve adaptive support
+- `a64da3e` Trajectory aggregator end-to-end test fixes
+
+### Tests: 874 passing, 2 skipped on feat/qwen-3b-goal1 (up from 769 in Session 4)
+
+End-to-end verified (Session 5):
+- ✓ Step 5.9 prompt smoke PASSED on real archived questions
+- ✓ skip_per_cycle_temperature=True bypasses T re-fit
+- ✓ recalibrate_thresholds_at_cycle.py EMA arithmetic exact
+- ✓ aggregate_calibration_trajectory.py CSV+TeX (3 bugs found + fixed)
+- ✓ validate_composite_weights.py correctly identifies broken signals
 
 ---
 
