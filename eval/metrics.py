@@ -514,6 +514,114 @@ def hallucination_subtypes(
     return {k: v / n for k, v in counts.items()}
 
 
+def composite_hallucination_metric(
+    samples: Sequence[Dict[str, Any]],
+    *,
+    weight_overrides: Optional[Dict[str, float]] = None,
+    measured_subtypes: Optional[Sequence[str]] = None,
+) -> Dict[str, Any]:
+    """Single composite hallucination metric — mean prevalence across the
+    9 measured taxonomy subtypes, with equal weights by default.
+
+    Definition
+    ----------
+        CHM = (1/N) × Σ subtype_rate_i        (default: equal weights)
+
+    where N is the number of measured subtypes (default 9). Subtypes
+    overlap: a single bad sample can count in multiple. CHM therefore
+    measures *mean failure-mode prevalence* across the taxonomy, NOT the
+    fraction of samples with any hallucination (that would be the union
+    rate, computed separately as `union_rate` in the returned dict).
+
+    Why equal weights
+    -----------------
+    Each taxonomy subtype represents a structurally distinct failure
+    mode. Weighting one subtype higher than another would privilege a
+    specific definition (e.g., Farquhar's confident confabulation) over
+    others (e.g., off-topic answers). Equal weighting tracks reduction
+    uniformly across the taxonomy.
+
+    Coverage of the 11-subtype taxonomy
+    ----------------------------------
+        Strong (measured + actively reduced):  6
+          confident_confabulation, factual_fabrication,
+          factual_contradiction, off_topic, defensive_evasion,
+          template_leak
+        Partial (measured, partial reduction): 3
+          logical_fabrication, false_refusal, over_long
+        Phase 2 (not measured here):           2
+          source_fabrication, sycophancy
+
+    Returns
+    -------
+    Dict with keys:
+        chm                       — equal-weighted mean of subtype rates
+        union_rate                — fraction with ANY subtype firing
+        n_measured_subtypes       — 9 by default
+        per_subtype_rates         — same dict as hallucination_subtypes()
+        weights                   — equal 1/N or override
+    """
+    if not samples:
+        return {
+            "chm": 0.0, "union_rate": 0.0,
+            "n_measured_subtypes": 0,
+            "per_subtype_rates": {}, "weights": {},
+        }
+
+    rates = hallucination_subtypes(samples)
+    measured = list(measured_subtypes) if measured_subtypes else list(rates.keys())
+    measured = [m for m in measured if m in rates]
+
+    # Equal weights by default; override if specified
+    if weight_overrides:
+        weights = {m: float(weight_overrides.get(m, 1.0)) for m in measured}
+    else:
+        weights = {m: 1.0 for m in measured}
+    weight_sum = sum(weights.values()) or 1.0
+    norm_weights = {m: weights[m] / weight_sum for m in measured}
+
+    chm = sum(norm_weights[m] * rates[m] for m in measured)
+
+    # Union rate: fraction of samples where ANY subtype condition fires.
+    # Re-walk the samples to count "at least one issue" per sample.
+    if not samples:
+        union = 0.0
+    else:
+        any_count = 0
+        for s in samples:
+            em = s.get("em") or 0.0
+            is_wrong = em == 0.0
+            is_correct = em == 1.0
+            u_stored = s.get("u_stored") or 0.0
+            p_ga = s.get("p_ground_atomic")
+            p_pe = s.get("p_entail")
+            p_co = s.get("p_contra") or 0.0
+            q_ar = s.get("q_a_relevance")
+            decision = s.get("decision")
+            pred = s.get("prediction") or ""
+            if (
+                (is_wrong and u_stored >= 0.50) or
+                (is_wrong and p_ga is not None and p_ga < 0.30) or
+                (is_wrong and p_co > 0.30) or
+                (is_wrong and p_pe is not None and p_pe < 0.30) or
+                (is_wrong and q_ar is not None and q_ar < 0.50) or
+                (is_wrong and _EVASIVE_RX.search(pred)) or
+                _TEMPLATE_LEAK_RX.search(pred) or
+                (is_correct and decision in ("ABSTAIN", "DISCARD")) or
+                (is_wrong and len(pred) > 600)
+            ):
+                any_count += 1
+        union = any_count / len(samples)
+
+    return {
+        "chm": chm,
+        "union_rate": union,
+        "n_measured_subtypes": len(measured),
+        "per_subtype_rates": rates,
+        "weights": norm_weights,
+    }
+
+
 def hallucination_rate(
     em_scores: Sequence[float],
     u_stored_values: Sequence[Optional[float]],

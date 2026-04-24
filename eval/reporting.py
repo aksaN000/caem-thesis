@@ -92,6 +92,7 @@ from eval.metrics import (
     brier_score,
     ces_score,
     confabulation_rate,
+    composite_hallucination_metric,
     decision_breakdown,
     forward_transfer,
     hallucination_rate,
@@ -589,6 +590,10 @@ def build_table_halluc_subtypes(cycles_data) -> Tuple[List[str], List[Dict[str, 
     """
     fieldnames = [
         "cycle", "benchmark", "n",
+        # Composite metrics (one number summarising taxonomy reduction)
+        "chm_equal_weighted",      # Composite Hallucination Metric — mean prevalence
+        "union_rate",              # Fraction of samples with ANY subtype firing
+        # Per-subtype rates (for decomposition)
         "confident_confabulation_rate",
         "factual_fabrication_rate",
         "factual_contradiction_rate",
@@ -606,10 +611,17 @@ def build_table_halluc_subtypes(cycles_data) -> Tuple[List[str], List[Dict[str, 
             samples = payload.get("samples", [])
             n = len(samples)
             try:
-                subtypes = hallucination_subtypes(samples)
+                composite = composite_hallucination_metric(samples)
+                subtypes = composite["per_subtype_rates"]
+                chm = composite["chm"]
+                union = composite["union_rate"]
             except Exception:
-                subtypes = {}
-            row = {"cycle": cycle, "benchmark": bm, "n": n}
+                subtypes, chm, union = {}, float("nan"), float("nan")
+            row = {
+                "cycle": cycle, "benchmark": bm, "n": n,
+                "chm_equal_weighted": _round_or_nan(chm),
+                "union_rate":         _round_or_nan(union),
+            }
             for k in fieldnames:
                 if k not in row:
                     v = subtypes.get(k)
