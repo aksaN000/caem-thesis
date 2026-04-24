@@ -403,6 +403,89 @@ def run_calibration_step(
         )
 
 
+def run_per_cycle_threshold_refit(
+    config,
+    output_dir: Path,
+    cycle: int,
+) -> None:
+    """Optional per-cycle u_stored threshold re-fit with EMA smoothing.
+
+    Opt-in via CAEMConfig.adaptive_thresholds_per_cycle (default False).
+    Mirrors the per-cycle T re-fit pattern, but for the storage gate
+    thresholds. Reads the cycle's calibration JSONs (same disjoint slice
+    used for T re-fit), refits via quantile cuts, EMA-smooths with the
+    previous cycle's thresholds, writes calibrated_thresholds_cycle{N}.json.
+
+    Run loop is responsible for loading the most recent thresholds file
+    on resume / next-cycle start (mirrors the T loader at line ~1247).
+
+    No-op when adaptive_thresholds_per_cycle is False (Phase 1a default).
+    """
+    if not getattr(config, "adaptive_thresholds_per_cycle", False):
+        return  # silent no-op for Phase 1a
+
+    import subprocess
+    from pathlib import Path as _Path
+
+    calib_dir = output_dir / "calibration"
+    if cycle == 0:
+        # Cycle 0 thresholds come from Step 7.0.2 calibrate; nothing to refit
+        return
+
+    # Find this cycle's calibration JSONs (mirrors T re-fit's source pool)
+    cycle_calib = sorted((output_dir / f"cycle_{cycle}" / "calibration").glob("*.json"))
+    if not cycle_calib:
+        logger.warning(
+            "Adaptive thresholds: cycle %d calibration fold not found; skipping refit.",
+            cycle,
+        )
+        return
+
+    # Find previous cycle's thresholds for EMA smoothing
+    prev_thresholds = None
+    for prev_cycle in range(cycle - 1, -1, -1):
+        candidate = output_dir / f"cycle_{prev_cycle}" / "calibrated_thresholds.json"
+        if candidate.exists():
+            prev_thresholds = candidate
+            break
+    if prev_thresholds is None:
+        # Fall back to Step 7.0.2 baseline
+        candidate = _Path("outputs/cycle_0/calibrated_thresholds.json")
+        if candidate.exists():
+            prev_thresholds = candidate
+
+    out = output_dir / f"cycle_{cycle}" / "calibrated_thresholds.json"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    cmd = [
+        "python", "scripts/recalibrate_thresholds_at_cycle.py",
+        "--calib_jsons", *[str(p) for p in cycle_calib],
+        "--output_json", str(out),
+        "--ema_alpha", str(getattr(config, "adaptive_thresholds_ema_alpha", 0.7)),
+    ]
+    if prev_thresholds is not None:
+        cmd.extend(["--previous_thresholds", str(prev_thresholds)])
+
+    logger.info("Cycle %d: per-cycle threshold re-fit (adaptive mode ON).", cycle)
+    try:
+        subprocess.run(cmd, check=True)
+        # Update in-memory config so the next cycle sees new thresholds
+        with open(out) as f:
+            d = json.load(f)
+        t = d["thresholds"]
+        config.store_threshold = t["store"]
+        config.defer_threshold = t["defer"]
+        config.train_threshold = t["train"]
+        logger.info(
+            "Adaptive thresholds applied: store=%.4f  defer=%.4f  train=%.4f",
+            t["store"], t["defer"], t["train"],
+        )
+    except subprocess.CalledProcessError as exc:
+        logger.warning(
+            "Cycle %d adaptive threshold refit failed (%s); keeping previous thresholds.",
+            cycle, exc,
+        )
+
+
 def run_per_cycle_recalibration(
     pipeline,
     calib_samples: Dict[str, list],
@@ -1428,6 +1511,11 @@ def run_experiment(ns: argparse.Namespace) -> None:
             run_per_cycle_recalibration(
                 pipeline, calib_samples, config, output_dir, cycle=cycle_num,
             )
+            # 2026-04-24: Per-cycle threshold re-fit (opt-in via
+            # CAEMConfig.adaptive_thresholds_per_cycle). Default OFF for
+            # Phase 1a; ON for production deployment. Mirrors the T re-fit
+            # protocol above.
+            run_per_cycle_threshold_refit(config, output_dir, cycle=cycle_num)
 
         logger.info("Cycle %d done in %.1f min.", cycle_num, (time.time() - t0) / 60)
 

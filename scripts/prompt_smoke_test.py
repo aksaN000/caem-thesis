@@ -61,7 +61,13 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--passage_index", type=Path, default=Path("data/passage_index"))
     p.add_argument("--max_leak_rate", type=float, default=0.02)
     p.add_argument("--max_evasive_rate", type=float, default=0.30)
-    p.add_argument("--max_fever_nei_rate", type=float, default=0.55)
+    # FEVER NEI rate is meaningful only when real passages are retrieved.
+    # Synthetic-sample mode (no real FAISS passages) legitimately yields
+    # 100% NEI — model has no evidence so "not enough info" IS the correct
+    # answer. The threshold below is lenient by default (0.95). Set to a
+    # tighter value (e.g. 0.55) when running this script on real-passage
+    # samples (Step 6 input mix).
+    p.add_argument("--max_fever_nei_rate", type=float, default=0.95)
     return p.parse_args()
 
 

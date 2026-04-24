@@ -233,6 +233,32 @@ class CAEMConfig:
     # question). None of the other grounding or entailment signals check the
     # question↔answer relevance axis; this is CAEM's pipeline-level
     # contribution for Goal 2. See branch_C.md §"Goal 2".
+    # ------------------------------------------------------------------ #
+    # Adaptive thresholds (Phase 2 / production deployment)               #
+    # ------------------------------------------------------------------ #
+    # Default OFF for Phase 1a to preserve clean Claim 3 (SIL improvement)
+    # attribution: with frozen thresholds, em improvement over cycles is
+    # purely "model improved" rather than "model improved OR thresholds
+    # tightened to filter junk earlier" (confounded under adaptive mode).
+    #
+    # When ON, scripts/recalibrate_thresholds_at_cycle.py runs at every
+    # cycle boundary, re-fitting (tau_store, tau_defer, tau_train) on the
+    # current cycle's calibration fold and EMA-smoothing with the previous
+    # cycle's values. This:
+    #   - Auto-tunes to deployment user mix (no source_benchmark needed)
+    #   - Maintains constant store rate as model improves cycle-over-cycle
+    #   - Matches existing per-cycle T (temperature) re-fit pattern
+    #     (run_per_cycle_recalibration in run_experiment.py)
+    #   - Keeps composite weights frozen (Claim 2 anchor preserved)
+    #
+    # Production deployments should enable this; research thesis runs
+    # leave it OFF for cleaner cross-cycle attribution.
+    # See thesis Ch 6 §Production Deployment.
+    adaptive_thresholds_per_cycle: bool = False
+    # EMA smoothing factor: tau_new = alpha * tau_prev + (1-alpha) * tau_fit
+    # Higher alpha = slower drift (more stable). 0.7 is a moderate default.
+    adaptive_thresholds_ema_alpha: float = 0.7
+
     # Weights revised 2026-04-24 based on empirical Cohen's d on 1500-sample
     # Cycle-0 eval audit. Changes: (1) add p_ground_max to composite with
     # weight 0.18 (d=+0.148, was computed and ignored), (2) upweight
