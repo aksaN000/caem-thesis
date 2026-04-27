@@ -16,6 +16,7 @@ $u_{\text{internal}}$ & $0.5u_{\text{tok}}{+}0.5(1{-}u_{\text{drop}})$ & $s_{\te
 $p_{\text{entail}}$ & Chain-to-answer NLI entailment & $h_{\text{norm}}$ & Normalised semantic entropy, $K{=}10$ \\
 $p_{\text{ground,max}}$ & Top-$1$ passage entailment & $p_{\text{ground,mean}}$ & Mean entailment over top-$3$ \\
 $p_{\text{ground,atomic}}$ & Length-gated atomic-fact entailment & $q_{\text{a,rel}}$ & Question-answer relevance \\
+\multicolumn{4}{@{}p{16cm}@{}}{\footnotesize $h_{\text{norm}}$ (normalised semantic entropy, $K{=}10$) was registered then retired post Cycle-0 audit (boost weight $\approx -5\times10^{-4}$); deployed verifier consumes nine signals.} \\
 $\taustore,\taudefer$ & Conformal store / defer thresholds & $\tautrain$ & Strict training-pool threshold \\
 $\tau_{\text{retro}}$ & Retroactive prune threshold ($0.50$) & $\tau_{\text{ttl}}$ & Deferred-buffer TTL (cycles) \\
 $\tau_{\text{cons}}$ & Memory consolidation cosine & $\phi_{\text{pg}}$ & Pre-routing safety floor \\

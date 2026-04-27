@@ -812,7 +812,13 @@ class UnifiedVerifier:
             s_avg = self._score_s_avg(chains)
             # A1 FIX: p_entail scores chain->display_answer (short hypothesis)
             p_entail = self._score_p_entail(chains, scoring_answer)
-            if se_samples is None:
+            # h_norm RETIRED 2026-04-27 — empirical boost weight ≈ −5e-4
+            # on cycle-0 cal-fold (n=1500). Skip K=10 stochastic generation
+            # and feed neutral sentinel into the composite isotonic+boost.
+            # Locked conformal gate stays valid (shift in u_stored ≤ 1.25e-4).
+            if getattr(self.config, "disable_h_norm", False):
+                h_norm = 0.5
+            elif se_samples is None:
                 h_norm = self._compute_h_norm(input_ids)
             else:
                 h_norm = self._h_norm_from_samples(se_samples)
@@ -1068,12 +1074,20 @@ class UnifiedVerifier:
         # don't include stale state from a previous batch.
         self._last_verify_stage_ms = {}
 
+        # h_norm retirement: skip the K-sample pool entirely when disabled.
+        # _pooled_sample_dual handles num_per_b=0 by returning empty se_samples
+        # for each item, which the per-sample verify path then ignores because
+        # disable_h_norm short-circuits to the 0.5 sentinel.
+        _se_k_active = (
+            0 if getattr(self.config, "disable_h_norm", False)
+            else self.config.se_samples_k
+        )
         chains_per_sample, se_samples_per_sample = self._pooled_sample_dual(
             queries=queries,
             num_per_a=self.config.sc_chains_m,
             temperature_a=0.7,
             label_a="m-chain",
-            num_per_b=self.config.se_samples_k,
+            num_per_b=_se_k_active,
             temperature_b=self.config.se_temperature,
             label_b="se-sample",
             max_new_tokens=self.config.cot_max_new_tokens,

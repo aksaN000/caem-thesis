@@ -418,6 +418,8 @@ class EvalHarness:
             "tier": result.tier,
             "stored": result.stored,
             "u_stored": result.u_stored,
+            "u_pre": (result.pre_confidence.u_pre
+                      if result.pre_confidence is not None else None),
             "latency_ms": result.latency_ms,
             "escalated": result.escalated,
             "pipeline_error": pipeline_error,
@@ -450,6 +452,7 @@ class EvalHarness:
             "tier": -1,
             "stored": False,
             "u_stored": None,
+            "u_pre": None,
             "latency_ms": 0.0,
             "escalated": False,
             "pipeline_error": f"{type(exc).__name__}: {exc}",

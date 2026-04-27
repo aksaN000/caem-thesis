@@ -141,6 +141,16 @@ class CAEMConfig:
     # [LIT] Farquhar et al. 2024: K=10 samples at T=1.0 for semantic entropy.
     se_samples_k: int = 10
     se_temperature: float = 1.0
+    # 2026-04-27 retirement: empirical Cherian boost weight for h_norm
+    # measured at -5e-4 on the cycle-0 cal-fold (n=1500, 10-signal fit) —
+    # statistically zero contribution to u_stored. K=10 stochastic
+    # generations were the largest verifier wall-clock contributor
+    # (~4 s/sample, ~40% of cal-fold step). Disabling routes the verifier
+    # to skip the K-sample pool and feed a neutral sentinel (0.5) into the
+    # composite isotonic+boost; locked composite_calibration.json + the
+    # conformal gate stay valid because the |w·iso| ≤ 5e-4 shift is two
+    # orders of magnitude below any decision threshold.
+    disable_h_norm: bool = True
 
     # NOTE (2026-04 refactor): the legacy u_hat post-generation escalation
     # gate (4 learnable weights + accept threshold) was removed when the
