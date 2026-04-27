@@ -610,6 +610,51 @@ class UnifiedVerifier:
             )
             self._conformal_gate = None
 
+    def reload_calibration(
+        self,
+        composite_path: str,
+        gate_path: str,
+    ) -> None:
+        """Rebind the cal-prob composite + conformal gate paths and re-init.
+
+        Used at cycle-boundary recalibration in run_experiment.py: after
+        scripts/recalibrate_conformal_at_cycle.py writes a fresh
+        ``cycle_{N}/composite_calibration.json`` and ``cycle_{N}/conformal_gate.json``
+        from the post-SIL calibration fold, the live verifier needs to swap
+        from the Cycle-0 JSONs (loaded at process start) to the cycle-N JSONs
+        BEFORE retroactive re-verification reads through it. Without this
+        reload the retroverify pass would still score memory entries through
+        stale Cycle-0 isotonic curves and over-prune EM-correct cold-seed
+        entries -- the bug fixed on 2026-04-27.
+
+        The underlying judges (MiniCheck, BGE reranker, SBERT, base
+        generator) are NOT touched -- only the cal-prob composite and the
+        conformal gate are rebound. This keeps the reload cost bounded to
+        a single JSON read per object (~ms) and avoids the multi-second
+        cost of reconstructing the verifier-judge models.
+
+        Parameters
+        ----------
+        composite_path : str
+            New CalProbComposite JSON path (e.g.,
+            ``outputs/full_run/cycle_3/composite_calibration.json``).
+        gate_path : str
+            New ConformalStorageGate JSON path (matching cycle).
+        """
+        # Update the config so subsequent _init_*() calls read the new paths.
+        self.config.composite_calibration_path = composite_path
+        self.config.conformal_gate_path = gate_path
+        # Drop the stale references explicitly so a JSON-load failure does
+        # NOT leave the verifier scoring through the previous cycle's data.
+        self._cal_prob_composite = None
+        self._conformal_gate = None
+        self._init_cal_prob_composite()
+        self._init_conformal_gate()
+        logger.info(
+            "Verifier calibration reloaded: composite=%s | gate=%s",
+            composite_path, gate_path,
+        )
+
     def _get_directional_scorer(self):
         # Defensive getattr: test-suite helpers sometimes construct a blank
         # verifier via object.__new__ which bypasses __init__, so the

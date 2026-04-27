@@ -1,0 +1,80 @@
+% ============================================================================
+% Appendix G — Architecture positioning: frequently asked questions
+% Status: COMPLETE.
+%
+% Scope: this appendix answers the comparative-positioning question that
+% reduces the entire architecture to its simplest skeptical form: "if we
+% are willing to spend an exact-match-labelled batch every cycle anyway,
+% what does CAEM contribute that plain fine-tuning on the same batch
+% would not?". The body of the thesis carries the full architectural
+% specification in formal academic register; this appendix lays out the
+% five load-bearing differentiators that justify the architecture even
+% under that simplest skeptical framing.
+% ============================================================================
+
+\chapter{Architecture positioning — frequently asked questions}
+\label{app:positioning-qa}
+
+The body chapters specify what CAEM does and how. This appendix answers \emph{why CAEM rather than the simpler alternative of plain exact-match-labelled fine-tuning at the same labelling budget}. Five differentiators carry the architecture's value, each independently load-bearing. The appendix takes them one at a time as direct comparative questions; the closing question returns the analysis to the deployment regimes where the simpler alternative would suffice.
+
+% ---------------------------------------------------------------------------- %
+
+\section{What does the per-query precision contract give a user that plain fine-tuning cannot?}
+\label{app:qa-precision-contract}
+
+Plain fine-tuning at the same labelling budget produces a model with an average exact-match accuracy on the held-out evaluation set; the deployed system serves whatever the model generates, with no per-query confidence axis. CAEM's calibrated-probability composite paired with the conformal storage gate produces a different deliverable: at every query the system outputs a calibrated probability $\ustored$ that the served answer is correct, and at the storage threshold $\tau_{\text{store}}$ the conformal procedure guarantees an empirical-precision lower bound of $1-\alpha_{\text{store}}$ on any future fold drawn from the same distribution under the exchangeability assumption.
+
+The user-facing consequence is the abstain class. A query whose composite is below the deferral threshold and whose grounding is below the abstention floor returns an explicit refusal rather than a guessed answer. Plain fine-tuning has no analogous behaviour; the model serves an answer to every query because it has no machinery for deciding when not to answer. For deployments where confident-but-wrong answers carry a higher cost than refusals (clinical question answering, legal document review, customer-facing knowledge serving), the abstain class is the architectural deliverable that plain fine-tuning structurally cannot produce regardless of how much the model is fine-tuned. The published rate of confident-but-wrong outputs in the medical-question-answering domain reaches 69--77\% \cite{alkaissi2023artificial}, and TruthfulQA's inverse-scaling result \cite{lin-etal-2022-truthfulqa} establishes that scaling alone does not close this regime; only an architectural intervention with a per-query confidence axis does.
+
+% ---------------------------------------------------------------------------- %
+
+\section{The memory-direct tier saves inference cost — but does that saving survive at small deployment scale?}
+\label{app:qa-memory-direct}
+
+A memory-direct query serves an answer through a sentence-embedding cosine search over the FAISS-backed episodic memory and returns the stored answer at retrieval-only cost. A zero-shot generation through the same generator pays the full forward-pass cost. A retrieval-augmented generation pays the FAISS lookup cost plus the cross-encoder reranker cost plus the forward-pass cost over a longer context. The per-tier cost ratio at the registered hardware envelope is reported in \Cref{sec:tier-cost}; the memory-direct path is meaningfully cheaper than either generation path.
+
+The cost saving is not constant across scale. At one query per hour the per-query saving is operationally invisible; at the deployment scale projected in \Cref{sec:econ-deployment} the saving compounds across millions of queries. The architectural value of the memory-direct tier is therefore conditional on deployment scale, but it is also conditional on the fraction of queries the memory-direct tier can serve confidently — a fraction that grows monotonically across cycles as the verifier admits more verified episodes (Theorem~\ref{thm:purity}). Plain fine-tuning has no equivalent mechanism: every query pays the full forward-pass cost regardless of how many times the question has been seen, because the knowledge is baked into the weights rather than retrievable as a separable episode. At any scale where the memory-direct hit rate exceeds the architectural overhead of the verifier ensemble, the cost saving is binding; the locked configuration is engineered to enter that regime by approximately Cycle 5.
+
+% ---------------------------------------------------------------------------- %
+
+\section{What does asymmetric rollback give the operator that a manual checkpoint backup does not?}
+\label{app:qa-asymmetric-rollback}
+
+The retention guard at every cycle boundary measures the post-fine-tune model on the held-out general-knowledge probe and computes the retention ratio $\rho = \mathrm{MMLU}_{\text{post}} / \mathrm{MMLU}_{\text{pre}}$. When $\rho < 0.93$ the cycle is declared aborted: the weights revert to the previous cycle's parameters, and the new memory written during the cycle is preserved unchanged. The architectural property is that the model is replaceable but the memory is not.
+
+Plain fine-tuning has no equivalent guarantee even when the operator manually keeps the previous checkpoint. The reason is that plain fine-tuning at any cycle commits both the weights and the gradient signal that produced them; rolling the weights back rolls back the cycle's accumulated training experience entirely. CAEM's separation of weights from memory means a failed cycle costs only the cycle's fine-tune compute but does not lose the verified episodes that the cycle accumulated. The next cycle inherits the previous cycle's weights together with the larger memory, and the retroactive re-verification pass at the next cycle boundary refreshes the stored composites under the rolled-back generator. This asymmetric-rollback property is the architectural anchor for Theorem~\ref{thm:convergence}'s monotone structure: memory accumulates strictly across cycles even when weights do not. A weights-only architecture has no monotonicity property to anchor.
+
+% ---------------------------------------------------------------------------- %
+
+\section{If both architectures need exact-match-labelled data at the cycle boundary, how does CAEM use ten to a hundred times fewer labels?}
+\label{app:qa-sample-efficiency}
+
+Plain fine-tuning consumes exact-match-labelled samples as the gradient signal. The number of labelled samples drives the size of the supervised-learning fine-tune; ten thousand to one hundred thousand labelled samples per fine-tune is the conventional supervised-learning budget. CAEM consumes exact-match-labelled samples for a different purpose: the labelled batch at every cycle boundary validates the conformal precision contract on the storage class. Approximately three thousand labelled samples per cycle is sufficient for stable per-signal isotonic curves and stable conformal-threshold fits; the labels are not driving the gradient signal but bounding the precision-floor guarantee.
+
+The mechanism that produces the order-of-magnitude difference is the verifier ensemble. The verifier runs label-free on every query and admits to memory only the high-confidence subset of traffic; the cycle boundary's labelled batch is a stratified sample of approximately three thousand entries drawn from the memory-admission distribution rather than from the unlabelled-traffic distribution. The architecture spends labels validating the verifier rather than training the generator. Plain fine-tuning at the same three-thousand-sample budget would produce a much weaker fine-tune because three thousand labels carrying the gradient signal directly under-trains a three-billion-parameter model. The architecture's labelling budget is therefore not the same instrument as the plain-fine-tuning labelling budget; it is a verifier-precision-validation instrument that is informationally efficient by a factor of ten to a hundred.
+
+% ---------------------------------------------------------------------------- %
+
+\section{What does the composite catch at inference time that a fine-tune cannot fix?}
+\label{app:qa-composite-catches}
+
+A fine-tune updates the generator's weights so that the model is more likely to produce the correct answer on questions it has seen. The fine-tune does not alter the model's behaviour on a specific in-flight query that is hallucinating because of a property the training data did not cover: a fresh trivia question on a recently-changed world fact, an off-topic-but-grounded answer that drifts from the question's intent, a confidently-wrong output where the model has a strong prior toward a misconception. These failure modes are not closeable by parametric updates because they are first-order properties of the model's prior, not properties the training data instances reveal.
+
+The calibrated-probability composite catches each of these failure modes at inference time through a different signal family. Confidently-wrong outputs trip the early-exit conjunction $(u_{\text{internal}} \ge 0.70) \wedge (p_{\text{ground,max}} \le 0.20)$, route to retrieval-augmented regeneration, and avoid serving the hallucinated answer. Off-topic-but-grounded outputs are caught by the question-answer relevance signal $q_{\text{a,rel}}$, which scores the served answer against the question through a separate cross-encoder that the generator does not influence. Common-misconception outputs that match the model's prior are caught by the sample-set agreement family: the chain-to-answer entailment probability $p_{\text{entail}}$, the average pairwise similarity $s_{\text{avg}}$ over $M=3$ resampled chains, and the normalised semantic entropy $h_{\text{norm}}$ over $K=10$ resampled chains. The verifier's value at inference time is structurally orthogonal to the value that fine-tuning provides; once the fine-tune saturates against the parametric capacity of the generator, the architecture continues to add value because every query is still re-checked through the verifier ensemble before serving. \citet{xiong2023can} report that any single confidence signal reaches an area-under-the-curve in the range $0.50$ to $0.60$ for distinguishing correct from incorrect outputs; the composite aggregates ten signals across four families through per-signal isotonic regression and a regularised logistic boost layer to produce a calibrated correctness probability that no single signal can match.
+
+% ---------------------------------------------------------------------------- %
+
+\section{When would CAEM not be worth deploying?}
+\label{app:qa-when-not}
+
+The architecture is not a free contribution. Each of the five differentiators above corresponds to an architectural component whose cost is non-zero: the verifier ensemble pays forward passes through MiniCheck, the cross-encoder, and the sentence encoder at every query; the labelled cycle-boundary batch requires ongoing labelling effort; the cycle policy requires operational discipline. The architecture is worth deploying exactly when at least one of the five differentiators is binding for the deployment, and is not worth deploying when all five relax simultaneously:
+
+\begin{itemize}[leftmargin=2em]
+\item Deployments with no requirement for an abstain class.
+\item Deployments where memory-direct cost savings do not compound (very low traffic, or a product requirement that every query traverse the same path for uniformity).
+\item Deployments where a manual previous-checkpoint backup is sufficient and an external snapshot pipeline already solves the catastrophic-forgetting recovery problem.
+\item Deployments with a labelling budget large enough to support frequent direct fine-tuning, where the verifier-as-sample-efficiency-multiplier value collapses because labelling cost is not the binding constraint.
+\item Deployments below the parametric-capacity ceiling of the underlying generator, where direct fine-tuning still produces meaningful accuracy gains so the inference-time-error-catching value of the composite is dominated by what fine-tuning would also provide.
+\end{itemize}
+
+A deployment that satisfies all five conditions simultaneously is one where plain fine-tuning at the same labelling budget would deliver comparable user-facing quality with simpler implementation. A deployment that fails any one of these conditions is one where the corresponding architectural component is binding. The thesis's value proposition is the regime where at least one of the five conditions binds; the empirical receipts in \Cref{ch:evaluation} measure the contribution of each component on the registered seven-benchmark workload, where every component is binding by construction of the failure-mode taxonomy in \Cref{sec:hallucination-taxonomy}.
