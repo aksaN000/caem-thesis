@@ -49,22 +49,18 @@ import json
 import logging
 import math
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
 
 CALIB_BENCHMARK_DEFAULTS = ["fever", "triviaqa", "natural_questions"]
 CALIB_BENCHMARK_SPLITS = {
-    # Calibration is normally carved from the SIL training pool (content-hash
-    # disjoint from train-stream via caem.benchmark_splits). The training
-    # benchmarks below are the canonical calibration sources; transfer-only
-    # entries remain for ad-hoc CLI invocations but are NOT used by the
-    # runbook chain. ASQA is Branch C transfer-only and intentionally absent.
+    # Calibration is carved from the SIL training pool.
     "fever": "train",
     "triviaqa": "train",
     "natural_questions": "train",
-    # Ad-hoc fallbacks (not used by run_phase1a.sh):
+    # Optional transfer-only benchmarks.
     "truthfulqa": "validation",
     "strategyqa": "test",
     "arc_challenge": "test",
@@ -278,6 +274,7 @@ def collect_calibration_data(
     calib_samples: Dict[str, list],
     *,
     record_jsonl_path: Optional[Path] = None,
+    batch_size: int = 32,
 ) -> Tuple[List[float], List[int], List[List[float]], List[int]]:
     """Run calibration samples through the pipeline and collect signals.
 
@@ -285,6 +282,14 @@ def collect_calibration_data(
     ----------
     pipeline     : CAEMPipeline
     calib_samples: dict[bm -> list of BenchmarkSample]
+    batch_size   : int, default 32 -- number of samples processed in a
+        single ``BatchPipeline.answer_batch`` call. Larger batches amortise
+        kernel-launch overhead at the cost of GPU memory; the default
+        matches the harness wiring example. Set to 1 to fall back to a
+        per-sample serial path equivalent to the legacy implementation
+        (useful for debugging numerical drift). Numerical equivalence
+        bounds: u_stored ≤ 1e-3, signals ≤ 1e-2 (see caem/pipeline_batch.py
+        lines 18-24 -- well below calibration bin discretisation).
 
     Returns
     -------
@@ -299,6 +304,7 @@ def collect_calibration_data(
     signal_matrix   : list of [u_token, u_dropout, u_sc, u_entropy]
     signal_labels   : list of int   -- 1 = EM correct (same as u_pre_labels)
     """
+    from caem.pipeline_batch import BatchPipeline, BatchSample
     from eval.metrics import (
         exact_match,
         extract_arc_label,
@@ -340,69 +346,150 @@ def collect_calibration_data(
     # values from the calibration fold (disjoint from the eval fold).
     per_sample_records: List[Dict[str, Any]] = []
 
+    # Wrap the serial pipeline once for the whole collection. BatchPipeline
+    # is a thin orchestration wrapper around CAEMPipeline; constructing it is
+    # cheap (no GPU/model state -- just keeps a reference). Reusing one
+    # instance across batches avoids any per-batch setup overhead.
+    batch_pipeline = BatchPipeline(pipeline)
+
+    def _ingest_one(bm: str, sample: dict, result) -> None:
+        """Per-sample bookkeeping shared by the batched and serial paths.
+
+        Lifted out of the inner loop so the batched call site can reuse it
+        unchanged, keeping the JSONL schema, signal-matrix population, and
+        u_pre_labels list co-indexed with signal_labels exactly as the
+        serial implementation produced them.
+        """
+        # u_pre as a logit proxy (already in [0,1]; convert for NLL)
+        u_pre = result.pre_confidence.u_pre if result.pre_confidence else 0.5
+
+        # EM label (benchmark-aware, aligned with eval/harness.py)
+        gold = sample.get("answers", [])
+        gold_label = sample.get("gold_label")
+        em = _score_em(result.answer, gold, gold_label, bm)
+
+        u_pre_logits.append(u_pre)
+        u_pre_labels.append(int(em))
+
+        # Per-sample dump for threshold calibration (Chapter 4
+        # Eq:threshold-calibration). Must be done here, not downstream,
+        # because only calibration-fold samples are seen here and the
+        # disjointness guarantee requires they never mix with eval.
+        vout_for_dump = getattr(result, "verifier_output", None)
+        # Dump ALL 10 verifier primary signals required by
+        # scripts/fit_composite_calibration.py + fit_conformal_gate.py.
+        # cal_prob_composite.COMPOSITE_SIGNALS lists exactly:
+        #   u_token, u_dropout, u_internal, s_avg, h_norm, p_entail,
+        #   p_ground_max, p_ground_mean, p_ground_atomic, q_a_relevance.
+        # If only a subset is dumped, the per-signal isotonic fitter
+        # produces a degenerate composite (saw 2-feature regression on
+        # 2026-04-25 06:14 UTC -> tau_store=1.0, store_n=0). The getattr
+        # default 0.0 keeps this forward-compatible: q_a_relevance is a
+        # post-Goal-2 attribute that may not exist on every snapshot of
+        # UnifiedVerifierOutput; missing attributes degrade gracefully
+        # to a flat isotonic curve at the fitter level.
+        per_sample_records.append({
+            "benchmark": bm,
+            "id": sample.get("id"),
+            "u_pre": float(u_pre),
+            "em": float(em),
+            "decision": getattr(vout_for_dump, "decision", None)
+                if vout_for_dump is not None else None,
+            # Composite output (kept for backward compat with older
+            # downstream consumers that read u_stored directly).
+            "u_stored": float(getattr(vout_for_dump, "u_stored", 0.0))
+                if vout_for_dump is not None else None,
+            # All 10 verifier primary signals.
+            "u_token":         float(getattr(vout_for_dump, "u_token", 0.0))         if vout_for_dump is not None else None,
+            "u_dropout":       float(getattr(vout_for_dump, "u_dropout", 0.0))       if vout_for_dump is not None else None,
+            "u_internal":      float(getattr(vout_for_dump, "u_internal", 0.0))      if vout_for_dump is not None else None,
+            "s_avg":           float(getattr(vout_for_dump, "s_avg", 0.0))           if vout_for_dump is not None else None,
+            "h_norm":          float(getattr(vout_for_dump, "h_norm", 0.0))          if vout_for_dump is not None else None,
+            "p_entail":        float(getattr(vout_for_dump, "p_entail", 0.0))        if vout_for_dump is not None else None,
+            "p_ground_max":    float(getattr(vout_for_dump, "p_ground_max", 0.0))    if vout_for_dump is not None else None,
+            "p_ground_mean":   float(getattr(vout_for_dump, "p_ground_mean", 0.0))   if vout_for_dump is not None else None,
+            "p_ground_atomic": float(getattr(vout_for_dump, "p_ground_atomic", 0.0)) if vout_for_dump is not None else None,
+            "q_a_relevance":   float(getattr(vout_for_dump, "q_a_relevance", 0.0))   if vout_for_dump is not None else None,
+        })
+
+        # Signal matrix -- sourced from UnifiedVerifierOutput (Stage 5).
+        # Session-42 merge: PostGenerationConfidenceEstimator was
+        # removed; _tier2 now always emits post_confidence=None.
+        # The four calibration signals now live on vout:
+        #   u_token       = vout.u_token
+        #   u_dropout     = vout.u_dropout
+        #   u_consistency = vout.s_avg          (mean pairwise sim across M chains)
+        #   u_entropy     = 1 - vout.h_norm     (complement of normalised semantic entropy)
+        # Tier-1 hits skip Stage 5 and therefore have vout=None; they
+        # are excluded from the signal matrix (correct: they carry no
+        # post-generation signals). Both Tier-2 and Tier-3 verified
+        # samples are included, which is a superset of the pre-fix
+        # Tier-2-only collection path.
+        # IMPORTANT: signal_labels must be co-indexed with signal_matrix.
+        # Appending here (not above) ensures length parity.
+        vout = getattr(result, "verifier_output", None)
+        if vout is not None:
+            signals = [
+                float(getattr(vout, "u_token", 0.5)),
+                float(getattr(vout, "u_dropout", 0.5)),
+                float(getattr(vout, "s_avg", 0.5)),
+                float(1.0 - getattr(vout, "h_norm", 0.5)),
+            ]
+            signal_matrix.append(signals)
+            signal_labels.append(int(em))
+
+    # Sanitise batch_size: <=0 would silently return zero-length chunks and
+    # collect no calibration data; clamp to >=1. The BatchPipeline call with
+    # a single-element list is well-defined and exercises the same code path
+    # as the multi-sample case (only the batch dim shrinks), preserving the
+    # numerical-equivalence contract for the degenerate case.
+    chunk = max(1, int(batch_size))
+
     for bm, samples in calib_samples.items():
-        for sample in samples:
+        for start in range(0, len(samples), chunk):
+            chunk_samples = samples[start:start + chunk]
+            # Build BatchSample list. store_to_memory=False matches the
+            # serial pipeline.answer(..., store_to_memory=False) call so
+            # calibration never mutates the cycle's memory store.
+            batch_inputs = [
+                BatchSample(
+                    query=s["question"],
+                    store_to_memory=False,
+                    source_benchmark=bm,
+                )
+                for s in chunk_samples
+            ]
+            # Submit one batch. If the whole batch raises (e.g. CUDA OOM),
+            # fall back to per-sample serial answer() so a single problem
+            # sample doesn't lose the entire chunk's calibration signal.
             try:
-                result = pipeline.answer(sample["question"], store_to_memory=False)
-                # u_pre as a logit proxy (already in [0,1]; convert for NLL)
-                u_pre = result.pre_confidence.u_pre if result.pre_confidence else 0.5
+                results = batch_pipeline.answer_batch(batch_inputs)
+            except Exception as batch_exc:
+                logger.warning(
+                    "Calibration batch (bm=%s, start=%d, n=%d) failed: %s -- "
+                    "falling back to per-sample serial path.",
+                    bm, start, len(chunk_samples), batch_exc,
+                )
+                results = []
+                for s in chunk_samples:
+                    try:
+                        results.append(
+                            pipeline.answer(s["question"], store_to_memory=False)
+                        )
+                    except Exception as serial_exc:
+                        logger.debug("Calibration sample skipped: %s", serial_exc)
+                        results.append(None)
 
-                # EM label (benchmark-aware, aligned with eval/harness.py)
-                gold = sample.get("answers", [])
-                gold_label = sample.get("gold_label")
-                em = _score_em(result.answer, gold, gold_label, bm)
-
-                u_pre_logits.append(u_pre)
-                u_pre_labels.append(int(em))
-
-                # Per-sample dump for threshold calibration (Chapter 4
-                # Eq:threshold-calibration). Must be done here, not downstream,
-                # because only calibration-fold samples are seen here and the
-                # disjointness guarantee requires they never mix with eval.
-                vout_for_dump = getattr(result, "verifier_output", None)
-                per_sample_records.append({
-                    "benchmark": bm,
-                    "id": sample.get("id"),
-                    "u_pre": float(u_pre),
-                    "u_stored": float(getattr(vout_for_dump, "u_stored", 0.0))
-                        if vout_for_dump is not None else None,
-                    "u_token": float(getattr(vout_for_dump, "u_token", 0.0))
-                        if vout_for_dump is not None else None,
-                    "h_norm": float(getattr(vout_for_dump, "h_norm", 0.0))
-                        if vout_for_dump is not None else None,
-                    "em": float(em),
-                    "decision": getattr(vout_for_dump, "decision", None)
-                        if vout_for_dump is not None else None,
-                })
-
-                # Signal matrix -- sourced from UnifiedVerifierOutput (Stage 5).
-                # Session-42 merge: PostGenerationConfidenceEstimator was
-                # removed; _tier2 now always emits post_confidence=None.
-                # The four calibration signals now live on vout:
-                #   u_token       = vout.u_token
-                #   u_dropout     = vout.u_dropout
-                #   u_consistency = vout.s_avg          (mean pairwise sim across M chains)
-                #   u_entropy     = 1 - vout.h_norm     (complement of normalised semantic entropy)
-                # Tier-1 hits skip Stage 5 and therefore have vout=None; they
-                # are excluded from the signal matrix (correct: they carry no
-                # post-generation signals). Both Tier-2 and Tier-3 verified
-                # samples are included, which is a superset of the pre-fix
-                # Tier-2-only collection path.
-                # IMPORTANT: signal_labels must be co-indexed with signal_matrix.
-                # Appending here (not above) ensures length parity.
-                vout = getattr(result, "verifier_output", None)
-                if vout is not None:
-                    signals = [
-                        float(getattr(vout, "u_token", 0.5)),
-                        float(getattr(vout, "u_dropout", 0.5)),
-                        float(getattr(vout, "s_avg", 0.5)),
-                        float(1.0 - getattr(vout, "h_norm", 0.5)),
-                    ]
-                    signal_matrix.append(signals)
-                    signal_labels.append(int(em))
-
-            except Exception as exc:
-                logger.debug("Calibration sample skipped: %s", exc)
+            # Per-sample bookkeeping. Wrapping each sample individually so a
+            # single bad result (e.g. EM scorer raising on malformed gold)
+            # doesn't kill bookkeeping for the rest of the chunk.
+            for s, result in zip(chunk_samples, results):
+                if result is None:
+                    continue
+                try:
+                    _ingest_one(bm, s, result)
+                except Exception as exc:
+                    logger.debug("Calibration sample skipped: %s", exc)
 
     logger.info(
         "Calibration data: %d u_pre samples, %d signal-matrix samples "
@@ -449,6 +536,8 @@ def calibrate_pipeline(
     calib_samples: Dict[str, list],
     config,
     output_dir: Path,
+    *,
+    batch_size: int = 32,
 ) -> Dict:
     """Fit temperature scalar T on u_pre; update config in-place; save to disk.
 
@@ -460,6 +549,9 @@ def calibrate_pipeline(
     calib_samples : dict[bm -> list of BenchmarkSample]
     config        : CAEMConfig -- updated in-place with fitted T
     output_dir    : Path -- save calibrated_config.json here
+    batch_size    : int, default 32 -- forwarded to
+        :func:`collect_calibration_data` to control GPU batch size for
+        the calibration sweep. Default matches the eval-harness wiring.
 
     Returns
     -------
@@ -478,6 +570,7 @@ def calibrate_pipeline(
         collect_calibration_data(
             pipeline, calib_samples,
             record_jsonl_path=output_dir / "calibration_fold_samples.json",
+            batch_size=batch_size,
         )
 
     if not u_pre_logits:
@@ -562,6 +655,8 @@ def calibrate_pipeline_temperature_only(
     config,
     output_dir: Path,
     cycle: int,
+    *,
+    batch_size: int = 32,
 ) -> Dict:
     """Re-fit only the temperature scalar T on the disjoint calibration slice.
 
@@ -588,7 +683,9 @@ def calibrate_pipeline_temperature_only(
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    u_pre_logits, u_pre_labels, _, _ = collect_calibration_data(pipeline, calib_samples)
+    u_pre_logits, u_pre_labels, _, _ = collect_calibration_data(
+        pipeline, calib_samples, batch_size=batch_size,
+    )
     if not u_pre_logits:
         logger.warning(
             "Cycle %d temperature re-fit: no calibration data collected; "
@@ -728,7 +825,6 @@ if __name__ == "__main__":
 
     from eval.benchmarks import (
         load_arc_challenge,
-        load_asqa,
         load_fever,
         load_natural_questions,
         load_strategyqa,
@@ -744,8 +840,9 @@ if __name__ == "__main__":
         "fever": lambda: load_fever(split=CALIB_BENCHMARK_SPLITS["fever"]),
         "triviaqa": lambda: load_triviaqa(split=CALIB_BENCHMARK_SPLITS["triviaqa"]),
         "natural_questions": lambda: load_natural_questions(split=CALIB_BENCHMARK_SPLITS["natural_questions"]),
-        # asqa, truthfulqa, strategyqa, arc_challenge: transfer-only;
-        # no calibration pool under Branch C.
+        "truthfulqa": lambda: load_truthfulqa(),
+        "strategyqa": lambda: load_strategyqa(split=CALIB_BENCHMARK_SPLITS["strategyqa"]),
+        "arc_challenge": lambda: load_arc_challenge(split=CALIB_BENCHMARK_SPLITS["arc_challenge"]),
     }
 
     unknown_benchmarks = [bm for bm in requested_benchmarks if bm not in loader_by_benchmark]

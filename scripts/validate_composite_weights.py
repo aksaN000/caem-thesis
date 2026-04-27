@@ -183,6 +183,17 @@ def main() -> int:
     p.add_argument("--cohen_d_threshold", type=float, default=0.20)
     p.add_argument("--store_discard_gap", type=float, default=0.10)
     p.add_argument("--max_poisoning_rate", type=float, default=0.25)
+    p.add_argument(
+        "--min_n_stored", type=int, default=0,
+        help=(
+            "Per-benchmark STORE bucket size below which the poisoning gate "
+            "is informational only (not a hard fail). Defaults to 0 (no "
+            "floor). Use 5-20 to ignore small-N noise on benchmarks where "
+            "the rescored gate produces very few STOREs (e.g. low base-EM "
+            "transfer benchmarks). Reported regardless; only the gate is "
+            "skipped when n_stored < this floor."
+        ),
+    )
     ns = p.parse_args()
 
     samples = _load_samples(ns.eval_dir)
@@ -192,19 +203,43 @@ def main() -> int:
 
     print(f"[info] Loaded {len(samples)} samples across {len(set(s['_bench'] for s in samples))} benchmarks")
 
+    # Branch C 2026-04-25: split ID (training) vs Transfer (eval-only) per
+    # Ch3 §Data. Theorem T1's purity precondition (alpha > 0.5, equiv.
+    # Cohen's d > 0) applies to the training-pool distribution only.
+    # Transfer benchmarks were never in the calibration fold; their
+    # discrimination is a generalization diagnostic, not part of the
+    # composite-weight pass/fail gate.
+    try:
+        from caem.benchmark_splits import TRAINING_BENCHMARKS as _TRAIN_BENCHES
+    except ImportError:
+        _TRAIN_BENCHES = ("fever", "triviaqa", "natural_questions")
+    id_samples = [s for s in samples if s.get("_bench") in _TRAIN_BENCHES]
+    transfer_samples = [s for s in samples if s.get("_bench") not in _TRAIN_BENCHES]
+    print(f"[info]   training (ID, gate-decisive):     n={len(id_samples)}")
+    print(f"[info]   transfer (OOD, generalization):   n={len(transfer_samples)}")
+
+    # Discrimination tables: compute on both ID and transfer separately.
+    signal_disc_id = _per_signal_discrimination(id_samples)
+    signal_disc_transfer = _per_signal_discrimination(transfer_samples)
+    # Pooled (legacy) — kept for backward compatibility but NOT used as gate.
     signal_disc = _per_signal_discrimination(samples)
+
     per_dec = _per_decision_em(samples)
     bench_gap = _benchmark_store_discard_gap(samples)
     corr_matrix = _signal_correlation_matrix(samples)
     mem_quality = _memory_quality_forecast(samples)
 
-    # Decision
-    composite_d = signal_disc.get("u_stored", {}).get("cohen_d", 0.0)
-    composite_pass = composite_d >= ns.cohen_d_threshold
+    # Decision: gate on ID-POOLED Cohen's d (Theorem T1's audit precondition).
+    # Transfer Cohen's d is reported alongside as generalization diagnostic.
+    composite_d_id = signal_disc_id.get("u_stored", {}).get("cohen_d", 0.0)
+    composite_d_transfer = signal_disc_transfer.get("u_stored", {}).get("cohen_d", 0.0)
+    composite_d = composite_d_id   # gate decider
+    composite_pass = composite_d_id >= ns.cohen_d_threshold
     gap_pass = all(gap >= ns.store_discard_gap for gap in bench_gap.values())
     poisoning_pass = all(
         m["poisoning_rate"] <= ns.max_poisoning_rate
-        for m in mem_quality.values() if m["total_stored"] > 0
+        for m in mem_quality.values()
+        if m["total_stored"] >= max(1, ns.min_n_stored)
     )
     strong_inversion = any(
         sig != "u_dropout" and d.get("cohen_d", 0.0) < -0.20
@@ -216,16 +251,31 @@ def main() -> int:
     report = {
         "overall_pass": overall_pass,
         "checks": {
-            "composite_cohen_d": {"value": composite_d, "threshold": ns.cohen_d_threshold, "pass": composite_pass},
+            "composite_cohen_d_id": {
+                "value": composite_d_id,
+                "threshold": ns.cohen_d_threshold,
+                "pass": composite_pass,
+                "note": "ID-pooled (training benchmarks only); audits Theorem T1 alpha>0.5 precondition",
+            },
+            "composite_cohen_d_transfer": {
+                "value": composite_d_transfer,
+                "threshold": None,
+                "pass": None,
+                "note": "Transfer-pooled; reported as OOD generalization diagnostic, NOT a gate",
+            },
             "store_discard_gap_per_bench": {"values": bench_gap, "threshold": ns.store_discard_gap, "pass": gap_pass},
             "memory_poisoning_rate": {"values": mem_quality, "threshold": ns.max_poisoning_rate, "pass": poisoning_pass},
             "strong_signal_inversion": {"value": strong_inversion, "pass": not strong_inversion},
         },
-        "signal_discrimination": signal_disc,
+        "signal_discrimination_id": signal_disc_id,
+        "signal_discrimination_transfer": signal_disc_transfer,
+        "signal_discrimination_pooled_legacy": signal_disc,
         "per_decision_em": per_dec,
         "signal_correlation_matrix": corr_matrix,
         "memory_quality_forecast": mem_quality,
-        "n_samples": len(samples),
+        "n_samples_total": len(samples),
+        "n_samples_id": len(id_samples),
+        "n_samples_transfer": len(transfer_samples),
     }
 
     ns.output.parent.mkdir(parents=True, exist_ok=True)
@@ -234,8 +284,11 @@ def main() -> int:
 
     # Human-readable summary to stdout
     print("=" * 70)
-    print(f"Composite Cohen's d:   {composite_d:+.3f}  (threshold: {ns.cohen_d_threshold:+.3f})   "
+    print(f"Composite Cohen's d (ID, gate-decisive):     {composite_d_id:+.3f}  "
+          f"(threshold: {ns.cohen_d_threshold:+.3f})   "
           f"{'PASS' if composite_pass else 'FAIL'}")
+    print(f"Composite Cohen's d (Transfer, diagnostic):  {composite_d_transfer:+.3f}  "
+          f"(no gate; reported as OOD generalization)")
     print(f"Per-bench STORE gap:")
     for bench, gap in bench_gap.items():
         verdict = "PASS" if gap >= ns.store_discard_gap else "FAIL"

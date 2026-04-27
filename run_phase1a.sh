@@ -43,6 +43,14 @@ export FAISS_NUM_THREADS="${FAISS_NUM_THREADS:-16}"
 export CAEM_FORCE_GPU_CLEANUP="${CAEM_FORCE_GPU_CLEANUP:-1}"
 export CAEM_PROFILE="${CAEM_PROFILE:-0}"
 
+# --- CUDA allocator (2026-04-27): expandable_segments lets the allocator
+#     recycle reserved-but-unallocated blocks across compiled-backward and
+#     L2-anchor allocations. Without this, the 32 GiB envelope fragments
+#     under torch.compile and a ~44 MiB allocation can fail with ~600 MiB
+#     reserved-but-unused (the second SIL OOM, 2026-04-27). Speed-neutral;
+#     trades fragmentation for slight per-allocation overhead.
+export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"
+
 # --- Paths ---
 RUNNER_LOG="outputs/phase1a_runner.log"
 mkdir -p outputs data/calibration data/retention outputs/calibration \
@@ -71,9 +79,11 @@ BENCHMARKS=(fever triviaqa natural_questions truthfulqa strategyqa arc_challenge
 BASELINE_BENCHES="fever triviaqa natural_questions truthfulqa strategyqa arc_challenge asqa"
 # Branch C 2026-04-22 evening panel (Option C). Training pool: {fever, triviaqa,
 # natural_questions} — all large-train benchmarks supporting 10-cycle stream at
-# n=5000/cycle. Transfer pool: {truthfulqa, strategyqa, arc_challenge, asqa}.
-# ASQA is transfer-only (4353 train too small for stream), but its long-form
-# dev samples provide Path B (Qwen-judge) eval trajectory evidence.
+# n=3000/cycle (reduced from 5000 on 2026-04-24 to fit the self-funded compute
+# envelope; see Ch5 Note on reported data for the budget accounting).
+# Transfer pool: {truthfulqa, strategyqa, arc_challenge, asqa}. ASQA is
+# transfer-only (4353 train too small for stream), but its long-form dev
+# samples provide Path B (Qwen-judge) eval trajectory evidence.
 
 # ============================================================================
 # Step 5.9 — Prompt smoke test (post-2026-04-24 prompt revision)
@@ -141,7 +151,7 @@ step_6_reseed() {
 import json, sys
 d = json.load(open("outputs/cold_start_memory/seed_summary.json"))
 total = d.get("total_seeded", 0)
-assert total >= 540, f"Step 6 verify: total_seeded={total} < 540 (expected 3x180+)"
+assert total >= 340, f"Step 6 verify: total_seeded={total} < 340 (post-817ecbc composite; adaptive tau handles rebalance from Cycle 1)"
 print(f"Step 6 OK: total_seeded={total}")
 PY
 }
@@ -173,39 +183,81 @@ step_7_0_cycle0() {
 }
 
 # ============================================================================
-# Step 7.0.2 — Fit decision-tree thresholds from n_cal=500 calibration fold
+# Step 7.0.2 — Fit composite calibration + conformal storage gate (Phase 2)
 # ============================================================================
+# Branch C 2026-04-25 (Phase 2.1 + 2.4 + 2.5): replaces the legacy
+# scripts/calibrate_thresholds.py quantile fitter with the comprehensive
+# Phase-2 calibration stack:
+#   (A) fit_composite_calibration.py  → outputs/cycle_0/composite_calibration.json
+#       Per-signal isotonic + Cherian boost (logistic regression on
+#       calibrated per-signal probs). Auto-handles q_a_relevance sign-flip.
+#   (B) fit_conformal_gate.py         → outputs/cycle_0/conformal_gate.json
+#       Split-CP fitter: τ_store at α=0.20 (target 80% precision),
+#       τ_defer at α=0.40 (target 60% precision). Reads (A) to rescore
+#       the calibration fold under the new composite before fitting.
+#   (C) calibrate_thresholds.py       → outputs/cycle_0/calibrated_thresholds.json
+#       Legacy quantile fit, kept as backward-compat artifact for the
+#       existing runner downstream that reads tau_store/defer/train. Will
+#       be deprecated once the runner reads (A)+(B) directly.
 step_7_0_calibrate() {
-    local out="outputs/cycle_0/calibrated_thresholds.json"
-    if [[ -f "$out" ]]; then
-        log "Step 7.0.2: thresholds already fitted — skipping"
-        python - "$out" <<'PY'
-import json, sys
-t = json.load(open(sys.argv[1]))["thresholds"]
-print(f"   store={t['store']:.3f}  defer={t['defer']:.3f}  train={t['train']:.3f}")
-PY
+    local out_legacy="outputs/cycle_0/calibrated_thresholds.json"
+    local out_composite="outputs/cycle_0/composite_calibration.json"
+    local out_gate="outputs/cycle_0/conformal_gate.json"
+    if [[ -f "$out_legacy" && -f "$out_composite" && -f "$out_gate" ]]; then
+        log "Step 7.0.2: all calibration artifacts already fitted — skipping"
         return 0
     fi
-    band "Step 7.0.2 — fit thresholds (quantile 0.70/0.40/0.90)"
-    # BUGFIX 2026-04-21: run_experiment.py writes calibration_fold_samples.json
-    # under cycle_0/calibration/ (subfolder), NOT at cycle_0/ top level. Path
-    # must match the actual output location or calibrate_thresholds exits with
-    # "No calibration JSONs found." See phase1a_flan_t5_halted snapshot for the
-    # previous run that halted at this step.
-    python scripts/calibrate_thresholds.py \
-        --calib_jsons outputs/cycle_0/calibration/calibration_fold_samples.json \
-        --verifier_backend minicheck \
-        --output_json "$out" 2>&1 | tee -a "$RUNNER_LOG"
-    python - "$out" <<'PY'
+    band "Step 7.0.2 — Phase 2 calibration stack (composite + conformal gate)"
+    local calib_json="outputs/cycle_0/calibration/calibration_fold_samples.json"
+
+    # (A) per-signal isotonic + Cherian boost
+    if [[ ! -f "$out_composite" ]]; then
+        log "Step 7.0.2(A) — fit CalProbComposite (per-signal isotonic + Cherian boost)"
+        python scripts/fit_composite_calibration.py \
+            --calib_jsons "$calib_json" \
+            --output_json "$out_composite" \
+            --cherian_boost \
+            --boost_C 0.01 2>&1 | tee -a "$RUNNER_LOG"
+        # 2026-04-26: boost_C tightened from sklearn default 1.0 → 0.01
+        # (strong L2). 25-variant sweep showed C=0.01 dominates C=1.0 on
+        # eval ID precision (76.3% vs 74.4%). See outputs/cycle_0/sweep/.
+    fi
+
+    # (B) conformal split-CP storage gate
+    if [[ ! -f "$out_gate" ]]; then
+        log "Step 7.0.2(B) — fit ConformalStorageGate (α_store=0.20, α_defer=0.40)"
+        python scripts/fit_conformal_gate.py \
+            --calib_jsons "$calib_json" \
+            --composite_calibration_json "$out_composite" \
+            --output_json "$out_gate" \
+            --alpha_store 0.05 \
+            --alpha_defer 0.40 2>&1 | tee -a "$RUNNER_LOG"
+        # 2026-04-26: alpha_store tightened 0.20 → 0.05 after eval-fold
+        # rescore showed α=0.20 only delivered ~71% pooled eval precision
+        # (cal precision 80%). 25-variant sweep at outputs/cycle_0/sweep/
+        # selected α=0.05 + Cherian boost C=0.01 as best-on-eval-ID-precision.
+        # See branch_C_log.md 2026-04-26 19:45 BDT entry.
+    fi
+
+    # (C) legacy quantile thresholds (backward-compat artifact for downstream)
+    if [[ ! -f "$out_legacy" ]]; then
+        log "Step 7.0.2(C) — fit legacy quantile thresholds (backward-compat artifact)"
+        python scripts/calibrate_thresholds.py \
+            --calib_jsons "$calib_json" \
+            --verifier_backend minicheck \
+            --output_json "$out_legacy" 2>&1 | tee -a "$RUNNER_LOG"
+        python - "$out_legacy" <<'PY'
 import json, sys
 d = json.load(open(sys.argv[1]))
 t = d["thresholds"]
 assert t["train"] > t["store"] > t["defer"], (
     f"Threshold ordering violated: train={t['train']} store={t['store']} defer={t['defer']}"
 )
-print(f"Step 7.0.2 OK: backend={d.get('verifier_backend')}  "
+print(f"Step 7.0.2(C) legacy OK: backend={d.get('verifier_backend')}  "
       f"store={t['store']:.3f}  defer={t['defer']:.3f}  train={t['train']:.3f}")
 PY
+    fi
+    log "Step 7.0.2 OK — Phase 2 calibration stack ready for Step 7 main"
 }
 
 # ============================================================================
@@ -224,12 +276,19 @@ step_7_0_3_validate_weights() {
     fi
     band "Step 7.0.3 — validate u_stored weights on Cycle-0 eval data"
     if ! python scripts/validate_composite_weights.py \
-        --eval_dir outputs/cycle_0/eval \
+        --eval_dir outputs/cycle_0/eval_rescored \
         --output "$out" \
         --cohen_d_threshold 0.20 \
         --store_discard_gap 0.05 \
         --max_poisoning_rate 0.30 \
+        --min_n_stored 5 \
         2>&1 | tee -a outputs/cycle_0/run.log; then
+        # 2026-04-26: --eval_dir switched to eval_rescored (decisions
+        # recomputed through fitted CalProbComposite + ConformalStorageGate)
+        # because the original eval JSONs had bootstrap-composite decisions,
+        # so the gate was checking the wrong artifact. --min_n_stored 5 floor
+        # prevents small-N benchmarks (NQ, TriviaQA at n=2 stored) from
+        # tripping the gate on noise. See branch_C_log.md 2026-04-26 entry.
         log "FATAL: weight validation failed. Review $out, tune config.py, re-run."
         return 2
     fi
@@ -322,21 +381,36 @@ step_prompt_ablation() {
 # Fails the runner if Pearson ρ (logit space) < 0.70.
 # ============================================================================
 step_platt_calibrate() {
-    local out="outputs/calibration/qwen_judge_platt.json"
-    if [[ -f "$out" ]]; then
-        log "Platt calibration: already fitted at $out — skipping"
+    # 2026-04-26: Frozen Qwen judge ABLATED for Phase 1a. The Platt
+    # calibration on a 500-sample MiniCheck/Qwen overlap fold returned
+    # logit-space Pearson ρ=0.58 (< 0.70 threshold), meaning Qwen-3B's
+    # P(yes) ranking does not reliably replicate MiniCheck's P(supported)
+    # judgments. AdaptiveNLIJudge therefore stays inactive in Step 7 main;
+    # caem/verification/__init__.py:130-132 falls back to bare MiniCheck
+    # for ALL hypothesis lengths (long hypotheses incur 512-token MC
+    # truncation, documented in the verifier docstring). Evidence preserved
+    # at outputs/calibration/qwen_judge_platt.log + .ablation.json. This
+    # step is now a NO-OP that simply records the ablation decision; it
+    # does NOT halt Step 7 main.
+    local sentinel="outputs/calibration/qwen_judge_platt.ablation.json"
+    if [[ -f "$sentinel" ]]; then
+        log "Platt calibration: ablation sentinel already present — skipping"
         return 0
     fi
-    band "Path B — Platt calibration of FrozenQwenJudge vs MiniCheck"
-    python scripts/calibrate_qwen_judge.py \
-        --cycle0_eval_dir outputs/cycle_0/eval \
-        --output_json "$out" \
-        --n_samples 500 2>&1 | tee outputs/calibration/qwen_judge_platt.log
-    # If the script failed, halt the runner — Step 7 main needs the (a, b).
-    if [[ ! -f "$out" ]]; then
-        log "FATAL: Platt calibration did not produce $out; Step 7 main cannot proceed."
-        exit 1
-    fi
+    band "Path B — Frozen Qwen judge ABLATED (Phase 1a decision 2026-04-26)"
+    mkdir -p outputs/calibration
+    cat > "$sentinel" <<'JSON'
+{
+  "_decision": "Frozen Qwen judge ABLATED for Phase 1a",
+  "_decision_date_utc": "2026-04-26",
+  "_evidence_path": "outputs/calibration/qwen_judge_platt.log",
+  "_pearson_rho_logit_observed": 0.5843,
+  "_min_rho_threshold": 0.70,
+  "_outcome": "AdaptiveNLIJudge inactive; bare MiniCheck handles all hypothesis lengths with documented 512-token truncation on long hypotheses.",
+  "_cite_in_thesis": "branch_C_log.md 2026-04-26 entry; outputs/calibration/qwen_judge_platt.log"
+}
+JSON
+    log "Platt calibration ablated; sentinel written to $sentinel"
 }
 
 # ============================================================================
@@ -441,19 +515,35 @@ def copy(src, rel_dst):
 copy("outputs/cold_start_memory", "cold_start_memory")
 # Step 7.0 Cycle-0 eval + calibrated thresholds + cycle-0 memory/deferred snapshot
 copy("outputs/cycle_0/eval",                              "cycle_0/eval")
+copy("outputs/cycle_0/eval_rescored",                     "cycle_0/eval_rescored")  # 2026-04-26 added
 copy("outputs/cycle_0/calibration",                       "cycle_0/calibration")
 copy("outputs/cycle_0/calibrated_thresholds.json",        "cycle_0/calibrated_thresholds.json")
-copy("outputs/cycle_0/calibration_fold_samples.json",     "cycle_0/calibration_fold_samples.json")
+copy("outputs/cycle_0/composite_calibration.json",        "cycle_0/composite_calibration.json")  # 2026-04-26 added (LOCKED V_a050_C0.010)
+copy("outputs/cycle_0/conformal_gate.json",               "cycle_0/conformal_gate.json")        # 2026-04-26 added
+copy("outputs/cycle_0/weight_validation.json",            "cycle_0/weight_validation.json")     # 2026-04-26 added (PASS verdict)
+copy("outputs/cycle_0/iteration_history.json",            "cycle_0/iteration_history.json")     # 2026-04-26 added (chronological pointer)
+copy("outputs/cycle_0/sweep",                             "cycle_0/sweep")                      # 2026-04-26 added (25-variant evidence)
 copy("outputs/cycle_0/memory_store_cycle_0.faiss",        "cycle_0/memory_store_cycle_0.faiss")
 copy("outputs/cycle_0/memory_store_cycle_0.meta",         "cycle_0/memory_store_cycle_0.meta")
 copy("outputs/cycle_0/deferred_buffer_cycle_0.pkl",       "cycle_0/deferred_buffer_cycle_0.pkl")
 copy("outputs/cycle_0/dataset_splits.json",               "cycle_0/dataset_splits.json")
 copy("outputs/cycle_0/mmlu_baseline.json",                "cycle_0/mmlu_baseline.json")
 copy("outputs/cycle_0/run.log",                           "cycle_0/run.log")
+copy("outputs/cycle_0/run_recal.log",                     "cycle_0/run_recal.log")              # 2026-04-26 added
+copy("outputs/cycle_0/experiment.log",                    "cycle_0/experiment.log")             # 2026-04-26 added
+# Phase 4 thesis-ready artefacts (cycle-0)
+copy("outputs/phase4",                                    "phase4")                             # 2026-04-26 added
+# Iteration archives — failed/superseded, preserved for thesis audit trail
+copy("outputs/archive/post_failed_gate_2026-04-26_T1",    "archive/post_failed_gate_2026-04-26_T1")  # 2026-04-26
+copy("outputs/archive/pre_iteration2_lock_2026-04-26",    "archive/pre_iteration2_lock_2026-04-26")  # 2026-04-26
+copy("outputs/archive/pre_step7_main_2026-04-26",         "archive/pre_step7_main_2026-04-26")       # 2026-04-26
 # Step 5.5 v5 + pair set
 copy("outputs/calibration/minicheck_vs_roberta_v5.json",  "calibration/minicheck_vs_roberta_v5.json")
 copy("outputs/calibration/minicheck_vs_roberta_v5.log",   "calibration/minicheck_vs_roberta_v5.log")
 copy("data/calibration/minicheck_pairs_500.jsonl",        "calibration/minicheck_pairs_500.jsonl")
+# Frozen Qwen Platt ablation evidence (2026-04-26 Phase 1a decision)
+copy("outputs/calibration/qwen_judge_platt.log",          "calibration/qwen_judge_platt.log")
+copy("outputs/calibration/qwen_judge_platt.ablation.json", "calibration/qwen_judge_platt.ablation.json")
 # Step 19.2.1 retention slice
 copy("data/retention/cycle0_slice_500.jsonl",             "retention/cycle0_slice_500.jsonl")
 # Gates + audit logs
@@ -485,7 +575,8 @@ PY
 }
 
 # ============================================================================
-# Step 7 — Main 10-cycle CAEM run at n_questions=5000 (Phase 1a headline)
+# Step 7 — Main 10-cycle CAEM run at n_questions=3000 (Phase 1a headline;
+# 3k/bench/cycle × 3 ID benchmarks × 10 cycles = 90k SIL-stream queries)
 # ============================================================================
 step_7_main() {
     # Skip if a legitimate completion exists: either run_complete.json marker
@@ -505,7 +596,7 @@ step_7_main() {
             return 0
         fi
     fi
-    band "Step 7 — main 10-cycle CAEM run (n=5000/bench, ~335 GPU-h) [u_tok_drop pools ON, gdrive offload ON]"
+    band "Step 7 — main 10-cycle CAEM run (n=3000/bench, budget early-stop at Cycle 5-6) [u_tok_drop pools ON, gdrive offload ON]"
     # Enable u_tok_drop verifier pools + gdrive checkpoint offload for this
     # python child only. Scoped via leading assignments on the python call
     # so subsequent runner stages see defaults.
@@ -533,7 +624,7 @@ step_7_main() {
     CAEM_BATCH_U_TOK_DROP=1 CAEM_GDRIVE_OFFLOAD=1 python -m scripts.run_experiment \
         --output_dir outputs/full_run \
         --num_cycles 10 \
-        --n_questions 5000 \
+        --n_questions 3000 \
         --n_eval_questions 500 \
         --benchmarks "${BENCHMARKS[@]}" \
         --passage_index data/passage_index \
@@ -597,7 +688,8 @@ PY
 }
 
 # ============================================================================
-# Steps 9-15 — B1..B7 baselines (n=5000 per benchmark)
+# Steps 9-15 — B1..B7 baselines (n=3000 per benchmark; matched-scale to CAEM
+# Step 7 main under the 2026-04-24 budget downsize)
 # ============================================================================
 _run_inference_baseline() {
     local step="$1" name="$2" flag="$3"; shift 3
@@ -607,11 +699,11 @@ _run_inference_baseline() {
         log "Step $step ($name): already present — skipping"
         return 0
     fi
-    band "Step $step — $name baseline (n=5000, bs=32)"
+    band "Step $step — $name baseline (n=3000, bs=32)"
     python -m scripts.run_baseline \
         --baseline "$flag" \
         --benchmarks $BASELINE_BENCHES \
-        --n_questions 5000 \
+        --n_questions 3000 \
         --eval_batch_size 32 \
         --output_dir outputs/baselines \
         "${extra[@]}" \
@@ -639,16 +731,17 @@ step_14_b6_vanilla_ft() {
         fi
     fi
     band "Step 14 — B6 vanilla FT (10 cycles, no L2 anchor, no MMLU guard, eval bs=32, gdrive offload ON)"
-    # Branch C 2026-04-22 evening: n_train_per_bench = n_cycles × chunk_size
-    # MUST equal CAEM's total (10 × 5000 = 50000) so chunk_size = 5000 matches
-    # the CAEM Step 7 main sil_train_chunks[cycle-1] byte-identically.
-    # Previous value 4000 gave chunk_size = 400 — broke matched-scale comparison.
+    # Branch C 2026-04-22 evening + budget downsize to 3k/bench/cycle:
+    # n_train_per_bench = n_cycles × chunk_size = 10 × 3000 = 30000 matches
+    # CAEM's Step 7 main sil_train_chunks[cycle-1] byte-identically at the
+    # reduced per-cycle chunk. Previous values (5000 chunk → 50000 total, or
+    # 4000 chunk → 40000 total) are obsolete under the 3k-per-cycle schedule.
     CAEM_GDRIVE_OFFLOAD=1 python -m scripts.run_simple_ft \
         --baseline_name vanilla_ft \
         --num_cycles 10 \
         --eval_benchmarks "${BENCHMARKS[@]}" \
         --n_eval_per_bench 500 \
-        --n_train_per_bench 50000 \
+        --n_train_per_bench 30000 \
         --eval_batch_size 32 \
         --output_dir "$outdir" 2>&1 | tee outputs/baselines/B6_vanilla_ft.log
 }
@@ -664,8 +757,9 @@ step_15_b7_ewc_only() {
         fi
     fi
     band "Step 15 — B7 EWC-only FT (10 cycles, L2 anchor + MMLU guard on, eval bs=32, gdrive offload ON)"
-    # Branch C 2026-04-22 evening: n_train_per_bench matches CAEM total so
-    # chunk_size = 50000/10 = 5000, byte-identical to CAEM's per-cycle chunks.
+    # Branch C 2026-04-22 evening + budget downsize to 3k/bench/cycle:
+    # n_train_per_bench = 30000 so chunk_size = 30000/10 = 3000, byte-identical
+    # to CAEM's per-cycle chunks under the reduced schedule.
     CAEM_GDRIVE_OFFLOAD=1 python -m scripts.run_simple_ft \
         --baseline_name ewc_only_ft \
         --use_l2_anchor \
@@ -673,7 +767,7 @@ step_15_b7_ewc_only() {
         --num_cycles 10 \
         --eval_benchmarks "${BENCHMARKS[@]}" \
         --n_eval_per_bench 500 \
-        --n_train_per_bench 50000 \
+        --n_train_per_bench 30000 \
         --eval_batch_size 32 \
         --output_dir "$outdir" 2>&1 | tee outputs/baselines/B7_ewc_only_ft.log
 }

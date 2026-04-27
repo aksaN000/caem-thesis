@@ -1,0 +1,255 @@
+% ============================================================================
+% Chapter 3 — Requirements, Impact, and Project Management
+% Status: SKELETON. Rubric-mandated section structure preserved at the
+% top level; depth lives in subsections.
+%
+% Course outcomes covered: CO2 (specifications and standards), CO3
+% (societal impact), CO4 (sustainability and environment), CO10
+% (resource management), CO11 (economic analysis), CO12 (ethics).
+% Section titles 3.1 through 3.8 are fixed by the rubric.
+% ============================================================================
+
+\chapter{Requirements, Impact, and Project Management}
+\label{ch:requirements}
+
+% Chapter scope: states the functional and non-functional requirements
+% the architecture must meet, surveys the societal, environmental, and
+% ethical considerations, declares the engineering standards followed,
+% and lays out the project management plan, risk register, and
+% economic analysis. This chapter operationalises the Course Outcomes
+% CO2, CO3, CO4, CO10, CO11, and CO12.
+
+\section{Final Specifications and Requirements}
+\label{sec:specifications}
+
+\subsection{Functional requirements}
+\label{sec:func-reqs}
+
+The architecture is required to perform six functions at deployment, each derived from the problem statement registered in \Cref{ch:introduction}. First, the system must produce a calibrated answer for every admissible query, where calibration means that the answer is accompanied by a storage score whose value reliably tracks the empirical likelihood of correctness. Second, the system must abstain explicitly when calibration falls short of the registered storage and deferral thresholds, returning a refusal rather than a hedged or speculative answer. Third, the system must commit verified episodes to a persistent episodic memory, storing the question, the answer, the supporting context, and the storage score as an indivisible record. Fourth, the system must recall the relevant stored episode on subsequent queries that fall within its similarity neighbourhood, and must defer to the zero-shot or retrieval-augmented tier when no neighbour clears the dispatch threshold. Fifth, the system must perform regularised fine-tuning at each cycle boundary, drawing only from stored episodes whose storage score exceeds the strict training threshold. Sixth, the system must enforce a retention guard against a held-out general-knowledge probe and roll back weights when the retention ratio falls below the fixed floor, while preserving the memory across the rollback so that the verified episodes accumulated during a failed cycle are not lost. \Cref{tab:func-reqs} summarises the six functional requirements together with the architectural component that delivers each.
+
+\begin{table}[!htbp]
+\centering
+\small
+\begin{tabular}{@{}p{0.8cm}p{4.4cm}p{8cm}@{}}
+\toprule
+\textbf{ID} & \textbf{Requirement} & \textbf{Architectural component (specified in \Cref{ch:methodology})} \\
+\midrule
+FR1 & Calibrated answer per query & Ten-signal verifier feeding the calibrated probability composite \\
+FR2 & Explicit abstention under uncertainty & Conformal storage gate $+$ confabulation early-exit rule \\
+FR3 & Commit verified episodes to memory & Four-outcome decision tree (store branch) \\
+FR4 & Recall on subsequent queries & Three-tier router with combined-score dispatch and safety override \\
+FR5 & Cycle-boundary regularised fine-tune & Self-improvement loop with quadratic anchor and strict training threshold \\
+FR6 & Retention guard with weight rollback & Held-out retention probe and asymmetric memory-vs-weights rollback rule \\
+\bottomrule
+\end{tabular}
+\caption{Functional requirements and the architectural components that deliver them.}
+\label{tab:func-reqs}
+\end{table}
+
+\subsection{Non-functional requirements}
+\label{sec:nonfunc-reqs}
+
+Five non-functional requirements bound the operating envelope of the architecture. The latency envelope per query is tier-dependent: the memory-direct tier resolves in the time of an embedding lookup and a similarity search, the zero-shot tier adds the cost of a single decode, and the retrieval-augmented tier adds the cost of passage retrieval and a grounded decode; per-tier latency budgets are reported empirically in \Cref{ch:evaluation}. The storage precision floor requires the calibration-fold precision of the storage class to clear ninety percent at the locked operating point,
+\begin{equation}
+\Pr\!\big(\mathrm{EM} = 1 \,\big|\, u_{\text{stored}} \ge \tau_{\text{store}}\big)_{\text{cal}} \;\ge\; 0.90,
+\label{eq:nfr-precision-floor}
+\end{equation}
+and the empirical receipt of this requirement is the calibration-fold precision of $96.43\%$ over $56$ stored entries on a $1500$-sample fold. The retention floor requires the post-fine-tune accuracy on the held-out general-knowledge probe to remain at no less than $93\%$ of the cycle-zero baseline,
+\begin{equation}
+\rho(M_{t}) \;:=\; \frac{\mathrm{EM}(M_{t},\,\mathcal{P}_{\text{held}})}{\mathrm{EM}(M_{0},\,\mathcal{P}_{\text{held}})} \;\ge\; \rho_{\min} = 0.93,
+\label{eq:nfr-retention-floor}
+\end{equation}
+where $M_{t}$ is the post-fine-tune generator at cycle $t$ and $\mathcal{P}_{\text{held}}$ is the held-out probe; any fine-tune that violates this floor is rolled back and only the next per-query phase resumes. The reproducibility envelope requires every artefact released alongside the thesis, including the locked calibration thresholds, the boost intercept, the seed-pool composition, and the per-cycle snapshots, to be regenerable from a single recorded random seed and a published code commit. The integrity envelope requires that no benchmark sample appearing in the evaluation fold may have appeared in the calibration fold, the seed pool, or the rehearsal buffer, so that calibration-fold and evaluation-fold precision are measured on disjoint distributions. \Cref{tab:nonfunc-reqs} summarises the five non-functional requirements with their registered targets and the empirical receipt available from cycle zero.
+
+\begin{table}[!htbp]
+\centering
+\small
+\begin{tabular}{@{}p{0.8cm}p{3.5cm}p{4.5cm}p{4.5cm}@{}}
+\toprule
+\textbf{ID} & \textbf{Requirement} & \textbf{Registered target} & \textbf{Cycle-zero receipt} \\
+\midrule
+NFR1 & Per-query latency envelope & Tier-dependent: embedding lookup (Tier~1), single decode (Tier~2), retrieval $+$ grounded decode (Tier~3) & Per-tier trajectory in \Cref{ch:evaluation} \\
+NFR2 & Storage precision floor & $\ge 0.90$ on the calibration fold at the locked operating point & $0.9643$ over $56$ stored entries on a $1500$-sample fold \\
+NFR3 & Retention floor & $\ge 0.93$ of cycle-zero baseline on the held-out probe & Per-cycle trajectory in \Cref{ch:evaluation} \\
+NFR4 & Reproducibility envelope & Every artefact regenerable from a single seed and a published commit & Locked configuration JSONs $+$ public-host snapshot \\
+NFR5 & Integrity envelope & Disjointness between evaluation, calibration, seed, and rehearsal folds & Cross-fold disjointness verified per benchmark \\
+\bottomrule
+\end{tabular}
+\caption{Non-functional requirements with registered targets and cycle-zero receipts.}
+\label{tab:nonfunc-reqs}
+\end{table}
+
+\subsection{Constraints and design commitments}
+\label{sec:constraints}
+
+The functional and non-functional requirements together imply six production-parity commitments that the engineering programme adopts in advance. The single-backbone commitment fixes the generator across every cycle and every tier, so that all reported gains are attributable to memory accumulation, calibration discipline, and the fine-tuning loop rather than to a backbone swap. The pooled-calibration commitment fits the calibrated probability composite and the conformal storage and deferral thresholds once on a calibration fold pooled across the training benchmarks and applies them verbatim at every scoring site, so that no per-benchmark calibration leaks into the deployed configuration. The local-execution commitment forbids any external model interface in the inference path; the verifier ensemble, the embedding encoder, the passage index, and the generator all run from open weights on a single rented graphics processor. The bounded-cycle commitment caps the self-improvement loop at ten cycles and admits an early stop only on an empirical equilibrium diagnostic; the choice is justified in \Cref{ch:methodology} through the convergence analysis. The matched-protocol commitment requires that every external baseline be evaluated under the same samples, prompts, and scoring rules as the architecture itself, so that the comparison panel reported in \Cref{ch:evaluation} is not confounded by re-implementation choices. The single-seed reproducibility commitment caps the random-state surface at one recorded seed, with a published per-cycle artefact catalogue and a snapshot of the pre-step-seven state on a public dataset host, so that the trajectory can be regenerated end to end by a third party.
+
+\section{Societal Impact}
+\label{sec:societal-impact}
+
+\subsection{Deployment benefits}
+\label{sec:soc-benefits}
+
+The primary societal benefit of the architecture is a measurable reduction in confident misinformation produced by deployed language models on factual question answering. A model whose answers are routed through the calibrated probability composite and the conformal storage gate either returns an answer whose calibration-fold precision clears the registered floor, or abstains explicitly when the storage score falls short. This explicit refusal channel is itself a societal benefit, because it converts an otherwise opaque uncertainty into a user-facing trust signal that downstream consumers, including educators, journalists, and information specialists, can read and act on. In domains where fluency without grounding has produced documented harm, including health-information retrieval~\cite{alkaissi2023artificial,info:doi/10.2196/53164}, legal triage, and educational tutoring~\cite{ji2023survey}, an architecture that abstains rather than fabricates is a strict improvement on the deployed alternative. The episodic memory further amortises verification cost across users: an answer that is verified once on the first query that asks it can be reused under a high-confidence retrieval action on every subsequent matching query, so that the verification cost incurred by an early user becomes a public good for the user community that follows.
+
+\subsection{Dual-use considerations}
+\label{sec:soc-dual-use}
+
+A verified-memory system that learns from its own interactions can in principle memorise harmful content if the verifier is misconfigured or if its training pool admits adversarially produced inputs. Three architectural mitigations bound this risk in the deployed configuration. First, the retroactive re-verification pass at each cycle boundary re-scores every stored episode under the updated generator and prunes entries whose calibrated storage score has fallen below the storage threshold, so that a misconfigured snapshot does not persist across cycles unchallenged. Second, the strict training threshold above the storage threshold keeps any episode whose storage score lies in the marginal band out of the training pool, even when the same episode would be admissible for retrieval. Third, the retention guard against a held-out general-knowledge probe flags fine-tunes that have measurably degraded general capability and aborts them with a weight rollback, so that a single poisoned cycle cannot silently propagate forward. Together these mitigations make the architecture's failure mode an honest abstention rather than confident harm, but the limits of this guarantee depend on the verifier's coverage, which the thesis reports empirically and discusses as a threat to validity in \Cref{ch:evaluation}.
+
+\subsection{Marginalised-user impact}
+\label{sec:soc-marginalised}
+
+The harm caused by confident hallucination is not evenly distributed across the user population. Users who lack independent means to verify a confident-sounding answer, including students consulting language-model tutors, patients consulting language-model health agents, and applicants consulting language-model administrative agents, are disproportionately exposed because they cannot fall back on a domain expert to check the model. The architecture's calibrated abstention class is a partial response to this inequality: by routing low-confidence answers to an explicit refusal rather than a hedged speculation, the system removes the most dangerous failure mode for the very users who would otherwise have no defence against it. The benefit is structural rather than rhetorical, because the abstention is governed by a distribution-free conformal procedure rather than a soft heuristic, and the abstention rate is reported in the four-outcome decision distribution in \Cref{ch:evaluation}. The architecture does not solve the broader problem of unequal access to verification, but it removes one specific channel through which fluency was previously laundered into false assurance.
+
+\section{Environmental Impact}
+\label{sec:environment}
+
+\subsection{Compute footprint of the experiment}
+\label{sec:env-experiment}
+
+The compute envelope of the empirical programme is dominated by four phases: the cycle-zero calibration phase that fits the calibrated probability composite and the conformal storage and deferral thresholds on a fifteen-hundred-sample fold, the ten-cycle main run that iterates the per-query pipeline and the cycle-boundary update passes, the external baseline panel that re-runs every contrast under matched protocol, and the architectural ablation panel that runs a pre-registered grid of mechanism removals. The end-to-end programme runs on a single rented graphics processor of the consumer-grade thirty-two-gigabyte class, with the cycle-zero phase complete in tens of hours, the main run sized to several days under the locked batched-calibration configuration, and the baseline and ablation panels each scaled in proportion to the workload they replicate. The carbon-equivalent footprint per phase is reported by combining the recorded wall-clock duration with the published wattage envelope of the rented hardware and a public grid-emissions conversion factor, following the methodology of \textcite{strubell2019energy},
+\begin{equation}
+\mathrm{kgCO_{2}e}_{\,\phi} \;=\; T_{\phi} \cdot P_{\mathrm{TDP}} \cdot \varepsilon_{\mathrm{grid}},
+\label{eq:carbon-per-phase}
+\end{equation}
+where $T_{\phi}$ is the wall-clock duration of phase $\phi$ in hours, $P_{\mathrm{TDP}}$ is the rated power of the graphics processor in kilowatts, and $\varepsilon_{\mathrm{grid}}$ is the local grid emissions factor in kilograms of carbon-dioxide equivalent per kilowatt-hour. The per-phase totals are tabulated in Appendix~\ref{app:reproducibility} together with the conversion factor used.
+
+\subsection{Cycle budget rationale}
+\label{sec:env-cycles}
+
+The ten-cycle horizon is not an arbitrary stopping point. It is the point at which the convergence analysis in \Cref{ch:methodology} predicts the trajectory has crossed into its near-equilibrium phase, and at which the equilibrium diagnostic that the implementation runs at every cycle boundary is expected to fire. Stopping earlier would produce a noisier reading on the late-cycle behaviour that the architecture's claims rest on; running longer would incur a measurable marginal carbon cost without a matching diagnostic justification. The cycle budget is therefore an environmental decision as much as it is an experimental one: each additional cycle adds its own fine-tuning energy and its own retroactive re-verification energy, and each must be earned by a diagnostic that says the trajectory has not yet converged. The honest disclosure here is that early-stopping inside the ten cycles is permitted by the runbook when the equilibrium diagnostic fires, and the eventual realised cycle horizon is reported in \Cref{ch:evaluation}.
+
+\subsection{Retention versus retraining}
+\label{sec:env-retention}
+
+The retention guard with weight rollback is, in addition to a quality control, a carbon-saving mechanism. A fine-tuning loop without a retention guard either continues to update under regressed weights, which compounds the energy cost of every subsequent cycle that has to recover the lost capability, or eventually requires a full restart from a clean checkpoint, which discards every cycle of fine-tuning energy that came after the regression. The architecture's rollback rule restores weights from the previous checkpoint when the retention ratio falls below the fixed floor, while preserving the memory across the rollback so that the verified episodes accumulated during the failed cycle are not lost. The carbon implication is that a failed cycle costs only the fine-tuning energy of the failed cycle itself, not the energy of every successor cycle that would have been needed to recover, and the verified-episode accumulation that survives the rollback shortens the time to convergence on the next attempt. This argument is qualitative at the chapter-one level and is quantified in the deployment-cost projection in \Cref{sec:economic}.
+
+\section{Ethical Issues}
+\label{sec:ethics}
+
+\subsection{Alignment and refusal posture}
+\label{sec:ethics-alignment}
+
+The architecture treats explicit abstention as a first-class user-facing action rather than a fallback, and this design choice has an ethical justification independent of its accuracy effect. A model that hedges or speculates under uncertainty exposes the user to harm without informing them that uncertainty is present, while a model that abstains transfers the uncertainty to the user as a visible signal that they can act on by seeking a second opinion or escalating to a human expert; this connects to the recent literature on whether language models know what they know \cite{kadavath2022language}. The architecture's storage and deferral thresholds are governed by a distribution-free conformal procedure rather than a soft heuristic, so the abstention rate is principled rather than rhetorical and the user is not trading a false sense of confidence for a hedged-sounding paragraph. The ethical commitment behind this posture is that, in the regime where a model cannot be confident, it should not occupy the user's attention as if it were.
+
+\subsection{Bias propagation through episodic memory}
+\label{sec:ethics-bias}
+
+A learning system that commits its own outputs to memory and then trains on that memory can amplify the biases present in either the verifier or the underlying training distribution. Three mechanisms in the architecture bound this risk. The retroactive re-verification pass at every cycle boundary re-scores every stored episode under the updated generator, so a bias that the verifier acquires across cycles does not persist in the stored pool unchallenged. The per-cycle recalibration of the conformal storage and deferral thresholds adjusts under exponential-moving-average smoothing on a fresh calibration fold, so a drift in the underlying score distribution is tracked rather than amplified. The strict training-pool quality filter holds the training pool to a higher bar than the user-facing storage tier, so episodes whose storage score lies in the marginal band cannot enter the next cycle's fine-tune even if they pass the retrieval gate. None of these mechanisms eliminates bias inherited from the pre-training corpus, and the thesis discusses this limitation explicitly in \Cref{ch:evaluation}; what they do is bound the rate at which new bias can be introduced through the self-improvement loop itself.
+
+\subsection{Data provenance and licensing}
+\label{sec:ethics-provenance}
+
+The empirical programme uses publicly licensed benchmarks and publicly licensed retrieval corpora throughout. The seven evaluation benchmarks are FEVER \cite{thorne-etal-2018-fever}, TriviaQA \cite{joshi-etal-2017-triviaqa}, Natural Questions \cite{kwiatkowski-etal-2019-natural}, TruthfulQA \cite{lin-etal-2022-truthfulqa}, StrategyQA \cite{geva2021strategyqa}, ARC-Challenge \cite{clark2018think}, and ASQA \cite{stelmakh2022asqa}, all of which are distributed under licences that permit research use and redistribution under attribution; the licence terms are catalogued in Appendix~\ref{app:reproducibility} together with the access date and the dataset version hash. The retrieval substrate uses a Wikipedia-derived public passage corpus distributed under a Creative Commons licence. No private user data, no scraped social-media content, and no proprietary corpus enters either the calibration fold, the seed pool, the rehearsal buffer, or the cycle pool. The cold-start memory used to bootstrap the self-improvement loop is generated entirely from the licensed benchmark train splits under the same access terms as the evaluation folds, with disjointness from the evaluation fold enforced at the sample level. The thesis releases its locked configuration files, its per-cycle artefact catalogue, and the snapshot of the pre-self-improvement state on a public dataset host, so that the research community can audit the data path end to end without relying on privately held resources.
+
+\section{Standards and Codes of Practice}
+\label{sec:standards}
+
+\subsection{Software-engineering standards}
+\label{sec:std-software}
+
+The implementation follows the Python community's PEP 8 style convention for source layout, naming, and import order, with the deviations limited to the conventional eighty-eight character line length and the use of structural pattern matching where it materially improves readability. All third-party dependencies are pinned to exact versions in a single requirements file, which is committed alongside the source tree so that the dependency closure that produced the reported results is itself a versioned artefact rather than a moving target. Random-state surface is reduced to a single seed at process start, propagated explicitly through the generator, the sampler, the dropout layers, and the FAISS index, so that two consecutive runs under the same seed produce bit-identical artefacts modulo non-deterministic kernels. Version control discipline is enforced through a single linear branch-per-phase convention, with a tagged checkpoint at every cycle boundary and at every artefact-producing step, so that the empirical record is reconstructible from the commit graph alone.
+
+\subsection{Reproducibility standards}
+\label{sec:std-reproducibility}
+
+Reproducibility is treated as a first-class deliverable rather than a courtesy. The thesis releases four classes of artefact in support: a step-by-step reproducibility recipe in Appendix~\ref{app:reproducibility} that lists the exact command sequence required to regenerate every reported number from the recorded seed; a public-dataset-host snapshot of the entire pre-self-improvement state, including the cold-start memory, the locked calibration thresholds, and the encoder weights at the operating point; a per-cycle artefact catalogue under the outputs directory that pairs each cycle's run-complete summary with its memory snapshot, its retention reading, and its decision-distribution log; and the locked configuration files that record the calibrated probability composite, the conformal storage and deferral thresholds, and the boost intercept used in every downstream scoring site. Together these artefacts allow an independent reader to verify any specific empirical claim in \Cref{ch:evaluation} by re-executing the relevant stage rather than by trusting the reported number.
+
+\subsection{Evaluation-protocol standards}
+\label{sec:std-evaluation}
+
+The empirical comparisons in this thesis follow three pre-registered protocol standards. The matched-protocol convention requires every external baseline to be evaluated under the same samples, the same prompt template family, and the same scoring rules as the architecture, so that the comparison panel reported in \Cref{ch:evaluation} is not confounded by re-implementation choices that vary across published baselines. The pre-registration convention requires that the calibration sweep grid, the storage and deferral threshold targets, and the architectural ablation expected-effect bands be recorded in the runbook before any sweep results are read; the locked configuration is then applied verbatim across every cycle of the main run, and any out-of-band outcome is reported as an honest disclosure rather than a tuning opportunity. The selective-prediction convention reports the precision-versus-coverage tradeoff in the form pioneered by \cite{kamath2020selective}, with the abstention class measured against a registered precision floor rather than a hand-tuned operating point. The multiple-comparison convention requires Holm-Bonferroni correction \cite{holm1979simple} across the baseline contrasts within each benchmark family, so that a significance verdict on a single benchmark cannot be inflated by the family-wise error rate; the bootstrap ninety-five-percent confidence interval on the exact-match delta is reported alongside the corrected p-value so that effect size is visible in addition to significance, with paired McNemar \cite{mcnemar1947note} as the per-benchmark significance test.
+
+\section{Project Management Plan}
+\label{sec:project-management}
+
+\subsection{Phase breakdown}
+\label{sec:pm-phases}
+
+The project decomposes into five phases, sequenced so that each phase produces an artefact that the next phase consumes. The pre-thesis phase covers literature review, problem-statement registration, methodology design, and the construction of the per-stage pipeline that the empirical phases depend on. The calibration phase, governed by the cycle-zero discipline, fits the calibrated probability composite and the conformal storage and deferral thresholds on a disjoint calibration fold and locks the configuration that the main run will apply verbatim. The main run phase iterates the per-query pipeline across ten cycles under the locked configuration, with cycle-boundary update passes at every cycle boundary, and produces the per-cycle artefact catalogue that the comparative phase consumes. The comparative phase runs the external baseline panel and the architectural ablation panel under the matched protocol, and runs the statistical analysis that licenses the architectural claims registered in \Cref{ch:introduction}. The write-up phase consolidates the artefact catalogue and the comparative results into the thesis report, the supervisor-facing presentation, and the journal manuscript that derives from this work.
+
+\subsection{Milestone schedule}
+\label{sec:pm-milestones}
+
+Each phase is anchored by dated milestones recorded in Appendix~\ref{app:reproducibility} together with planned and actual completion dates. The pre-thesis phase milestone, the locked methodology design, was reached on schedule. The calibration phase milestone, the cycle-zero validation gate verdict, was reached after one full re-iteration of the calibration sweep: the first iteration failed the pre-registered correlation floor on the long-hypothesis judge calibration and the second iteration, re-run with the patched signal-dump path and the wider parameter grid, produced the locked configuration that the main run uses. The schedule slip incurred by this iteration is reported honestly here rather than absorbed into a smoothed timeline, because the iteration is itself evidence of method discipline; \Cref{ch:evaluation} reports the failed iteration's diagnostic numbers alongside the locked configuration's diagnostic numbers so that the reader can compare the two. The main run phase milestone, the ten-cycle trajectory complete, and the comparative phase milestones, the baseline panel and the ablation panel complete, are reported under the realised dates that the empirical chapter records. The write-up phase milestone is the submission of this report and its companion artefacts on the registered submission date.
+
+\subsection{Deliverables}
+\label{sec:pm-deliverables}
+
+The project releases six deliverables on completion. The source-code repository is published under an open-source licence and contains the full implementation of the architecture, the cycle-zero calibration scripts, the cycle-boundary update passes, the external baseline drivers, and the architectural ablation drivers. The locked artefact bundle is hosted on a public dataset host and contains the calibrated probability composite, the conformal storage and deferral thresholds, the cold-start memory snapshot, and the per-cycle artefact catalogue. The thesis report itself is the document that the reader is currently holding. The supervisor-facing slide deck distils the headline empirical claim, the methodology, and the threats to validity into a defence-ready presentation. The journal version of this work, sized for the conference and journal venue most appropriate to the architecture's contribution, is prepared from the consolidated comparative chapter and is submitted after the thesis defence. A live demonstration that exercises the per-query pipeline on a small representative workload is included as a supplementary deliverable for the supervisor and the external examiner.
+
+\section{Risk Management}
+\label{sec:risk}
+
+\subsection{Technical risks}
+\label{sec:risk-technical}
+
+Four technical risks are registered against the empirical programme. Calibration drift across cycles is the risk that the calibrated probability composite and the conformal storage and deferral thresholds, fitted once at cycle zero and applied verbatim across the main run, lose their precision guarantee under the distribution shift introduced by each cycle's fine-tune. Verifier and judge disagreement is the risk that the post-generation verifier and the long-hypothesis judge produce inconsistent storage scores on the same answer, leaving the storage decision under-determined on long answers; the empirical realisation of this risk drove the long-hypothesis judge ablation reported in \Cref{ch:evaluation}. Out-of-memory regression on long-hypothesis paths is the risk that a long answer triggers a verifier branch whose memory footprint exceeds the rented graphics processor's capacity, halting the cycle; this risk surfaced empirically during the calibration phase on the long-hypothesis judge fitting step and was contained by chunking the long-hypothesis batch. Equilibrium diagnostic mis-fire is the risk that the cycle-boundary diagnostic either stops the run before equilibrium is reached, producing a noisy late-cycle reading, or fails to stop a non-converging run, producing a runaway compute burn; the diagnostic's pre-registered tolerance band and its two-consecutive-cycles requirement bound this risk in both directions.
+
+\subsection{Budget and infrastructure risks}
+\label{sec:risk-budget}
+
+Three infrastructure risks are registered against the empirical programme. Rented graphics-processor credit exhaustion before the ten-cycle trajectory and the comparative panels complete is the most consequential, because the architecture depends on a single backbone fine-tuned across cycles and a partial run cannot be salvaged into a meaningful comparison against external baselines. Node reclamation by the cloud provider mid-run is the risk that the rented machine is preempted between cycle boundaries, costing the cycle in flight and any post-cycle update passes that had not yet committed; the runbook commits per-cycle artefacts at every cycle boundary precisely so that a preempted cycle costs the cycle in flight rather than the entire run. Storage exhaustion on the public dataset host is the risk that the per-cycle artefact catalogue plus the model snapshots plus the passage index exceed the storage quota of the host that publishes them; the artefact catalogue is sized in advance to fit the host's free-tier quota, with the larger memory snapshots stored under separate quotas if needed.
+
+\subsection{Mitigation register}
+\label{sec:risk-mitigation}
+
+Each registered risk is paired with a registered mitigation. Calibration drift is mitigated by the cycle-boundary recalibration that re-fits the storage and deferral thresholds on a fresh fold under exponential-moving-average smoothing, and by the calibration-to-evaluation gap that is reported separately at every cycle so that the transfer of the precision guarantee to live data is itself a measurable quantity. Verifier and judge disagreement is mitigated by the long-hypothesis judge ablation, which removes the disagreement source from the deployed configuration when the judge fails its pre-registered correlation floor, and the disagreement reading itself is reported in \Cref{ch:evaluation} as a future-work caveat. Out-of-memory regression on long-hypothesis paths is mitigated by chunking the long-hypothesis batch and by a hard out-of-memory abort that triggers a clean restart from the previous checkpoint rather than a corrupted continuation. Equilibrium diagnostic mis-fire is mitigated by the diagnostic's pre-registered tolerance band, its two-consecutive-cycles requirement, and the upper-cap of ten cycles that bounds the worst case in both directions. Credit exhaustion and node reclamation are mitigated by the archive-before-overwrite discipline, the pre-self-improvement snapshot on the public dataset host that allows the run to resume from the snapshot rather than from cycle zero, and the per-cycle artefact commit that bounds the loss from a preempted cycle to the cycle in flight. Storage exhaustion is mitigated by sizing the artefact catalogue against the host's free-tier quota in advance and by tiered storage of the larger snapshots under separate quotas where the catalogue alone would exceed the budget. \Cref{tab:risk-register} consolidates the risk register and its registered mitigations, with the realised column recording which risks materialised during the empirical programme and the form their realisation took.
+
+\begin{table}[!htbp]
+\centering
+\footnotesize
+\begin{tabular}{@{}p{3.6cm}p{4.6cm}p{4.6cm}p{2.0cm}@{}}
+\toprule
+\textbf{Risk} & \textbf{Mechanism} & \textbf{Registered mitigation} & \textbf{Realised} \\
+\midrule
+Calibration drift across cycles & Locked thresholds lose precision under fine-tune-induced shift & Cycle-boundary recalibration under EMA smoothing; calibration-to-evaluation gap reported per cycle & Pending main run \\
+Verifier and judge disagreement & Post-generation verifier and long-hypothesis judge produce inconsistent scores & Long-hypothesis judge ablation when correlation floor fails; future-work caveat & \textbf{Yes} (judge ablated; Pearson $0.5843<0.70$) \\
+Out-of-memory regression on long paths & Long answer triggers verifier branch exceeding GPU capacity & Chunking on long-hypothesis batch; hard-abort with clean-restart & \textbf{Yes} (Step 5.5.2 chunked $+$ skipped) \\
+Equilibrium diagnostic mis-fire & Premature stop or runaway compute burn & Pre-registered tolerance band, two-consecutive-cycles requirement, ten-cycle upper cap & Pending main run \\
+GPU credit exhaustion & Run does not complete inside the rented credit envelope & Phase budgeting against the recorded credit; archive-before-overwrite discipline & Pending main run \\
+Node reclamation by cloud provider & Cycle in flight lost on preemption & Per-cycle artefact commit; pre-self-improvement snapshot on the public dataset host & Pending main run \\
+Storage exhaustion on dataset host & Artefact catalogue $+$ snapshots exceed the host's free-tier quota & Free-tier-aware sizing; tiered storage under separate quotas for larger snapshots & Pending main run \\
+Calibration iteration failure at validation gate & Cycle-zero composite or conformal fit fails the pre-registered gate & Re-iterate with patched signal-dump path and wider parameter grid & \textbf{Yes} (Phase 3 iteration 1 failed; iteration 2 locked) \\
+\bottomrule
+\end{tabular}
+\caption{Risk register with registered mitigations and the realised status as of the cycle-zero validation gate. Pending entries are resolved against the empirical record in \Cref{ch:evaluation}.}
+\label{tab:risk-register}
+\end{table}
+
+\section{Economic Analysis}
+\label{sec:economic}
+
+\subsection{Compute budget}
+\label{sec:econ-budget}
+
+The compute budget for the empirical programme is recorded in graphics-processor hours at the rented rate of the consumer-grade thirty-two-gigabyte class machine used for the entire run. The cycle-zero calibration phase consumed tens of hours, dominated by the verifier-signal sweep over the calibration fold; the ten-cycle main run is sized to several days under the locked batched-calibration configuration, dominated by the per-cycle fine-tune and the cycle-boundary retroactive re-verification pass; the external baseline panel scales in proportion to the number of samples evaluated and the number of decode passes per sample, with the chain-of-thought variants and the retrieval-augmented variants contributing the bulk of the cost; the architectural ablation panel scales in proportion to the number of mechanism-removal variants and the cycle horizon over which each variant runs. The full budget is recorded against the rented-credit envelope reported in Appendix~\ref{app:reproducibility}, and a downgraded-device envelope is reported alongside it that estimates the same programme on a sixteen-gigabyte device with parameter-efficient fine-tuning, so that the practical cost on a downgraded device can be derived from the published numbers without re-running the experiment.
+
+\subsection{Cost-benefit on the storage gate}
+\label{sec:econ-cost-benefit}
+
+The locked operating point admits approximately three percent of incoming queries to the storage class on the calibration fold, a deliberately conservative storage rate that trades volume for precision. The economic structure of this trade is direct: writing $c_{\text{ver}}$ for the verifier cost paid on every incoming query and $c_{\text{gen}}$ for the average decode cost of a zero-shot or retrieval-augmented generation, the marginal cost of admitting one additional stored episode is bounded above by zero new work because every signal it consumes was already computed, while the marginal benefit per stored episode is bounded below by the cumulative cache-hit savings it produces over its lifetime,
+\begin{equation}
+\Delta C_{\text{store}} \;\le\; 0
+\qquad\text{and}\qquad
+\Delta B_{\text{store}} \;\ge\; n_{\text{hit}} \cdot c_{\text{gen}},
+\label{eq:storage-cost-benefit}
+\end{equation}
+where $n_{\text{hit}}$ is the number of future queries whose dispatch score selects this episode in the memory-direct tier and saves the full decode cost. The conservative storage rate is therefore not a missed-opportunity cost but a quality-controlled investment: episodes that pass the gate are precise enough to be useful at retrieval time, and the precision floor is what makes the cache-hit savings $n_{\text{hit}} \cdot c_{\text{gen}}$ real rather than nominal.
+
+\subsection{Deployment cost projection}
+\label{sec:econ-deployment}
+
+The headline economic claim of the architecture is a deployed cost-per-query that decays with the memory share of incoming queries. At cold start the memory is small and most queries route to the zero-shot or retrieval-augmented tier, producing a per-query cost dominated by the decode and the passage retrieval. As the memory accumulates verified episodes across cycles, the share of queries served by the memory-direct tier rises, and each memory-direct query incurs only the cost of an embedding lookup and a similarity search rather than a decode. The total cost-per-query at cycle $t$ is therefore a weighted average over the three tiers,
+\begin{equation}
+\bar{c}(t) \;=\; \pi_{1}(t)\, c_{1} \;+\; \pi_{2}(t)\, c_{2} \;+\; \pi_{3}(t)\, c_{3},
+\qquad \pi_{1}(t) + \pi_{2}(t) + \pi_{3}(t) = 1,
+\label{eq:deployment-cost}
+\end{equation}
+where $\pi_{i}(t)$ is the share of incoming queries dispatched to tier $i$ at cycle $t$ and $c_{i}$ is the average per-query cost on that tier. The architecture predicts $\pi_{1}(t)$ rises and $\pi_{3}(t)$ falls as cycles progress; the empirical realisation of $\bar{c}(t)$ is reported in \Cref{ch:evaluation} so that the projection can be read off the trajectory rather than asserted in advance. Where deployment workloads concentrate on a recurring query distribution, the memory-direct share grows fastest and the deployed cost converges toward the retrieval-only floor; this is the regime in which the architecture is most economically attractive, and it is the regime that the deployment-study future-work item in \Cref{ch:conclusion} would test under live user traffic.
+
+\section{Chapter signpost}
+\label{sec:ch3-signpost}
+% Single short paragraph that motivates Chapter 4 and re-states the
+% open thread the next chapter closes.

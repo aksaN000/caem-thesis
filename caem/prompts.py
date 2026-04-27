@@ -35,12 +35,34 @@ from typing import Any, List, Tuple
 
 FORCED_PREFIX = "Reasoning:"
 
+# Branch C 2026-04-25 (Phase 2.6 — Empty-Answer compliance fix):
+# Empirical evidence (Phase 1 Cycle-0 audit, n=3500):
+#   - 43–53% of samples emitted only the "Reasoning:" prefix without ever
+#     reaching an "Answer:" line, producing empty display_answer values
+#     and routing all such samples to DISCARD regardless of correctness.
+#   - Of the 218 FEVER empty samples, 74 (33.9%) had reasoning whose
+#     conclusion matched the gold label; these correct answers were lost
+#     to format non-compliance, not to semantic incorrectness.
+#
+# Fix: tighten the SYSTEM_PROMPT to make the "Answer:" line explicitly
+# mandatory and bound reasoning length so the model reaches "Answer:"
+# before cot_max_new_tokens cuts off generation. Also adds a hard-stop
+# sentinel ("End.") the model can use to terminate cleanly after the
+# answer line, helping decoding stop earlier on confident cases.
+#
+# This is a PROMPT-LEVEL fix; no generation-side stopping_criteria is
+# added because the existing extract_cot_answer parser (eval/metrics.py
+# Priority 2) already recovers natural-language "the answer is X" suffixes
+# as a fallback. The combined effect is expected to recover ~14% of
+# correct predictions per benchmark per cycle.
 SYSTEM_PROMPT = (
     "You are a careful assistant. For each question, think step-by-step about "
     "what is being asked, then give a final answer in the specified format. "
-    "Always respond exactly as:\n"
-    "Reasoning: <your step-by-step thought>\n"
-    "Answer: <final answer>"
+    "Keep reasoning concise (3–4 sentences maximum). The 'Answer:' line is "
+    "MANDATORY — every response MUST end with it.\n\n"
+    "Always respond EXACTLY in this two-line format:\n"
+    "Reasoning: <your concise step-by-step thought, 3–4 sentences>\n"
+    "Answer: <final answer in the specified format>"
 )
 
 
@@ -106,14 +128,52 @@ def _task_spec(task: str, query: str, with_passages: bool) -> Tuple[str, str]:
             f"Choose the correct answer from the listed choices{basis}.",
             "A | B | C | D",
         )
-    # Open-ended QA (TriviaQA, NQ, TruthfulQA)
+    # Open-ended QA (TriviaQA, NQ, TruthfulQA, ASQA)
+    #
+    # Branch C 2026-04-25 (Phase 2.7 — open-QA over-abstention fix):
+    # Empirical evidence (Phase 1 Cycle-0 audit, n=3500):
+    #   - 38.8% of NQ, 40.4% of TriviaQA, 45.2% of ASQA samples received
+    #     display_answer = "I do not know.", causing storage rates to drop
+    #     to 1–2% even though base-model EM is 15–28%.
+    #   - The pre-fix prompt instructed "If you cannot find the answer ...
+    #     reply exactly: I do not know." which the model interpreted as
+    #     "any time you're not certain, refuse." Open-QA gold answers do
+    #     not include "I do not know" as a valid label (unlike FEVER NEI),
+    #     so every defensive refusal on open-QA is counted em=0.
+    #   - Mitigation: scope the refusal clause to retrieval-empty cases
+    #     only; for Tier-2 (no passages) require the model to commit to
+    #     its best-effort answer rather than refuse.
+    #
+    # Reference: Cole et al. "Selectively Answering Ambiguous Questions."
+    # EMNLP 2023, on the over-refusal failure mode in instruction-tuned
+    # generators on factoid QA. Our fix is the prompt-level remediation
+    # they recommend (gate refusal on absence-of-evidence, not on absence-
+    # of-confidence).
     basis = " based on the context above" if with_passages else ""
+    if with_passages:
+        # Tier 3: refusal is permitted only when retrieved context is empty
+        # of relevant information. The model must read the context first.
+        refusal_clause = (
+            "If — and only if — the context above contains no information "
+            "relevant to the question, reply exactly: I do not know. "
+            "Otherwise commit to your best-effort answer."
+        )
+    else:
+        # Tier 2: the model relies on its parametric knowledge. Defensive
+        # refusal is discouraged; commit to your best effort.
+        refusal_clause = (
+            "Commit to your best-effort answer based on what you know. "
+            "Reply 'I do not know' ONLY if the question is genuinely "
+            "unanswerable (e.g. asking about non-existent entities). "
+            "Do NOT use 'I do not know' as a default fallback for "
+            "uncertainty."
+        )
     return (
         f"Question: {query}\n"
         f"Answer the question{basis}. Give a SHORT answer (1-5 words preferred). "
-        f"If you cannot find the answer{basis}, reply exactly: I do not know. "
+        f"{refusal_clause} "
         f"Do not say 'the context does not mention' or similar evasive phrases.",
-        "short factual answer (or 'I do not know')",
+        "short factual answer",
     )
 
 

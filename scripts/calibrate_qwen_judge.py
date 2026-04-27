@@ -199,12 +199,22 @@ def main() -> int:
     premises = [p for p, _ in pairs]
     hypotheses = [h for _, h in pairs]
 
-    # Score with both judges
-    logger.info("Running MiniCheck on %d pairs...", len(pairs))
-    p_mc = mc_judge.batch_entail_prob(premises, hypotheses)
+    # Score with both judges. Chunk to avoid CUDA OOM: with max_context=8192
+    # and Qwen-3B, batch sizes >16 OOM on a 32GB 5090. MiniCheck has tighter
+    # per-pair budget (512 tokens) so it tolerates larger chunks.
+    import numpy as _np
 
-    logger.info("Running Qwen-judge (raw, no calibration) on %d pairs...", len(pairs))
-    p_qwen_raw = qwen_judge.batch_entail_prob(premises, hypotheses)
+    def _chunked_score(judge, prems, hyps, chunk):
+        out = []
+        for i in range(0, len(prems), chunk):
+            out.append(judge.batch_entail_prob(prems[i:i+chunk], hyps[i:i+chunk]))
+        return _np.concatenate(out)
+
+    logger.info("Running MiniCheck on %d pairs (chunk=64)...", len(pairs))
+    p_mc = _chunked_score(mc_judge, premises, hypotheses, chunk=64)
+
+    logger.info("Running Qwen-judge (raw, no calibration) on %d pairs (chunk=8)...", len(pairs))
+    p_qwen_raw = _chunked_score(qwen_judge, premises, hypotheses, chunk=8)
 
     # Fit Platt
     logger.info("Fitting Platt scaling...")

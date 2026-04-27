@@ -207,9 +207,24 @@ def main() -> None:
         "by_cycle":         {},
     }
 
+    # Branch C 2026-04-25: split ID (training) vs Transfer (eval-only) per
+    # Ch3 §Data. Theorem T1 audits alpha on the ID training-pool
+    # distribution; transfer alpha is reported separately as a
+    # generalization diagnostic.
+    try:
+        from caem.benchmark_splits import TRAINING_BENCHMARKS as _TRAIN_BENCHES
+    except ImportError:
+        _TRAIN_BENCHES = ("fever", "triviaqa", "natural_questions")
+
     for cycle in available_cycles:
         bench_map = cycles_data[cycle]
         all_records = [r for recs in bench_map.values() for r in recs]
+        id_records = [
+            r for b, recs in bench_map.items() if b in _TRAIN_BENCHES for r in recs
+        ]
+        transfer_records = [
+            r for b, recs in bench_map.items() if b not in _TRAIN_BENCHES for r in recs
+        ]
 
         # 2026-04-24: under adaptive thresholds, lookup THIS cycle's τ
         cycle_tau_store = tau_store_fit
@@ -227,28 +242,56 @@ def main() -> None:
                 except Exception as exc:
                     logger.warning("Cycle %d: failed to load per-cycle thresholds (%s); using baseline.", cycle, exc)
 
-        pooled_curve = [
+        # Pooled (legacy: all 7 lumped) — kept for backward compat but
+        # NOT the gate-decisive curve. Theorem T1's audit uses ID-pooled.
+        pooled_curve_legacy = [
             (float(t), _alpha_at(all_records, t, cycle_tau_defer, args.contra_veto)[0])
             for t in tau_grid
         ]
+        # ID-pooled (Theorem T1 audit-decisive curve)
+        id_pooled_curve = [
+            (float(t), _alpha_at(id_records, t, cycle_tau_defer, args.contra_veto)[0])
+            for t in tau_grid
+        ] if id_records else []
+        # Transfer-pooled (OOD generalization diagnostic)
+        transfer_pooled_curve = [
+            (float(t), _alpha_at(transfer_records, t, cycle_tau_defer, args.contra_veto)[0])
+            for t in tau_grid
+        ] if transfer_records else []
+
         per_bench_curves = {
             b: [(float(t), _alpha_at(recs, t, cycle_tau_defer, args.contra_veto)[0])
                 for t in tau_grid]
             for b, recs in bench_map.items()
         }
-        alpha_at_fitted, tp, tn, fp, fn = _alpha_at(
+
+        alpha_at_fitted_id, tp, tn, fp, fn = _alpha_at(
+            id_records, cycle_tau_store, cycle_tau_defer, args.contra_veto
+        ) if id_records else (float("nan"), 0, 0, 0, 0)
+        alpha_at_fitted_transfer = _alpha_at(
+            transfer_records, cycle_tau_store, cycle_tau_defer, args.contra_veto
+        )[0] if transfer_records else float("nan")
+        # Pooled-legacy retained for backward compat
+        alpha_at_fitted_pooled = _alpha_at(
             all_records, cycle_tau_store, cycle_tau_defer, args.contra_veto
-        )
+        )[0]
 
         results["by_cycle"][str(cycle)] = {
-            "n_samples_pooled":    len(all_records),
-            "pooled":              pooled_curve,
-            "per_benchmark":       per_bench_curves,
-            "alpha_at_fitted_tau": alpha_at_fitted,
-            "confusion_at_fitted": {"tp": tp, "tn": tn, "fp": fp, "fn": fn},
+            "n_samples_id":         len(id_records),
+            "n_samples_transfer":   len(transfer_records),
+            "n_samples_pooled":     len(all_records),
+            "id_pooled":            id_pooled_curve,           # Theorem T1 audit
+            "transfer_pooled":      transfer_pooled_curve,     # OOD generalization
+            "pooled_legacy":        pooled_curve_legacy,       # backward-compat
+            "per_benchmark":        per_bench_curves,
+            "alpha_at_fitted_id":       alpha_at_fitted_id,
+            "alpha_at_fitted_transfer": alpha_at_fitted_transfer,
+            "alpha_at_fitted_pooled":   alpha_at_fitted_pooled,
+            "confusion_at_fitted_id":   {"tp": tp, "tn": tn, "fp": fp, "fn": fn},
         }
-        logger.info("Cycle %2d: α(fitted τ=%.4f) = %.4f  [tp=%d tn=%d fp=%d fn=%d  n=%d]",
-                    cycle, tau_store_fit, alpha_at_fitted, tp, tn, fp, fn, len(all_records))
+        logger.info("Cycle %2d: α_ID(fitted τ=%.4f) = %.4f  α_transfer = %.4f  [n_id=%d n_xfer=%d]",
+                    cycle, cycle_tau_store, alpha_at_fitted_id, alpha_at_fitted_transfer,
+                    len(id_records), len(transfer_records))
 
     args.output_json.parent.mkdir(parents=True, exist_ok=True)
     with open(args.output_json, "w") as f:
@@ -267,7 +310,10 @@ def main() -> None:
 
     args.figures_dir.mkdir(parents=True, exist_ok=True)
 
-    # Figure A: Cycle-0 vs converged-cycle pooled α(τ) curves
+    # Figure A: Cycle-0 vs converged-cycle ID-pooled α(τ) curves
+    # (Theorem T1 audit). Uses ID-pooled, not all-7-pooled, per the
+    # 2026-04-25 ID/transfer split fix. The transfer α curve is plotted
+    # separately as a generalization diagnostic if data is available.
     fig_a_path = args.figures_dir / "alpha_vs_tau_cal_vs_converged.pdf"
     plt.figure(figsize=(7.5, 4.8))
     for cycle, color, label in [
@@ -276,8 +322,14 @@ def main() -> None:
     ]:
         if str(cycle) not in results["by_cycle"]:
             continue
-        xs, ys = zip(*results["by_cycle"][str(cycle)]["pooled"])
-        plt.plot(xs, ys, color=color, label=label, linewidth=2.0)
+        # Prefer the new id_pooled curve; fall back to legacy pooled if
+        # the JSON was produced before the 2026-04-25 split.
+        cycle_data = results["by_cycle"][str(cycle)]
+        curve = cycle_data.get("id_pooled") or cycle_data.get("pooled_legacy") or cycle_data.get("pooled")
+        if not curve:
+            continue
+        xs, ys = zip(*curve)
+        plt.plot(xs, ys, color=color, label=label + " (ID)", linewidth=2.0)
     plt.axhline(0.5, color="red", linestyle="--", linewidth=1.0,
                 label=r"$\alpha = 0.5$ (theorem threshold)")
     plt.axvline(tau_store_fit, color="black", linestyle=":", linewidth=1.0,
@@ -297,7 +349,13 @@ def main() -> None:
     fig_b_path = args.figures_dir / "alpha_trajectory.pdf"
     plt.figure(figsize=(7.5, 3.8))
     xs = available_cycles
-    ys = [results["by_cycle"][str(c)]["alpha_at_fitted_tau"] for c in xs]
+    # 2026-04-25 ID/transfer split: prefer ID alpha at fitted tau (Theorem T1
+    # audit), fall back to legacy pooled key if loading an older JSON.
+    ys = [
+        results["by_cycle"][str(c)].get("alpha_at_fitted_id",
+            results["by_cycle"][str(c)].get("alpha_at_fitted_tau", float("nan")))
+        for c in xs
+    ]
     plt.plot(xs, ys, "-o", linewidth=2.0, markersize=5)
     plt.axhline(0.5, color="red", linestyle="--", linewidth=1.0,
                 label=r"$\alpha = 0.5$ (theorem threshold)")

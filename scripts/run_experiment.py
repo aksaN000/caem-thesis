@@ -486,6 +486,124 @@ def run_per_cycle_threshold_refit(
         )
 
 
+def run_per_cycle_conformal_refit(
+    config,
+    output_dir: Path,
+    cycle: int,
+) -> None:
+    """Per-cycle CalProbComposite + ConformalStorageGate re-fit (Phase 2.4/2.5).
+
+    Branch C 2026-04-25: companion to ``run_per_cycle_threshold_refit``
+    (which handles the legacy quantile thresholds). At each cycle
+    boundary, refits the per-signal isotonic + Cherian boost composite
+    on this cycle's calibration fold, then refits the conformal split-CP
+    gate at α_store=0.20 / α_defer=0.40 against the rescored fold.
+    EMA-smooths the τ_store and τ_defer values against the previous
+    cycle's gate (alpha=0.7 default) to keep the threshold trajectory
+    stable.
+
+    Verifier reads the latest ``conformal_gate.json`` +
+    ``composite_calibration.json`` at construction time per the dispatch
+    in ``UnifiedVerifier._init_cal_prob_composite`` and
+    ``UnifiedVerifier._init_conformal_gate``. Resume contract: on
+    resume, the run loop loads the most recent cycle's JSONs; if absent,
+    bootstrap-fallback to the legacy fixed-threshold path (same as
+    Cycle-0 before Step 7.0.2 fits).
+
+    No-op if either ``adaptive_thresholds_per_cycle`` is False (Phase 1a
+    legacy mode) or if the composite_calibration.json from Step 7.0.2
+    isn't present (operator using forced weighted_sum mode).
+    """
+    if not getattr(config, "adaptive_thresholds_per_cycle", False):
+        return  # Phase 1a legacy: no per-cycle refit at all
+    if cycle == 0:
+        return  # Cycle 0 is handled by Step 7.0.2 fit_*.py scripts directly
+
+    import subprocess
+    from pathlib import Path as _Path
+
+    cycle_calib = sorted((output_dir / f"cycle_{cycle}" / "calibration").glob("*.json"))
+    if not cycle_calib:
+        logger.warning(
+            "Per-cycle conformal refit: cycle %d calibration fold not found; "
+            "skipping (verifier will continue using previous-cycle gate).",
+            cycle,
+        )
+        return
+
+    # Find previous cycle's composite + gate for EMA smoothing
+    prev_composite: Optional[_Path] = None
+    prev_gate: Optional[_Path] = None
+    for prev_cycle in range(cycle - 1, -1, -1):
+        c1 = output_dir / f"cycle_{prev_cycle}" / "composite_calibration.json"
+        c2 = output_dir / f"cycle_{prev_cycle}" / "conformal_gate.json"
+        if c1.exists() and c2.exists():
+            prev_composite = c1
+            prev_gate = c2
+            break
+    # Fall back to Step 7.0.2 baseline (Cycle-0)
+    if prev_composite is None:
+        candidate = _Path("outputs/cycle_0/composite_calibration.json")
+        if candidate.exists():
+            prev_composite = candidate
+    if prev_gate is None:
+        candidate = _Path("outputs/cycle_0/conformal_gate.json")
+        if candidate.exists():
+            prev_gate = candidate
+
+    if prev_composite is None or prev_gate is None:
+        logger.warning(
+            "Per-cycle conformal refit: no previous composite/gate found; "
+            "skipping (Step 7.0.2 must run before Cycle 1)."
+        )
+        return
+
+    out_composite = output_dir / f"cycle_{cycle}" / "composite_calibration.json"
+    out_gate = output_dir / f"cycle_{cycle}" / "conformal_gate.json"
+    out_composite.parent.mkdir(parents=True, exist_ok=True)
+
+    cmd = [
+        "python", "scripts/recalibrate_conformal_at_cycle.py",
+        "--calib_jsons", *[str(p) for p in cycle_calib],
+        "--previous_composite", str(prev_composite),
+        "--previous_gate", str(prev_gate),
+        "--output_composite", str(out_composite),
+        "--output_gate", str(out_gate),
+        "--ema_alpha", str(getattr(config, "adaptive_thresholds_ema_alpha", 0.7)),
+        "--alpha_store", str(getattr(config, "conformal_alpha_store", 0.20)),
+        "--alpha_defer", str(getattr(config, "conformal_alpha_defer", 0.40)),
+    ]
+
+    logger.info("Cycle %d: per-cycle CalProbComposite + ConformalGate re-fit.", cycle)
+    try:
+        subprocess.run(cmd, check=True)
+        # Also update the canonical paths the verifier reads on init,
+        # so the next cycle's pipeline construction picks up the new
+        # composite + gate. We copy rather than symlink so a partial
+        # failure doesn't leave a dangling pointer.
+        canonical_composite = _Path(getattr(
+            config, "composite_calibration_path",
+            "outputs/cycle_0/composite_calibration.json",
+        ))
+        canonical_gate = _Path(getattr(
+            config, "conformal_gate_path",
+            "outputs/cycle_0/conformal_gate.json",
+        ))
+        import shutil
+        shutil.copy(out_composite, canonical_composite)
+        shutil.copy(out_gate, canonical_gate)
+        logger.info(
+            "Cycle %d: published cycle composite/gate to canonical paths "
+            "(verifier will reload on next pipeline init).",
+            cycle,
+        )
+    except subprocess.CalledProcessError as exc:
+        logger.warning(
+            "Cycle %d conformal refit failed (%s); keeping previous-cycle gate.",
+            cycle, exc,
+        )
+
+
 def run_per_cycle_recalibration(
     pipeline,
     calib_samples: Dict[str, list],
@@ -1528,6 +1646,10 @@ def run_experiment(ns: argparse.Namespace) -> None:
             # Phase 1a; ON for production deployment. Mirrors the T re-fit
             # protocol above.
             run_per_cycle_threshold_refit(config, output_dir, cycle=cycle_num)
+            # Branch C 2026-04-25 (Phase 2.4/2.5): per-cycle re-fit of the
+            # CalProbComposite + ConformalStorageGate. Same trigger as the
+            # legacy quantile threshold refit; runs in parallel.
+            run_per_cycle_conformal_refit(config, output_dir, cycle=cycle_num)
 
         logger.info("Cycle %d done in %.1f min.", cycle_num, (time.time() - t0) / 60)
 

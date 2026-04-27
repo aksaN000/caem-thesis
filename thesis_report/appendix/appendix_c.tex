@@ -1,0 +1,38 @@
+% ============================================================================
+% Appendix C — Per-cycle artifact dictionary
+% Status: SKELETON. Populates after step_7_main with per-cycle JSON
+% snapshots.
+% ============================================================================
+
+\chapter{Per-cycle artifact dictionary}
+\label{app:per-cycle}
+
+% Purpose: a flat catalog of the per-cycle artifacts produced by the
+% ten-cycle run. Body prose in Chapter 6 reports trajectories; this
+% appendix is the per-cycle index.
+
+\section{Per-cycle calibration snapshots}
+\label{app:per-cycle-cal}
+% Cycle index, temperature scalar, expected calibration error before
+% and after, sample size of the calibration fold at each cycle.
+
+\section{Per-cycle conformal threshold history}
+\label{app:per-cycle-tau}
+% Cycle index, fitted storage threshold, fitted deferral threshold,
+% and the EMA-smoothed values used in deployment for the next cycle.
+
+\section{Per-cycle memory size and storage rate}
+\label{app:per-cycle-memory}
+% Cycle index, episodes added, episodes removed by retroactive
+% pruning, deferred entries promoted from the buffer, total memory
+% size at end of cycle.
+
+\section{Per-cycle equilibrium fit}
+\label{app:per-cycle-equilibrium}
+% Cycle index and the equilibrium-saturation fit parameters from the
+% early-stop diagnostic. The stop criterion verdict per cycle.
+
+\section{Per-cycle fine-tuning diagnostics}
+\label{app:per-cycle-ft}
+% Cycle index, training samples drawn, the loss trajectory, the
+% retention probe verdict, and any rollback event.

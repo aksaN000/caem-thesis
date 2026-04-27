@@ -1,0 +1,141 @@
+% ============================================================================
+% Thesis: Confidence-Aware Episodic Memory for Hallucination Mitigation
+% Author: Aksan Gony Alif
+% CSE400, BRAC University, 2026
+%
+% This is the active thesis report. The earlier draft at
+% pre thesis 1 report/ is preserved as a reference baseline; do not
+% edit it during the rewrite.
+%
+% Build instructions: see BUILD.md.
+% Style rules: see audit_phase_a.md and the per-chapter scope notes.
+% ============================================================================
+
+\documentclass[12pt,a4paper,oneside]{book}
+
+% --- Page geometry and typography -------------------------------------------
+\usepackage[a4paper,top=1in,bottom=1in,left=1.25in,right=1in]{geometry}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{setspace}
+\onehalfspacing
+
+% --- Math and symbols -------------------------------------------------------
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{amsthm}
+\usepackage{bm}
+\usepackage{mathtools}
+\usepackage{nicefrac}
+
+% --- Tables and figures -----------------------------------------------------
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{multicol}
+\usepackage{array}
+\usepackage{tabularx}
+\usepackage{longtable}
+\usepackage{rotating}
+\usepackage{float}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage[table]{xcolor}
+\usepackage{tcolorbox}
+\usepackage{tikz}
+\usetikzlibrary{positioning,arrows,arrows.meta,shapes,shapes.geometric,fit,backgrounds,calc,decorations.pathreplacing,shadows.blur}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.18}
+
+% --- Algorithms -------------------------------------------------------------
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+
+% --- Cross-references and hyperlinks ----------------------------------------
+\usepackage[hidelinks,colorlinks=true,linkcolor=black,citecolor=black,urlcolor=blue]{hyperref}
+\usepackage[noabbrev,capitalize]{cleveref}
+
+% --- Bibliography -----------------------------------------------------------
+\usepackage[backend=biber,style=numeric-comp,sorting=none,maxbibnames=99]{biblatex}
+\addbibresource{bibliography/references.bib}
+
+% --- Lists and indices ------------------------------------------------------
+\usepackage[intoc]{nomencl}
+\makenomenclature
+\usepackage{tocloft}
+
+% --- Custom commands --------------------------------------------------------
+\newcommand{\caem}{\textsc{CAEM}}
+\newcommand{\upre}{u_{\text{pre}}}
+\newcommand{\ustored}{u_{\text{stored}}}
+\newcommand{\taustore}{\tau_{\text{store}}}
+\newcommand{\taudefer}{\tau_{\text{defer}}}
+\newcommand{\tautrain}{\tau_{\text{train}}}
+\newcommand{\alphastore}{\alpha_{\text{store}}}
+\newcommand{\alphadefer}{\alpha_{\text{defer}}}
+
+% --- Theorem environments ---------------------------------------------------
+\theoremstyle{plain}
+\newtheorem{theorem}{Theorem}[chapter]
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{corollary}[theorem]{Corollary}
+\newtheorem{proposition}[theorem]{Proposition}
+\theoremstyle{definition}
+\newtheorem{definition}[theorem]{Definition}
+\newtheorem{assumption}[theorem]{Assumption}
+\theoremstyle{remark}
+\newtheorem{remark}[theorem]{Remark}
+
+% ============================================================================
+\begin{document}
+
+% --- Front matter -----------------------------------------------------------
+\frontmatter
+
+\input{core/titlepage}
+\input{core/declaration}
+\input{core/approval}
+\input{core/ethics_statement}
+\input{core/abstract}
+\input{core/dedication}
+\input{core/acknowledgement}
+
+\tableofcontents
+\listoffigures
+\listoftables
+\listofalgorithms
+\input{core/lists/list_of_acronyms}
+\input{core/lists/list_of_symbols}
+
+% --- Main matter ------------------------------------------------------------
+\mainmatter
+
+% Chapter list mandated by the BRAC University CSE400 thesis rubric. Each
+% chapter title and section number is fixed by the rubric; depth is added
+% through subsections inside the prescribed sections. See
+% images/thesis_rubric.png for the full Course Outcome to chapter mapping.
+\input{chapters/chapter_1.tex}   % Introduction (preserved)
+\input{chapters/chapter_2.tex}   % Literature Review (preserved, frozen)
+\input{chapters/chapter_3.tex}   % Requirements, Impact, and Project Management
+\input{chapters/chapter_4.tex}   % Methodology and Design
+\input{chapters/chapter_5.tex}   % Performance Evaluation and Analysis
+\input{chapters/chapter_6.tex}   % Conclusion and Future Work
+
+% --- Bibliography -----------------------------------------------------------
+\printbibliography[heading=bibintoc,title={References}]
+
+% --- Appendices -------------------------------------------------------------
+\appendix
+\input{appendix/appendix_a.tex}  % Implementation Reference
+\input{appendix/appendix_b.tex}  % Cycle 0 Evidence Catalog
+\input{appendix/appendix_c.tex}  % Per-Cycle Artifact Dictionary
+\input{appendix/appendix_d.tex}  % Significance Test Details
+\input{appendix/appendix_e.tex}  % Reproducibility Recipe
+\input{appendix/appendix_f.tex}  % Glossary
+% Appendix G (Proofs) is added on demand if any individual proof overflows
+% the half-page-in-Chapter-4 budget set during the rewrite.
+% \input{appendix/appendix_g.tex}  % Proofs (created only if overflow occurs)
+
+\end{document}
