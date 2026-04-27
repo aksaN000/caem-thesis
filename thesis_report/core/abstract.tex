@@ -1,25 +1,23 @@
 % ============================================================================
-% Abstract — SKELETON. Last to write, after Chapters 1 through 9 are
-% complete and the headline numbers are locked.
-%
-% The earlier draft is preserved at:
-%   pre thesis 1 report/core/abstract.tex
-% Many numerical claims in that draft are stale (older baseline panel,
-% nine-signal verifier, six benchmarks, Flan-T5-Large reference, the
-% pre-registered 40 percent reduction target). Do NOT copy those
-% numbers; they conflict with the locked Cycle 0 evidence.
+% Abstract — written 2026-04-27 against the locked Cycle 0 evidence.
+% Numerical claims in this abstract trace to:
+%   outputs/cycle_0/composite_calibration.json    (10-signal cal-prob, +1.099 intercept)
+%   outputs/cycle_0/conformal_gate.json           (tau_store=0.6676, tau_defer=0.5207)
+%   outputs/cycle_0/weight_validation.json        (overall_pass=true)
+%   outputs/cycle_0/eval_rescored/*.json          (cross-benchmark pooled gap reading)
+%   outputs/cycle_0/sweep/comparison.json         (25-variant sweep, V_a050_C0.010 locked)
+% Trajectory-dependent numbers (per-cycle CHM reduction, retention margin,
+% pool purity trajectory) are populated post step_7_main; this abstract
+% reports only the cycle-zero receipts that are already on disk plus the
+% theoretical contributions whose validity does not depend on the trajectory.
 % ============================================================================
 
 \chapter*{Abstract}
 \addcontentsline{toc}{chapter}{Abstract}
 
-% Two paragraphs:
-%   Paragraph 1: the problem, the architecture in one sentence, the headline
-%                empirical result (composite hallucination metric reduction
-%                or precision number), the methodological contribution.
-%   Paragraph 2: the theoretical contribution (the four theorems) and how
-%                each is empirically licensed by the ten-cycle trajectory,
-%                plus the reproducibility commitment.
+Large language models produce confident but factually incorrect outputs at rates that span three to ninety-one percent across deployment domains \cite{alkaissi2023artificial,10.1145/3649506}, a failure mode that scaling parameter count does not close \cite{lin-etal-2022-truthfulqa}. This thesis proposes \emph{Confidence-Aware Episodic Memory with Self-Improvement (CAEM)}, an architectural intervention that treats hallucination reduction as a system-level problem rather than a post-hoc detection problem. CAEM organises a single query into an eight-stage pipeline that combines a verified episodic memory store, a confidence-aware three-tier router with an independent safety override, a ten-signal verifier ensemble across four families (internal calibration, sample-set agreement, external grounding, and question-answer relevance), a calibrated-probability composite that aggregates the ten signals through per-signal isotonic regression and an L2-regularised logistic boost layer \cite{cherian2024conformal}, and a conformal split-conformal-prediction storage gate that delivers a distribution-free precision lower bound under exchangeability \cite{mohri2024conformal}. The architecture is wrapped in a cycle-boundary self-improvement loop that fine-tunes the generator under an L2 anchor as a first-order approximation to elastic weight consolidation \cite{doi:10.1073/pnas.1611835114}, refits the temperature scalar and per-signal isotonic curves and conformal thresholds on a fresh calibration fold drawn from the post-fine-tune signal distribution, reloads the verifier, and runs retroactive re-verification against the freshly recalibrated thresholds before the next cycle begins. The empirical programme uses the Qwen-2.5-3B-Instruct backbone on a seven-benchmark panel split into a training panel of three (FEVER, TriviaQA, Natural Questions) and a held-out transfer panel of four (TruthfulQA, StrategyQA, ARC-Challenge, ASQA). Cycle zero produces a locked configuration with calibration-fold storage precision of $0.9643$ and pooled evaluation-fold storage precision of $0.8021$, drawn from a twenty-five-variant pre-registered sweep over the conformal miscoverage level and the boost layer regularisation strength.
+
+The architectural contribution is paired with a theoretical contribution: four theorems characterise the trajectory of the storage class across cycles. Pool purity is bounded below by the conformal level under upward-only retroactive update; storage rate and pool purity are monotonic in the verifier's discrimination and the base-model accuracy; the precision-asymptote gap is bounded by a geometric envelope under a contraction rate set by the per-cycle storage rate and the calibration-fold Cohen's $d$; and the asymptotic hallucination rate of the memory-direct tier is bounded by a structural floor set by the conformal level rather than by deployment scale. Each theorem is paired with an empirical receipt evaluated against the realised cycle horizon, and every threshold, fit-time procedure, and artefact path is committed in code before the empirical record is consulted. The architecture's value over the simpler baseline of plain exact-match-labelled fine-tuning at the same labelling budget rests on five load-bearing differentiators: a per-query precision contract that fine-tuning structurally cannot produce, a memory-direct serving tier that compounds cost savings as the verified pool accumulates, an asymmetric-rollback property under which a failed cycle preserves accumulated memory while reverting weights, a verifier-as-sample-efficiency-multiplier under which the cycle-boundary labelled batch validates a precision contract rather than carrying the gradient signal directly, and inference-time error catching that persists after the parametric fine-tune saturates against the generator's capacity ceiling. The ten-cycle trajectory, the external-baseline panel under matched protocol with paired McNemar significance and bias-corrected-and-accelerated bootstrap intervals under Holm correction, and the architectural ablation panel against pre-registered effect bands are reported in the empirical chapter; the artefact catalogue, snapshot recovery recipe, and version-pinned reproducibility envelope are registered in the appendices.
 
 \vspace{0.5cm}
-\noindent\textbf{Keywords:} % Populated last.
+\noindent\textbf{Keywords:} hallucination reduction; episodic memory; conformal prediction; self-improvement; calibrated confidence; retrieval-augmented generation; large language models; verifier ensemble; isotonic regression; continual learning; abstention.
