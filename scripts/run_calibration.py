@@ -266,6 +266,46 @@ def log_signal_auroc(
 
 
 # -----------------------------------------------------------------------------
+# Cycle-N calibration cache reader (Step 2.1 -> Step 2.2 fast path)
+# -----------------------------------------------------------------------------
+
+def _load_u_pre_from_cycle_cache(
+    cycle_calib_dir: Path,
+    benchmarks: list,
+    cycle: int,
+) -> Optional[Tuple[List[float], List[int]]]:
+    """Read u_pre + em from cycle-N cal-fold JSONs written by the harness.
+
+    Returns ``(u_pre_logits, u_pre_labels)`` if every benchmark JSON exists
+    and every sample has a non-null u_pre field; otherwise ``None`` (caller
+    falls back to live pipeline re-scoring).
+    """
+    cycle_calib_dir = Path(cycle_calib_dir)
+    if not cycle_calib_dir.exists():
+        return None
+    u_pre_logits: List[float] = []
+    u_pre_labels: List[int] = []
+    for bm in benchmarks:
+        p = cycle_calib_dir / f"{bm}_cycle{cycle}.json"
+        if not p.exists():
+            return None
+        try:
+            data = json.load(open(p, "r", encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            return None
+        for s in data.get("samples", []):
+            up = s.get("u_pre", None)
+            em = s.get("em", None)
+            if up is None or em is None:
+                return None
+            u_pre_logits.append(float(up))
+            u_pre_labels.append(int(bool(em)))
+    if not u_pre_logits:
+        return None
+    return u_pre_logits, u_pre_labels
+
+
+# -----------------------------------------------------------------------------
 # Collect calibration signals from pipeline results
 # -----------------------------------------------------------------------------
 
@@ -683,9 +723,30 @@ def calibrate_pipeline_temperature_only(
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    u_pre_logits, u_pre_labels, _, _ = collect_calibration_data(
-        pipeline, calib_samples, batch_size=batch_size,
+    # 2026-04-27: per-cycle T-refit cache. Step 2.1 (cal-fold scoring under
+    # the post-SIL model) writes cycle_{N}/calibration/{bench}_cycle{N}.json
+    # via eval/harness.py. Those JSONs include u_pre per-sample as of the
+    # same date. Step 2.2 (this function) ran on the same post-SIL model
+    # immediately after, so cached u_pre values are byte-identical to a
+    # fresh pipeline re-run. Reading from the cache avoids re-generating
+    # 1500 cal-fold samples (~3.5 h) per cycle. Falls back to live re-run
+    # if any cached sample lacks u_pre (older runs, schema mismatch).
+    cached = _load_u_pre_from_cycle_cache(
+        output_dir.parent / f"cycle_{cycle}" / "calibration",
+        list(calib_samples.keys()),
+        cycle,
     )
+    if cached is not None:
+        u_pre_logits, u_pre_labels = cached
+        logger.info(
+            "Cycle %d T-refit: using cached u_pre from %d cal-fold samples "
+            "(skip live re-scoring).",
+            cycle, len(u_pre_logits),
+        )
+    else:
+        u_pre_logits, u_pre_labels, _, _ = collect_calibration_data(
+            pipeline, calib_samples, batch_size=batch_size,
+        )
     if not u_pre_logits:
         logger.warning(
             "Cycle %d temperature re-fit: no calibration data collected; "
