@@ -1519,17 +1519,17 @@ def run_experiment(ns: argparse.Namespace) -> None:
         # "Step 3" — this section is renumbered below so both agree.
 
         # Step 1: Fine-tune on verified episodes from current memory.
-        # Passing verify_fn enables retroactive re-verification (Phase 5d):
-        # after fine-tuning, every stored episode is re-scored by the updated
-        # model via UnifiedVerifier. Raised u_stored propagates all nine
-        # signals back onto the entry; entries below the prune threshold
-        # are removed.
+        # 2026-04-27 reorder: verify_fn=None disables SIL.run_cycle's
+        # internal retroverify pass. Retroverify now runs externally at
+        # Step 2.4 below, AFTER the cycle-boundary recalibration so it
+        # reads through the freshly-refit isotonic curves and conformal
+        # thresholds rather than through stale Cycle-0 calibration.
         logger.info("  Step 1: SelfImprovementLoop.run_cycle(%d) ...", cycle_num)
         cycle_result = sil.run_cycle(
             cycle_num=cycle_num,
             memory_store=pipeline.memory_store,
             general_data=general_data,
-            verify_fn=pipeline.make_retroverify_fn(),
+            verify_fn=None,
         )
 
         if cycle_result.aborted:
@@ -1552,8 +1552,78 @@ def run_experiment(ns: argparse.Namespace) -> None:
         # (pipeline cycle counter update — housekeeping, not a numbered step)
         pipeline.current_cycle = cycle_num
 
-        # Step 2: Retroactive re-verification of memory
-        logger.info("  Step 2: Retroactive re-verification ...")
+        # ============================================================== #
+        # Step 2: Cycle-boundary recalibration THEN retroactive re-verify.
+        # 2026-04-27 reorder: the previous order ran retroverify under
+        # stale Cycle-0 calibration and over-pruned EM-correct cold-seed
+        # entries because the post-SIL signal distribution falls outside
+        # the Cycle-0 isotonic fit envelope. The correct order is:
+        #   2.1 Score the calibration fold under the post-SIL model
+        #   2.2 Re-fit T (label-dependent, ECE-min)
+        #   2.3 Re-fit per-signal isotonic + conformal tau (label-dep.)
+        #   2.4 Reload verifier from the cycle-N calibration JSONs
+        #   2.5 Run retroverify against the recalibrated verifier
+        # Skipped only on aborted cycles (weights rolled back, so the
+        # calibration fold scoring would be on the previous-cycle model
+        # and add no information; retroverify runs against the previous
+        # cycle's calibration, which is the exchangeable-fold case).
+        # ============================================================== #
+        if not cycle_result.aborted and not getattr(ns, "skip_calibration", False):
+            cycle_calib_dir = output_dir / f"cycle_{cycle_num}" / "calibration"
+            cycle_calib_dir.mkdir(parents=True, exist_ok=True)
+
+            # Step 2.1: Score the calibration fold under the post-SIL model.
+            # Temporarily swap the harness output_dir so the per-sample
+            # JSONs land under cycle_{N}/calibration/, then restore.
+            logger.info(
+                "  Step 2.1: scoring calibration fold under post-SIL model "
+                "(cycle=%d, %d benchmarks) ...",
+                cycle_num, len(calib_samples),
+            )
+            _saved_output_dir = harness.output_dir
+            try:
+                harness.output_dir = cycle_calib_dir
+                harness.run_all(
+                    calib_samples, cycle=cycle_num, store_to_memory=False,
+                )
+            finally:
+                harness.output_dir = _saved_output_dir
+
+            # Step 2.2: Re-fit T (ECE-min on the post-SIL calibration fold).
+            run_per_cycle_recalibration(
+                pipeline, calib_samples, config, output_dir, cycle=cycle_num,
+            )
+            # Step 2.3: Re-fit per-signal isotonic curves + conformal tau
+            # (label-dependent). Reads cycle_{N}/calibration/*.json that
+            # 2.1 just wrote; writes cycle_{N}/composite_calibration.json
+            # and cycle_{N}/conformal_gate.json. Companion legacy quantile
+            # threshold refit runs in parallel (label-free sanity mirror).
+            run_per_cycle_threshold_refit(config, output_dir, cycle=cycle_num)
+            run_per_cycle_conformal_refit(config, output_dir, cycle=cycle_num)
+
+            # Step 2.4: Reload the verifier from the cycle-N JSONs so the
+            # retroverify pass below scores memory entries through the
+            # freshly-refit isotonic curves. Without this reload the
+            # verifier still holds the Cycle-0 composite + gate.
+            new_composite = output_dir / f"cycle_{cycle_num}" / "composite_calibration.json"
+            new_gate = output_dir / f"cycle_{cycle_num}" / "conformal_gate.json"
+            if new_composite.exists() and new_gate.exists():
+                pipeline.verifier.reload_calibration(
+                    str(new_composite), str(new_gate),
+                )
+            else:
+                logger.warning(
+                    "Cycle %d: per-cycle recalibration did not produce composite/gate JSONs "
+                    "(missing %s or %s). Verifier retains the previous cycle's calibration "
+                    "for retroverify; the cold-seed prune behaviour will follow the "
+                    "stale-calibration path documented in Ch5 §Threats.",
+                    cycle_num, new_composite, new_gate,
+                )
+
+        # Step 2.5: External retroactive re-verification under the now-
+        # recalibrated verifier (or the previous-cycle calibration if the
+        # cycle was aborted / recalibration failed).
+        logger.info("  Step 2.5: Retroactive re-verification ...")
         retroverify_stats = retroactive_reverification(pipeline, cycle_num, config)
 
         # Step 3: Save retroverify stats alongside cycle results
@@ -1631,25 +1701,13 @@ def run_experiment(ns: argparse.Namespace) -> None:
                     cycle_num, exc,
                 )
 
-        # Step 7: Per-cycle recalibration (Conservative default: temperature
-        # only; no-op if both calibration flags are False). Runs after
-        # fine-tuning + retroverify so the calibration set is scored with
-        # the updated weights — matches the Cycle-0 protocol position
-        # (calibration immediately follows eval). See Ovadia et al.
-        # NeurIPS 2019 / Thulasidasan et al. 2019 for the motivation.
-        if not getattr(ns, "skip_calibration", False):
-            run_per_cycle_recalibration(
-                pipeline, calib_samples, config, output_dir, cycle=cycle_num,
-            )
-            # 2026-04-24: Per-cycle threshold re-fit (opt-in via
-            # CAEMConfig.adaptive_thresholds_per_cycle). Default OFF for
-            # Phase 1a; ON for production deployment. Mirrors the T re-fit
-            # protocol above.
-            run_per_cycle_threshold_refit(config, output_dir, cycle=cycle_num)
-            # Branch C 2026-04-25 (Phase 2.4/2.5): per-cycle re-fit of the
-            # CalProbComposite + ConformalStorageGate. Same trigger as the
-            # legacy quantile threshold refit; runs in parallel.
-            run_per_cycle_conformal_refit(config, output_dir, cycle=cycle_num)
+        # Step 7 (RETIRED 2026-04-27): per-cycle recalibration moved to
+        # Step 2.2-2.3 above so it runs BEFORE retroactive re-verification
+        # rather than after. The previous order had retroverify scoring
+        # memory entries through the stale Cycle-0 isotonic curves, which
+        # over-pruned EM-correct cold-seed entries because the post-SIL
+        # raw signal distribution falls outside the Cycle-0 fit envelope.
+        # See Ch4 §Cycle-boundary recalibration for the corrected order.
 
         logger.info("Cycle %d done in %.1f min.", cycle_num, (time.time() - t0) / 60)
 
