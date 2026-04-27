@@ -1,9 +1,46 @@
-% List of acronyms — populated during Phase C rewrite.
+% ============================================================================
+% List of Acronyms — single table, two-column, footnotesize.
+% ============================================================================
+
 \chapter*{List of Acronyms}
 \addcontentsline{toc}{chapter}{List of Acronyms}
-\begin{tabbing}
-\hspace*{4cm}\=\kill
-\textbf{CAEM} \> Confidence-Aware Episodic Memory \\
-% Additional entries to be populated during the rewrite. Discipline:
-% only acronyms that appear at least twice in body prose go here.
-\end{tabbing}
+
+{\footnotesize
+\setlength{\tabcolsep}{4pt}
+\renewcommand{\arraystretch}{1.05}
+\begin{longtable}{@{}p{1.7cm}p{5.9cm}@{\hspace{1.2em}}p{1.7cm}p{5.9cm}@{}}
+\multicolumn{4}{@{}l@{}}{\textbf{\normalsize Architecture and methods}}\\
+\textbf{CAEM}    & Confidence-Aware Episodic Memory with Self-Improvement & \textbf{SIL}     & Self-Improvement Loop \\
+\textbf{CP}      & Conformal Prediction (\textbf{split-CP}: split conformal) & \textbf{NLI}     & Natural Language Inference \\
+\textbf{RAG}     & Retrieval-Augmented Generation & \textbf{DPR}     & Dense Passage Retrieval \\
+\textbf{CoT}     & Chain-of-Thought prompting & \textbf{EWC}     & Elastic Weight Consolidation \\
+\textbf{LoRA}    & Low-Rank Adaptation & \textbf{MC}      & Monte Carlo (MC-Dropout) \\
+\textbf{KLE}     & Kernel Language Entropy & \textbf{STaR}    & Self-Taught Reasoner (\textbf{V-STaR}: verifier) \\
+\textbf{NTM}     & Neural Turing Machine & \textbf{DNC}     & Differentiable Neural Computer \\
+\textbf{A-MEM}   & Agentic Memory & \textbf{FActScore} & Atomic-fact factuality score \\
+\textbf{FLARE}   & Forward-Looking Active Retrieval & \textbf{Self-RAG} & Self-reflective RAG \\
+\textbf{SI / MAS} & Synaptic Intelligence; Memory-Aware Synapses & & \\
+\\[-0.5em]
+\multicolumn{4}{@{}l@{}}{\textbf{\normalsize Models and judges}}\\
+\textbf{LLM}     & Large Language Model & \textbf{SBERT}   & Sentence-BERT (cosine encoder) \\
+\textbf{MiniCheck} & Flan-T5-Large NLI judge for claim-support & \textbf{MNLI / SNLI} & Multi-genre / Stanford NLI corpora \\
+\textbf{HaluEval} & Hallucination Evaluation benchmark & & \\
+\\[-0.5em]
+\multicolumn{4}{@{}l@{}}{\textbf{\normalsize Benchmarks}}\\
+\textbf{FEVER}   & Fact Extraction and VERification & \textbf{NQ}      & Natural Questions (NQ-Open) \\
+\textbf{TQA}     & TriviaQA & \textbf{TruthfulQA} & Truthful QA \\
+\textbf{StrategyQA} & Multi-hop strategy QA & \textbf{ARC}     & AI2 Reasoning Challenge (ARC-Challenge) \\
+\textbf{ASQA}    & Answer Summaries for QA & \textbf{MMLU}    & Massive Multitask Language Understanding \\
+\textbf{BIG-bench} & Beyond the Imitation Game & & \\
+\\[-0.5em]
+\multicolumn{4}{@{}l@{}}{\textbf{\normalsize Metrics, statistics, infrastructure}}\\
+\textbf{EM}      & Exact Match & \textbf{F$_1$}   & Token-level F$_1$ \\
+\textbf{ROUGE-L} & Longest-common-subsequence overlap & \textbf{CHM}     & Composite Hallucination Metric \\
+\textbf{CES}     & Composite Evaluation Score (\textbf{CES.EPI}: $1{-}\mathrm{CHM}$) & \textbf{ECE}     & Expected Calibration Error \\
+\textbf{AUROC}   & Area Under ROC curve & \textbf{TPR / FPR / TNR} & True / False / True-Negative Rate \\
+\textbf{BCa}     & Bias-Corrected accelerated bootstrap & \textbf{CI}      & Confidence Interval \\
+\textbf{ID / OOD} & In- / Out-of-Distribution & \textbf{EMA}     & Exponential Moving Average \\
+\textbf{SOTA}    & State Of The Art & \textbf{FAISS}   & Facebook AI Similarity Search (\textbf{IVF}: inverted-file) \\
+\textbf{SDPA}    & Scaled Dot-Product Attention & \textbf{QA}      & Question Answering \\
+\end{longtable}
+}
