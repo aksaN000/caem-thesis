@@ -299,6 +299,96 @@ class CAEMConfig:
     u_stored_weight_se: float = 0.02               # (1 - h_norm), was 0.04
 
     # ------------------------------------------------------------------ #
+    # Composite mode — Branch C 2026-04-25 (Phase 2.1)                    #
+    # ------------------------------------------------------------------ #
+    # Selects how the 9 verifier signals collapse into u_stored.
+    #
+    # ─── "weighted_sum" (default fallback, pre-2026-04-25 behaviour) ────
+    #   Linear combination of signals × weights above. Sign-fixed and
+    #   shared across benchmarks. Cohen's d cap: ~0.40 pooled because
+    #   q_a_relevance flips sign on FEVER (-0.58) vs. open-QA (+0.50/+0.75)
+    #   under uniform weights, dragging the composite down.
+    #
+    # ─── "cal_prob" (Branch C default once calibration JSON exists) ─────
+    #   Per-signal isotonic regression on the labeled Cycle-0 calibration
+    #   fold; composite is the sigmoid of the sum of per-signal log-odds.
+    #   Auto-detects sign per signal (q_a_relevance fits a *decreasing*
+    #   curve on FEVER and *increasing* on open-QA via pooled Pearson).
+    #   Dead signals (Cohen's d ≈ 0) get near-flat curves and contribute
+    #   ~0 log-odds without manual zero-weighting.
+    #
+    # Bootstrap: at Cycle 0 (calibration JSON absent), the verifier uses
+    # weighted_sum to score the calibration fold. Step 7.0.2 then fits the
+    # per-signal isotonic on that fold and writes the JSON. Subsequent
+    # cycles read the JSON and switch to cal_prob automatically.
+    #
+    # Both modes share the same `_composite()` API; the dispatch is
+    # internal to UnifiedVerifier.
+    composite_mode: str = "auto"
+    # "auto"          → cal_prob if calibration JSON loadable, else weighted_sum
+    # "weighted_sum"  → forced weighted-sum (legacy / ablation)
+    # "cal_prob"      → forced cal-prob (errors if JSON missing)
+
+    # Path to per-signal calibration JSON produced by
+    # scripts/fit_composite_calibration.py at Step 7.0.2. Read at
+    # UnifiedVerifier construction time; gracefully degrades if missing.
+    composite_calibration_path: str = "outputs/cycle_0/composite_calibration.json"
+
+    # ------------------------------------------------------------------ #
+    # Conformal storage gate — Branch C 2026-04-25 (Phase 2.4)            #
+    # ------------------------------------------------------------------ #
+    # When the conformal gate JSON is present (fitted by
+    # scripts/fit_conformal_gate.py at Step 7.0.2), the verifier's
+    # _decide() reads τ_store and τ_defer from it instead of from the
+    # static config values below. The α targets define what precision the
+    # fitted thresholds aim to deliver on the calibration fold's em labels:
+    #
+    #   α_store = 0.20  →  STORE precision target ≥ 0.80
+    #                       (Tier-1 + training-pool eligible band)
+    #   α_defer = 0.40  →  DEFERRED precision target ≥ 0.60
+    #                       (memory only, retroverify queue)
+    #
+    # Bootstrap: at Cycle 0 the JSON is absent; the verifier falls back to
+    # the legacy fixed thresholds (store_threshold, defer_threshold). Once
+    # Step 7.0.2 fits and writes the JSON, subsequent cycles use the
+    # conformal-calibrated thresholds.
+    conformal_gate_path: str = "outputs/cycle_0/conformal_gate.json"
+    conformal_alpha_store: float = 0.20
+    conformal_alpha_defer: float = 0.40
+
+    # ------------------------------------------------------------------ #
+    # Atomic decomposition scope — Branch C 2026-04-25 (Phase 2.3)        #
+    # ------------------------------------------------------------------ #
+    # Minimum answer length (in whitespace tokens) for FActScore-style
+    # atomic decomposition to fire. Below this threshold _score_atomic
+    # returns the fallback (p_ground_mean) directly and does not invoke
+    # the decomposer model.
+    #
+    # Empirical justification (Phase 1 Cycle-0 audit on n=3500 across
+    # 7 benchmarks, 2026-04-25):
+    #   - Atomic decomposition was 100% fallback on every benchmark
+    #     including ASQA, the long-form architectural home of the signal.
+    #     The over-aggressive NO_FACTS sentinel + answer-too-short-to-
+    #     decompose pattern made the signal degenerate everywhere.
+    #   - The remediation is to scope atomic to multi-fact answers via a
+    #     length-gate; on FEVER labels and short factoids
+    #     (TriviaQA / NQ / ARC), atomic falls back to p_ground_mean by
+    #     design and the directional p_ground rewrite path covers the
+    #     label-classification semantics.
+    #
+    # Literature alignment (Min et al. EMNLP 2023, FActScore §3):
+    #   FActScore is documented to evaluate "long-form text generation"
+    #   where multi-fact decomposition is meaningful. Applying it
+    #   uniformly across short-answer benchmarks is a category error;
+    #   the length-gate makes CAEM's atomic mechanism scope-faithful to
+    #   the FActScore framework.
+    #
+    # Threshold value: 12 tokens corresponds to ~1 declarative sentence,
+    # below which decomposition produces vacuous facts that fail to
+    # ground meaningfully against retrieved passages.
+    atomic_min_tokens: int = 12
+
+    # ------------------------------------------------------------------ #
     # Tier 3 RAG (Stage 6)                                                 #
     # ------------------------------------------------------------------ #
     # [DES] Passage FAISS backend.
@@ -428,10 +518,45 @@ class CAEMConfig:
     # only (no weight update) is the last resort.
     use_8bit_adamw: bool = True
 
-    # [DES] LoRA fallback config. Only consulted when use_lora_training=True
-    # (either set directly, or auto-set by the SIL harness after a full-FT
-    # failure mode is detected per the Ch4 §Cycle-2 retention cascade).
-    use_lora_training: bool = False  # PRIMARY path is full FT; set True only as fallback
+    # ------------------------------------------------------------------ #
+    # SIL training mode — Branch C 2026-04-25 (Phase 2.9, status DEFERRED) #
+    # ------------------------------------------------------------------ #
+    # Phase 2.9 design intent: switch SIL primary path from full
+    # fine-tuning to LoRA (rank 16) on Qwen attention + MLP modules with
+    # frozen base.
+    #
+    # Empirical justification (Phase 1 Cycle-0 audit, n=3500, calibrated
+    # SIL pool ~100 verified episodes per benchmark per cycle):
+    #   - Per-cycle pool size is in the LoRA-friendly sparse-data regime;
+    #     full FT's gradient signal across 3B parameters is dominated by
+    #     the L2 anchor regularizer.
+    #   - Frozen-base LoRA bounds catastrophic forgetting mathematically.
+    #
+    # Literature alignment: Wang et al. 2023 (ICLR 2024); Biderman et al.
+    # 2024 ("LoRA Learns Less and Forgets Less"); Hu et al. 2021.
+    #
+    # IMPLEMENTATION STATUS: DEFERRED. The training-loop path that consumes
+    # ``cfg.use_lora_training`` and wraps the base with peft.LoraConfig +
+    # peft.get_peft_model is NOT yet implemented in
+    # ``caem/training/self_improvement.py``. Audit conducted 2026-04-25 13:00 UTC
+    # confirmed no peft imports exist anywhere in the codebase. Setting
+    # this flag to True without the implementation would be silently
+    # ignored — the SIL loop runs full FT regardless.
+    #
+    # Action item (Phase 1b / future work): wrap
+    # ``self.model = get_peft_model(self.model, LoraConfig(...))`` at the
+    # top of ``SelfImprovementLoop._build_optimizer``, restrict optimizer
+    # to ``adapter_params``, redefine the L2 anchor as
+    # ``||theta_adapter - theta_adapter_prev||^2``, and update
+    # checkpoint save/load to handle adapter-only state dicts.
+    #
+    # For Phase 1a (this thesis): SIL primary path remains full
+    # fine-tuning + 8-bit AdamW + L2 anchor on full backbone. The
+    # configuration constants below are kept so the future implementation
+    # has a fixed reference for hyperparameters; flipping
+    # use_lora_training=True without the corresponding code change is a
+    # silent no-op (full FT continues to run).
+    use_lora_training: bool = False  # IMPLEMENTATION DEFERRED to Phase 1b
     lora_r: int = 16
     lora_alpha: int = 32
     lora_dropout: float = 0.05
@@ -471,13 +596,21 @@ class CAEMConfig:
     l2_lambda: float = 0.01
     # [DES] Training hyperparameters.
     learning_rate: float = 1e-5
-    batch_size: int = 16
+    # batch_size lowered 16 -> 4 on 2026-04-27: at seq_len=512+512 the
+    # eager-mode SDPA backward held a 4.37 GiB attention-grad allocation
+    # per step (CUDA OOM incident #5), which the consumer-grade 32 GiB
+    # envelope does not fit alongside the bf16 model + bf16 anchor +
+    # 8-bit AdamW state + verifier judge + reranker + FAISS index. The
+    # grad_accum_steps bump to 4 below preserves the effective batch
+    # size of 16 — same total forward+backward count per epoch, same
+    # gradient signal, just 4 micro-steps + 1 optimizer step per
+    # effective batch instead of 1+1.
+    batch_size: int = 4
     # [DES] Gradient-accumulation multiplier. Effective batch size is
     # ``batch_size * grad_accum_steps``; tuned per hardware tier by
     # ``scripts.hardware.get_hardware_profile`` to hold effective batch at
-    # ``TARGET_EFFECTIVE_BATCH_SIZE`` (=32). Default 1 (no-op) so a bare
-    # CAEMConfig() stays identical to the thesis 5090 path.
-    grad_accum_steps: int = 1
+    # ``TARGET_EFFECTIVE_BATCH_SIZE`` (=16 since 2026-04-27).
+    grad_accum_steps: int = 4
     epochs_per_cycle: int = 3
     warmup_steps: int = 500
     # [DES] Only include verified episodes above this quality in training data.

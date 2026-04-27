@@ -1,0 +1,511 @@
+% ============================================================================
+% Chapter 5 — Performance Evaluation and Analysis
+% Status: SKELETON. Rubric-mandated six-section top level (5.1 through 5.6);
+% depth lives in subsections.
+%
+% Course outcomes covered: CO6 (analyse alternatives, performance), CO7
+% (final design adjustments). Section titles are fixed by the rubric.
+% Section 5.5 is named Summary of Findings to bridge the comparisons in
+% 5.4 and the discussion in 5.6.
+%
+% This chapter absorbs everything that previously lived in chapters 5
+% through 8 of the academic-style draft: the calibration discipline,
+% the cycle-zero validation, the ten-cycle trajectory, the statistical
+% significance panel, the baseline and ablation panel, and the
+% discussion. Subsections at depth three and depth four carry the
+% weight.
+% ============================================================================
+
+\chapter{Performance Evaluation and Analysis}
+\label{ch:evaluation}
+
+% Chapter scope: presents the empirical record in full. Section 5.1
+% reports the trajectory of headline metrics across the eleven
+% measurement cycles. Section 5.2 reports the calibration discipline
+% and the locked configuration that the trajectory uses. Section 5.3
+% reports the statistical significance panel against external
+% baselines. Section 5.4 reports baselines, ablations, and their
+% relationships. Section 5.5 summarises the findings into a single
+% verdict on the registered hypotheses. Section 5.6 discusses
+% interpretation, threats to validity, and limitations.
+
+\section{Performance Evaluation}
+\label{sec:performance}
+
+\subsection{Experimental setup}
+\label{sec:setup}
+
+\subsubsection{Benchmarks and the training-versus-transfer split}
+\label{sec:setup-benchmarks}
+
+The empirical programme uses seven public benchmarks split into a training panel of three and a transfer panel of four. The training panel comprises FEVER \cite{thorne-etal-2018-fever} for factual claim verification, TriviaQA \cite{joshi-etal-2017-triviaqa} for open-domain trivia, and Natural Questions \cite{kwiatkowski-etal-2019-natural} for open-domain question answering with extractive answers. The transfer panel comprises TruthfulQA \cite{lin-etal-2022-truthfulqa} for common-misconception probes, StrategyQA \cite{geva2021strategyqa} for multi-step commonsense reasoning, ARC-Challenge \cite{clark2018think} for multiple-choice science reasoning, and ASQA \cite{stelmakh2022asqa} for long-form open-domain question answering. The asymmetric split has a registered purpose: the calibrated probability composite, the conformal storage and deferral thresholds, and the self-improvement training pool draw exclusively from the training panel, while the transfer panel is held out as a measurement of generalisation under distribution shift; transfer-panel samples never enter the calibration fold, the seed pool, or the rehearsal buffer. MMLU \cite{hendrycks2021measuring} is reserved as a held-out general-knowledge retention probe and is never used as a target benchmark.
+
+The cross-fold sample budget is summarised in \Cref{tab:benchmark-pools}. Each training benchmark contributes a 1000-sample seed pool for cold-start memory population, a 500-sample calibration fold for the per-signal isotonic and the conformal threshold fits, ten 5000-sample SIL training pools (one per cycle), a 500-sample evaluation fold for cycle-by-cycle headline metric reporting, and a 500-sample test fold reserved for the final post-trajectory comparative panel. Each transfer benchmark contributes a 500-sample evaluation fold and a test fold of up to 500 samples (clamped where the benchmark's dev split admits fewer than 1000 samples). The pool counts are recorded in \verb|outputs/dataset_splits.json| and verified disjoint at construction time by the pool builder.
+
+\begin{table}[!htbp]
+\centering
+\small
+\begin{tabular}{@{}p{2.6cm}p{1.5cm}p{1.4cm}p{1.4cm}p{2.3cm}p{1.4cm}p{1.4cm}@{}}
+\toprule
+\textbf{Benchmark} & \textbf{Panel} & \textbf{Seed} & \textbf{Calib} & \textbf{SIL training} & \textbf{Eval} & \textbf{Test} \\
+\midrule
+FEVER             & training & $1000$ & $500$ & $10\times 5000$ & $500$ & $500$ \\
+TriviaQA          & training & $1000$ & $500$ & $10\times 5000$ & $500$ & $500$ \\
+Natural Questions & training & $1000$ & $500$ & $10\times 5000$ & $500$ & $500$ \\
+TruthfulQA        & transfer & $0$    & $0$   & $0$              & $500$ & $317$ \\
+StrategyQA        & transfer & $0$    & $0$   & $0$              & $500$ & $187$ \\
+ARC-Challenge     & transfer & $0$    & $0$   & $0$              & $500$ & $500$ \\
+ASQA              & transfer & $0$    & $0$   & $0$              & $500$ & $448$ \\
+\bottomrule
+\end{tabular}
+\caption{Benchmark sample pools by fold. Test-fold size is clamped to the benchmark's available dev split where the registered $500$ exceeds it. Pool counts recorded in \texttt{outputs/dataset\_splits.json}; cross-benchmark and cross-fold disjointness verified by the pool builder.}
+\label{tab:benchmark-pools}
+\end{table}
+
+\subsubsection{Metrics}
+\label{sec:setup-metrics}
+
+Each benchmark is scored under the correctness rule appropriate to its task family. Exact match is the rule for FEVER (label-exact match against the supports / refutes / not-enough-info gold), for TriviaQA and Natural Questions (gold-alias match, falling back to token-level F1 above the registered threshold), and for ARC-Challenge (multiple-choice label exact match). Token-level F1 is reported alongside exact match on the open-domain question-answering benchmarks where partial matches are evaluatively meaningful. ROUGE-L overlap is the rule for the long-form ASQA benchmark, where a partial-match metric is required because the reference admits multiple valid syntheses. Pooled exact match is the headline accuracy axis and is the basis for every paired statistical contrast against the external baseline panel.
+
+The composite hallucination metric is the equal-weighted mean over an eight-axis failure-mode taxonomy comprising confident confabulation, factual fabrication, logical fabrication, off-topic answers, defensive evasion, template leakage, false refusal, and length-padded over-generation; a ninth axis (factual contradiction) is retained in the taxonomy but excluded from the default denominator because the corresponding subtype is structurally unreachable under the natural-language-inference judge in the deployed configuration. The composite evaluation score aggregates five axes (accuracy, epistemic quality, retention, calibration, and verification reliability) under a geometric mean, so that a collapse on any single axis penalises the joint reading rather than being averaged away. The retention ratio is defined in \Cref{eq:nfr-retention-floor} and is computed against the held-out general-knowledge probe before and after every cycle's fine-tune. \Cref{tab:metrics} summarises the metric set and the benchmark family each is reported on.
+
+\begin{table}[!htbp]
+\centering
+\small
+\begin{tabular}{@{}p{3.6cm}p{4.3cm}p{6.4cm}@{}}
+\toprule
+\textbf{Metric} & \textbf{Reported on} & \textbf{Definition / aggregation} \\
+\midrule
+Exact match (EM) & all seven benchmarks & exact match of normalised prediction against gold (or any gold alias) \\
+Token-level F1 & FEVER, TriviaQA, NQ & best-alias token-level F1; complementary to EM \\
+Label accuracy & ARC-Challenge & exact label match against the multiple-choice gold \\
+ROUGE-L & ASQA & longest-common-subsequence overlap against the long-form reference \\
+Composite hallucination metric (CHM) & all seven benchmarks & equal-weighted mean over the eight measurable failure-mode subtypes \\
+Composite evaluation score (CES) & pooled & geometric mean over accuracy, epistemic quality, retention, calibration, verification reliability \\
+Retention ratio $\rho(M_{t})$ & retention probe (held-out) & $\mathrm{EM}(M_{t})/\mathrm{EM}(M_{0})$ on the held-out probe (\Cref{eq:nfr-retention-floor}) \\
+\bottomrule
+\end{tabular}
+\caption{Reported metric set with per-benchmark applicability and aggregation rule.}
+\label{tab:metrics}
+\end{table}
+
+\subsubsection{Hardware, seed, reproducibility}
+\label{sec:setup-reproducibility}
+
+The empirical programme runs end to end on a single rented graphics processor of the consumer-grade thirty-two-gigabyte class, with the cycle-zero calibration phase, the ten-cycle main run, the external baseline panel, and the architectural ablation panel sharing the same hardware envelope to keep latency and cost readings comparable. Memory pressure is managed through eight-bit AdamW kernels and gradient checkpointing during the cycle-boundary fine-tune; the verifier ensemble's batch sizes are tuned to fit the same envelope, with the long-hypothesis judge running under chunked batching after the calibration-phase out-of-memory event documented in \Cref{sec:risk-technical}. The random-state surface is reduced to a single recorded seed propagated through the generator, the sampler, the dropout layers, and the FAISS index; this seed is recorded in the locked configuration files and is the single input required by the reproducibility recipe in Appendix~\ref{app:reproducibility}. The pre-self-improvement state, including the cold-start memory snapshot, the locked composite calibration, the locked conformal thresholds, and the cycle-zero evaluation outputs, is published as a snapshot bundle on a public dataset host, with the artefact inventory and access protocol catalogued in Appendix~\ref{app:reproducibility}.
+
+\subsection{Trajectory of headline metrics}
+\label{sec:headline-trajectory}
+% Per-cycle exact match, F1, composite hallucination metric, and the
+% retention ratio. Pooled and per-benchmark trends.
+
+Every trajectory reading reported in this subsection and the four following is evaluated under the locked configuration whose calibration discipline, parameter selection sweep, locked-configuration receipts, calibration-versus-evaluation gap, long-hypothesis judge ablation, and validation-gate verdict are documented in detail in \Cref{sec:final-adjustments}. Section ordering follows the CSE400 template (performance evaluation before final design adjustments) rather than the natural causal order (locked configuration $\rightarrow$ trajectory under that configuration); a reader who prefers the causal order may skip ahead to \Cref{sec:final-adjustments} and return.
+
+\subsubsection{Pooled trajectory}
+\label{sec:headline-pooled}
+
+The pooled headline metrics across the eleven measurement cycles are auto-generated by \texttt{scripts/make\_tables.py} from the per-cycle aggregation outputs. The headline pooled table lands at \texttt{figures/auto/tab\_headline.tex} once the main run completes; the per-cycle progression table at \texttt{figures/auto/tab\_cycle\_progression.tex} reports the same metrics broken out by cycle.
+
+\input{figures/auto/tab_headline.tex}
+
+\input{figures/auto/tab_cycle_progression.tex}
+
+\subsubsection{Per-benchmark trajectory}
+\label{sec:headline-per-bench}
+
+Per-benchmark trajectories decompose the pooled reading by benchmark family, with a row per benchmark and a column per measurement cycle. The composite-hallucination-metric subtype breakdown is reported separately so the per-axis movement is visible.
+
+\input{figures/auto/tab_halluc_subtypes.tex}
+
+\subsubsection{Training versus transfer contrast}
+\label{sec:headline-id-vs-transfer}
+
+The structural calibration-versus-evaluation gap from \Cref{sec:adj-cal-eval-gap} is revisited at every cycle to confirm the gap neither widens nor collapses across the trajectory. The per-cycle calibration trajectory table is auto-generated by \texttt{scripts/aggregate\_calibration\_trajectory.py}.
+
+\input{figures/auto/tab_calibration_trajectory.tex}
+
+\subsection{Four-outcome decision distribution}
+\label{sec:decision-distribution}
+
+The four-outcome decision counts evolve as memory accumulates: the storage, deferred, abstain, and discard shares are reported per cycle, and the per-decision exact match confirms that the conformal gate's sorting order is preserved across cycles.
+
+\input{figures/auto/tab_calibration.tex}
+
+\subsection{Three-tier router efficiency}
+\label{sec:tier-efficiency}
+
+\subsubsection{Per-tier hit rate trajectory}
+\label{sec:tier-hit}
+
+The Tier 1, Tier 2, and Tier 3 query shares per cycle are reported below; the architecture predicts the Tier 1 share grows as memory fills and the Tier 3 share shrinks, with the Tier 2 share remaining narrow.
+
+\input{figures/auto/tab_grounding.tex}
+
+\subsubsection{Per-tier latency and cost}
+\label{sec:tier-cost}
+
+The wall-clock-per-query at each tier and the corresponding dollar cost on the rented hardware are recorded per cycle, alongside the pooled latency per cycle that quantifies the cost saving from memory accumulation. The deployment-cost projection from \Cref{eq:deployment-cost} is read off this table.
+
+\subsubsection{Per-tier exact match}
+\label{sec:tier-precision}
+
+Per-tier exact match across cycles checks the architecture's claim that the cheap memory-direct tier does not sacrifice quality relative to the more expensive zero-shot and retrieval-augmented tiers. The per-tier EM appears as a side-by-side panel against the per-tier hit rate so that the cost-quality tradeoff is visible.
+
+\subsubsection{Why the safety override fires}
+\label{sec:tier-safety}
+
+The safety override forces the retrieval-augmented tier whenever the pre-routing confidence falls below the registered floor of $0.60$ (\Cref{sec:router}). The diagnostic reports the per-cycle frequency of override firing and the empirical effect on the served answer's correctness, so that the override's value as a safety mechanism is read off the trajectory rather than asserted.
+
+\subsection{Retention and continual learning}
+\label{sec:retention}
+
+The retention ratio against the held-out general-knowledge probe is reported per cycle alongside the rollback events that the retention guard triggered. Forward and backward transfer instruments measure how each cycle's fine-tune affects the next cycle's pre-fine-tune performance.
+
+\input{figures/auto/tab_continual.tex}
+
+\subsection{Theoretical predictions checked against the trajectory}
+\label{sec:theory-checks}
+
+The four topical groups in \Cref{sec:theory} each pair a conformal-layer worst-case bound with a Bayes-identity expected-value statement. The empirical receipts in this subsection report both readings per topic, plus the four corollary checks on equilibrium structure and self-correction.
+
+\subsubsection{Pool purity}
+\label{sec:check-purity}
+
+The conformal lower bound of \Cref{thm:purity} predicts $\pi_{t+1} \ge \min(1-\alpha_{\text{store}}, \pi_{\text{retro}})$, equal to at least $\min(0.95, \pi_{\text{retro}})$ under the locked configuration. The Bayes identity of \Cref{thm:bayes-purity} predicts the realised pool purity at the empirical operating point, $P_c^{\text{theory}} = p_c \cdot \mathrm{TPR}_c / (p_c \cdot \mathrm{TPR}_c + (1-p_c) \cdot \mathrm{FPR}_c)$. The per-cycle pool-purity reading from the architecture's purity-validation diagnostic is reported below alongside the per-cycle $P_c^{\text{theory}}$ residual; an empirical reading that meets the conformal floor but undershoots the Bayes prediction localises the deviation to either operating-point drift on the labelled fold or non-exchangeability between the calibration and evaluation distributions.
+
+\input{figures/auto/tab_purity.tex}
+
+\subsubsection{Monotonicity}
+\label{sec:check-monotonicity}
+
+Two complementary monotonicity checks are reported. The first, against \Cref{thm:monotone}, pairs the per-cycle change in storage rate with the per-cycle change in calibration-fold Cohen's $d$; a storage-rate decrease in a cycle whose Cohen's $d$ improved falsifies the within-class Gaussian assumption or the base-rate condition. The second, against \Cref{thm:monotone-purification}, computes the one-sided Spearman rank correlation between the per-cycle base-model accuracy $p_c$ and the per-cycle pool purity $P_c$; a positive rank correlation across cycles 0–10 supports the theorem, a flat or negative correlation falsifies it conditional on $\alpha_c > 1/2$ holding throughout. Both readings are presented as paired-comparison results across the trajectory.
+
+\subsubsection{Convergence}
+\label{sec:check-convergence}
+
+The geometric envelope of \Cref{thm:convergence} predicts $\mathbb{E}[G_t] \le (1-r)^t G_0$ with $r = \mathcal{O}(\sigma \cdot \Phi(d/\sqrt{2}))$. The fixed-point statement of \Cref{thm:bayes-convergence} predicts that the recurrence $p_{c+1} = f(p_c)$ converges to $p^* = 1$ asymptotically. The empirical receipt fits a geometric decay to the per-cycle gap trajectory and reports the realised half-life against the predicted range of $1.3$ to $2.2$ cycles from \Cref{sec:env-cycles}. The fixed-point claim is asymptotic and is not directly provable in ten cycles: the implementation has fine-tuning regularisation that pins the effective ceiling strictly below one, so the report includes the fitted ceiling $p_\infty^{\text{fit}}$ as a measurement of the implementation's effective limit. A non-geometric trajectory or a fitted ceiling far below the predicted regime would falsify the contraction-rate lower bound or the within-class Gaussian assumption; both diagnostics are reported alongside the trajectory.
+
+\subsubsection{Asymptotic hallucination floor}
+\label{sec:check-asymptotic}
+
+The Tier 1 floor of \Cref{thm:asymptotic} predicts $\limsup_{t} \mathrm{CHM}_{1}(t) \le \max(\alpha_{\text{store}}, 1-\pi_{\text{retro}})$, at least $0.05$ under the locked configuration. The full-pipeline decomposition of \Cref{thm:asymptotic-elim} predicts $H_t \le (1-\tau_1(t)) \cdot \varepsilon_{\text{arch}} + H_{\text{mem}}(t)$ with $H_{\text{mem}}(t) \to 0$. The empirical receipt reports both readings: the memory-direct tier's CHM at the realised cycle horizon against the structural floor, and the per-cycle decomposition of $H_t$ into the multiplicative coverage-gap × architectural-ceiling term plus the memory-side residual. A contrast between the memory-direct tier's CHM and the zero-shot tier's CHM demonstrates the floor is structural rather than scale-dependent. The asymptotic claim that $H_{\text{mem}}(t) \to 0$ is not directly provable in ten cycles; what the trajectory can prove is that the per-cycle decomposition holds at each cycle and that $H_{\text{mem}}(t)$ is shrinking. The fitted asymptote $H_{\text{mem}}(\infty)$ is reported as a projected rather than measured quantity.
+
+\subsubsection{Corollary checks: equilibrium structure and self-correction}
+\label{sec:check-corollaries}
+
+Four corollary checks complete the theory verification. The joint-optimum-saturation reading from \Cref{cor:joint-optimum} is interpretive rather than directly measurable: the corpus-coverage gap $1 - \tau_{1}^{*}(D)$ is read from the asymptotic Tier 1 share, but the parametric capacity gap $1 - x(\lvert\theta\rvert, C)$ is not separately measurable in the present setup, so the corollary is reported as a reframing of the equilibrium reading rather than an independent measurement. The base-model-conditional convergence-rate check from \Cref{cor:convergence-rate} fits the gap trajectory $\lvert H_t - H_\infty\rvert$ to the exponential form $A \cdot e^{-k t}$ and reports $A$, $k$, and the implied number of cycles to reach within $\varepsilon$ of equilibrium. The corpus-bounded floor check from \Cref{cor:corpus-floor} computes a proxy for $K(C)$: the subset of evaluation-fold queries whose top-$k$ retrieval does not contain the gold-answer span, with the composite hallucination metric on that subset reported as an empirical estimate of the Wikipedia-derived corpus's coverage floor. The self-correction check from \Cref{cor:self-correction} tracks the storage-to-prune lifecycle of every stored entry across cycles and reports the survival-cycles distribution for entries that were eventually pruned; a bounded distribution supports the corollary, and the median survival horizon is the empirical realisation of the finite-cycle pruning claim.
+
+\section{Final Design Adjustments}
+\label{sec:final-adjustments}
+
+\subsection{Calibration discipline and disjoint folds}
+\label{sec:adj-discipline}
+
+The conformal precision guarantee is distribution-free under the exchangeability assumption between the calibration fold and the evaluation fold; preserving this assumption requires that the two folds be drawn from the same population and that no individual sample appear in both. The empirical programme enforces this through a five-fold partition of the per-benchmark sample budget, defined at pool-builder time and recorded in \verb|outputs/dataset_splits.json|. The seed pool is the cold-start memory population fold; the calibration fold is the source of every signal-isotonic curve and every conformal threshold; the SIL training pool is the per-cycle source of the fine-tune; the evaluation fold is the per-cycle headline-metric reporting fold; and the test fold is reserved for the post-trajectory comparative panel. Cross-benchmark and cross-fold disjointness is verified by the pool builder at every run start, and any candidate sample that appears in two folds is dropped at the pool-builder stage rather than at downstream metric computation, so that the disjointness invariant is enforced where it is cheapest to enforce. The training panel consists of FEVER, TriviaQA, and Natural Questions; the transfer panel consists of TruthfulQA, StrategyQA, ARC-Challenge, and ASQA. Only the training panel contributes to the calibration fold, the seed pool, and the SIL training pool; the transfer panel is reserved for evaluation and test only.
+
+\subsection{The composite parameter selection sweep}
+\label{sec:adj-sweep}
+
+\subsubsection{The pre-registered grid}
+\label{sec:adj-grid}
+
+Two grids were registered before any sweep variant was scored. The first grid spans the conformal miscoverage level $\alpha_{\text{store}}$ at five values $\{0.050,\, 0.075,\, 0.100,\, 0.125\}$ and was registered with the storage class targeted at calibration-fold precisions in the ninety-three to ninety-five percent band. The second grid spans the boost layer's L2 regularisation strength $C$ at five values $\{0.010,\, 0.025,\, 0.050,\, 0.100,\, 1.000\}$, where lower $C$ corresponds to stronger regularisation. The full grid produces twenty pre-registered variants by full crossing, with five additional baseline variants (denoted $V_{0}$ through $V_{5}$) carried over from the Phase 1.5 composite-redesign sweep. The total of twenty-five variants is recorded under \verb|outputs/cycle_0/sweep/| with one JSON per variant.
+
+\subsubsection{Selection criteria}
+\label{sec:adj-criteria}
+
+Four selection criteria were registered before the sweep was scored, in the order they would be applied. First, the calibration-fold storage precision must clear the registered $0.90$ floor; variants below this floor are eliminated regardless of their evaluation-fold performance. Second, the calibration-fold storage count must clear the minimum admissible count $n_{\min} = 20$ that the conformal fit procedure requires for stability. Third, among variants that clear the first two criteria, the variant with the highest evaluation-fold pooled precision is preferred, with ties broken by the calibration-fold pooled precision. Fourth, where two variants are statistically indistinguishable on the first three criteria, the variant with the stronger L2 regularisation (lower $C$) is preferred, on the principle that stronger regularisation is more robust to distribution shift in later cycles where the calibration fold is recomputed under exponential-moving-average smoothing.
+
+\subsubsection{Top variants}
+\label{sec:adj-top}
+
+\Cref{tab:sweep-top} reports the top ten variants from the auto-generated sweep comparison sorted by evaluation-fold pooled precision. The locked variant $V_{\alpha=0.050,\,C=0.010}$ achieves the highest evaluation-fold precision ($80.2\%$) jointly with the highest calibration-fold precision ($96.4\%$), and is the strongest-regularised variant in the band of statistical equivalence at the top.
+
+\begin{table}[!htbp]
+\centering
+\small
+\input{figures/auto/sweep_top.tex}
+\caption{Top ten composite-parameter sweep variants by evaluation-fold pooled precision. Auto-generated from \texttt{outputs/cycle\_0/sweep/comparison.json}. Locked variant $V_{\alpha=0.050,\,C=0.010}$ in bold. Eval pooled is over $n_{\text{eval}}=3500$ across the seven benchmarks; calibration fold $n_{\text{cal}}=1500$ across the three training benchmarks; ID and Trans columns split the evaluation fold by training-versus-transfer panel.}
+\label{tab:sweep-top}
+\end{table}
+
+\subsection{The locked configuration}
+\label{sec:adj-locked}
+
+The locked configuration is the variant $V_{\alpha=0.050,\,C=0.010}$ from \Cref{tab:sweep-top}. The configuration carries forward four parameter values verbatim into every cycle of the main run: the conformal miscoverage levels $\alpha_{\text{store}} = 0.05$ and $\alpha_{\text{defer}} = 0.40$, the boost layer's L2 regularisation strength $C = 0.01$, and the registered abstention floor $\phi_{\text{pg}} = 0.20$ from \Cref{eq:early-exit-rule}. From these the cycle-zero fits produce $\tau_{\text{store}} = 0.6676$, $\tau_{\text{defer}} = 0.5207$, and a boost intercept of $+1.099$, with the per-signal isotonic curves and the boost layer's per-signal weights stored alongside in \verb|outputs/cycle_0/composite_calibration.json| and \verb|outputs/cycle_0/conformal_gate.json|. The configuration is preferred over its neighbours in \Cref{tab:sweep-top} for two reasons. First, it ties for the highest evaluation-fold precision ($0.8021$) while maintaining the highest calibration-fold precision ($0.9643$), so neither side of the calibration-to-evaluation transfer pays a penalty. Second, it is the strongest-regularised variant in the top tier, with $C = 0.01$ corresponding to a tenfold tighter L2 penalty than the sklearn default of $C = 1.0$; this regularisation is what the cycle-boundary recalibration relies on to track distribution drift without overfitting to a single cycle's calibration fold. \Cref{tab:composite-calibration} reports the per-signal isotonic direction and the boost-layer weights at the locked configuration, auto-generated from the cycle-zero composite calibration; the boost intercept of $+1.099$ propagates from the same fit and matches the value recorded in \verb|outputs/cycle_0/composite_calibration.json|.
+
+\input{figures/auto/composite_weights.tex}
+
+\subsection{Calibration-versus-evaluation gap}
+\label{sec:adj-cal-eval-gap}
+
+Under the locked configuration the calibration-fold storage precision is $0.9643$ and the evaluation-fold pooled storage precision is $0.8021$, leaving a structural gap of $0.1622$ percentage points across the seven benchmarks. The gap is not random noise: it decomposes cleanly along the training-versus-transfer split. The evaluation-fold precision on the training panel (FEVER, TriviaQA, Natural Questions, $n=1500$) is $0.7632$, while the precision on the transfer panel (TruthfulQA, StrategyQA, ARC-Challenge, ASQA, $n=2000$) is $0.8276$; the in-distribution evaluation-fold precision is therefore the lower of the two, contradicting the naive intuition that the calibration-fold precision should transfer best to its own benchmark family. The cause is a sample-count effect on the calibration fold: the conformal fit picks the largest threshold at which the running calibration-fold precision still clears $1-\alpha_{\text{store}}$, and at $n_{\text{cal}}=1500$ the resulting $n_{\text{store}}=56$ stored entries on the calibration fold are too few to drive the threshold to its asymptotic position. Cycle-boundary recalibration under exponential-moving-average smoothing partially mitigates this by widening the effective calibration sample count across cycles, and the per-cycle gap reading is recorded in the per-cycle artefact catalogue so that the transfer of the precision guarantee to live data is itself measurable rather than asserted. \Cref{tab:cross-bench-summary} reports the per-benchmark headline diagnostics that decompose the pooled gap reading.
+
+\input{figures/auto/cross_benchmark_summary.tex}
+
+\subsection{The long-hypothesis judge ablation}
+\label{sec:adj-judge-ablation}
+
+A second entailment-scoring backend, the frozen Qwen-3B long-hypothesis judge, was registered alongside the MiniCheck judge to handle hypothesis lengths above the MiniCheck encoder's effective range. To use it as a calibrated drop-in for MiniCheck on long hypotheses, the architecture requires that the two backends agree on the supported-versus-unsupported judgment with a registered floor on rank correlation in logit space of $\rho_{\min} = 0.70$. A Platt-fit calibration on a 500-sample overlap fold returned a rank correlation of Pearson $\rho = 0.5843$, below the floor; the long-hypothesis judge is therefore ablated from the deployed configuration. The full Platt-fit diagnostic (slope, intercept, mean absolute error in both logit and probability space) is recorded in \Cref{app:judge-ablation}. The unified verifier dispatches every hypothesis through MiniCheck regardless of length, with a documented 512-token truncation on hypotheses above MiniCheck's encoder range; the architectural cost is bounded above by the truncation effect on ASQA, which is the only benchmark in the panel with hypothesis lengths regularly above the truncation point. The future-work item to refit the long-hypothesis judge under task-specific training is registered in \Cref{ch:conclusion}.
+
+\subsection{The validation gate verdict}
+\label{sec:adj-gate}
+
+The cycle-zero validation gate is a pre-registered conjunction of checks recorded in \verb|outputs/cycle_0/weight_validation.json|. The first check requires the composite Cohen's $d$ on the training-pooled calibration fold to clear $d_{\text{id}} \ge 0.20$, which audits Theorem~\ref{thm:purity}'s precondition that the verifier discriminates correct from incorrect outputs strictly above chance. The second check requires the per-benchmark storage-versus-discard mean-composite gap to clear $\Delta \ge 0.05$, which audits the architecture's claim that the storage gate's behaviour is consistent across benchmarks rather than driven by one dominating subset. The third check requires the per-benchmark memory-poisoning rate, defined as the share of stored entries whose stored answer is wrong, to fall below $0.30$. The fourth check requires that no single signal exhibit strong-direction inversion against its registered direction (for example, a signal whose isotonic curve auto-detects a decreasing direction when it was registered as increasing). Under the locked configuration the verdict is \texttt{overall\_pass = true}: every gate clears its registered threshold. The headline ID-pool composite Cohen's $d$ ($+0.67$) and transfer-pool $d$ ($+0.27$) are aggregated from \Cref{tab:cohen-d-per-bench} below; the per-benchmark store-versus-discard gap and poisoning-rate readings clear their floors on every benchmark, and no strong-signal inversion is observed. The verdict licenses the deployed configuration to enter the main run.
+
+\input{figures/auto/cohen_d.tex}
+
+\subsection{Failed iterations as evidence of method discipline}
+\label{sec:adj-failed-iterations}
+
+The first iteration of the cycle-zero calibration phase failed the pre-registered validation gate. The root cause was a JSONL signal-dump bug in \verb|scripts/run_calibration.py|: the script wrote only four of the ten per-signal values per sample, so the per-signal isotonic regression had complete information for only the four dumped signals and degenerate identity-mapping for the remaining six. The downstream effect was that the L2-regularised boost layer fitted on a four-of-ten signal vector produced a degenerate composite whose conformal threshold collapsed to $\tau_{\text{store}} = 1.0$ (the conformal fit's null fallback when the target precision is unreachable). The bug was identified by the validation-gate diagnostic on the very first run, fixed in a worktree patch that dumps all ten signals per sample, and the calibration was re-run on the corrected pipeline; the second iteration produced the locked configuration that the main run uses. The iteration is recorded transparently in the project log rather than absorbed into a smoothed timeline because the cycle-zero re-iteration is itself empirical evidence that the validation-gate discipline catches what it was registered to catch: a degenerate calibration that would otherwise have propagated silently into every cycle of the main run. The full audit summary across pre-fix and post-fix phases is auto-generated by \texttt{scripts/generate\_session5\_artifacts.py}.
+
+\input{figures/auto/tab_audit_summary.tex}
+
+\section{Statistical Analysis}
+\label{sec:significance}
+
+\subsection{Matched-protocol pairing rule}
+\label{sec:sig-pairing}
+
+Every per-benchmark contrast between the architecture and a baseline is computed sample-by-sample under matched protocol. Each baseline is evaluated on the identical evaluation-fold sample identifiers as the architecture, with the identical prompt template family and the identical scoring rule, so that the two systems' per-sample correctness vectors align entry-for-entry. The pairing rule eliminates the largest source of nuisance variance in cross-system comparison: a difference in sample selection or in scorer behaviour can manifest as an apparent performance difference even when the systems are equivalent on the underlying task. Paired test statistics (McNemar) and paired bootstrap intervals are valid under this pairing because every sample contributes one paired observation, and unpaired test statistics (Wilcoxon rank-sum, two-sample $t$) are not used in this thesis precisely because they discard the pairing information. The protocol is enforced at the harness level in \verb|eval/harness.py| through a sample-id manifest that every baseline's evaluation log must agree with; mismatched manifests halt the comparison rather than producing a quietly-misaligned table.
+
+\subsection{Paired McNemar with continuity correction}
+\label{sec:sig-mcnemar}
+
+Per-benchmark significance against each external baseline is reported through the paired McNemar test \cite{mcnemar1947note} with continuity correction. Let $b$ denote the count of samples on which the architecture is correct and the baseline is incorrect, and $c$ the count of samples on which the baseline is correct and the architecture is incorrect; samples on which both are correct or both are incorrect contribute zero to the test statistic. Under the null hypothesis that the two systems have the same correctness probability, the continuity-corrected statistic is
+\begin{equation}
+\chi^{2}_{\text{McN}} \;=\; \frac{(|b - c| - 1)^{2}}{b + c},
+\label{eq:mcnemar}
+\end{equation}
+which is $\chi^{2}$-distributed with one degree of freedom in the limit, with the $-1$ continuity correction applied to mitigate the discreteness of $b$ and $c$ at small sample sizes. The test is preferred at this site over a paired $t$-test because the per-sample correctness signal is binary and the McNemar statistic is the maximum-likelihood test for the matched-pairs binary case. The reported $p$-value is two-sided.
+
+\subsection{Bootstrap confidence intervals}
+\label{sec:sig-bootstrap}
+
+Alongside the McNemar $p$-value, every per-benchmark contrast reports a bootstrap ninety-five-percent confidence interval on the exact-match delta. Sampling is paired at the sample-identifier level: each bootstrap replicate draws $n_{\text{eval}}$ sample identifiers with replacement from the evaluation fold, computes the architecture's exact match and the baseline's exact match on the resampled fold, and records the difference. The confidence interval is the bias-corrected and accelerated (BCa) interval at the $0.025$ and $0.975$ quantiles of the bootstrap distribution, with the standard $B = 10\,000$ replicates registered in the runbook. The bootstrap interval is reported alongside the McNemar $p$-value because $p$-values alone do not convey effect size: a contrast that is significant at $p < 0.001$ but has a confidence interval whose lower bound straddles zero is a negative result on the effect-size axis, and reporting both is what allows the reader to read the strength of the contrast as well as its statistical reliability.
+
+\subsection{Holm correction within each benchmark family}
+\label{sec:sig-holm}
+
+Each benchmark family in the panel admits seven contrasts of the architecture against the seven external baselines (B1 zero-shot, B2 chain-of-thought, B3 retrieval-augmented, B4 chain-of-thought plus retrieval, B5 few-shot chain-of-thought, B6 vanilla fine-tuning, B7 EWC fine-tuning). The seven $p$-values within a benchmark family are jointly corrected for multiple comparison using the Holm-Bonferroni procedure \cite{holm1979simple}, which orders the seven $p$-values in ascending sequence and applies the threshold $\alpha/(k+1-i)$ to the $i$-th smallest, where $k = 7$ and $\alpha = 0.05$. The Holm correction is preferred over plain Bonferroni at this site because Holm has uniformly higher power for the same family-wise error rate, and is preferred over the false-discovery-rate procedure of Benjamini-Hochberg because the family-wise error rate is the convention required for architectural-claim licensing in this thesis. The marker convention reports a contrast as significant only if the corrected $p$ clears $\alpha$; the raw $p$-value and the Holm-adjusted $p$-value are both tabulated so that the reader can see the correction's effect.
+
+\subsection{Architectural-claim licensing rule}
+\label{sec:sig-licensing}
+
+Statistical significance alone is not sufficient to license an architectural claim in this thesis. The pre-registered licensing rule requires a conjunction of two conditions on every contrast: the Holm-adjusted $p$-value must clear $0.05$ within the benchmark family, and the bootstrap ninety-five-percent confidence interval on the exact-match delta must lie entirely above $0.02$ (a two-percentage-point effect-size floor). The effect-size floor is what prevents a statistically-significant-but-practically-trivial contrast from licensing an architectural claim. Both conditions are read off the same paired evaluation, so the licensing rule does not require additional runs; it simply applies a two-of-two filter to the joint significance-and-effect-size table. A contrast that satisfies both conditions is reported as supporting the corresponding hypothesis from \Cref{sec:hypotheses}; a contrast that satisfies one but not the other is reported as partially supporting; a contrast that satisfies neither is reported as unsupported.
+
+\section{Comparisons and Relationships}
+\label{sec:comparisons}
+
+\subsection{External baseline panel under matched protocol}
+\label{sec:comp-baselines}
+
+The seven external baselines (B1 through B7) are evaluated under the matched-protocol pairing rule of \Cref{sec:sig-pairing}, with paired McNemar significance and bootstrap confidence intervals reported per benchmark per baseline. The significance panel is auto-generated by \texttt{scripts/baseline\_sig\_tests.py} into a CSV that the make-tables stage renders into \texttt{tab\_sig\_test.tex}.
+
+\input{figures/auto/tab_sig_test.tex}
+
+\subsubsection{Zero-shot (B1)}
+\label{sec:comp-zero-shot}
+
+The zero-shot baseline runs the same Qwen-2.5-3B-Instruct generator on the same evaluation fold without any chain-of-thought trigger, without retrieval, and without verification. It is the empirical floor against which every other system in the panel is measured: any gain a system reports must exceed the zero-shot score on the same backbone, otherwise the gain is attributable to model capacity rather than to the system's added mechanism. For CAEM, the contrast against B1 isolates the joint contribution of routing, verification, episodic memory, and self-improvement; the contrast against B1 minus the contrast against B6 (vanilla fine-tuning) decomposes the contribution between deployment-time mechanisms and training-time mechanisms.
+
+\subsubsection{Chain of thought (B2)}
+\label{sec:comp-cot}
+
+The chain-of-thought baseline \cite{wei2022chain} adds the standard step-by-step trigger to the zero-shot prompt without any further modification. CoT isolates the contribution of intermediate reasoning on the same backbone and controls for the possibility that CAEM's gains reflect better rationale generation rather than the verifier-memory architecture. The expected effect under matched protocol is a positive contrast against B1 on the multi-step benchmarks (StrategyQA, ARC-Challenge) and a smaller contrast on the single-step benchmarks (FEVER, TriviaQA, NQ).
+
+\subsubsection{Retrieval-augmented (B3)}
+\label{sec:comp-rag}
+
+The retrieval-augmented baseline retrieves the top-$k = 5$ Wikipedia passages from the dense passage index used by CAEM's Tier 3 \cite{karpukhin-etal-2020-dense,NEURIPS2020_6b493230}, concatenates them into a 384-token context, and generates from the same backbone through the Tier-3 prompt template. B3 isolates the contribution of external grounding without any verification or memory. The expected contrast against B1 is a substantial positive effect on the open-domain question-answering benchmarks (TriviaQA, NQ, ASQA) where retrieval supplies factual context that the parametric model lacks, and a smaller effect on TruthfulQA where the misconception is in the question framing rather than in the retrieval gap.
+
+\subsubsection{Chain of thought plus retrieval (B4)}
+\label{sec:comp-cot-rag}
+
+The combined baseline runs CoT on top of B3's retrieval, isolating the contribution of reasoning over retrieved evidence. The expected contrast against B3 is positive on the benchmarks where the answer requires integration across multiple retrieved passages (StrategyQA, ASQA) and approximately neutral on benchmarks where a single passage suffices (TriviaQA, NQ). The contrast between B4 and CAEM is the most direct test of whether the verifier-memory architecture adds value beyond reasoning-over-retrieval on the same backbone.
+
+\subsubsection{Few-shot chain of thought (B5)}
+\label{sec:comp-fewshot}
+
+The few-shot chain-of-thought baseline prepends five in-context (question, reasoning, answer) demonstrations from the TriviaQA training split before the CoT trigger. B5 is the strongest prompting-only comparison against CAEM's retrieval-free Tier 2: both share the same backbone and the same prompt-only intervention surface, but B5 exposes the model to demonstrations rather than to memory or retrieval. The contrast against B5 isolates the contribution of CAEM's persistent episodic memory over a five-shot in-context window.
+
+\subsubsection{Vanilla fine-tuning (B6)}
+\label{sec:comp-vanilla-ft}
+
+The vanilla fine-tuning baseline trains Qwen-2.5-3B-Instruct on the verified episode pool for the same realised cycle horizon as CAEM at matched per-benchmark chunk size, without the $L_2$ anchor, without the retention guard, and without the episodic memory or the verifier at inference time. Every selected episode is treated as a clean label. B6 isolates the contribution of CAEM's retention-protection machinery: if B6 degrades on the held-out general-knowledge probe or on the later cycles while CAEM does not, the retention guard and the $L_2$ anchor are responsible. The expected contrast under matched protocol is that CAEM's accuracy is at least as high as B6's on the in-distribution benchmarks while CAEM's retention ratio is strictly higher.
+
+\subsubsection{EWC fine-tuning (B7)}
+\label{sec:comp-ewc-ft}
+
+The EWC fine-tuning baseline trains for the same realised cycle horizon as CAEM with the $L_2$ anchor and the held-out retention guard in place but strips the ten-signal verifier, the calibrated probability composite, the conformal storage gate, the episodic memory, and the routing. B7 isolates the contribution of the verification-and-memory machinery from the contribution of the retention machinery. The contrast between B6 and B7 measures the retention-machinery effect on the same training signal; the contrast between B7 and CAEM measures the verification-and-memory effect on top of the retention machinery. Together B6 and B7 decompose CAEM's training-time contribution into two orthogonal axes.
+
+\subsection{Architectural ablation panel}
+\label{sec:comp-ablations}
+
+\subsubsection{Pre-registered expected-effect bands}
+\label{sec:comp-bands}
+
+The architectural ablation panel removes one mechanism at a time from the locked configuration and measures the per-cycle effect on the headline metrics. Each ablation has a pre-registered effect direction and a pre-registered effect band, recorded before the panel runs so that within-band and out-of-band outcomes can be flagged transparently. \Cref{tab:ablation-bands} summarises the panel.
+
+\begin{table}[!htbp]
+\centering
+\small
+\begin{tabular}{@{}p{3.0cm}p{4.0cm}p{2.4cm}p{4.6cm}@{}}
+\toprule
+\textbf{Ablation} & \textbf{Mechanism removed} & \textbf{Effect direction} & \textbf{Pre-registered effect band} \\
+\midrule
+A1 No memory & Episodic memory + Tier 1 dispatch & negative (CHM up) & $+2$ to $+5$ pp on pooled CHM at the cycle horizon \\
+A2 No verifier  & Ten-signal post-generation verifier & negative (precision down) & $-10$ to $-20$ pp on calibration-fold storage precision \\
+A3 No conformal & Storage gate replaced by fixed-percentile threshold & negative (precision down) & $-3$ to $-8$ pp on evaluation-fold storage precision \\
+A4 No anchor    & Quadratic anchor on the fine-tune & negative (retention down) & $-3$ to $-7$ pp on retention ratio \\
+A5 No retroverify & Cycle-boundary re-verification pass & negative (purity down) & $-2$ to $-5$ pp on per-cycle pool purity \\
+A6 No deferred  & Deferred buffer + reconsideration pass & negative (training pool shrinks) & $-15$ to $-30\%$ in training pool size at horizon \\
+A7 No early-exit & Confabulation early-exit rule & negative (CHM-confabulation up) & $+1$ to $+3$ pp on the confabulation subtype \\
+\bottomrule
+\end{tabular}
+\caption{Architectural ablation panel: pre-registered expected-effect direction and band per ablation. Each band is registered before the panel runs; realised effects within the band are reported as confirming the mechanism, out-of-band effects are flagged in \Cref{sec:comp-falsifications}.}
+\label{tab:ablation-bands}
+\end{table}
+
+\subsubsection{Ablation results}
+\label{sec:comp-ablation-results}
+
+The realised ablation grid is auto-generated by \texttt{scripts/run\_ablation.py} and \texttt{scripts/aggregate\_ablation.py} from the per-variant cycle outputs.
+
+\input{figures/auto/tab_ablation_results.tex}
+
+\subsubsection{Honest disclosure of falsified ablations}
+\label{sec:comp-falsifications}
+
+Any ablation whose realised effect falls outside its pre-registered band of \Cref{tab:ablation-bands} is flagged here as a falsification of the corresponding architectural claim, with the diagnostic that produced the out-of-band reading and the interpretation registered alongside. A falsified ablation is not silently absorbed into the pooled headline; it is reported as a partial-support reading on the corresponding hypothesis in \Cref{tab:hypothesis-verdicts} and is discussed under \Cref{sec:disc-prior} so that the position registered in \Cref{ch:introduction} narrows to whatever subset of mechanisms the empirical record actually supports.
+
+\subsection{Optional reference points}
+\label{sec:comp-references}
+
+Two reference points appear alongside the seven external baselines but do not enter the Holm-Bonferroni denominator of \Cref{sec:sig-holm}. The first is Self-RAG \cite{asai2024selfrag}, included as a citation-only reference rather than as a replicated numerical baseline because Self-RAG's critic tokens are tied to a LLaMA-family backbone and retargeting them to Qwen-2.5-3B-Instruct would change enough of the system to invalidate the architectural comparison. The second is STaR \cite{NEURIPS2022_639a9a17}, run as an optional ceiling reference conditional on remaining compute budget; STaR's rationalisation step and binary correctness filter differ enough from CAEM's ten-signal verifier and four-outcome decision that a large gap to STaR would mix architectural contribution with rationalisation-quality artefacts. Both reference points are reported as separate rows in the comparative table without entering the licensing rule of \Cref{sec:sig-licensing}.
+
+\subsection{Tier-by-baseline cost relationship}
+\label{sec:comp-tier-baseline}
+
+The deployment-cost projection of \Cref{eq:deployment-cost} is read off the per-tier hit-rate trajectory and the per-tier latency reported in \Cref{sec:tier-cost}. The cross-cutting analysis here pairs each external baseline's per-query latency and dollar cost with CAEM's per-tier cost, so that the cost-saving argument is surfaced as an explicit comparison rather than left implicit in the headline accuracy contrast. A baseline that achieves comparable accuracy at substantially lower per-query cost narrows the architectural claim to the regime where CAEM's accuracy advantage is worth the cost gap; a baseline that pays more for less accuracy widens the architectural claim. The realised cost-versus-accuracy panel is auto-generated from the matched-protocol evaluation logs.
+
+\input{figures/auto/tab_tier_baseline_cost.tex}
+
+\section{Summary of Findings}
+\label{sec:summary-findings}
+
+\subsection{Headline outcome in one paragraph}
+\label{sec:summary-headline}
+
+The headline outcome of the empirical programme is the joint reading of the per-cycle trajectory in \Cref{sec:headline-trajectory}, the four-outcome decision distribution in \Cref{sec:decision-distribution}, the per-tier router efficiency in \Cref{sec:tier-efficiency}, the retention trajectory in \Cref{sec:retention}, and the comparative panel in \Cref{sec:comparisons}. The single sentence that summarises this joint reading is registered here as a placeholder pending the main-run trajectory: the architecture's composite hallucination metric is reported against the locked external baseline panel under matched protocol with Holm-corrected significance and bootstrap effect-size intervals, and the headline claim is whichever of \emph{supported}, \emph{partially supported}, or \emph{unsupported} the joint significance-and-effect-size licensing rule of \Cref{sec:sig-licensing} returns on the largest-effect contrast.
+
+\subsection{Hypothesis verdicts}
+\label{sec:summary-hypotheses}
+
+Each pre-registered hypothesis from \Cref{sec:hypotheses} is adjudicated against a specific deciding statistic from this chapter, with the verdict drawn from the licensing rule of \Cref{sec:sig-licensing}. \Cref{tab:hypothesis-verdicts} registers the hypothesis-to-statistic mapping; the verdict column is populated by the main-run readings and is presented here as a scaffold whose entries are marked pending where the main-run data are not yet available.
+
+\begin{table}[!htbp]
+\centering
+\small
+\begin{tabular}{@{}p{0.6cm}p{6.0cm}p{4.4cm}p{3.2cm}@{}}
+\toprule
+\textbf{ID} & \textbf{Hypothesis (registered in \Cref{sec:hypotheses})} & \textbf{Deciding statistic} & \textbf{Verdict (cycle-0 closed; main-run pending)} \\
+\midrule
+H1 & The conformal-gated storage class achieves a calibration-fold precision floor under the registered miscoverage level. & Calibration-fold precision in \Cref{sec:adj-locked} & \textbf{supported} ($0.9643 \ge 0.95$) \\
+H2 & The architecture reduces the composite hallucination metric on the pooled evaluation panel under matched protocol. & McNemar+bootstrap in \Cref{sec:comp-baselines} & \textit{main-run pending} \\
+H3 & The memory-direct tier share grows across cycles at the expense of the retrieval-augmented tier share. & Per-tier hit-rate trajectory in \Cref{sec:tier-hit} & \textit{main-run pending} \\
+H4 & The retention ratio against the held-out probe stays above the registered floor under the L2-anchored fine-tune. & Retention trajectory in \Cref{sec:retention} & \textit{main-run pending} \\
+H5 & The four cycle-boundary update passes (retroactive re-verification, deferred reconsideration, consolidation, retention guard) each contribute non-trivially to the headline outcome. & Architectural ablation panel in \Cref{sec:comp-ablations} & \textit{ablation-run pending} \\
+\bottomrule
+\end{tabular}
+\caption{Pre-registered hypotheses adjudicated against the corresponding deciding statistic in this chapter. H1's verdict is closed from cycle-zero artefacts; H2--H4 are gated by the main-run trajectory and H5 is gated by the architectural ablation panel.}
+\label{tab:hypothesis-verdicts}
+\end{table}
+
+\subsection{Evidence-to-claim mapping}
+\label{sec:summary-mapping}
+
+\Cref{tab:evidence-mapping} maps every architectural claim made in earlier chapters to the specific subsection, table, or figure in this chapter that licenses it. The mapping is read in two directions: a reader who wants to verify a claim from \Cref{ch:introduction}, \Cref{ch:requirements}, or \Cref{ch:methodology} can follow the row to its evidence here, and a reader auditing this chapter's empirical reporting can follow the row backwards to the claim that the empirical reading was registered to test.
+
+\begin{table}[!htbp]
+\centering
+\small
+\begin{tabular}{@{}p{4.6cm}p{4.5cm}p{5.5cm}@{}}
+\toprule
+\textbf{Claim site} & \textbf{Claim} & \textbf{Evidence in this chapter} \\
+\midrule
+\Cref{sec:hypotheses} (H1) & Conformal-gated calibration-fold precision floor & \Cref{sec:adj-locked}, \Cref{sec:adj-cal-eval-gap} \\
+\Cref{sec:hypotheses} (H2) & Hallucination reduction under matched protocol  & \Cref{sec:comp-baselines}, \Cref{sec:sig-licensing} \\
+\Cref{sec:hypotheses} (H3) & Tier-1 share grows across cycles                & \Cref{sec:tier-hit}, \Cref{sec:tier-cost} \\
+\Cref{sec:hypotheses} (H4) & Retention ratio above floor under L2 anchor     & \Cref{sec:retention} \\
+\Cref{sec:hypotheses} (H5) & Cycle-boundary passes contribute individually   & \Cref{sec:comp-ablations} \\
+\Cref{sec:nonfunc-reqs} (NFR2) & Storage precision floor                     & \Cref{sec:adj-locked} ($0.9643$ on $n=56$) \\
+\Cref{sec:nonfunc-reqs} (NFR3) & Retention floor                             & \Cref{sec:retention} (per-cycle $\rho$) \\
+\Cref{sec:env-cycles} & Ten-cycle horizon equilibrium prediction             & \Cref{sec:check-convergence} \\
+\Cref{sec:econ-deployment} & Deployed cost-per-query decay across cycles    & \Cref{sec:tier-cost}, \Cref{sec:comp-tier-baseline} \\
+\Cref{thm:purity} & Pool purity invariant                                   & \Cref{sec:check-purity} \\
+\Cref{thm:monotone} & Monotonicity under verifier improvement               & \Cref{sec:check-monotonicity} \\
+\Cref{thm:convergence} & Convergence envelope                                & \Cref{sec:check-convergence} \\
+\Cref{thm:asymptotic} & Asymptotic hallucination floor on memory-direct tier & \Cref{sec:check-asymptotic} \\
+\bottomrule
+\end{tabular}
+\caption{Evidence-to-claim mapping: every architectural claim made in earlier chapters is paired with the specific evidence in this chapter that licenses it. Cells without a measurable cycle-zero anchor are populated by the main-run readings.}
+\label{tab:evidence-mapping}
+\end{table}
+
+\section{Discussion}
+\label{sec:discussion}
+
+\subsection{Headline interpretation}
+\label{sec:disc-headline}
+
+The headline interpretation of the empirical record will be drawn from three jointly visible patterns: the trajectory of the composite hallucination metric across cycles in \Cref{sec:headline-trajectory}, the per-tier hit-rate evolution in \Cref{sec:tier-hit}, and the contrasts in \Cref{sec:comp-baselines}. The interpretation that the architecture intends to license, conditional on the licensing rule of \Cref{sec:sig-licensing} returning supported on the headline contrasts, is that hallucination reduction at the deployed cost envelope is achievable through the architectural mechanisms specified in \Cref{ch:methodology} rather than through scaling. The disclaimer that the licensing rule may return only partially supported on a subset of contrasts is registered explicitly: a partial support reading is not a falsification of the architecture, but it does narrow the headline claim to the benchmark family on which the licensing condition holds.
+
+\subsection{Threats to validity}
+\label{sec:disc-threats}
+
+\subsubsection{Single seed and single backbone}
+\label{sec:disc-threat-seed}
+
+The empirical programme runs under a single recorded random seed, propagated through every stochastic component of the pipeline, with a single open-weight three-billion-parameter generator as the backbone. Cross-seed replication would convert the per-cycle metric readings from point estimates to interval estimates and would tighten the licensing rule by adding an inter-replicate-variance check; that check is omitted at the present compute envelope and is registered as a future-work item. Cross-backbone replication, with a different open-weight generator at comparable scale, would test whether the architectural claim is generator-agnostic or generator-coupled; that check is registered as a separate future-work item with a specific candidate backbone identified in \Cref{ch:conclusion}. The thesis is honest about both threats: the reported readings are a single-seed-single-backbone trajectory, and the architectural claim travels exactly as far as that disclosure permits.
+
+\subsubsection{Benchmark coverage}
+\label{sec:disc-threat-benchmark}
+
+The seven benchmarks adopted in this work cover factual claim verification, open-domain trivia, open-domain question answering, common-misconception probes, multi-step commonsense, multiple-choice science, and long-form question answering. The coverage does not include code generation, formal mathematical reasoning, multi-turn dialogue, or multilingual evaluation, all of which are excluded by the registered scope in \Cref{sec:scope-research}. The most consequential coverage gap among the included families is the long-form generation regime: ASQA is the only benchmark in the panel where hypothesis lengths regularly exceed the natural-language-inference judge's effective range, and the long-hypothesis judge ablation in \Cref{sec:adj-judge-ablation} bounds the architectural cost of relying on truncated MiniCheck on this fold. A future programme that re-fits the long-hypothesis judge under task-specific training would close this gap; the present work registers it as future work rather than as silent acceptance.
+
+\subsubsection{Calibration to evaluation gap}
+\label{sec:disc-threat-gap}
+
+The structural gap between calibration-fold precision and evaluation-fold precision documented in \Cref{sec:adj-cal-eval-gap} ($0.9643 - 0.8021 = 0.1622$) is the largest threat to the conformal precision guarantee at the deployed operating point. Under exchangeability the calibration-fold lower bound transfers to the evaluation fold; the empirical gap shows that exchangeability is a regime, not a guarantee, on a calibration fold of $n_{\text{cal}}=1500$. Two mitigations are in place: cycle-boundary recalibration under exponential-moving-average smoothing widens the effective calibration sample count across cycles, and the per-cycle gap reading is recorded as a first-class diagnostic so that the gap's evolution across cycles is itself measurable. A more aggressive mitigation, conditional conformal prediction with per-benchmark exchangeability, is registered as future work rather than adopted because it requires per-benchmark calibration sample counts that the present compute envelope does not support.
+
+\subsubsection{Cycle budget}
+\label{sec:disc-threat-cycles}
+
+The ten-cycle horizon is justified through the convergence prediction in \Cref{sec:env-cycles}, the equilibrium diagnostic at every cycle boundary, and the compute envelope. A twenty- or fifty-cycle run would test whether the precision trajectory continues to track the geometric envelope of \Cref{thm:convergence} or plateaus prematurely, and would supply a longer-horizon test of the asymptotic floor in \Cref{thm:asymptotic}. The realised cycle horizon under the equilibrium diagnostic is reported in \Cref{sec:headline-trajectory}; if the trajectory has not equilibrated by the realised horizon, the convergence claim is reported as unsupported and the longer-horizon experiment is registered as the corresponding future-work item.
+
+\subsubsection{Storage-tail sample size}
+\label{sec:disc-threat-n}
+
+The storage tail at the locked operating point is small by design ($n_{\text{eval}}=96$ stored entries on the pooled evaluation fold under cycle-zero), which is what licenses the high pooled precision but also what bounds the per-benchmark precision claims to wide confidence intervals on benchmarks where the per-benchmark stored count drops to single digits. \Cref{tab:sweep-top} shows that the locked variant stores only two entries on Natural Questions and two on TriviaQA at cycle zero; the per-benchmark precision on these tails is therefore not a robust point estimate, and the per-benchmark claims rely on the bootstrap confidence interval of \Cref{sec:sig-bootstrap} rather than on the point reading. The pooled precision over the seven-benchmark fold remains a robust reading because pooling absorbs the per-benchmark sampling noise into a larger denominator.
+
+\subsection{Sensitivity analyses}
+\label{sec:disc-sensitivity}
+
+Sensitivity of the headline finding to the conformal miscoverage level $\alpha_{\text{store}}$ and to the boost layer's L2 regularisation strength $C$ is read off the sweep panel in \Cref{tab:sweep-top}. The five $\alpha_{\text{store}}=0.05$ variants in the table differ only in $C$ and span $C \in \{0.010, 0.025, 0.050, 0.100, 1.000\}$; the spread in evaluation-fold pooled precision across these five is bounded above by $0.011$ ($0.8021 - 0.7900 = 0.0121$), which establishes that the headline reading is robust to within-band perturbations of the boost regulariser. The $\alpha_{\text{store}}$ sensitivity is read off the four-by-five grid: at fixed $C$, increasing $\alpha_{\text{store}}$ from $0.05$ to $0.075$ increases the storage rate by approximately twenty-five percent and decreases the evaluation-fold pooled precision by approximately one percentage point; this is the rate-precision frontier the conformal procedure is designed to traverse, and the choice of operating point trades volume for precision in the direction the registered selection criteria preferred. A separate sensitivity analysis to the safety-floor $\phi_{\text{safe}}=0.60$ on the pre-routing confidence and to the early-exit thresholds $\eta_{u}=0.70, \eta_{g}=0.20$ is registered as future-work because each requires a separate sweep panel that the cycle-zero artefacts do not yet contain.
+
+\subsection{Comparison to the strongest prior systems}
+\label{sec:disc-prior}
+
+The closest published systems to CAEM's design fall into three groups. The first group is conformal-factuality at the language-model claim level: \cite{mohri2024conformal} demonstrates a precision lift from $78\%$ to $93\%$ on Natural Questions at $\alpha=0.2$ using GPT-4 with split-conformal sub-claim filtering, and \cite{cherian2024conformal} sharpens this with the boosted logistic aggregation that CAEM's composite layer adopts. The architectural difference between CAEM and these systems is that CAEM's gate is applied at the storage decision rather than at the answer-rendering decision, and that CAEM persists the gated answers in episodic memory for retrieval rather than discarding them after rendering; the empirical contrast is therefore not directly comparable on a single per-query precision number, but the underlying machinery is shared. The second group is verifier-filtered self-improvement: \cite{NEURIPS2022_639a9a17} and \cite{hosseini2024vstar} demonstrate that bootstrapping on verifier-correct outputs is a viable training-data-admission rule, and \cite{huang2025sharpening} formalises the convergence dynamics that CAEM's Theorem~\ref{thm:convergence} extends. The architectural difference is that CAEM uses an external multi-signal verifier rather than self-verification or a single-signal verifier, and that CAEM persists verified outputs in memory across cycles rather than consuming them only as training data. The third group is three-tier query routing: \cite{jeong2024adaptive} routes by query-complexity classification while CAEM routes by stored-quality on a shared memory; the routing-signal axis is the architectural difference that the empirical contrast in \Cref{sec:comp-tier-baseline} is registered to surface.
+
+\subsection{Limitations}
+\label{sec:disc-limitations}
+
+The architecture inherits a single open-weight generator and reports a single-seed trajectory, both of which are registered threats to validity in \Cref{sec:disc-threat-seed}. The benchmark panel does not include code, mathematical, multi-turn, or multilingual evaluation, all of which are excluded by the registered scope in \Cref{sec:scope-research}. The long-hypothesis judge ablation in \Cref{sec:adj-judge-ablation} forces every hypothesis through MiniCheck, with documented truncation behaviour on hypotheses above the encoder range; the architectural cost is bounded above by the truncation effect on ASQA. The cold-start memory after the pre-step-7 hygiene pass contains 260 verified entries, which is sufficient to bootstrap the memory-direct tier in early cycles but does not test the architecture's behaviour at the millions-of-entries deployment scale projected in \Cref{sec:memory-store}. The conformal precision guarantee transfers from the calibration fold to the evaluation fold under exchangeability, and the structural gap of $0.16$ documented in \Cref{sec:adj-cal-eval-gap} bounds the strength of that transfer at the deployed sample count. The empirical programme runs over ten cycles bounded by the equilibrium diagnostic; longer trajectories are registered as future-work and may produce a different verdict on the asymptotic claim of \Cref{thm:asymptotic}. Finally, the architecture does not test cross-domain transfer beyond the seven benchmarks adopted, and the deployment-cost projection in \Cref{sec:econ-deployment} is read off the empirical trajectory rather than from live user traffic; both gaps are registered as future-work items in \Cref{ch:conclusion}.
+
+\section{Chapter signpost}
+\label{sec:ch5-signpost}
+
+This chapter has reported the cycle-zero discipline, the locked configuration, the statistical-analysis protocol, and the framing under which the main-run trajectory and the comparative panel will be adjudicated. \Cref{ch:conclusion} restates the contributions against the empirical receipts that this chapter has produced, registers the open questions that remain, and lists the concrete next experiments that would close the gaps the limitations subsection has surfaced.

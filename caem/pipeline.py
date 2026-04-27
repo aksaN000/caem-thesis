@@ -794,7 +794,17 @@ class CAEMPipeline:
 
         def _retroverify(entry) -> Optional[UnifiedVerifierOutput]:
             try:
-                return verifier.verify(entry.question, entry.answer)
+                # is_query_time=False disables the confabulation early-exit
+                # gate during retroactive re-verification. The early-exit
+                # was registered for query-time inference; at retroverify
+                # the gate's u_internal conjunct is uninformative because
+                # SIL fine-tune memorised the stored chains. The composite
+                # + threshold prune downstream still removes confidently-
+                # wrong stored entries (new_u_stored < tau_retro = 0.50).
+                # See verifier.py:verify() docstring for the full rationale.
+                return verifier.verify(
+                    entry.question, entry.answer, is_query_time=False,
+                )
             except Exception as exc:  # pragma: no cover -- defensive
                 logger.warning(
                     "Retroverify of entry (q=%r) raised %s -- entry left unchanged.",

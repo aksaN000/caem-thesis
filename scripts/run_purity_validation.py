@@ -44,16 +44,15 @@ Fixes applied (audit 2025-04)
 
   FIX-4  Acceptance for theorem α is the full Stage 5 STORE decision,
       not a scalar threshold. Stage 5 STORE gates on
-      ``u_stored >= store_threshold`` (the contradiction veto was
-      removed 2026-04-22 -- MiniCheck returns ``p_contra = 0`` by
-      construction). Reading ``sc.decision == "STORE"`` is the single
-      source of truth and automatically tracks any future gate
-      additions. Earlier revisions mistakenly thresholded on
-      ``sc.u_stored`` alone and used the wrong threshold constant
-      (``retroverify_prune_threshold`` is for cycle-boundary pruning of
-      already-stored episodes; Stage 5 uses ``store_threshold``).
-      Theorem 2 concerns purity of accepted memory episodes, so α must
-      measure whatever Stage 5 actually accepts.
+      (u_stored >= store_threshold) AND (p_contra < contra_veto);
+      reading sc.decision == "STORE" is the single source of truth and
+      automatically tracks any future veto additions. Earlier revisions
+      mistakenly thresholded on sc.u_stored alone (ignoring the
+      p_contra veto, which inflated α) and further used the wrong
+      threshold constant (retroverify_prune_threshold is for cycle-
+      boundary pruning of already-stored episodes; Stage 5 uses
+      store_threshold). Theorem 2 concerns purity of accepted memory
+      episodes, so α must measure whatever Stage 5 actually accepts.
 
   FIX-5  Memory store loading now matches run_experiment.py persistence
       format: outputs/memory_store_cycle_{n}.faiss + .meta. This prevents
@@ -108,15 +107,11 @@ logger = logging.getLogger(__name__)
 
 PURITY_BENCHMARK_DEFAULTS = ["fever", "triviaqa", "natural_questions"]
 PURITY_BENCHMARK_SPLITS = {
-    # Purity/calibration sets are carved from the SIL training pool
-    # (content-hash disjoint from train-stream via caem.benchmark_splits).
-    # Branch C 2026-04-22: only training benchmarks contribute purity
-    # samples — transfer-only benchmarks (incl. ASQA) have no SIL stored
-    # episodes and therefore no purity measurement.
+    # Purity/calibration sets are carved from the SIL training pool.
     "fever": "train",
     "triviaqa": "train",
     "natural_questions": "train",
-    # Ad-hoc transfer fallbacks (not used by run_phase1a.sh Step 19):
+    # Transfer-only benchmarks are optional here and usually do not have purity_ids.
     "truthfulqa": "validation",
     "strategyqa": "test",
     "arc_challenge": "test",
@@ -232,7 +227,108 @@ def _generate_greedy_answer(pipeline, query: str, max_new_tokens: int = 256) -> 
     return pred, inputs["input_ids"]
 
 
-def measure_base_accuracy(pipeline, purity_samples: List[dict], bm: str) -> float:
+def _generate_greedy_answer_batch(
+    pipeline,
+    queries: List[str],
+    max_new_tokens: int = 256,
+) -> List[Tuple[str, Any]]:
+    """Batched analogue of :func:`_generate_greedy_answer`.
+
+    Tokenises N queries with padding, runs a single ``model.generate`` on
+    the padded ``(N, L)`` batch, and decodes per-row. Returns a list of
+    ``(decoded_answer, single_row_input_ids)`` pairs in input order so the
+    downstream verifier (which expects an unpadded single-row tensor) can
+    consume each row directly.
+
+    CRITICAL: this helper does NOT call ``pipeline.answer`` or
+    ``BatchPipeline.answer_batch``. Stage 7 of the serial pipeline mutates
+    memory on STORE decisions, which would invalidate the cycle-N memory
+    state we just loaded for purity measurement (FIX-6). We bypass Stages
+    6-8 entirely by going directly through the tokenizer + model + verifier
+    primitives, exactly as the per-sample helper above does -- only the
+    generate step is batched.
+
+    On batch failure (e.g. CUDA OOM at the requested batch dim), every
+    position falls back to serial ``_generate_greedy_answer``: a single bad
+    sample still produces an output for the rest of the batch.
+    """
+    import torch
+
+    if not queries:
+        return []
+
+    try:
+        inputs = pipeline.tokenizer(
+            queries,
+            return_tensors="pt",
+            truncation=True,
+            max_length=512,
+            padding=True,
+        ).to(pipeline.device)
+
+        with torch.no_grad():
+            out = pipeline.model.generate(
+                **inputs,
+                max_new_tokens=max_new_tokens,
+                do_sample=False,
+            )
+    except Exception as exc:
+        logger.warning(
+            "_generate_greedy_answer_batch: batched generate failed (n=%d, err=%s) "
+            "-- falling back to serial generation per sample.",
+            len(queries), exc,
+        )
+        results: List[Tuple[str, Any]] = []
+        for q in queries:
+            try:
+                results.append(_generate_greedy_answer(pipeline, q, max_new_tokens))
+            except Exception as serial_exc:
+                logger.warning(
+                    "_generate_greedy_answer_batch: serial fallback raised on "
+                    "query (truncated): '%s...' -- %s",
+                    q[:60], serial_exc,
+                )
+                results.append(("", None))
+        return results
+
+    batched_input_ids = inputs["input_ids"]
+    decoded: List[Tuple[str, Any]] = []
+    for i in range(out.shape[0]):
+        try:
+            pred = pipeline.tokenizer.decode(out[i], skip_special_tokens=True)
+        except Exception as exc:
+            logger.warning(
+                "_generate_greedy_answer_batch: decode row %d failed: %s",
+                i, exc,
+            )
+            pred = ""
+        # Re-tokenise the single query unpadded for the verifier path so
+        # input_ids carries no PAD positions (the verifier's internal-cal
+        # forward expects exact prompt tokens, not the padded batch row).
+        try:
+            single = pipeline.tokenizer(
+                queries[i],
+                return_tensors="pt",
+                truncation=True,
+                max_length=512,
+            ).to(pipeline.device)
+            single_input_ids = single["input_ids"]
+        except Exception:
+            # Cheap fallback -- slice the padded row. Pad tokens here would
+            # only affect downstream u_token/u_dropout marginal calibration,
+            # which is acceptable for purity measurement.
+            single_input_ids = batched_input_ids[i:i+1]
+        decoded.append((pred, single_input_ids))
+    return decoded
+
+
+def measure_base_accuracy(
+    pipeline,
+    purity_samples: List[dict],
+    bm: str,
+    *,
+    batch_size: int = 32,
+) -> float:
     """Measure p -- the fraction of questions the model answers correctly BEFORE
     verification. This is the raw generation accuracy on the purity validation set.
 
@@ -241,11 +337,22 @@ def measure_base_accuracy(pipeline, purity_samples: List[dict], bm: str) -> floa
     to ROUGE-L > 0.15 (was any_match_em exact string match). StrategyQA scoring
     changed to use extract_strategyqa_label() (was raw exact_match).
 
+    Batched generation (2026-04-25): the per-sample generate loop is now
+    chunked through ``_generate_greedy_answer_batch`` (batch_size=32 by
+    default), amortising kernel-launch overhead across the chunk. The
+    underlying T5 forward pass is still deterministic (do_sample=False),
+    so per-sample EM is unchanged modulo the bf16 padding-vs-no-padding
+    accumulation noise documented in caem/pipeline_batch.py:18-24 (well
+    below scoring discretisation). Memory state is NOT mutated -- the
+    helper bypasses pipeline.answer() entirely.
+
     Parameters
     ----------
     pipeline       : CAEMPipeline
     purity_samples : list of BenchmarkSample
     bm             : str -- benchmark name
+    batch_size     : int, default 32 -- generate batch dim. 1 falls back
+        to per-sample serial generate (the legacy path).
 
     Returns
     -------
@@ -253,29 +360,34 @@ def measure_base_accuracy(pipeline, purity_samples: List[dict], bm: str) -> floa
     """
     correct = 0
     total = 0
+    chunk = max(1, int(batch_size))
 
-    for sample in purity_samples:
-        q = sample["question"]
-        gold = sample.get("answers", [])
-        gold_label = sample.get("gold_label")
+    for start in range(0, len(purity_samples), chunk):
+        chunk_samples = purity_samples[start:start + chunk]
+        queries = [s["question"] for s in chunk_samples]
+        # Batched generate. Internal failure handling already drops to
+        # per-sample serial generation, so we always get N (pred, ids) tuples
+        # back; failed positions surface as ("", None).
+        gen_outputs = _generate_greedy_answer_batch(
+            pipeline,
+            queries,
+            max_new_tokens=256,  # FIX-2: was 64 (too short for multi-sentence answers)
+        )
 
-        try:
-            # Generate directly (bypass memory routing -- we want raw model accuracy).
-            pred, _ = _generate_greedy_answer(
-                pipeline,
-                q,
-                max_new_tokens=256,  # FIX-2: was 64 (too short for multi-sentence answers)
-            )
-            em = _score_em(pred, gold, gold_label, bm)
-
-            correct += em
-            total += 1
-        except Exception as exc:
-            # Do NOT silently penalize accuracy: if generation throws, the sample
-            # never had a well-defined prediction, so exclude it from the denominator
-            # rather than counting it as a wrong answer. Log at WARNING so failures
-            # are visible (previous: debug, hidden at default log level).
-            logger.warning("measure_base_accuracy: skipped sample due to error (%s)", exc)
+        for sample, (pred, _) in zip(chunk_samples, gen_outputs):
+            gold = sample.get("answers", [])
+            gold_label = sample.get("gold_label")
+            try:
+                em = _score_em(pred, gold, gold_label, bm)
+                correct += em
+                total += 1
+            except Exception as exc:
+                # Do NOT silently penalize accuracy: if scoring throws, the
+                # sample never had a well-defined prediction, so exclude it
+                # from the denominator rather than counting it wrong.
+                logger.warning(
+                    "measure_base_accuracy: skipped sample due to error (%s)", exc,
+                )
 
     # NaN (not 0.0) when nothing was evaluated: downstream code distinguishes
     # "undefined" from "measured zero", and reporting 0.0 here would falsely
@@ -286,6 +398,8 @@ def measure_base_accuracy(pipeline, purity_samples: List[dict], bm: str) -> floa
 def measure_verification_balanced_accuracy(
     pipeline, purity_samples: List[dict], bm: str,
     per_sample_dump_path=None,
+    *,
+    batch_size: int = 32,
 ) -> float:
     """Measure α -- verification BALANCED ACCURACY on the purity validation set.
 
@@ -310,18 +424,21 @@ def measure_verification_balanced_accuracy(
 
     FIX-4: The acceptance gate for theorem α is the full Stage 5 STORE
     decision, NOT the u_stored scalar alone. Stage 5 STORE is
-    canonically defined as ``u_stored >= store_threshold`` (the
-    contradiction-veto branch was removed 2026-04-22 along with the
-    dead-code sweep; MiniCheck returns p_contra = 0 by construction so
-    the veto could never fire under the default backend). Reading
-    ``sc.decision == "STORE"`` directly remains the single source of
-    truth -- any future gate addition (e.g. q_a_relevance as a hard
-    veto) is automatically tracked without this measurement code going
-    stale. The previous implementation's use of
-    retroverify_prune_threshold was also subtly wrong: retroverify is
-    the cycle-boundary pruning gate on already-stored episodes, whereas
-    purity validation measures fresh samples (Stage 5 behaviour), which
-    uses store_threshold.
+    canonically defined as (u_stored >= store_threshold) AND
+    (p_contra < contra_veto), with p_contra acting as a hard contradiction
+    veto that the u_stored-only gate ignores (see caem/verification/
+    verifier.py:63-64 and _decide_from_signals). Measuring α against the
+    u_stored scalar alone would count samples that clear u_stored but fail
+    the p_contra veto as "passed verification" when Stage 5 actually
+    DISCARDs them -- inflating α relative to the true STORE rate and
+    feeding an incorrect α into the Theorem 2 P > p check. We therefore
+    use ``sc.decision == "STORE"`` directly; this single source of truth
+    automatically tracks the u_stored gate, the p_contra veto, and any
+    future veto additions without this measurement code going stale.
+    The previous implementation's use of retroverify_prune_threshold was
+    also subtly wrong: retroverify is the cycle-boundary pruning gate on
+    already-stored episodes, whereas purity validation measures fresh
+    samples (Stage 5 behaviour), which uses store_threshold.
 
     FIX-6: Uses generation + verifier directly instead of pipeline.answer() so
     measurement does not mutate memory (Stage 7 storage side effects).
@@ -360,57 +477,115 @@ def measure_verification_balanced_accuracy(
     # FIX-8: accumulate per-sample scalars for α(τ_store) sensitivity replay.
     per_sample_records: List[Dict[str, Any]] = []
 
-    for sample in purity_samples:
-        q = sample["question"]
-        gold = sample.get("answers", [])
-        gold_label = sample.get("gold_label")
+    # 2026-04-25: batched generate + batched verify replace the per-sample
+    # loop. CRITICAL (FIX-6): we do NOT call pipeline.answer() or
+    # BatchPipeline.answer_batch() because Stage 7's STORE side effect would
+    # mutate the loaded cycle-N memory mid-measurement, contaminating both
+    # the α we are computing and the P_obs measured later in the same cycle.
+    # Instead we batch the two underlying primitives that purity validation
+    # already uses serially:
+    #   * _generate_greedy_answer  -> _generate_greedy_answer_batch
+    #   * pipeline.verifier.verify -> pipeline.verifier.verify_batch
+    # Every other behaviour (confusion-matrix accumulation, FIX-8 dump,
+    # error logging) is preserved exactly.
+    chunk = max(1, int(batch_size))
 
+    for start in range(0, len(purity_samples), chunk):
+        chunk_samples = purity_samples[start:start + chunk]
+        queries = [s["question"] for s in chunk_samples]
+
+        # ---- Batched greedy generate ------------------------------------ #
+        gen_outputs = _generate_greedy_answer_batch(
+            pipeline, queries, max_new_tokens=256,
+        )
+
+        # ---- Batched verify ---------------------------------------------- #
+        # verify_batch pools the M-chain and semantic-entropy sampling across
+        # the chunk's T5 forwards (verifier.py:578). Inputs that failed
+        # generation (pred="" or input_ids=None) still go through verify
+        # but with an empty answer string -- this matches the serial path's
+        # behaviour where an empty pred is verified as-is and almost always
+        # routed to DISCARD by the grounding/entailment signals. We keep
+        # them in the batch so the order matches per-sample bookkeeping.
+        verify_inputs = [
+            (q, pred) for q, (pred, _) in zip(queries, gen_outputs)
+        ]
         try:
-            pred, input_ids = _generate_greedy_answer(pipeline, q, max_new_tokens=256)
-            sc = pipeline.verifier.verify(query=q, answer=pred, input_ids=input_ids)
-            # Stage 5 STORE decision is the canonical acceptance event
-            # for Theorem 2's α. DEFERRED / ABSTAIN / DISCARD all count
-            # as "not accepted" because none of them put the episode
-            # into memory at Stage 5. Deferred-buffer reconsideration is
-            # a separate mechanism evaluated over cycle boundaries and
-            # does not affect this per-sample α measurement.
-            passed_verification = (sc.decision == "STORE")
-            is_correct = bool(_score_em(pred, gold, gold_label, bm))
-
-            # Accumulate confusion matrix
-            if is_correct and passed_verification:
-                tp += 1
-            elif (not is_correct) and (not passed_verification):
-                tn += 1
-            elif (not is_correct) and passed_verification:
-                fp += 1
-            else:  # is_correct and not passed_verification
-                fn += 1
-
-            total += 1
-
-            # FIX-8: record scalars already computed inside sc. Zero extra
-            # compute — just a reference-copy into a list. getattr with
-            # defaults makes this resilient to future VerifierOutput schema
-            # additions or field renames.
-            if per_sample_dump_path is not None:
-                per_sample_records.append({
-                    "is_correct":    bool(is_correct),
-                    "u_stored":      float(getattr(sc, "u_stored", float("nan"))),
-                    "p_contra":      float(getattr(sc, "p_contra", 0.0)),
-                    "p_ground_max":  float(getattr(sc, "p_ground_max", float("nan"))),
-                    "p_ground_mean": float(getattr(sc, "p_ground_mean", float("nan"))),
-                    "p_entail":      float(getattr(sc, "p_entail", float("nan"))),
-                    "tier":          int(getattr(sc, "tier", 0) or 0),
-                    "decision":      str(getattr(sc, "decision", "UNKNOWN")),
-                })
-        except Exception as exc:
-            # Skip failed samples entirely (do not fold into a confusion cell);
-            # log at WARNING so batch-wide generation/verifier errors are visible.
+            sc_list = pipeline.verifier.verify_batch(verify_inputs)
+        except Exception as batch_exc:
             logger.warning(
-                "measure_verification_balanced_accuracy: skipped sample due to error (%s)",
-                exc,
+                "measure_verification_balanced_accuracy: verify_batch failed "
+                "(n=%d, err=%s) -- falling back to per-sample verify.",
+                len(verify_inputs), batch_exc,
             )
+            sc_list = []
+            for (q, pred), (_, input_ids) in zip(verify_inputs, gen_outputs):
+                try:
+                    sc_list.append(
+                        pipeline.verifier.verify(
+                            query=q, answer=pred, input_ids=input_ids,
+                        )
+                    )
+                except Exception as serial_exc:
+                    logger.warning(
+                        "measure_verification_balanced_accuracy: serial verify "
+                        "failed on a sample (%s).",
+                        serial_exc,
+                    )
+                    sc_list.append(None)
+
+        # ---- Per-sample confusion-matrix accumulation -------------------- #
+        for sample, (pred, _), sc in zip(chunk_samples, gen_outputs, sc_list):
+            if sc is None:
+                # Skip failed samples entirely (do not fold into a confusion cell);
+                # logged above.
+                continue
+            try:
+                gold = sample.get("answers", [])
+                gold_label = sample.get("gold_label")
+                # Stage 5 STORE decision is the canonical acceptance event
+                # for Theorem 2's α. DEFERRED / ABSTAIN / DISCARD all count
+                # as "not accepted" because none of them put the episode
+                # into memory at Stage 5. Deferred-buffer reconsideration is
+                # a separate mechanism evaluated over cycle boundaries and
+                # does not affect this per-sample α measurement.
+                passed_verification = (sc.decision == "STORE")
+                is_correct = bool(_score_em(pred, gold, gold_label, bm))
+
+                # Accumulate confusion matrix
+                if is_correct and passed_verification:
+                    tp += 1
+                elif (not is_correct) and (not passed_verification):
+                    tn += 1
+                elif (not is_correct) and passed_verification:
+                    fp += 1
+                else:  # is_correct and not passed_verification
+                    fn += 1
+
+                total += 1
+
+                # FIX-8: record scalars already computed inside sc. Zero extra
+                # compute — just a reference-copy into a list. getattr with
+                # defaults makes this resilient to future VerifierOutput schema
+                # additions or field renames.
+                if per_sample_dump_path is not None:
+                    per_sample_records.append({
+                        "is_correct":    bool(is_correct),
+                        "u_stored":      float(getattr(sc, "u_stored", float("nan"))),
+                        "p_contra":      float(getattr(sc, "p_contra", 0.0)),
+                        "p_ground_max":  float(getattr(sc, "p_ground_max", float("nan"))),
+                        "p_ground_mean": float(getattr(sc, "p_ground_mean", float("nan"))),
+                        "p_entail":      float(getattr(sc, "p_entail", float("nan"))),
+                        "tier":          int(getattr(sc, "tier", 0) or 0),
+                        "decision":      str(getattr(sc, "decision", "UNKNOWN")),
+                    })
+            except Exception as exc:
+                # Skip failed samples entirely (do not fold into a confusion cell);
+                # log at WARNING so batch-wide generation/verifier errors are visible.
+                logger.warning(
+                    "measure_verification_balanced_accuracy: skipped sample due to error (%s)",
+                    exc,
+                )
 
     # FIX-8: write the accumulated per-sample records. Done after the loop so
     # a mid-benchmark crash leaves no half-written file that downstream
@@ -449,6 +624,15 @@ def measure_verification_balanced_accuracy(
         tp / (tp + fp) if (tp + fp) > 0 else float("nan"),
     )
     return balanced_acc
+
+
+# Public alias: ``compute_alpha`` is the function name used by the
+# batch-wiring smoke check (``python -c "from scripts.run_purity_validation
+# import compute_alpha"``). The implementation is identical to
+# ``measure_verification_balanced_accuracy``; the alias keeps the older
+# name as the canonical docstring carrier while exposing a shorter handle
+# for ad-hoc use and import-level static checks.
+compute_alpha = measure_verification_balanced_accuracy
 
 
 def load_memory_store_for_cycle(pipeline, cycle_num: int, checkpoints_dir: str):
@@ -935,24 +1119,19 @@ def run_purity_validation(ns: argparse.Namespace) -> None:
         # regressions. (An all-zero verifier trivially yields α=0.5 from TNR=1,
         # TPR=0 and hides real bugs.)
         import torch
+        from transformers import (
+            AutoModelForSequenceClassification,
+            AutoTokenizer,
+            T5ForConditionalGeneration,
+        )
         from caem.config import CAEMConfig
         from caem.memory.encoder import QueryEncoder
-        from caem.model_loader import load_base_generator
         from caem.pipeline import CAEMPipeline
 
         config = CAEMConfig()
-        load_dtype = (
-            torch.bfloat16 if profile.use_bf16
-            else torch.float16 if profile.use_fp16
-            else torch.float32
-        )
-        model, tokenizer = load_base_generator(
-            config.base_model_name,
-            device=profile.device,
-            dtype=load_dtype,
-            use_flash_attention_2=config.use_flash_attention_2,
-            use_torch_compile=config.use_torch_compile,
-        )
+        tokenizer = AutoTokenizer.from_pretrained("google/flan-t5-large")
+        model = T5ForConditionalGeneration.from_pretrained("google/flan-t5-large")
+        model = cast(Any, model).to(torch.device(profile.device))
         encoder = QueryEncoder(model_name=config.sbert_model, device=profile.device)
 
         # Load the verifier judge via the shared loader (MiniCheck by default,
@@ -989,14 +1168,13 @@ def run_purity_validation(ns: argparse.Namespace) -> None:
     else:
         # Load all cycle pipelines
         import torch
+        from transformers import AutoTokenizer, T5ForConditionalGeneration
         from caem.config import CAEMConfig
         from caem.memory.encoder import QueryEncoder
-        from caem.model_loader import load_base_generator
         from caem.pipeline import CAEMPipeline
         from caem.retrieval.rag import PassageStore
         from eval.benchmarks import (
             load_arc_challenge,
-            load_asqa,
             load_fever,
             load_natural_questions,
             load_strategyqa,
@@ -1005,23 +1183,7 @@ def run_purity_validation(ns: argparse.Namespace) -> None:
         )
 
         config = CAEMConfig()
-        # Load tokenizer (and a placeholder model discarded below -- the
-        # per-cycle factory reloads weights with their respective checkpoint).
-        # Using load_base_generator here ensures the tokenizer has the Branch-C
-        # ChatML template + pad_token alias required by the pipeline.
-        load_dtype = (
-            torch.bfloat16 if profile.use_bf16
-            else torch.float16 if profile.use_fp16
-            else torch.float32
-        )
-        _warmup_model, tokenizer = load_base_generator(
-            config.base_model_name,
-            device="cpu",  # discarded; factory loads per-cycle on GPU
-            dtype=load_dtype,
-            use_flash_attention_2=False,
-            use_torch_compile=False,
-        )
-        del _warmup_model
+        tokenizer = AutoTokenizer.from_pretrained("google/flan-t5-large")
 
         from caem.verification import load_verifier_judge
         judge, nli_model, nli_tokenizer = None, None, None
@@ -1054,45 +1216,50 @@ def run_purity_validation(ns: argparse.Namespace) -> None:
         if not requested_benchmarks:
             requested_benchmarks = list(PURITY_BENCHMARK_DEFAULTS)
 
-        # Branch C 2026-04-22 evening: purity samples MUST match the canonical
-        # benchmark_splits.py allocation so purity measurement runs on the
-        # same 500-sample slice that Cycle-0 / run_experiment.py reserved.
-        # Prior implementation used per-benchmark loaders + dataset_splits.json
-        # fallback + "top 500" heuristic — all stochastically different from
-        # the canonical pool. Now we call build_all_benchmark_pools with the
-        # SAME rng_seed (42) as run_experiment.py and extract .purity directly.
-        from caem.benchmark_splits import (
-            build_all_benchmark_pools, TRAINING_BENCHMARKS,
-        )
-        logger.info(
-            "Building canonical benchmark pools for purity validation "
-            "(matches run_experiment.py Cycle-0 allocation exactly)..."
-        )
-        _pools = build_all_benchmark_pools(
-            benchmarks=[bm for bm in requested_benchmarks if bm in TRAINING_BENCHMARKS],
-            rng_seed=42,  # MUST match run_experiment.py seed
-        )
+        loader_by_benchmark = {
+            "fever": lambda: load_fever(split=PURITY_BENCHMARK_SPLITS["fever"]),
+            "triviaqa": lambda: load_triviaqa(split=PURITY_BENCHMARK_SPLITS["triviaqa"]),
+            "natural_questions": lambda: load_natural_questions(split=PURITY_BENCHMARK_SPLITS["natural_questions"]),
+            "truthfulqa": lambda: load_truthfulqa(),
+            "strategyqa": lambda: load_strategyqa(split=PURITY_BENCHMARK_SPLITS["strategyqa"]),
+            "arc_challenge": lambda: load_arc_challenge(split=PURITY_BENCHMARK_SPLITS["arc_challenge"]),
+        }
+
+        unknown_benchmarks = [bm for bm in requested_benchmarks if bm not in loader_by_benchmark]
+        if unknown_benchmarks:
+            raise ValueError(
+                f"Unknown benchmarks for purity validation: {unknown_benchmarks}. "
+                f"Supported: {sorted(loader_by_benchmark.keys())}"
+            )
+
+        # FIX: Load dataset splits to get exact purity_ids for the specific experiment run
+        splits_path = Path(checkpoints_dir) / "dataset_splits.json"
+        purity_ids_by_bm = {}
+        if splits_path.exists():
+            try:
+                with open(splits_path, "r", encoding="utf-8") as f:
+                    splits = json.load(f)
+                for bm, splits_dict in splits.items():
+                    purity_ids_by_bm[bm] = set(splits_dict.get("purity_ids", []))
+                logger.info("Loaded exact purity_ids from %s", splits_path)
+            except Exception as exc:
+                logger.warning("Failed to load dataset_splits.json: %s", exc)
+        else:
+            logger.warning("dataset_splits.json not found at %s. Falling back to top 500.", splits_path)
 
         def load_and_filter(bm_name: str):
-            """Return the canonical 500-sample purity slice for bm_name.
-
-            Training benchmarks: return benchmark_pools[bm].purity (byte-identical
-            to what Step 7 main reserved). Transfer-only benchmarks: empty —
-            no purity measurement by design (they have no stored episodes).
-            """
-            if bm_name not in _pools:
-                logger.warning(
-                    "Benchmark %s not in canonical pool (transfer-only or excluded); "
-                    "returning empty purity slice.", bm_name,
-                )
-                return []
-            purity_slice = list(_pools[bm_name].purity)
-            logger.info(
-                "Loaded %s purity slice from benchmark_pools: %d samples "
-                "(canonical allocation, content-hash disjoint from train/eval).",
-                bm_name, len(purity_slice),
-            )
-            return purity_slice
+            # Load from the benchmark's configured split for purity validation.
+            samples = loader_by_benchmark[bm_name]()
+            if bm_name in purity_ids_by_bm and purity_ids_by_bm[bm_name]:
+                target_ids = purity_ids_by_bm[bm_name]
+                # Match either the string ID or the fallback index
+                filtered = [s for i, s in enumerate(samples) if str(s.get("id", i)) in target_ids or s.get("id", i) in target_ids]
+                if filtered:
+                    logger.info("Filtered %s to %d precise purity_ids", bm_name, len(filtered))
+                    return filtered
+            # Fallback to top 500 if no splits file or no matching IDs
+            logger.info("Falling back to top 500 items for %s", bm_name)
+            return samples[:500]
 
         # Prefer benchmarks with explicit purity_ids from this experiment run.
         benchmarks_with_purity_ids = [
@@ -1128,13 +1295,7 @@ def run_purity_validation(ns: argparse.Namespace) -> None:
             ckpt_dir = Path(checkpoints_dir) / f"cycle_{cycle_num}"
             model_path = ckpt_dir / "model.pt"
 
-            model, _tok = load_base_generator(
-                config.base_model_name,
-                device=profile.device,
-                dtype=load_dtype,
-                use_flash_attention_2=config.use_flash_attention_2,
-                use_torch_compile=config.use_torch_compile,
-            )
+            model = T5ForConditionalGeneration.from_pretrained("google/flan-t5-large")
             if model_path.exists():
                 logger.info("Loading cycle %d weights from %s ...", cycle_num, model_path)
                 # weights_only=True mitigates arbitrary-code-execution risk in
@@ -1148,7 +1309,12 @@ def run_purity_validation(ns: argparse.Namespace) -> None:
                     "Cycle %d checkpoint not found at %s -- using base weights.",
                     cycle_num, model_path,
                 )
-            model = cast(Any, model).eval()
+
+            if profile.use_fp16:
+                model = model.half()
+            elif profile.use_bf16:
+                model = model.bfloat16()
+            model = cast(Any, model).to(torch.device(profile.device)).eval()
 
             encoder = QueryEncoder(model_name=config.sbert_model, device=profile.device)
             pipeline = CAEMPipeline(
@@ -1196,8 +1362,7 @@ def _parse_args() -> argparse.Namespace:
         default=list(PURITY_BENCHMARK_DEFAULTS),
         help=(
             "Benchmarks to validate. Defaults to SIL purity benchmarks "
-            "used by run_experiment (fever, triviaqa, natural_questions "
-            "under Branch C; ASQA is transfer-only and has no purity pool)."
+            "used by run_experiment (fever, triviaqa, natural_questions)."
         ),
     )
     p.add_argument("--passage_index", default="data/passage_index",

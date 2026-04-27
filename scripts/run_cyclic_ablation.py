@@ -49,20 +49,20 @@ From the repo root:
 
     # Screening (Phase 1 — cheap selector)
     python -m scripts.run_cyclic_ablation \\
-        --variant no_store_gate \\
+        --variant no_grounding \\
         --seed 42 \\
         --screening_mode \\
         --output_dir outputs/ablation
 
     # Confirmatory (Phase 1 — single seed, top-3 + full + no_SIL)
     python -m scripts.run_cyclic_ablation \\
-        --variant no_store_gate \\
+        --variant no_grounding \\
         --seed 42 \\
         --output_dir outputs/ablation
 
     # Confirmatory upgrade (Phase 2 — add a new seed, same command)
     python -m scripts.run_cyclic_ablation \\
-        --variant no_store_gate \\
+        --variant no_grounding \\
         --seed 123 \\
         --output_dir outputs/ablation
 
@@ -79,6 +79,18 @@ Output layout
         experiment_summary.csv          # five-column evidence table
         ces_axes_per_cycle.json         # [CESAxes per cycle, 0..N]
         run_manifest.json               # variant + seed + timings
+
+Batched evaluation
+------------------
+This driver does not currently expose a ``--eval_batch_size`` argparse
+flag, so the harness it spins up uses whatever default the evaluator
+ships with. If a future Phase 1a integration routes
+``run_phase1a.sh``'s ablation pass through this driver (currently it
+is not invoked), callers should pass / configure ``eval_batch_size=32``
+to match the BatchPipeline wiring used elsewhere (see
+``scripts/run_calibration.py`` and ``eval/harness.py``). The default
+of 1 is the legacy serial path and would forfeit the BatchPipeline
+speedup that the 14-day step_7_main run depends on.
 
 Thesis reference
 ----------------
@@ -98,7 +110,7 @@ import math
 import tempfile
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Mapping, Optional
+from typing import Any, Dict, List, Optional
 
 # -- Logging -----------------------------------------------------------------
 logging.basicConfig(
@@ -248,29 +260,14 @@ def _axes_for_cycle(
         meta = data.get("meta", {})
         extracted = _extract_em_and_u_from_samples(samples_field)
 
-        # Track whether we have full per-sample dicts for the CHM-based EPI
-        # path in ces_axes_from_cycle. When the fallback below kicks in
-        # (samples missing or parse error), we deliberately pass samples=None
-        # so _epi_axis falls back to the legacy confabulation_rate formula
-        # rather than computing CHM on a broadcast-empty record set (which
-        # would yield chm=0 → EPI=1.0, silently inflating the score).
-        pass_samples: Optional[List[Mapping[str, Any]]] = None
-
         if not extracted["em"]:
-            # Use meta scalars as last-resort fallback. Note: broadcasting
-            # the meta em/u_stored over N samples destroys per-sample
-            # variance — EPI/CAL collapse to constants. This mirrors
-            # caem.ablation.runner's documented concern (Audit MAJOR-RN2);
-            # runner.py raises instead. Here we keep the fallback for
-            # resume-safety but do NOT promise a usable CES.
+            # Use meta scalars as last-resort fallback
             n = int(meta.get("n", 0))
             em_list = [float(meta.get("em", 0.0))] * max(n, 1)
             u_list = [float(meta.get("mean_u_stored", 0.0))] * max(n, 1)
         else:
             em_list = extracted["em"]
             u_list = extracted["u_stored"]
-            # Only feed the CHM path when we actually have per-sample dicts.
-            pass_samples = list(samples_field)
 
         axes = ces_axes_from_cycle(
             em_flags=em_list,
@@ -279,7 +276,6 @@ def _axes_for_cycle(
             baseline_mmlu=baseline_mmlu,
             verifier_balanced_accuracy=None,   # VER placeholder 0.5
             requires_baseline_only=requires_baseline_only,
-            samples=pass_samples,
         )
         per_bm[bm] = axes
         per_bm_meta[bm] = dict(meta)
@@ -352,8 +348,9 @@ def run_cyclic_ablation(ns: argparse.Namespace) -> None:
         _check_deps,
         _load_imports,
         build_pipeline,
-        # load_sil_training_pool, load_eval_transfer_pool, split_calibration_sets
-        # removed 2026-04-22 evening — use caem.benchmark_splits.build_all_benchmark_pools
+        load_sil_training_pool,
+        load_eval_transfer_pool,
+        split_calibration_sets,
         load_general_data,
         run_calibration_step,
         retroactive_reverification,
@@ -472,51 +469,19 @@ def run_cyclic_ablation(ns: argparse.Namespace) -> None:
         purity_samples = {bm: s[:split_point] for bm, s in sil_samples.items()}
         calib_samples = {bm: s[split_point:] for bm, s in sil_samples.items()}
     else:
-        # Branch C 2026-04-22 evening: ablations use the SAME benchmark_pools
-        # as CAEM's run_experiment.py — deterministic content-hash split with
-        # cross-pool disjointness. Each variant's cycle-N consumes the same
-        # sil_train_chunks[cycle_num - 1] as CAEM's full_run, so the ablation
-        # delta (CES_full - CES_variant) is computed on matched-sample pairs.
-        from caem.benchmark_splits import (
-            build_all_benchmark_pools, ALL_BENCHMARKS,
-        )
-        requested_bms = [b.strip().lower() for b in ns.benchmarks]
-        panel = [b for b in ALL_BENCHMARKS if b in requested_bms] or requested_bms
+        sil_samples = load_sil_training_pool(ns_shim, m)
+        eval_samples = load_eval_transfer_pool(ns_shim, m)
+        # Trim eval samples to the profile cap (lets screening use fewer)
         target_eval = int(profile["n_eval_per_benchmark"])
-        logger.info(
-            "Building benchmark pools for ablation %s (panel=%s)",
-            variant.name, panel,
+        eval_samples = {bm: s[:target_eval] for bm, s in eval_samples.items()}
+        purity_samples, calib_samples, _ = split_calibration_sets(
+            sil_samples,
+            calib_size=config.calibration_set_size,
+            purity_size=config.purity_validation_set_size,
         )
-        _pools = build_all_benchmark_pools(
-            benchmarks=panel,
-            n_cycles=int(profile["max_cycles"]),
-            train_chunk_size=int(profile["n_sil_per_cycle"]),
-            eval_size=target_eval,
-            rng_seed=int(ns.seed),
-        )
-        # Flatten all sil_train_chunks for variants that don't do stream
-        # mode (e.g., purity/calibration still needs a sil_samples union),
-        # but the cycle loop below draws per-cycle chunks where available.
-        sil_samples = {
-            bm: [s for chunk in p.sil_train_chunks for s in chunk]
-            for bm, p in _pools.items() if p.is_training
-        }
-        eval_samples = {bm: list(p.eval) for bm, p in _pools.items()}
-        purity_samples = {bm: list(p.purity) for bm, p in _pools.items() if p.is_training}
-        calib_samples = {bm: list(p.calibration) for bm, p in _pools.items() if p.is_training}
-        # Per-cycle stream chunks for Step-4-like memory population in the
-        # variant's cycle loop. Transfer benchmarks have empty chunks.
-        cycle_stream_chunks_ablation = {
-            bm: [list(chunk) for chunk in p.sil_train_chunks]
-            for bm, p in _pools.items() if p.is_training
-        }
 
     # --- Harness + SIL loop ------------------------------------------------- #
-    harness = m["EvalHarness"](
-        pipeline, output_dir=str(eval_dir), log_every=100,
-        batch_size=getattr(ns, "eval_batch_size", 1),
-        use_prefetch=getattr(ns, "eval_prefetch", False),
-    )
+    harness = m["EvalHarness"](pipeline, output_dir=str(eval_dir), log_every=100)
 
     # Respect skip_self_improvement: we still construct the loop object so
     # _mmlu_score is available, but we never call run_cycle on it.
@@ -696,28 +661,10 @@ def run_cyclic_ablation(ns: argparse.Namespace) -> None:
                 )
 
                 # -- Step 3: memory population (upgraded weights) ------------- #
-                # Branch C 2026-04-22 evening: stream-mode per-cycle chunks
-                # matching CAEM's run_experiment.py (same seed, same panel →
-                # byte-identical chunks for matched-scale comparison).
-                if 'cycle_stream_chunks_ablation' in locals() and cycle_stream_chunks_ablation:
-                    this_cycle = {
-                        bm: cycle_stream_chunks_ablation[bm][cycle_num - 1]
-                        for bm in cycle_stream_chunks_ablation
-                        if cycle_num - 1 < len(cycle_stream_chunks_ablation[bm])
-                    }
-                    logger.info(
-                        "Populating memory under variant config (stream cycle-%d chunk, sizes=%s)...",
-                        cycle_num, {bm: len(s) for bm, s in this_cycle.items()},
-                    )
-                    harness.run_all(
-                        this_cycle, cycle=cycle_num, store_to_memory=True,
-                    )
-                else:
-                    # Legacy smoke-mode path (synthetic samples, tiny pool)
-                    logger.info("Populating memory under variant config (legacy smoke path)...")
-                    harness.run_all(
-                        sil_samples, cycle=cycle_num, store_to_memory=True,
-                    )
+                logger.info("Populating memory under variant config...")
+                harness.run_all(
+                    sil_samples, cycle=cycle_num, store_to_memory=True,
+                )
 
                 # -- Step 4: evaluation (no memory writes) -------------------- #
                 cycle_results = harness.run_all(
@@ -849,10 +796,6 @@ def _parse_args() -> argparse.Namespace:
                    help="Override SIL samples per cycle. Defaults: confirmatory=5000, screening=1500, smoke=500.")
     p.add_argument("--n_eval_per_benchmark", type=int, default=None,
                    help="Override eval set size per benchmark. Defaults: 500 (50 in smoke).")
-    p.add_argument("--eval_batch_size", type=int, default=1,
-                   help="Goal 5 Level B batch size for EvalHarness (bs=1 keeps serial path).")
-    p.add_argument("--eval_prefetch", action="store_true",
-                   help="Goal 5 Level B Phase 2: wrap BatchPipeline in PrefetchingBatchPipeline.")
 
     # -- Run-experiment compatibility
     p.add_argument(
@@ -865,7 +808,6 @@ def _parse_args() -> argparse.Namespace:
             "truthfulqa",
             "strategyqa",
             "arc_challenge",
-            "asqa",
         ],
         help="Benchmarks to evaluate each cycle (Dev + Transfer split).",
     )

@@ -368,31 +368,57 @@ class _NLIEnsemble:
 # ============================================================================ #
 
 _ATOMIC_DECOMP_PROMPT = (
-    "Decompose the following statement into a numbered list of simple, "
-    "independent factual claims. Each claim must be one complete sentence "
-    "expressing a single fact, with all pronouns resolved.\n\n"
-    "Statement: {answer}\n\n"
-    "Numbered list of facts:"
+    "You are given a question and a short answer. Produce a numbered list of "
+    "atomic factual claims that the answer asserts about the world, given "
+    "the question's context. Each claim must be one complete declarative "
+    "sentence with all pronouns resolved. If the answer expresses "
+    "uncertainty, refusal, or no factual content (e.g. \"I don't know\", "
+    "\"not enough info\", \"cannot answer\"), output exactly:\n"
+    "  NO_FACTS\n\n"
+    "Question: {question}\n"
+    "Answer: {answer}\n\n"
+    "Numbered list of atomic claims (or NO_FACTS):"
 )
 
 _ATOMIC_FACT_LINE = re.compile(r"^\s*\d+[.):\-]\s*(.+?)\s*$")
+_ATOMIC_META_PREFIX = re.compile(
+    r"^(numbered|list|statement|question|answer|claim|decompose|fact|facts|"
+    r"here\s+(?:are|is)|the\s+following|note|output)\b[:\s]",
+    flags=re.IGNORECASE,
+)
 
 
-def _parse_atomic_facts(raw: str) -> List[str]:
-    """Parse a numbered list from model output into a list of claims.
+def _parse_atomic_facts(
+    raw: str,
+    question: str = "",
+    answer: str = "",
+) -> List[str]:
+    """Parse a numbered list from model output into a list of atomic claims.
 
-    Tolerant to "1." / "1)" / "1:" / "1-" numbering and to paragraphs that
-    put one claim on each line without numbering.
+    Branch-C 2026-04-24 fix (A2-v2): rejects scaffold/meta lines, the
+    NO_FACTS refusal sentinel, fragments shorter than 4 tokens, and
+    verbatim echoes of the input question or answer. Tolerant to
+    "1." / "1)" / "1:" / "1-" numbering and to paragraphs that put one
+    claim per line without numbering.
     """
+    if "NO_FACTS" in raw.upper():
+        return []
+    q_norm = re.sub(r"\W+", "", (question or "").lower())
+    a_norm = re.sub(r"\W+", "", (answer or "").lower())
     facts: List[str] = []
     for line in raw.splitlines():
         m = _ATOMIC_FACT_LINE.match(line)
-        if m:
-            facts.append(m.group(1).strip())
-        else:
-            stripped = line.strip()
-            if stripped and not stripped.endswith(":"):
-                facts.append(stripped)
+        text = (m.group(1) if m else line).strip()
+        if not text or text.endswith(":"):
+            continue
+        if _ATOMIC_META_PREFIX.match(text):
+            continue
+        if len(text.split()) < 4:
+            continue
+        norm = re.sub(r"\W+", "", text.lower())
+        if norm == q_norm or norm == a_norm:
+            continue
+        facts.append(text)
     seen = set()
     unique: List[str] = []
     for f in facts:
@@ -485,6 +511,105 @@ class UnifiedVerifier:
         # non-3-way pipelines don't pay the Negator setup cost.
         self._directional_scorer = None
 
+        # Branch C 2026-04-25 (Phase 2.1): calibrated-probability composite.
+        # Loaded from JSON if present; else falls back to weighted_sum.
+        self._cal_prob_composite = None
+        self._composite_mode_resolved = "weighted_sum"
+        self._init_cal_prob_composite()
+
+        # Branch C 2026-04-25 (Phase 2.4): conformal-calibrated storage gate.
+        # Loaded from JSON if present; else _decide() uses the legacy fixed
+        # thresholds (cfg.store_threshold, cfg.defer_threshold).
+        self._conformal_gate = None
+        self._init_conformal_gate()
+
+    def _init_cal_prob_composite(self) -> None:
+        """Resolve the composite mode and load CalProbComposite if applicable.
+
+        See ``CAEMConfig.composite_mode`` for the dispatch rules:
+          - "auto"          → cal_prob if JSON loadable, else weighted_sum
+          - "weighted_sum"  → forced legacy weighted-sum
+          - "cal_prob"      → forced cal-prob (raises if JSON missing)
+        """
+        mode = getattr(self.config, "composite_mode", "weighted_sum")
+        path = getattr(
+            self.config, "composite_calibration_path",
+            "outputs/cycle_0/composite_calibration.json",
+        )
+        if mode == "weighted_sum":
+            self._composite_mode_resolved = "weighted_sum"
+            return
+        try:
+            from caem.verification.cal_prob_composite import CalProbComposite
+            import os as _os
+            if _os.path.isfile(path):
+                self._cal_prob_composite = CalProbComposite.load(path)
+                self._composite_mode_resolved = "cal_prob"
+                logger.info(
+                    "_composite: cal_prob composite loaded from %s "
+                    "(%d signals; em_rate=%.3f)",
+                    path,
+                    len(self._cal_prob_composite.calibrations),
+                    self._cal_prob_composite.metadata.get("em_rate", float("nan")),
+                )
+                return
+            if mode == "cal_prob":
+                raise FileNotFoundError(
+                    f"composite_mode='cal_prob' but calibration JSON not found at {path}. "
+                    f"Run scripts/fit_composite_calibration.py first."
+                )
+            logger.info(
+                "_composite: calibration JSON absent at %s; mode=auto -> weighted_sum",
+                path,
+            )
+            self._composite_mode_resolved = "weighted_sum"
+        except FileNotFoundError:
+            raise
+        except Exception as exc:
+            logger.warning(
+                "_composite: cal_prob load failed (%s); mode=auto -> weighted_sum",
+                exc,
+            )
+            self._cal_prob_composite = None
+            self._composite_mode_resolved = "weighted_sum"
+
+    def _init_conformal_gate(self) -> None:
+        """Load the conformal storage gate from JSON if present.
+
+        Path is read from ``CAEMConfig.conformal_gate_path`` (default
+        ``outputs/cycle_0/conformal_gate.json``). Bootstrap: at Cycle 0
+        the JSON is absent; ``_decide()`` falls back to the legacy fixed
+        thresholds.
+        """
+        path = getattr(
+            self.config, "conformal_gate_path",
+            "outputs/cycle_0/conformal_gate.json",
+        )
+        try:
+            from caem.verification.conformal_gate import ConformalStorageGate
+            import os as _os
+            if _os.path.isfile(path):
+                self._conformal_gate = ConformalStorageGate.load(path)
+                logger.info(
+                    "_decide: conformal gate loaded from %s "
+                    "(τ_store=%.3f τ_defer=%.3f)",
+                    path,
+                    self._conformal_gate.tau_store,
+                    self._conformal_gate.tau_defer,
+                )
+            else:
+                logger.info(
+                    "_decide: conformal gate JSON absent at %s; "
+                    "using legacy fixed thresholds",
+                    path,
+                )
+        except Exception as exc:
+            logger.warning(
+                "_decide: conformal gate load failed (%s); using legacy thresholds",
+                exc,
+            )
+            self._conformal_gate = None
+
     def _get_directional_scorer(self):
         # Defensive getattr: test-suite helpers sometimes construct a blank
         # verifier via object.__new__ which bypasses __init__, so the
@@ -571,6 +696,7 @@ class UnifiedVerifier:
         se_samples: Optional[List[str]] = None,
         top_passages: Optional[List[str]] = None,
         atomic_override: Optional[Tuple[List[str], List[float]]] = None,
+        is_query_time: bool = True,
     ) -> UnifiedVerifierOutput:
         """Compute all nine signals, form the composite, and emit a decision.
 
@@ -584,6 +710,21 @@ class UnifiedVerifier:
             Pre-computed internal signals from the generation stage. When
             None, they are recomputed here. pipeline.py should pass these
             in to avoid paying for a duplicate forward pass.
+        is_query_time : bool, default True
+            When True (per-query inference, deferred-buffer reconsideration),
+            the confabulation early-exit gate is active: a high u_internal
+            with a low p_ground_max short-circuits to DISCARD with
+            u_stored=0.0. When False (retroactive re-verification of
+            already-stored episodes), the early-exit is skipped because
+            its first conjunct (u_internal >= 0.70) is automatically
+            satisfied for any chain the just-completed SIL fine-tune
+            memorised, which collapses the registered confabulation catch
+            into a generic low-grounding filter and over-prunes EM-correct
+            stored entries (CALIBRATION DRIFT 2026-04-27 incident). The
+            retroverify pass still applies its own threshold-based prune
+            (new_u < tau_retro = 0.50) downstream, so confidently-wrong
+            entries are still removed -- just not via the early-exit
+            short-circuit that fires unconditionally on memorised data.
         """
         if input_ids is None:
             input_ids = self._tokenize(query)["input_ids"]
@@ -679,9 +820,12 @@ class UnifiedVerifier:
                 atomic_facts, per_atom_entail = [], []
                 p_ground_atomic = float(p_ground_mean)
         else:
-            # A2 FIX: atomic decomposition runs on display_answer (no scaffold)
+            # A2-v2 FIX (2026-04-24): atomic decomposition receives BOTH
+            # query and display_answer. Question context lets the model
+            # reconstruct meaningful claims from short factoids/labels;
+            # NO_FACTS sentinel + hardened parser handle refusal answers.
             atomic_facts, per_atom_entail, p_ground_atomic = self._score_atomic(
-                top_passages, scoring_answer, fallback=p_ground_mean
+                top_passages, query, scoring_answer, fallback=p_ground_mean
             )
         _per_stage_ms["atomic"] = (_t.perf_counter() - _ts) * 1000.0
 
@@ -699,9 +843,20 @@ class UnifiedVerifier:
             self._last_verify_stage_ms[k] = self._last_verify_stage_ms.get(k, 0.0) + v
 
         # ---------- early-exit confabulation gate ------------------------- #
+        # The conjunction (u_internal >= 0.70 AND p_ground_max <= 0.20) is the
+        # registered confabulation catch for QUERY-TIME inference. At
+        # retroverify time the first conjunct is uninformative because the
+        # just-completed SIL fine-tune memorised the chains, so the gate is
+        # disabled there via is_query_time=False; retroverify falls through
+        # to the composite + threshold prune below, which still removes any
+        # entry whose updated u_stored < tau_retro = 0.50.
         ee_u = self.config.early_exit_u_internal
         ee_g = self.config.early_exit_p_ground_max
-        early_exit = (u_internal >= ee_u) and (p_ground_max <= ee_g)
+        early_exit = (
+            is_query_time
+            and (u_internal >= ee_u)
+            and (p_ground_max <= ee_g)
+        )
 
         if early_exit:
             logger.info(
@@ -731,6 +886,9 @@ class UnifiedVerifier:
             )
 
         # ---------- composite --------------------------------------------- #
+        # Branch C 2026-04-25: u_token + u_dropout threaded through so cal_prob
+        # mode can read them (legacy weighted_sum ignores them; their effect is
+        # captured inside u_internal in that branch).
         u_stored = self._composite(
             p_ground_mean=p_ground_mean,
             p_ground_atomic=p_ground_atomic,
@@ -740,6 +898,8 @@ class UnifiedVerifier:
             p_entail=p_entail,
             q_a_relevance=q_a_relevance,
             p_ground_max=p_ground_max,
+            u_token=float(u_token),
+            u_dropout=float(u_dropout),
         )
 
         # ---------- decision tree ----------------------------------------- #
@@ -1994,7 +2154,12 @@ class UnifiedVerifier:
         # Without this wrap, pooled u_stored was observed +0.08 vs serial
         # (Profile v6, 2026-04-21).
         prompts = [
-            self._wrap_chatml(_ATOMIC_DECOMP_PROMPT.format(answer=answers[i]))
+            # NOTE: _score_atomic_batch is dormant (atomic_override is disabled
+            # at verify_batch line 921). When re-enabled, this signature must
+            # accept queries[i] alongside answers[i] to match _score_atomic
+            # (A2-v2 fix, 2026-04-24). Until then we pass empty question to
+            # keep the batched code path importable but never executed.
+            self._wrap_chatml(_ATOMIC_DECOMP_PROMPT.format(question="", answer=answers[i]))
             for i in active_idx
         ]
         facts_per_active: List[List[str]] = [[] for _ in active_idx]
@@ -2078,21 +2243,56 @@ class UnifiedVerifier:
     def _score_atomic(
         self,
         passages: List[str],
+        query: str,
         answer: str,
         *,
         fallback: float,
     ) -> Tuple[List[str], List[float], float]:
-        """Decompose answer to atomic facts; return (facts, per-fact p_entail, min).
+        """FActScore-style atomic-fact decomposition + per-atom NLI.
 
-        When decomposition is disabled or impossible, we return the caller's
-        `fallback` so the composite's p_ground_atomic slot does not silently
-        zero-out. Typically `fallback == p_ground_mean`.
+        Branch-C 2026-04-25 (Phase 2.3): scope-restricted to multi-fact
+        answers via a length-gate. Below ``cfg.atomic_min_tokens`` (default
+        12 ≈ one declarative sentence), the decomposer is bypassed and
+        ``fallback`` is returned directly. This aligns the mechanism with
+        FActScore's documented scope (Min et al. EMNLP 2023, §3 — "long-form
+        text generation") and prevents the degenerate fallback-on-short-
+        answer pattern observed in the Phase 1 Cycle-0 audit (atomic was
+        100% fallback on all 7 benchmarks under the previous unscoped
+        implementation; see config.py atomic_min_tokens docstring for the
+        empirical evidence).
+
+        For long-form answers passing the length-gate:
+          1. Decomposer (Qwen-2.5-3B-Instruct, the same generator that
+             produced the answer) runs greedy generation under the
+             FActScore-aligned prompt that takes (question, answer) as
+             context — see _ATOMIC_DECOMP_PROMPT.
+          2. _parse_atomic_facts filters scaffold/meta lines, fragments
+             shorter than 4 tokens, and verbatim echoes; emits the
+             NO_FACTS sentinel when the model declines to decompose.
+          3. Each atom is NLI-scored against the top-k reranked passages
+             via MiniCheck-Flan-T5-Large (specialist claim-support judge,
+             Tang et al. 2024).
+          4. Returns ``min(per-atom max-over-passages)`` as the weakest-
+             link score.
+
+        References:
+          - Min et al. "FActScore: Fine-grained Atomic Evaluation of
+            Factual Precision in Long Form Text Generation." EMNLP 2023.
+          - Tang et al. "MiniCheck: Efficient fact-checking of LLMs."
+            arXiv:2404.10774, 2024.
         """
         if not self.enable_atomic or not self.nli or not passages:
             return [], [], float(fallback)
+
+        # Phase 2.3 length-gate: short answers fall back to p_ground_mean.
+        # Defensive getattr for backward compat with pre-2026-04-25 configs.
+        min_tokens = getattr(self.config, "atomic_min_tokens", 0)
+        if min_tokens > 0 and len(str(answer or "").split()) < min_tokens:
+            return [], [], float(fallback)
+
         try:
             self.model.eval()
-            prompt = _ATOMIC_DECOMP_PROMPT.format(answer=answer)
+            prompt = _ATOMIC_DECOMP_PROMPT.format(question=query, answer=answer)
             enc = self._tokenize(prompt)
             with torch.no_grad():
                 out = self.model.generate(
@@ -2101,7 +2301,7 @@ class UnifiedVerifier:
                     do_sample=False,
                 )
             decoded = self.tokenizer.decode(out[0], skip_special_tokens=True)
-            facts = _parse_atomic_facts(decoded)
+            facts = _parse_atomic_facts(decoded, question=query, answer=answer)
             if not facts:
                 return [], [], float(fallback)
             # Batched: build (passage, fact) pair list for all facts x passages,
@@ -2214,7 +2414,46 @@ class UnifiedVerifier:
         p_entail: float,
         q_a_relevance: float = 0.5,
         p_ground_max: float = 0.0,
+        u_token: float = 0.5,
+        u_dropout: float = 0.5,
     ) -> float:
+        """Combine 9+1 verifier signals into a calibrated u_stored ∈ [0, 1].
+
+        Dispatches between two composite modes (see CAEMConfig.composite_mode):
+
+          - cal_prob: per-signal isotonic regression (CalProbComposite),
+            log-odds sum, sigmoid back-projection. Auto-handles signal sign
+            flips across benchmarks. Used when calibration JSON is loaded.
+
+          - weighted_sum: legacy linear combination using config weights.
+            Used at Cycle-0 bootstrap before the calibration JSON is fitted,
+            and as a forced ablation backend.
+
+        u_token and u_dropout are passed for the cal_prob path even though the
+        weighted_sum path doesn't read them directly (their contributions are
+        already inside u_internal in the legacy formula).
+        """
+        # ---------------- cal_prob branch ---------------- #
+        if (
+            self._composite_mode_resolved == "cal_prob"
+            and self._cal_prob_composite is not None
+        ):
+            signal_values = {
+                "p_ground_mean": float(p_ground_mean),
+                "p_ground_atomic": float(p_ground_atomic),
+                "p_ground_max": float(p_ground_max),
+                "s_avg": float(s_avg),
+                "h_norm": float(h_norm),
+                "u_internal": float(u_internal),
+                "u_token": float(u_token),
+                "u_dropout": float(u_dropout),
+                "p_entail": float(p_entail),
+                "q_a_relevance": float(q_a_relevance),
+            }
+            u = self._cal_prob_composite.predict(signal_values)
+            return float(np.clip(u, 0.0, 1.0))
+
+        # ---------------- weighted_sum branch (legacy) ---------------- #
         cfg = self.config
         w_pg_mean = cfg.u_stored_weight_pground_mean
         w_pg_atom = cfg.u_stored_weight_pground_atomic
@@ -2265,9 +2504,16 @@ class UnifiedVerifier:
         logic reads it.
         """
         cfg = self.config
+        abstain_pg = cfg.abstain_pground_ceiling
+
+        # Branch C 2026-04-25 (Phase 2.4): conformal storage gate.
+        # When the gate JSON is loaded, use its calibrated thresholds.
+        # Otherwise fall back to the legacy fixed thresholds.
+        if self._conformal_gate is not None:
+            return self._conformal_gate.decide(u_stored, p_ground_max, abstain_pg)
+
         store_thr = cfg.store_threshold
         defer_thr = cfg.defer_threshold
-        abstain_pg = cfg.abstain_pground_ceiling
 
         if u_stored >= store_thr:
             return "STORE", False

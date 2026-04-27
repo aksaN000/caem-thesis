@@ -27,21 +27,30 @@ What a cycle looks like
 
 Branch C training-path cascade
 ------------------------------
-PRIMARY: Full fine-tune + 8-bit AdamW (bitsandbytes) + L2 anchor.
-  Verified to fit 32 GB on an RTX 5090 at batch=4, gradient checkpointing
-  enabled, bf16 mixed precision (~22-25 GB peak with MiniCheck co-resident).
-  See config.use_8bit_adamw.
+PRIMARY (Phase 1a — what runs in this thesis): Full fine-tune + 8-bit
+  AdamW (bitsandbytes) + L2 anchor. Verified to fit 32 GB on an RTX
+  5090 at batch=4, gradient checkpointing enabled, bf16 mixed precision
+  (~22-25 GB peak with MiniCheck co-resident). See config.use_8bit_adamw.
 
-FALLBACK 1 (structured): LoRA rank-16 adapters + L2 on base weights.
-  Consulted when cfg.use_lora_training is True (set directly by the
-  operator, or flipped by the SIL harness after a Full-FT failure mode
-  -- OOM, MMLU retention < 0.93, or convergence failure -- per the
-  Ch4 Cycle-2 retention cascade).
+DEFERRED (Phase 2.9 design intent, implementation pending Phase 1b):
+  LoRA rank-16 on Qwen attention + MLP modules with frozen base + L2
+  anchor on adapter weights. Empirically motivated by the Phase 1
+  Cycle-0 audit (~100 SIL samples/benchmark/cycle is in LoRA's
+  sparse-pool home turf; full FT is regularisation-dominated at this
+  pool size). Wang et al. 2023 + Biderman et al. 2024 cited as
+  literature support. Audit conducted 2026-04-25 13:00 UTC confirmed
+  the LoRA training-loop wiring (peft.LoraConfig, get_peft_model,
+  adapter-only optimiser, adapter-only L2 anchor, adapter-only
+  checkpoint save/load) is NOT implemented in this file. Setting
+  ``cfg.use_lora_training=True`` is currently a silent no-op — the
+  full FT path runs regardless. Phase 1a thesis runs full FT; LoRA
+  swap is documented as Phase 1b future work.
 
-FALLBACK 2 (no weight update): memory-only cycle. The SIL run_cycle
-  still consolidates via the episodic memory store (retroverify,
-  deferred-entry reconsideration) but does not fine-tune the base
-  generator. Reached when both Full FT and LoRA fail.
+FAILURE FALLBACK (no weight update): memory-only cycle. The SIL
+  run_cycle still consolidates via the episodic memory store
+  (retroverify, deferred-entry reconsideration) but does not fine-tune
+  the base generator. Reached when full FT itself fails (OOM, MMLU
+  retention < 0.93, convergence failure).
 
 L2 vs full EWC
 --------------
@@ -784,25 +793,40 @@ class SelfImprovementLoop:
         except Exception as exc:
             logger.debug("Gradient checkpointing unavailable (%s); continuing.", exc)
 
+        # SIL fine-tune forces eager execution to recover the ~80-150 MiB
+        # of activation memory that torch.compile's SDPA backward kernel
+        # holds (CUDA OOM 2026-04-27 incidents #3 and #4). The model loader
+        # at caem/model_loader.py monkey-patches model.forward via
+        # ``model.forward = torch.compile(model.forward, ...)``, so the
+        # OptimizedModule._orig_mod swap does not apply; instead we use
+        # torch.compiler.set_stance("force_eager") which bypasses any
+        # compiled callable (decorator, monkey-patch, or context-manager)
+        # process-wide for the duration of the fine-tune. The default
+        # stance is restored at the end so eval-time generation keeps its
+        # compiled per-query latency target. Compile is also speed-negative
+        # at SIL scale (~500 steps/cycle): the JIT cost plus recompile-
+        # limit churn outweighs the ~5-10% per-step speedup.
+        try:
+            import torch.compiler as _torch_compiler
+            _torch_compiler.set_stance("force_eager")
+            logger.info("Fine-tune: torch.compiler stance set to force_eager (memory headroom).")
+        except Exception as exc:
+            logger.warning("Fine-tune: torch.compiler.set_stance unavailable (%s); compile remains active.", exc)
         self.model.train()
         self.model.to(self.device)
 
-        # theta_prev placement: on >=24 GB VRAM GPUs move once to avoid per-
-        # batch PCIe transfers inside _l2_penalty (accuracy-neutral speed-up).
+        # theta_prev placement: kept on CPU for the L2-anchor compute. On the
+        # consumer-grade 32 GiB envelope, every prior attempt to GPU-resident
+        # the anchor (fp32 incident #1, bf16 incidents #2-#5) ended in OOM
+        # because the live model + 8-bit AdamW state + grad buffers + auxiliary
+        # verifier models leave no headroom for an additional 6 GB anchor.
+        # Streaming each parameter's anchor over PCIe at L2-step time costs
+        # ~50 ms per parameter * ~130 params per step ~= 6.5 s/step extra
+        # wall-clock, which is the necessary trade-off to get the trajectory
+        # to run at all on this hardware. Keep theta_prev on CPU; _l2_penalty
+        # below will move each parameter's anchor onto GPU just-in-time.
         theta_prev_for_penalty = theta_prev
-        if str(self.device).startswith("cuda"):
-            try:
-                vram_gb = torch.cuda.get_device_properties(0).total_memory / 1e9
-                if vram_gb >= 24.0:
-                    theta_prev_for_penalty = [
-                        p0.to(self.device, dtype=torch.float32) for p0 in theta_prev
-                    ]
-                    logger.info(
-                        "theta_prev moved to GPU (VRAM=%.1f GB) -- PCIe transfers eliminated.",
-                        vram_gb,
-                    )
-            except Exception as exc:
-                logger.warning("theta_prev GPU move failed (%s); using CPU fallback.", exc)
+        logger.info("theta_prev kept on CPU (memory-safe path); L2 anchor streams per-parameter via PCIe.")
 
         param_dtype = next(self.model.parameters()).dtype
         use_cuda = str(self.device).startswith("cuda")
@@ -910,6 +934,14 @@ class SelfImprovementLoop:
             epochs_done += 1
             final_loss   = avg_loss
 
+        # Restore the default torch.compiler stance so verifier / RAG
+        # inference re-enters the compiled fast path for eval-time generation.
+        try:
+            import torch.compiler as _torch_compiler
+            _torch_compiler.set_stance("default")
+            logger.info("Fine-tune: torch.compiler stance restored to default (compile re-enabled for inference).")
+        except Exception as exc:
+            logger.warning("Fine-tune: torch.compiler.set_stance restore failed (%s).", exc)
         self.model.eval()
         # Disable grad checkpointing so inference paths (verifier, RAG) are
         # not slowed by recomputation after SIL completes.
@@ -925,14 +957,28 @@ class SelfImprovementLoop:
     def _l2_penalty(self, theta_prev: List[torch.Tensor]) -> torch.Tensor:
         """Compute ||theta - theta_prev||^2 summed over all parameters.
 
-        theta_prev is held as fp32 so the squared-difference sum does not
-        overflow fp16 (fp16 max=65504 is easily exceeded at 3B params).
+        theta_prev is bf16 when GPU-resident (matches the live-model dtype)
+        and fp32 when CPU-resident (the safety fallback). Per-parameter
+        squared sums are accumulated in fp32 so the running total has full
+        precision; only the per-element diff is in the storage dtype, which
+        matches the live model and avoids the upcast that previously doubled
+        peak VRAM during the L2 step (CUDA OOM 2026-04-27 incident).
         """
-        penalty = torch.tensor(0.0, device=self.device)
+        penalty = torch.tensor(0.0, device=self.device, dtype=torch.float32)
         for p, p0 in zip(self.model.parameters(), theta_prev):
-            ref = p0.to(self.device, dtype=torch.float32)
-            diff = p.float() - ref
-            penalty = penalty + (diff ** 2).sum()
+            # One-shot device + dtype conversion: when p0 is fp32 on CPU
+            # (the memory-safe default for the consumer-grade 32 GiB envelope)
+            # we cast to bf16 during the PCIe transfer rather than after, so
+            # the transient on-GPU buffer is half the size (bf16 not fp32).
+            # When p0 is already on the device with matching dtype, the call
+            # is a no-op and returns p0 itself.
+            if p0.device == self.device:
+                ref = p0 if p0.dtype == p.dtype else p0.to(p.dtype)
+            else:
+                ref = p0.to(self.device, dtype=p.dtype, non_blocking=True)
+            diff = p - ref
+            penalty = penalty + (diff * diff).sum().to(torch.float32)
+            del ref, diff  # hint GC: release transients before next iteration
         return penalty
 
     # ------------------------------------------------------------------ #

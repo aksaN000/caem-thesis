@@ -1,0 +1,68 @@
+% ============================================================================
+% Chapter 6 — Conclusion and Future Work
+% Status: SKELETON. Two-section structure standard for the closing
+% chapter at this level.
+% ============================================================================
+
+\chapter{Conclusion and Future Work}
+\label{ch:conclusion}
+
+% Chapter scope: restates the contributions with their final empirical
+% receipts, lists the open questions that remain, and registers
+% concrete next experiments. Last to write.
+
+\section{Conclusion}
+\label{sec:conclusion}
+
+\subsection{Restated contributions with empirical receipts}
+\label{sec:concl-contributions}
+
+The thesis registered five contributions in \Cref{ch:introduction} and adjudicates each here against the empirical record produced in \Cref{ch:evaluation}. The first contribution, a calibrated probability composite over a ten-signal verifier ensemble, is closed by the cycle-zero validation gate verdict in \Cref{sec:adj-gate}: the locked composite achieves a calibration-fold pooled Cohen's $d$ of $+0.67$ on the training panel and $+0.27$ on the transfer panel, and clears the $\alpha > 1/2$ precondition of \Cref{thm:purity} by a comfortable margin. The second contribution, a split-conformal storage gate at pre-registered miscoverage levels, is closed by \Cref{sec:adj-locked}: the locked thresholds $\tau_{\text{store}} = 0.6676$ and $\tau_{\text{defer}} = 0.5207$ admit a $96.43\%$ calibration-fold storage precision on $56$ stored entries, clearing the $90\%$ NFR2 floor with a margin of $6.4$ percentage points. The third contribution, a four-outcome decision tree with a confabulation early-exit, is closed by the per-decision exact-match readings reported in \Cref{sec:decision-distribution}; the supported / partially-supported / unsupported verdict on this contribution is gated by the main-run decision-distribution trajectory. The fourth contribution, four supporting theorems with proofs, is closed by \Cref{sec:theory}: the four theorems are stated, proved, and paired with empirical predictions, with the per-cycle checks reported in \Cref{sec:theory-checks}. The fifth contribution, an externally-verifiable artefact bundle, is closed by the public-dataset-host snapshot of the pre-self-improvement state and the per-cycle artefact catalogue documented in Appendix~\ref{app:reproducibility}.
+
+\subsection{Headline finding}
+\label{sec:concl-headline}
+
+The headline finding the thesis intends to license, conditional on the joint significance-and-effect-size licensing rule of \Cref{sec:sig-licensing} returning supported on the headline contrasts in \Cref{sec:comp-baselines}, is that hallucination reduction at the deployed cost envelope is achievable through the architectural mechanisms specified in \Cref{ch:methodology} rather than through scaling: a three-billion-parameter open-weight generator under a ten-signal conformal-gated verifier ensemble and a quadratic-anchor self-improvement loop reduces composite hallucination on a seven-benchmark factual-question-answering panel against the locked external baseline panel under matched protocol, with the precision floor on the storage class supplied by the conformal procedure rather than by hand-tuning. The disclaimer is that a partial-support reading on a subset of contrasts narrows the headline to the family on which the licensing condition holds; the full per-benchmark verdict is reported in \Cref{sec:summary-hypotheses}.
+
+\subsection{Open questions}
+\label{sec:concl-open}
+
+The present work raises questions it does not answer. First, the calibration-to-evaluation gap of $16.2$ percentage points documented in \Cref{sec:adj-cal-eval-gap} is a structural transfer cost whose evolution across cycles is empirically measurable but theoretically uncharacterised; whether the cycle-boundary recalibration under exponential-moving-average smoothing closes the gap monotonically, or whether the gap persists at a stable floor, is a question the realised trajectory begins to answer but does not resolve. Second, the four theorems of \Cref{sec:theory} treat the verifier as a fixed scoring function, while in CAEM the verifier improves across cycles through the same fine-tune that improves the generator; the joint dynamics of improving generator and improving verifier are partially captured by \Cref{thm:monotone} but admit a sharper analysis under a coupled-trajectory framework that the thesis does not develop. Third, the long-hypothesis judge ablation of \Cref{sec:adj-judge-ablation} narrows the architecture's coverage on long-form benchmarks; whether a task-specific fine-tune of the long-hypothesis judge would re-license its inclusion is an empirical question that the present scope cannot answer. Fourth, the deployment-cost projection in \Cref{eq:deployment-cost} assumes a query distribution that the thesis simulates with the seven-benchmark workload; whether the projection holds under the stationary distribution of live user traffic is a question that requires a deployment study rather than a benchmark replay.
+
+\subsection{Closing remark}
+\label{sec:concl-closing}
+
+The position registered in \Cref{ch:introduction} is that hallucination is a structural property of stateless generation under uncertainty rather than a residual that scaling will remove. The empirical programme reported in \Cref{ch:evaluation} is the test of whether an architectural intervention at the storage decision can change the structure. If the licensing rule returns supported on the headline contrasts, the thesis closes with a calibrated yes; if it returns partially supported, it closes with a calibrated yes-on-this-family-only; if it returns unsupported, the thesis closes by registering the negative result and the threats-to-validity analysis as the contribution.
+
+\section{Future Work}
+\label{sec:future-work}
+
+\subsection{Long-hypothesis judge under fine-tuning}
+\label{sec:future-judge}
+
+The long-hypothesis judge ablation in \Cref{sec:adj-judge-ablation} removed the frozen Qwen-3B backend from the deployed configuration because the Platt-fit rank correlation against MiniCheck on the overlap fold fell below the registered floor of $\rho_{\min} = 0.70$. A natural extension is to refit the long-hypothesis judge under task-specific training on a synthetic claim-support dataset in the spirit of MiniCheck's training corpus, and to re-test the calibrated agreement against the registered floor. The expected diagnostic that would re-license its inclusion is a Pearson logit-space correlation at or above $0.70$, paired with a mean absolute error in probability space that does not exceed the MiniCheck-only baseline; under that condition, the unified verifier would dispatch hypotheses above the encoder-truncation point through the long-hypothesis backend rather than through truncated MiniCheck, which would close the ASQA truncation gap that bounds the architectural cost of the present ablation.
+
+\subsection{Parameter-efficient self-improvement}
+\label{sec:future-lora}
+
+The self-improvement loop in \Cref{sec:sil} performs a full-parameter fine-tune at every cycle boundary, regularised by the quadratic anchor toward the previous cycle's parameters. A parameter-efficient adapter alternative, in which the per-cycle update is restricted to a low-rank adapter rather than the full parameter vector, would convert the per-cycle compute cost from a multiplicative function of the backbone size into a near-constant function of the adapter rank, while preserving the retention guard semantics. The crossover regime that motivates this extension is the deployment scale at which the cumulative per-cycle full-parameter fine-tune cost exceeds the rented-credit envelope: at the present three-billion-parameter scale and ten-cycle horizon the full-parameter path is feasible, but at a larger backbone or a longer horizon the parameter-efficient path becomes the only practical one.
+
+\subsection{Refutation-aware verification}
+\label{sec:future-refutation}
+
+The composite hallucination metric reports eight measurable failure-mode subtypes; the ninth subtype, factual contradiction, is structurally unreachable under the MiniCheck verifier backend because MiniCheck's binary supported-versus-unsupported judge does not produce a contradiction class. A refutation-aware judge, either trained on a three-class supported / unsupported / contradicted target or composed from MiniCheck plus a separate refutation classifier, would close the eight-of-nine subtype coverage gap to all nine subtypes and would license a stronger architectural claim on the contradiction axis specifically. The empirical signal that would justify this extension is a non-trivial contradiction rate on the evaluation fold under the present configuration, which the cycle-zero diagnostic flags but does not quantify.
+
+\subsection{Cross-domain transfer}
+\label{sec:future-transfer}
+
+The seven benchmarks adopted in this work cover factual question answering, claim verification, multi-step commonsense, and long-form open-domain question answering; the architecture has not been tested on code generation, formal mathematical reasoning, or multi-turn dialogue, all of which are excluded by the registered scope in \Cref{sec:scope-research}. The expected pattern under cross-domain transfer is that the calibration-to-evaluation gap reported in \Cref{sec:adj-cal-eval-gap} widens on domains whose verifier-signal distribution differs materially from the calibration fold, because the conformal precision guarantee transfers under exchangeability and exchangeability is not preserved across domains. A cross-domain study would re-fit the conformal thresholds on a per-domain calibration fold and would report whether the per-domain precision floor still clears the registered ninety-percent target.
+
+\subsection{Larger backbone}
+\label{sec:future-backbone}
+
+The architecture is built on a three-billion-parameter open-weight instruction-tuned backbone. Scaling to a larger generator (a seven-billion or thirteen-billion-parameter model in the same open-weight family) would test whether the architectural gain over scaling is preserved, narrows, or inverts at higher backbone capacity. The calibration discipline of \Cref{ch:methodology} is backbone-agnostic by design, but the empirical readings of the per-signal Cohen's $d$ in \Cref{tab:cohen-d-per-bench} are backbone-coupled, and the convergence-envelope contraction rate in \Cref{thm:convergence} depends on $d$. The future-work item is to re-fit the locked configuration on the larger backbone and to compare the per-cycle trajectory against the present three-billion-parameter trajectory; the parameter-efficient self-improvement extension above is a precondition for this study under the present compute envelope.
+
+\subsection{Deployment study}
+\label{sec:future-deployment}
+
+The deployment-cost projection in \Cref{eq:deployment-cost} reports the per-query cost as a convex combination over the three tiers, weighted by per-tier hit rate and per-tier per-query cost. The hit-rate trajectory reported in \Cref{sec:tier-hit} is read off the seven-benchmark evaluation workload, which is a stationary draw from the benchmark distributions rather than from live user traffic. A deployment study, in which the architecture is exposed to a real user-query stream over a fixed observation window, would test whether the Tier 1 share continues to grow as the memory accumulates queries the user actually asks, or whether it plateaus at a level set by the diversity of incoming queries. The deployment study is the natural successor to the present work and would convert the operational claim of \Cref{sec:econ-deployment} from an empirical projection on benchmark data into a measurement on production data.

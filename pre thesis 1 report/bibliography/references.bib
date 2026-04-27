@@ -895,4 +895,24 @@ eprint = {https://arxiv.org/abs/2305.14975}
     note = "Bidirectional-NLI-clustering definition of semantic entropy used in CAEM's h\\_norm signal; Chapter~5 cites this as the definitive comparison against length-normalised predictive entropy, P(True), and lexical-similarity baselines on OPT-30B TriviaQA / CoQA.",
 }
 
+@misc{qwen25,
+    author = {{Qwen Team}},
+    title = {Qwen2.5: A Party of Foundation Models},
+    howpublished = {arXiv preprint arXiv:2412.15115},
+    year = {2024},
+    doi = {10.48550/arXiv.2412.15115},
+    url = {https://arxiv.org/abs/2412.15115},
+    note = {Release note for the Qwen2.5 family including the 3B-Instruct checkpoint used as CAEM's decoder-only base generator (Table~\\ref{tab:pretrained-components}); Branch~C 2026-04-22 backbone adoption.},
+}
+
+@inproceedings{stelmakh2022asqa,
+    author = {Stelmakh, Ivan and Luan, Yi and Dhingra, Bhuwan and Chang, Ming-Wei},
+    title = "{ASQA}: Factoid Questions Meet Long-Form Answers",
+    booktitle = "Proceedings of the 2022 Conference on Empirical Methods in Natural Language Processing (EMNLP 2022)",
+    year = {2022},
+    doi = {10.18653/v1/2022.emnlp-main.566},
+    url = {https://aclanthology.org/2022.emnlp-main.566/},
+    note = {Long-form open-ended QA benchmark; CAEM evaluates on ASQA's \\texttt{dev} split (Section~\\ref{sec:benchmarks}) using the paper's STR (ROUGE-L) score at threshold $0.20$ as the offline EM proxy. Path-B long-form-evidence eval adopted by Branch~C 2026-04-22.},
+}
+
 

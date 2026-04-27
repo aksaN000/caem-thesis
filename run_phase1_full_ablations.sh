@@ -1,10 +1,15 @@
 #!/usr/bin/env bash
-# Phase 1 Full — 8-variant ablation sweep (direct confirmatory, no screening).
+# Phase 1 Full — 3-variant ablation sweep (direct confirmatory, no screening).
 #
-# 2026-04-22 decision: Phase 1 Full scope is hand-picked 8 ablations, each at
-# 5 cycles × n_sil=5000. No screening sweep (Step 16) and no aggregate-of-
-# screening (Step 17) — variants are pre-committed as load-bearing, so we go
-# direct to confirmatory scale.
+# 2026-04-22 decision + 2026-04-24 budget downsize: Phase 1 Full scope is the
+# three registered Branch-C variants (no_retroverify, no_self_improvement,
+# no_forgetting_guard), each at 5 cycles × n_sil=3000 per benchmark per cycle.
+# No screening sweep and no aggregate-of-screening — the registry is pre-
+# committed as load-bearing in Ch5 §5.2, so we go direct to confirmatory scale.
+# Claims 1, 2, and 5 + the nine-signal weighting choice are defended by direct
+# per-cycle diagnostics (tier-fraction, purity-validation, AUROC, Step-19.5
+# correlation matrix) rather than by counterfactual ablations; see Ch5 §5.2
+# "Cross-sectional Claims defended by direct diagnostics".
 #
 # Prerequisites:
 #   - run_phase1a.sh must have completed outputs/full_run/ (Step 7 main).
@@ -16,7 +21,12 @@
 #   tmux new -d -s ablations './run_phase1_full_ablations.sh'
 #   tmux attach -t ablations
 #
-# Cost: ~$55 @ $0.638/hr (8 variants × ~10h each = 80 GPU-h).
+# Cost estimate (rough, Profile-v4 latency, ~7-8 s/query averaged):
+#   3 variants × 5 cycles × 3k/bench × 3 ID benchmarks = 135k SIL queries
+#   + eval + MMLU across 5 cycles ≈ ~180k queries total × 7.5 s = ~375 GPU-h.
+#   At $0.80/h Vast that is ~$300; pace against remaining credit and cut
+#   --max_cycles via scripts.run_cyclic_ablation if the per-variant trajectory
+#   separates from reference earlier than Cycle 5.
 
 set -u
 cd "$(dirname "$(readlink -f "$0")")"
@@ -64,7 +74,11 @@ VARIANTS=(
 # adaptive policy lives outside this wrapper; manually re-run with --max_cycles 10
 # if needed.
 PHASE1_FULL_CYCLES=5
-PHASE1_FULL_N_SIL=5000
+# 2026-04-24 budget downsize: per-benchmark-per-cycle SIL chunk matched to
+# CAEM's Step 7 main (Phase 1a), which moved from 5000 to 3000 to fit the
+# self-funded compute envelope. Keeping this byte-identical preserves the
+# scale-matched variant-to-reference contrast.
+PHASE1_FULL_N_SIL=3000
 PHASE1_FULL_N_EVAL=500
 
 _run_variant() {

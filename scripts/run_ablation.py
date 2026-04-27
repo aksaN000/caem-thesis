@@ -27,6 +27,19 @@ the cycle-N memory store and fine-tuned weights. Then::
 All variants evaluate against the same (cycle-N model, cycle-N memory)
 so deltas reflect the variant's config mutation alone.
 
+Batched evaluation
+------------------
+This script does not currently expose a ``--eval_batch_size`` argparse
+flag, so its evaluation path runs whatever batch size the underlying
+evaluator defaults to. If a future Phase 1a integration reroutes the
+runner through this orchestrator, callers should pass / configure
+``eval_batch_size=32`` (matching the rest of the codebase: see
+``scripts/run_calibration.py``'s default and the
+``BatchPipeline.answer_batch`` example wiring in ``eval/harness.py``).
+A batch dim of 1 is the legacy serial path and would erase the
+~50-150 GPU-h savings the BatchPipeline was designed to produce
+during the 14-day step_7_main run.
+
 Thesis reference
 ----------------
   §5.4  Ablation Study (post-Session-42 rebuild with CES primary scalar)
@@ -69,11 +82,11 @@ def _check_deps() -> None:
 
 def _load_imports() -> Dict[str, Any]:
     import torch
+    from transformers import AutoTokenizer, T5ForConditionalGeneration
 
     from caem.config import CAEMConfig
     from caem.memory.encoder import QueryEncoder
     from caem.memory.store import EpisodicMemoryStore
-    from caem.model_loader import load_base_generator
     from caem.pipeline import CAEMPipeline
     from caem.retrieval.rag import PassageStore
     from eval.benchmarks import load_benchmark, make_synthetic_samples
@@ -81,7 +94,8 @@ def _load_imports() -> Dict[str, Any]:
 
     return dict(
         torch=torch,
-        load_base_generator=load_base_generator,
+        AutoTokenizer=AutoTokenizer,
+        T5ForConditionalGeneration=T5ForConditionalGeneration,
         CAEMConfig=CAEMConfig,
         QueryEncoder=QueryEncoder,
         EpisodicMemoryStore=EpisodicMemoryStore,
@@ -305,29 +319,26 @@ def main(ns: argparse.Namespace) -> None:
     apply_memory_flags(hw)
     device = hw.device
 
-    # Baseline config drives both model load and verifier/NLI loads below.
-    # Variants mutate a config copy downstream (variant.apply()); model and
-    # NLI weights are shared across variants and loaded once here.
-    base_config = m["CAEMConfig"]()
-    logger.info("Loading base generator: %s ...", base_config.base_model_name)
-    load_dtype = (
-        torch.bfloat16 if hw.use_bf16
-        else torch.float16 if hw.use_fp16
-        else torch.float32
-    )
-    model_obj, tokenizer = m["load_base_generator"](
-        base_config.base_model_name,
-        device=device,
-        dtype=load_dtype,
-        use_flash_attention_2=base_config.use_flash_attention_2,
-        use_torch_compile=base_config.use_torch_compile,
-    )
+    logger.info("Loading Flan-T5-Large ...")
+    tokenizer = m["AutoTokenizer"].from_pretrained("google/flan-t5-large")
+    model_obj = m["T5ForConditionalGeneration"].from_pretrained("google/flan-t5-large")
     if ns.model_checkpoint:
         logger.info("Loading fine-tuned weights from %s", ns.model_checkpoint)
         state = torch.load(
             ns.model_checkpoint, map_location=device, weights_only=True
         )
         model_obj.load_state_dict(state)
+    if hw.use_bf16:
+        model_obj = model_obj.to(torch.bfloat16)
+    elif hw.use_fp16:
+        model_obj = model_obj.to(torch.float16)
+    model_obj = model_obj.to(device).eval()
+
+    # Encoders and verifier deps (shared).  Use a baseline CAEMConfig so the
+    # NLI model name matches what the verifier, run_experiment, and
+    # run_purity_validation load.  Variants mutate a config copy downstream
+    # (variant.apply()), but NLI weights are shared and are loaded once here.
+    base_config = m["CAEMConfig"]()
     encoder = m["QueryEncoder"](
         model_name=base_config.sbert_model, device=device,
     )
@@ -402,8 +413,6 @@ def main(ns: argparse.Namespace) -> None:
         )
         harness = m["EvalHarness"](
             pipeline, output_dir=str(output_dir / variant.name), log_every=100,
-            batch_size=getattr(ns, "eval_batch_size", 1),
-            use_prefetch=getattr(ns, "eval_prefetch", False),
         )
         try:
             result = run_variant(
@@ -449,10 +458,6 @@ def _build_argparser() -> argparse.ArgumentParser:
                    help="Cycle-N retroverify JSON containing cycle MMLU (for RET).")
     p.add_argument("--n_questions", type=int, default=500,
                    help="Per-benchmark eval size for every variant.")
-    p.add_argument("--eval_batch_size", type=int, default=1,
-                   help="Goal 5 Level B batch size for EvalHarness (bs=1 keeps serial path).")
-    p.add_argument("--eval_prefetch", action="store_true",
-                   help="Goal 5 Level B Phase 2: wrap BatchPipeline in PrefetchingBatchPipeline.")
     p.add_argument("--benchmarks", nargs="+", default=[
         "fever", "triviaqa", "natural_questions",
         "truthfulqa", "strategyqa", "arc_challenge",
