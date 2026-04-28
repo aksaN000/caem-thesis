@@ -363,7 +363,13 @@ class CAEMConfig:
     # Step 7.0.2 fits and writes the JSON, subsequent cycles use the
     # conformal-calibrated thresholds.
     conformal_gate_path: str = "outputs/cycle_0/conformal_gate.json"
-    conformal_alpha_store: float = 0.20
+    # Locked at 0.05 from the 25-variant Step 7.0.3 sweep (was 0.20 default;
+    # 25-variant sweep showed alpha=0.20 only delivered ~71% pooled eval
+    # precision, alpha=0.05 selected as best-on-eval-ID-precision). The
+    # per-cycle conformal refit inherits this from prev_gate JSON, but this
+    # config default is the belt-and-suspenders fallback if the inheritance
+    # path ever fails to read the previous gate.
+    conformal_alpha_store: float = 0.05
     conformal_alpha_defer: float = 0.40
 
     # ------------------------------------------------------------------ #
