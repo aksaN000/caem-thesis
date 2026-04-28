@@ -467,7 +467,7 @@ Pool purity is the share of stored episodes whose stored answer is correct again
 \label{thm:purity}
 Let $\mathcal{M}_{t}$ denote the storage pool at the end of cycle $t$, and let
 \(\pi_{t} := \Pr\big(\mathrm{EM}=1 \,\big|\, e \in \mathcal{M}_{t}\big)\)
-denote its precision under exact-match labelling. Assume (i) the conformal storage gate at miscoverage level $\alpha_{\text{store}}$ is fitted on a calibration fold exchangeable with the cycle-$t+1$ population, (ii) the retroactive re-verification pass enforces the upward-only update rule with prune threshold $\tau_{\text{retro}} < \tau_{\text{store}}$, and (iii) entries whose re-scored composite falls below $\tau_{\text{retro}}$ are removed. Then
+denote its precision under exact-match labelling. Assume (i) the conformal storage gate at miscoverage level $\alpha_{\text{store}}$ is fitted on a calibration fold exchangeable with the cycle-$t+1$ population, (ii) the retroactive re-verification pass enforces the prune-threshold rule with $\tau_{\text{retro}} < \tau_{\text{store}}$ (any entry whose re-scored composite falls below $\tau_{\text{retro}}$ is removed; entries with re-scored composite at or above $\tau_{\text{retro}}$ are retained, with the committed composite either raised or lowered to the new value), and (iii) the calibration-fold precision among entries that survive the retroactive pass is $\pi_{\text{retro}}$. Then
 \begin{equation}
 \pi_{t+1} \;\ge\; \min\!\big(1-\alpha_{\text{store}},\,\pi_{\text{retro}}\big),
 \label{eq:thm-purity}
