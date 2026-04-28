@@ -682,24 +682,35 @@
 % =====================================================================
 \section*{Theory and evidence}
 
-\begin{frame}{Four theoretical guarantees (each with empirical receipt)}
+\begin{frame}{Theoretical results -- 5 theorems organised by theme}
   \scriptsize
-  \begin{enumerate}\setlength\itemsep{0.4em}
-    \item \textbf{Theorem 1 -- Pool purity floor.} Under upward-only retroactive update: \alert{$\pi_t \ge 1 - \alpha_{\text{store}}$ for all $t$}.
-          \emph{Receipt:} per-cycle pool purity $\ge \min(0.95, \pi_{\text{retro}})$. \emph{Hypothesis:} H1, H2.
+  Each theme pairs a \alert{conformal worst-case bound} with a Bayes expected-value identity. ``Conformal'' = finite-sample-provable per cycle; ``asymptotic'' = projection.
 
-    \item \textbf{Theorem 2 -- Monotonicity.} Storage rate AND pool purity both rise with verifier discrimination $d$ (Cohen's $d$ on cal-fold) AND base-model accuracy $p_+$.
-          \emph{Receipt:} $d_t$ vs $\sigma_t$ vs $\pi_t$ trajectory across 10 cycles in Ch5 figure.
+  \vspace{0.3em}
+  \begin{tabular}{@{}p{1.6cm}p{6.0cm}p{5.5cm}@{}}
+    \toprule
+    \textbf{Theme} & \textbf{Conformal claim} & \textbf{Bayes identity} \\
+    \midrule
+    Pool purity & Thm 1: $\pi_t \ge 1 - \alpha_{\text{store}}$ & Thm 2: $P_c = p\alpha/(p\alpha + (1{-}p)(1{-}\alpha))$ \\
+    Monotonicity & Thm 3: $\sigma_t$ rises with verifier $d$ & Thm 4: $P_c$ rises with base $p_c$ \\
+    Convergence & Thm 5: $\mathbb{E}[G_t] \le (1{-}r)^t G_0$ \\
+                & under stationarity (Robbins--Monro \cite{robbins1951stochastic}, Polyak \cite{polyak1990new}) & Thm 6: fixed-point $f(p) \to 1$ as $c\to\infty$ \\
+    Asymp.\ floor & \alert{Cor.\ tier1-floor (was Thm 7):} $\mathrm{CHM}_1(\infty) \le \max(\alpha_{\text{store}}, 1{-}\pi_{\text{retro}})$ & Thm 7: full-pipeline $H_t \le (1{-}\tau_1)\varepsilon_{\text{arch}} + H_{\text{mem}}(t)$ \\
+    \bottomrule
+  \end{tabular}
 
-    \item \textbf{Theorem 3 -- Geometric envelope.} $|\pi_t - \pi_\infty| \le A\,r^{t}$ with contraction rate $r = \mathcal{O}\!\bigl(\sigma\,\Phi(d/\sqrt{2})\bigr)$.
-          \emph{Receipt:} exponential-decay fit to gap $G_t = |\pi_t - \pi_\infty|$ across cycles. \emph{Hypothesis:} H3.
+  \vspace{0.4em}
+  \textbf{Plus 3 corollaries + 1 remark:}
+  \begin{itemize}\scriptsize
+    \item Cor.: Tier-1 floor (corollary of convergence theorem)
+    \item Cor.: base-model-conditional convergence rate ($c^*(\varepsilon)$)
+    \item Cor.: corpus-bounded floor (proxy via top-$k$ retrieval miss subset)
+    \item Cor.: self-correction under improving verifier
+    \item Remark: joint optimum saturation (interpretive, not directly measurable)
+  \end{itemize}
 
-    \item \textbf{Theorem 4 -- Asymptotic Tier-1 hallucination floor.}
-          \[
-            H_\infty \;\le\; \alpha_{\text{store}} + (1{-}\alpha_{\text{store}})\,\varepsilon_{\text{arch}}.
-          \]
-          The floor is set by $\alpha_{\text{store}}$, NOT by deployment scale. \alert{This is the load-bearing theoretical claim} -- scale alone cannot beat $\alpha_{\text{store}}$. \emph{Hypothesis:} H4.
-  \end{enumerate}
+  \vspace{0.3em}
+  {\scriptsize Audit-driven cleanup applied: Thm 7 (Tier-1 floor) demoted to corollary of Thm 5 because it's literally $1{-}\pi_\infty$. Cor.\ joint-optimum demoted to remark per its receipt's own ``interpretive rather than directly measurable'' qualifier.}
 \end{frame}
 
 % =====================================================================
@@ -712,7 +723,7 @@
     H1 & Verifier balanced acc.\ $> 0.5$ at every cycle & Theorem 1 precondition & per-cycle balanced accuracy \\
     H2 & Pool purity non-decreasing under H1 & Theorem 1 (purity floor) & per-cycle $\pi_t$ trajectory \\
     H3 & Late-cycle increments inside envelope & Theorem 3 (convergence) & residual vs envelope upper bound \\
-    H4 & CHM $\to$ parameter-bounded asymptote & Theorem 4 (asymptotic) & gap final-cycle CHM vs predicted asymp.\ \\
+    H4 & CHM $\to$ parameter-bounded asymptote & Theorem 7 (full-pipeline decomposition) & gap final-cycle CHM vs predicted asymp.\ \\
     H5 & Tier-1 hit rate grows; per-query cost drops & Operational claim (deployment) & per-cycle Tier-1 share, pooled latency \\
     \bottomrule
   \end{tabular}

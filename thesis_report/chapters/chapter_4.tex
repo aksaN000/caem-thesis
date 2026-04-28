@@ -456,12 +456,12 @@ The asymmetry between weights and memory is the design property that makes the l
 \section{Theoretical analysis}
 \label{sec:theory}
 
-The architecture admits two complementary layers of theoretical guarantee that together characterise the trajectory of the storage class across cycles. The first layer, Theorems~\ref{thm:purity}--\ref{thm:asymptotic}, treats the conformal storage gate as a worst-case bound under the exchangeability assumption between the calibration fold and the cycle-$t$ population: each theorem produces a one-sided guarantee that holds at any cycle within the realised horizon, with no asymptotic extrapolation required. The second layer, Theorems~\ref{thm:bayes-purity}--\ref{thm:asymptotic-elim} and Corollaries~\ref{cor:joint-optimum}--\ref{cor:self-correction}, treats the storage gate as a Bayesian filter whose expected pool purity is determined by the verifier's balanced accuracy and the base generator's correctness rate, in the lineage of the recent analyses showing that retraining on verifier-correct labels strictly increases population accuracy in the binary linearly-separable setting \cite{das2025retraining}, that weak-to-strong pseudolabel training admits expansion-based generalisation bounds \cite{lang2024w2s}, and that the sharpening mechanism formalises the amortisation-via-self-training bound for language-model self-improvement \cite{huang2025sharpening}. The two layers are not contradictory: the conformal floor is the worst-case receipt that holds in finite samples without asymptotic assumptions, and the Bayes identity is the expected-value prediction that the full trajectory should approach. Each theorem in this section carries an empirical-receipt paragraph that names exactly what the realised cycle horizon can prove and what remains projection. Each theorem is paired with an empirical prediction that \Cref{ch:evaluation} reports against the realised trajectory; proofs that grow past half a page are sketched in the body and the full proof is relocated to \Cref{app:reproducibility}.
+The architecture admits two complementary layers of theoretical guarantee that together characterise the trajectory of the storage class across cycles. The first layer treats the conformal storage gate as a worst-case bound under the exchangeability assumption between the calibration fold and the cycle-$t$ population: each claim produces a one-sided guarantee that holds at any cycle within the realised horizon. The second layer treats the storage gate as a Bayesian filter whose expected pool purity is determined by the verifier's balanced accuracy and the base generator's correctness rate, in the lineage of the recent analyses showing that retraining on verifier-correct labels strictly increases population accuracy in the binary linearly-separable setting \cite{das2025retraining}, that weak-to-strong pseudolabel training admits expansion-based generalisation bounds \cite{lang2024w2s}, and that the sharpening mechanism formalises the amortisation-via-self-training bound for language-model self-improvement \cite{huang2025sharpening}. To keep the receipts compact: a \emph{conformal} qualifier on a receipt indicates a finite-sample-provable check at every cycle within the realised horizon; an \emph{asymptotic-projection} qualifier indicates an expected-value prediction whose trajectory shape is testable but whose limit is not directly observable in ten cycles. Each theorem is paired with an empirical prediction that \Cref{ch:evaluation} reports against the realised trajectory; proofs longer than half a page are sketched in the body and relocated to \Cref{app:reproducibility} in full.
 
 \subsection{Pool purity}
 \label{sec:theorem-purity}
 
-Pool purity is the share of stored episodes whose stored answer is correct against the gold. The architecture admits two complementary statements about it. \Cref{thm:purity} below gives a worst-case lower bound from the conformal storage gate that holds at any cycle within the realised horizon. \Cref{thm:bayes-purity} that follows gives the Bayes-filter expected-value identity that the realised pool purity should equal at the same cycle, parametrised by the gate's true-positive and false-positive rates. The two statements are different views of the same quantity rather than competing claims; an empirical reading that meets the floor but undershoots the identity localises the deviation to either operating-point drift or non-exchangeability between calibration and evaluation.
+Pool purity is the share of stored episodes whose stored answer is correct against the gold. \Cref{thm:purity} gives the conformal lower bound; \Cref{thm:bayes-purity} gives the Bayes-identity expected value. An empirical reading that meets the floor but undershoots the identity localises the deviation to either operating-point drift or non-exchangeability between calibration and evaluation.
 
 \begin{theorem}[Pool purity invariant: conformal lower bound]
 \label{thm:purity}
@@ -502,8 +502,6 @@ with $\Pr(V{=}1) = \mathrm{TPR}_c\,p_c + \mathrm{FPR}_c\,(1-p_c)$. The reduction
 \subsection{Monotonicity}
 \label{sec:theorem-monotonicity}
 
-Two complementary monotonicity statements hold across cycles. \Cref{thm:monotone} tracks the storage rate as the verifier's discrimination (Cohen's $d$) improves; \Cref{thm:monotone-purification} tracks the pool purity as the base-model correctness rate $p_c$ improves. Together they predict that on cycles where both inputs improve, both the storage rate and the pool purity should be non-decreasing.
-
 \begin{theorem}[Monotonicity under verifier improvement]
 \label{thm:monotone}
 Let $d_{t}$ denote the verifier's Cohen's $d$ between correct and incorrect outputs on the calibration fold at cycle $t$, and let $\sigma_{t}$ denote the empirical storage rate at the locked threshold $\tau_{\text{store}}$. Assume the calibrated storage score is approximately Gaussian within each correctness class with shared variance $\varsigma^{2}$ and class means $\mu_{+}(d_{t})$, $\mu_{-}(d_{t})$ separated by $d_{t}$. If $d_{t+1} > d_{t}$ and the base rate of correct outputs exceeds one-half, then
@@ -543,8 +541,6 @@ Differentiate the symmetric form of \Cref{eq:bayes-purity} with respect to $p_c$
 \subsection{Convergence}
 \label{sec:theorem-convergence}
 
-Two convergence statements characterise the long-run trajectory. \Cref{thm:convergence} bounds the precision-asymptote gap with a geometric envelope on the realised cycle horizon. \Cref{thm:bayes-convergence} characterises the asymptotic fixed point of the self-improvement recurrence under idealised conditions.
-
 \begin{theorem}[Convergence envelope]
 \label{thm:convergence}
 Let $\pi_{\infty} := \lim_{t \to \infty} \pi_{t}$ denote the asymptotic precision of the storage class, and let $G_{t} := |\pi_{t} - \pi_{\infty}|$ denote the cycle-$t$ gap. Under the assumptions of \Cref{thm:purity} and \Cref{thm:monotone}, there exists a contraction rate $r \in (0,1)$ such that, in expectation,
@@ -557,7 +553,7 @@ where $\sigma$ is the per-cycle storage rate and $d$ is the verifier's discrimin
 \end{theorem}
 
 \begin{proof}[Proof sketch]
-The cycle-boundary update is a stochastic contraction in the gap space. Each cycle admits $n_{\text{new}}$ new entries at conformal precision $1-\alpha_{\text{store}}$ and overwrites a subset of stored entries' composites under the updated verifier (\Cref{thm:monotone}). The expected reduction in $G_{t}$ per cycle is proportional to (i) the expected number of correctness-flips per stored episode under the improved verifier, which scales as $\Phi(d/\sqrt{2})$ in the Gaussian model, and (ii) the per-cycle admission count, which scales as $\sigma$. Composing these gives a contraction factor $1-r$ with $r$ as in \Cref{eq:thm-convergence}; recursion produces the stated geometric envelope. Plugging in the cycle-zero readings $\sigma \approx 0.027$ and $d_{\text{id}} \approx 0.617$ yields $r \approx 0.018$ per stored episode, which at ${\sim}135$ stored episodes per cycle gives a per-cycle contraction in the range $0.30$ to $0.55$, consistent with the five-to-nine cycle prediction discussed in \Cref{sec:env-cycles}.
+The cycle-boundary update behaves as an asymptotically geometric contraction in expectation under the stationarity assumption that the per-cycle expected admission count $\sigma$ and verifier discrimination $d$ stabilise over the trajectory. Each cycle admits $n_{\text{new}}$ new entries at conformal precision $1-\alpha_{\text{store}}$ and overwrites a subset of stored entries' composites under the updated verifier (\Cref{thm:monotone}). The expected reduction in $G_{t}$ per cycle is proportional to (i) the expected number of correctness-flips per stored episode under the improved verifier, which scales as $\Phi(d/\sqrt{2})$ in the Gaussian model, and (ii) the per-cycle admission count, which scales as $\sigma$. Composing these gives an expected per-cycle contraction factor $1-r$ with $r$ as in \Cref{eq:thm-convergence}. The rigorous geometric-envelope claim requires the stochastic-approximation supermartingale machinery of \cite{robbins1951stochastic} and the rate analysis of \cite{polyak1990new} adapted to a bounded gap space; the formal supermartingale construction is deferred to \Cref{app:reproducibility}, and the body claim is therefore stated as an expected-value envelope rather than a sample-path bound. Plugging in the cycle-zero readings $\sigma \approx 0.027$ and $d_{\text{id}} \approx 0.617$ yields $r \approx 0.018$ per stored episode, which at ${\sim}135$ stored episodes per cycle gives a per-cycle expected contraction in the range $0.30$ to $0.55$, consistent with the five-to-nine cycle prediction discussed in \Cref{sec:env-cycles}.
 \end{proof}
 
 \paragraph{Empirical receipt (gap envelope).} The cycle-by-cycle precision trajectory $(\pi_{1}, \pi_{2}, \dots, \pi_{T})$ reported in \Cref{ch:evaluation} should fit a geometric decay, with the realised half-life within the predicted range. A non-geometric trajectory that plateaus prematurely or fails to converge would falsify either the contraction rate's lower bound or the underlying within-class Gaussian assumption.
@@ -578,24 +574,21 @@ $f$ has positive derivative on $(0,1)$ and fixed points only at $\{0, 1\}$. The 
 \subsection{Asymptotic hallucination floor}
 \label{sec:theorem-asymptotic}
 
-Two complementary statements bound the asymptotic hallucination rate. \Cref{thm:asymptotic} bounds the memory-direct tier's CHM by a structural floor set by the conformal level. \Cref{thm:asymptotic-elim} decomposes the full pipeline's rate into a multiplicative coverage-gap × architectural-ceiling structure plus a vanishing memory-side residual.
-
-\begin{theorem}[Asymptotic hallucination elimination on the memory-direct tier]
-\label{thm:asymptotic}
+\begin{corollary}[Tier-1 hallucination floor]
+\label{cor:tier1-floor}
 Let $\mathrm{CHM}_{1}(t)$ denote the composite hallucination metric of the memory-direct tier at cycle $t$. Under \Cref{thm:purity}, \Cref{thm:convergence}, and the consolidation policy that retains the highest-quality representative within each near-duplicate cluster,
 \begin{equation}
 \limsup_{t\to\infty}\, \mathrm{CHM}_{1}(t) \;\le\; \max\!\big(\alpha_{\text{store}},\,1-\pi_{\text{retro}}\big).
 \label{eq:thm-asymptotic}
 \end{equation}
-\end{theorem}
+\end{corollary}
 
 \begin{proof}[Proof sketch]
 The memory-direct tier serves the stored answer of the nearest neighbour, so its expected error rate equals the stored pool's expected impurity, $1 - \pi_{t}$. By \Cref{thm:purity}, $\pi_{t} \ge \min(1-\alpha_{\text{store}}, \pi_{\text{retro}})$ for all $t$ that satisfy the preconditions. By \Cref{thm:convergence}, $\pi_{t} \to \pi_{\infty}$ from below at a geometric rate, with $\pi_{\infty} \ge \min(1-\alpha_{\text{store}}, \pi_{\text{retro}})$. Combining yields
 \(\limsup_{t} \mathrm{CHM}_{1}(t) = 1 - \pi_{\infty} \le 1 - \min(1-\alpha_{\text{store}}, \pi_{\text{retro}}) = \max(\alpha_{\text{store}}, 1-\pi_{\text{retro}})\),
 which is \Cref{eq:thm-asymptotic}. The consolidation policy contributes by ensuring that retrieval at scale does not collapse onto a single contaminated cluster: under the retain-highest-quality rule, the worst entry of any near-duplicate cluster is removed, so the memory-direct tier's effective precision is the maximum across each cluster rather than its mean.
 \end{proof}
-
-\paragraph{Empirical receipt (Tier 1 floor).} As cycles accumulate, the memory-direct tier's composite hallucination metric should approach the floor $\max(\alpha_{\text{store}}, 1-\pi_{\text{retro}})$. Under the locked configuration with $\alpha_{\text{store}} = 0.05$, the floor is at least $0.05$ and is set by the conformal level rather than by scale; the empirical reading at the realised cycle horizon is reported in \Cref{ch:evaluation}.
+\paragraph{Empirical receipt (Tier 1 floor).} As cycles accumulate, the memory-direct tier's composite hallucination metric should approach the floor $\max(\alpha_{\text{store}}, 1-\pi_{\text{retro}})$. Under the locked configuration with $\alpha_{\text{store}} = 0.05$, the floor is at least $0.05$ and is set by the conformal level rather than by scale.
 
 \begin{theorem}[Full-pipeline hallucination decomposition]
 \label{thm:asymptotic-elim}
@@ -611,21 +604,14 @@ H_t \;\le\; \big(1 - \tau_{1}(t)\big) \cdot \varepsilon_{\text{arch}} \;+\; H_{\
 The user sees one of two answers per query: a Tier 1 stored answer (with hallucination rate bounded by $H_{\text{mem}}(t)$) or a Tier 2 / Tier 3 generated answer (filtered by the four cascaded storage gates with joint false-negative rate $\varepsilon_{\text{arch}}$). The decomposition follows from the law of total probability over the tier-routing event. The memory term vanishes because the retroactive re-verification pass under the improving fine-tuned verifier prunes any stored episode whose composite falls below the prune threshold, and \Cref{thm:bayes-convergence} drives the verifier's discrimination upward, so any briefly-evading entry is removed within finitely many cycles (\Cref{cor:self-correction}).
 \end{proof}
 
-\paragraph{Empirical receipt (full pipeline).} The decomposition is testable per cycle: $\tau_{1}(t)$ from the router log, $\varepsilon_{\text{arch}}$ from the four-gate disposition counts, $H_{\text{mem}}(t)$ from the retroactive-pruning rate. The claim $H_{\text{mem}}(t) \to 0$ is asymptotic and is not directly provable in ten cycles; what the trajectory can prove is that the per-cycle decomposition holds at each cycle and that $H_{\text{mem}}(t)$ is shrinking. The fitted asymptote $H_{\text{mem}}(\infty)$ is reported in \Cref{sec:check-asymptotic} as a projected rather than measured quantity. Reading both asymptotic statements together: \Cref{thm:asymptotic} gives the Tier 1 component a structural floor, and \Cref{thm:asymptotic-elim} embeds that floor into the full-pipeline rate via the multiplicative $(1-\tau_{1})\cdot\varepsilon_{\text{arch}}$ term plus the vanishing memory residual.
+\paragraph{Empirical receipt (full pipeline).} The decomposition is testable per cycle: $\tau_{1}(t)$ from the router log, $\varepsilon_{\text{arch}}$ from the four-gate disposition counts, $H_{\text{mem}}(t)$ from the retroactive-pruning rate. The trajectory shape is testable as an asymptotic projection (\Cref{cor:tier1-floor} embeds into the multiplicative $(1-\tau_{1})\cdot\varepsilon_{\text{arch}}$ term plus the vanishing memory residual). The fitted asymptote $H_{\text{mem}}(\infty)$ is reported in \Cref{sec:check-asymptotic} as a projected rather than measured quantity.
 
 \subsection{Corollaries: equilibrium structure and self-correction}
 \label{sec:theorem-corollaries}
 
-The four corollaries below characterise the equilibrium of the asymptotic statements above and the finite-cycle pruning behaviour that closes the memory-side residual.
+The corollaries below characterise the equilibrium of the asymptotic statements above and the finite-cycle pruning behaviour that closes the memory-side residual.
 
-\begin{corollary}[Joint optimum saturation]
-\label{cor:joint-optimum}
-At the equilibrium point of \Cref{thm:asymptotic-elim}, the residual hallucination rate decomposes as
-\(H_\infty \approx (1 - \tau_{1}^{*}(D)) \cdot (1 - x(\lvert\theta\rvert, C))\),
-where $x(\lvert\theta\rvert, C)$ is the asymptotic correctness rate of the base generator with parameter count $\lvert\theta\rvert$ over retrieval corpus $C$. The residual is therefore set jointly by the corpus coverage gap and the parametric capacity gap, and is not further reducible by architectural changes inside CAEM that hold the corpus and the base generator fixed.
-\end{corollary}
-
-\paragraph{Empirical receipt.} The corollary is interpretive rather than directly measurable. The corpus-coverage gap $1 - \tau_{1}^{*}(D)$ is read from the asymptotic Tier 1 share. The parametric capacity gap $1 - x(\lvert\theta\rvert, C)$ is not separately measurable in the present setup, because $x(\lvert\theta\rvert, C)$ would require an exhaustive evaluation of the base generator over the corpus that the empirical programme does not run. The corollary is therefore reported as an interpretation of the equilibrium reading rather than as an independent measurement; its role is to reframe the residual at equilibrium as a property of inputs external to CAEM.
+\paragraph{Remark (joint optimum saturation).} At the equilibrium point of \Cref{thm:asymptotic-elim}, the residual hallucination rate decomposes as $H_\infty \approx (1 - \tau_{1}^{*}(D)) \cdot (1 - x(\lvert\theta\rvert, C))$, where $x(\lvert\theta\rvert, C)$ is the asymptotic correctness rate of the base generator with parameter count $\lvert\theta\rvert$ over retrieval corpus $C$. The residual is therefore set jointly by the corpus coverage gap and the parametric capacity gap, and is not further reducible by architectural changes inside CAEM that hold the corpus and the base generator fixed. The remark is interpretive: $1 - x(\lvert\theta\rvert, C)$ is not separately measurable in the present setup, so this is a reframing of the residual at equilibrium rather than an independent measurement.
 
 \begin{corollary}[Base-model-conditional convergence rate]
 \label{cor:convergence-rate}
@@ -654,7 +640,6 @@ Any stored episode whose stored composite was produced under a verifier with bal
 
 \paragraph{Empirical receipt.} Each retroactive pass logs the per-entry promote / prune / refresh decisions. The corollary is testable by tracking the survival-cycles distribution for entries that were eventually pruned and confirming that the distribution is bounded. The empirical-pruning trajectory is reported in \Cref{sec:check-asymptotic}.
 
-\paragraph{Reading both layers together.} The conformal layer (Theorems~\ref{thm:purity}--\ref{thm:asymptotic}) supplies one-sided bounds that hold at any cycle within the realised horizon, with no asymptotic assumption. The Bayes-identity layer (Theorems~\ref{thm:bayes-purity}--\ref{thm:asymptotic-elim} and Corollaries~\ref{cor:joint-optimum}--\ref{cor:self-correction}) supplies expected-value identities and asymptotic projections that the realised trajectory should approach. The two layers are complementary rather than competing: the conformal layer is the worst-case receipt the empirical programme can verify at any cycle, and the Bayes layer is the expected-value prediction whose ten-cycle approximation is reported in \Cref{ch:evaluation}.
 
 \section{Chapter signpost}
 \label{sec:ch4-signpost}
