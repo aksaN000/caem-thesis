@@ -111,8 +111,13 @@ def main() -> int:
     p.add_argument("--alpha_defer", type=float, default=0.40)
     p.add_argument("--cherian_boost", action="store_true",
                    help="Fit Cherian boost on the per-signal calibrated "
-                        "log-odds. Default OFF for per-cycle (fresh isotonic "
-                        "is usually enough); ON in Step 7.0.2 baseline.")
+                        "log-odds. Per-cycle callers MUST pass --cherian_boost "
+                        "to match locked Step 7.0.1 baseline; otherwise the "
+                        "composite degrades to identity-weighted aggregation "
+                        "(boost_intercept=0, weights=None).")
+    p.add_argument("--boost_C", type=float, default=0.01,
+                   help="Cherian L2 regulariser strength. Locked at 0.01 by "
+                        "the 25-variant Step 7.0.3 sweep.")
     args = p.parse_args()
 
     paths: List[Path] = []
@@ -138,7 +143,7 @@ def main() -> int:
 
     # ============== Step A: refit CalProbComposite (no EMA) ==============
     logger.info("Step A — refit CalProbComposite (fresh isotonic, no EMA)")
-    composite = CalProbComposite().fit(samples, fit_boost=args.cherian_boost)
+    composite = CalProbComposite().fit(samples, fit_boost=args.cherian_boost, boost_C=args.boost_C)
     composite.save(args.output_composite)
     logger.info("saved %s", args.output_composite)
 

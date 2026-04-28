@@ -595,6 +595,14 @@ def run_per_cycle_conformal_refit(
         "--ema_alpha", str(getattr(config, "adaptive_thresholds_ema_alpha", 0.7)),
         "--alpha_store", str(alpha_store_inherited),
         "--alpha_defer", str(alpha_defer_inherited),
+        # MUST pass --cherian_boost + --boost_C 0.01 to match the locked
+        # Step 7.0.1 baseline (composite_calibration.json was fit with both
+        # flags via run_phase1a.sh CLI). Without them the per-cycle refit
+        # produces an identity-mode composite (boost_intercept=0,
+        # boost_weights=None), silently degrading the pipeline. Locked
+        # value of 0.01 selected by 25-variant Step 7.0.3 sweep.
+        "--cherian_boost",
+        "--boost_C", "0.01",
     ]
 
     logger.info("Cycle %d: per-cycle CalProbComposite + ConformalGate re-fit.", cycle)
