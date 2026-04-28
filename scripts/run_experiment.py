@@ -562,6 +562,29 @@ def run_per_cycle_conformal_refit(
     out_gate = output_dir / f"cycle_{cycle}" / "conformal_gate.json"
     out_composite.parent.mkdir(parents=True, exist_ok=True)
 
+    # Read alpha from the previous gate JSON, not the config default.
+    # Rationale: cycle 0's locked gate was fit at alpha_store=0.05 via the
+    # run_phase1a.sh CLI override (after the 25-variant Step 7.0.3 sweep
+    # selected 0.05 over the dataclass default 0.20). Per-cycle refits MUST
+    # inherit that choice to maintain the thesis 95% precision contract.
+    # Falling back to config default would silently drift to 80% target.
+    try:
+        with open(prev_gate, "r", encoding="utf-8") as _f:
+            _prev = json.load(_f)
+        alpha_store_inherited = float(_prev.get(
+            "alpha_store", getattr(config, "conformal_alpha_store", 0.20)
+        ))
+        alpha_defer_inherited = float(_prev.get(
+            "alpha_defer", getattr(config, "conformal_alpha_defer", 0.40)
+        ))
+    except (OSError, json.JSONDecodeError, ValueError) as _exc:
+        logger.warning(
+            "Per-cycle refit could not read alpha from previous gate (%s); "
+            "falling back to CAEMConfig defaults.", _exc,
+        )
+        alpha_store_inherited = float(getattr(config, "conformal_alpha_store", 0.20))
+        alpha_defer_inherited = float(getattr(config, "conformal_alpha_defer", 0.40))
+
     cmd = [
         "python", "scripts/recalibrate_conformal_at_cycle.py",
         "--calib_jsons", *[str(p) for p in cycle_calib],
@@ -570,8 +593,8 @@ def run_per_cycle_conformal_refit(
         "--output_composite", str(out_composite),
         "--output_gate", str(out_gate),
         "--ema_alpha", str(getattr(config, "adaptive_thresholds_ema_alpha", 0.7)),
-        "--alpha_store", str(getattr(config, "conformal_alpha_store", 0.20)),
-        "--alpha_defer", str(getattr(config, "conformal_alpha_defer", 0.40)),
+        "--alpha_store", str(alpha_store_inherited),
+        "--alpha_defer", str(alpha_defer_inherited),
     ]
 
     logger.info("Cycle %d: per-cycle CalProbComposite + ConformalGate re-fit.", cycle)
