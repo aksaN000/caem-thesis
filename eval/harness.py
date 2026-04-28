@@ -420,6 +420,13 @@ class EvalHarness:
             "u_stored": result.u_stored,
             "u_pre": (result.pre_confidence.u_pre
                       if result.pre_confidence is not None else None),
+            "top_passages": (
+                [getattr(p, "id", None) or getattr(p, "passage_id", None)
+                 for p in (result.verifier_output.top_passages or [])]
+                if (result.verifier_output is not None
+                    and getattr(result.verifier_output, "top_passages", None))
+                else []
+            ),
             "latency_ms": result.latency_ms,
             "escalated": result.escalated,
             "pipeline_error": pipeline_error,
