@@ -272,6 +272,114 @@ def corpus_floor_proxy(eval_jsons: List[Path]) -> Dict[str, Any]:
 # 5. Self-correction survival distribution (Cor self-correction)
 # --------------------------------------------------------------------------- #
 
+def tau_retro_sensitivity(
+    cal_fold_jsons_per_cycle: Dict[int, List[Path]],
+    locked_tau_retro: float = 0.50,
+    target_precision: float = 0.85,
+) -> Dict[str, Any]:
+    """tau_retro sensitivity analysis (defends the 0.50 heuristic choice).
+
+    For each cycle's calibration fold, sweeps candidate tau_retro values and
+    reports the precision (= empirical pi_retro) among entries surviving each
+    candidate threshold. Then identifies the empirically-optimal tau (smallest
+    tau that delivers >= target_precision) per cycle, and reports the gap to
+    the locked tau_retro = 0.50.
+
+    Defensible if locked tau_retro consistently delivers >= target_precision
+    across cycles, even though it was not fit from a precision target.
+
+    Inputs:
+        cal_fold_jsons_per_cycle: {cycle_idx: [json_path, ...]}
+            cycle 0 reads from outputs/cycle_0/calibration/
+            cycle N (N>=1) reads from outputs/full_run/cycle_N/calibration/
+    """
+    candidates = [round(0.30 + 0.05 * i, 2) for i in range(9)]  # 0.30..0.70
+    per_cycle: Dict[str, Any] = {}
+
+    for cycle, jsons in cal_fold_jsons_per_cycle.items():
+        samples = []
+        for p in jsons:
+            try:
+                d = json.load(p.open("r", encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                continue
+            samples.extend(d.get("samples", []))
+        if not samples:
+            per_cycle[f"cycle_{cycle}"] = {"status": "no_samples"}
+            continue
+
+        u_em = [
+            (s.get("u_stored") or 0.0, int(bool(s.get("em"))))
+            for s in samples
+            if s.get("u_stored") is not None
+        ]
+        if not u_em:
+            per_cycle[f"cycle_{cycle}"] = {"status": "no_u_stored"}
+            continue
+
+        sweep = []
+        for tau in candidates:
+            n_above = sum(1 for u, _ in u_em if u >= tau)
+            em_above = sum(em for u, em in u_em if u >= tau)
+            prec = em_above / n_above if n_above > 0 else None
+            sweep.append({"tau": tau, "n_survive": n_above, "pi_retro": prec})
+
+        # Empirical pi_retro at the locked threshold
+        n_locked = sum(1 for u, _ in u_em if u >= locked_tau_retro)
+        em_locked = sum(em for u, em in u_em if u >= locked_tau_retro)
+        pi_at_locked = em_locked / n_locked if n_locked > 0 else None
+
+        # Smallest tau that delivers >= target_precision (recall-maximising)
+        optimal = None
+        for entry in sorted(sweep, key=lambda x: x["tau"]):
+            p = entry["pi_retro"]
+            if p is not None and p >= target_precision:
+                optimal = entry["tau"]
+                break
+
+        per_cycle[f"cycle_{cycle}"] = {
+            "status": "ok",
+            "n_total_samples": len(u_em),
+            "locked_tau_retro": locked_tau_retro,
+            "pi_at_locked": pi_at_locked,
+            "n_survive_at_locked": n_locked,
+            "empirically_optimal_tau_for_target": optimal,
+            "target_precision": target_precision,
+            "sweep": sweep,
+            "is_well_calibrated": (
+                pi_at_locked is not None and pi_at_locked >= target_precision
+            ),
+        }
+
+    well_cal_cycles = sum(
+        1 for c in per_cycle.values()
+        if isinstance(c, dict) and c.get("is_well_calibrated") is True
+    )
+    total_cycles = sum(
+        1 for c in per_cycle.values()
+        if isinstance(c, dict) and c.get("status") == "ok"
+    )
+
+    return {
+        "status": "ok" if total_cycles > 0 else "no_data",
+        "locked_tau_retro": locked_tau_retro,
+        "target_precision": target_precision,
+        "n_cycles_well_calibrated": well_cal_cycles,
+        "n_cycles_total": total_cycles,
+        "fraction_well_calibrated": (
+            well_cal_cycles / total_cycles if total_cycles > 0 else None
+        ),
+        "per_cycle": per_cycle,
+        "comment": (
+            f"tau_retro = {locked_tau_retro} is well-calibrated for the "
+            "trajectory if 'fraction_well_calibrated' >= 0.80 (i.e., at "
+            "least 8 of 10 cycles deliver pi_retro >= target). The heuristic "
+            "is defensible if this fraction is high; if not, consider "
+            "fitting tau_retro per-cycle as a third conformal threshold."
+        ),
+    }
+
+
 def survival_distribution(
     retroverify_jsons: List[Path],
     memory_meta_jsons: List[Path],
@@ -358,6 +466,22 @@ def main() -> int:
     retroverify_jsons = sorted(args.full_run_dir.glob("retroverify_cycle*.json"))
     memory_meta_jsons = sorted(args.full_run_dir.glob("memory_store_cycle_*.meta"))
 
+    # Build per-cycle cal-fold map for tau_retro sensitivity:
+    #  cycle 0 lives at outputs/cycle_0/calibration/
+    #  cycle N (N >= 1) lives at outputs/full_run/cycle_N/calibration/
+    cal_fold_per_cycle: Dict[int, List[Path]] = {}
+    cycle0_cal = Path("outputs/cycle_0/calibration")
+    if cycle0_cal.exists():
+        cal_fold_per_cycle[0] = sorted(cycle0_cal.glob("*.json"))
+    for cycle_dir in sorted(args.full_run_dir.glob("cycle_*")):
+        try:
+            cycle_idx = int(cycle_dir.name.replace("cycle_", ""))
+        except ValueError:
+            continue
+        cal_dir = cycle_dir / "calibration"
+        if cal_dir.exists():
+            cal_fold_per_cycle[cycle_idx] = sorted(cal_dir.glob("*_cycle*.json"))
+
     receipts = {
         "receipt_envelope_fit.json": fit_envelope(purity, cohen_d, sigma),
         "receipt_eps_arch.json": aggregate_eps_arch(eval_jsons, retroverify_jsons),
@@ -365,6 +489,9 @@ def main() -> int:
         "receipt_corpus_floor.json": corpus_floor_proxy(eval_jsons),
         "receipt_self_correction.json": survival_distribution(
             retroverify_jsons, memory_meta_jsons,
+        ),
+        "receipt_tau_retro_sensitivity.json": tau_retro_sensitivity(
+            cal_fold_per_cycle, locked_tau_retro=0.50, target_precision=0.85,
         ),
     }
 
