@@ -1,17 +1,19 @@
 % =====================================================================
-% CAEM — Supervisor presentation (defended-against-code edition)
+% CAEM — Supervisor presentation (full-coverage edition)
 % Compile:  pdflatex caem_supervisor.tex   (twice for refs)
 % Author:   Aksan Gony Alif (BRAC CSE400)
 %
-% Every constant on these slides is verified against:
-%   caem/config.py
-%   caem/routing/router.py
-%   caem/verification/verifier.py
-%   caem/verification/cal_prob_composite.py
-%   caem/memory/entry.py
-%   caem/production/confidence.py
-%   outputs/cycle_0/composite_calibration.json
-%   outputs/cycle_0/conformal_gate.json
+% Coverage map (each slide cross-checked against the thesis):
+%   Ch1 §problem        -> slides 2-3
+%   Ch1 §objective      -> slides 11-13
+%   Ch1 §hypotheses     -> slide 14
+%   Ch1 §methodology    -> slides 4-9
+%   Ch3 §func reqs      -> slide 15
+%   Ch3 §nonfunc reqs   -> slide 16
+%   Ch3 §commitments    -> slide 17
+%   Ch4 §pipeline       -> slides 18-30
+%   Ch4 §theorems       -> slides 31-32
+%   Appendix G          -> slides 36, 37
 % =====================================================================
 \documentclass[10pt,aspectratio=169]{beamer}
 \usetheme{Boadilla}
@@ -19,6 +21,8 @@
 \useinnertheme{rectangles}
 \useoutertheme{infolines}
 \setbeamertemplate{navigation symbols}{}
+\setbeamerfont{frametitle}{size=\large}
+\setbeamerfont{block title}{size=\small}
 
 \usepackage{amsmath,amssymb,booktabs,array}
 \usepackage[T1]{fontenc}
@@ -26,6 +30,7 @@
 \usetikzlibrary{arrows.meta,positioning,fit,shapes.geometric,calc,decorations.pathreplacing}
 \usepackage{xcolor}
 \usepackage{adjustbox}
+\usepackage{pifont}
 
 \definecolor{caemblue}{RGB}{31,82,142}
 \definecolor{caemamber}{RGB}{200,140,30}
@@ -42,10 +47,11 @@
 \institute[BRAC University]{BRAC University \\ CSE400 Senior Thesis}
 \date{\today}
 
-% ---- Helpers ----------------------------------------------------------
 \newcommand{\code}[1]{{\small\texttt{#1}}}
 \newcommand{\why}[1]{{\color{caemamber}\textbf{Why:}} #1}
 \newcommand{\altn}[1]{{\color{caemred}\textbf{Alternative rejected:}} #1}
+\newcommand{\good}{{\color{caemgreen}\ding{51}}}
+\newcommand{\bad}{{\color{caemred}\ding{55}}}
 
 \tikzset{
   stage/.style={draw=caemblue,thick,fill=caemblue!10,rounded corners,
@@ -63,45 +69,54 @@
 \begin{document}
 
 % =====================================================================
-\begin{frame}
-  \titlepage
-\end{frame}
+\begin{frame}\titlepage\end{frame}
 
 % =====================================================================
-\section*{Frontmatter}
+\section*{Problem and gap}
 
-\begin{frame}{The problem this thesis solves}
-  \begin{itemize}
+\begin{frame}{The problem}
+  \begin{itemize}\small
     \item Large language models hallucinate at \textbf{3\%--91\%} across deployment domains
           \tiny\cite{alkaissi2023artificial,10.1145/3649506}\normalsize.
-    \item TruthfulQA shows hallucination is \textbf{not solved by scale} — bigger models often hallucinate \emph{more confidently}
-          \tiny\cite{lin-etal-2022-truthfulqa}\normalsize.
+    \item TruthfulQA shows hallucination is \textbf{not solved by scale} -- bigger models often hallucinate \emph{more confidently} \tiny\cite{lin-etal-2022-truthfulqa}\normalsize.
     \item Existing fixes are \alert{post-hoc detectors}: they label outputs but cannot \emph{change what the system serves}.
   \end{itemize}
 
-  \vspace{0.6em}
+  \vspace{0.5em}
   \begin{block}{Thesis claim}
     Treat hallucination as a \textbf{system-level architectural} problem, not a detection problem.
     Pair the model with an \emph{episodic memory}, a \emph{calibrated nine-signal verifier}, a \emph{conformal storage gate}, and a \emph{cycle-boundary self-improvement loop} that learns from its own verified outputs.
   \end{block}
-
-  \vspace{0.4em}
-  Five concrete deliverables that plain fine-tuning structurally cannot produce:
-  per-query precision contract, memory-direct serving tier, asymmetric rollback,
-  verifier-as-sample-efficiency-multiplier, inference-time error catching.
 \end{frame}
 
 % =====================================================================
-\begin{frame}{CAEM at a glance — two interlocking loops}
+\begin{frame}{The three structural shortcomings of stateless inference}
+  Standard inference suffers \alert{three reinforcing shortcomings} (Ch1 \S stateless-gap):
+
+  \vspace{0.5em}
+  \begin{enumerate}\small
+    \item \textbf{Statelessness.} Every query processed independently. \emph{No representation of past successful answers retained}. The system wastes computation on questions it has effectively already solved, and identical questions can produce inconsistent answers from one session to the next.
+    \item \textbf{No calibrated confidence.} The model emits a string without a per-query reliability signal. The user cannot tell trustworthy outputs apart from confident-but-wrong ones.
+    \item \textbf{No self-improvement mechanism.} External verifications (whether by humans or other systems) decay into one-shot interventions. The model learns nothing from its own history of right and wrong answers.
+  \end{enumerate}
+
+  \vspace{0.5em}
+  \begin{block}{What CAEM gives back}
+    Memory closes (1). Calibrated $u_{\text{stored}}$ + four-outcome decision closes (2). Cycle-boundary SIL fine-tune closes (3). Each axis reinforces the others -- without memory the model cannot reuse verified knowledge; without calibration the system cannot recognise when memory is missing; without self-improvement, knowledge accumulated stays static.
+  \end{block}
+\end{frame}
+
+% =====================================================================
+\begin{frame}{CAEM at a glance -- two interlocking loops}
   \begin{columns}[t]
     \column{0.55\textwidth}
     \textbf{Per-query path (8 stages, $\sim$10\,s):}
-    \begin{enumerate}\setlength\itemsep{0pt}\small
+    \begin{enumerate}\setlength\itemsep{0pt}\scriptsize
       \item Pre-routing confidence $u_{\text{pre}}$
       \item Encode + episodic-memory lookup
       \item Three-tier router (with safety override)
       \item Tier execution (memory / zero-shot / RAG)
-      \item Nine-signal verifier ensemble (4 families)
+      \item Nine-signal verifier ensemble
       \item Composite + conformal gate $\to$ decision
       \item Output (STORE / DEFER / DISCARD / ABSTAIN)
       \item Per-query housekeeping (memory write)
@@ -109,68 +124,58 @@
 
     \column{0.45\textwidth}
     \textbf{Per-cycle update (every 9000 queries):}
-    \begin{itemize}\setlength\itemsep{0pt}\small
+    \begin{itemize}\setlength\itemsep{0pt}\scriptsize
       \item SIL fine-tune w/ L2 anchor + retention guard
       \item Cal-fold scoring under post-SIL model
       \item Re-fit $T$, isotonic curves, conformal $\tau$
-      \item Hot-reload verifier (no process restart)
+      \item Hot-reload verifier
       \item Retroactive re-verify all stored entries
-      \item Stream chunk (9000 queries) + eval-fold (3500)
+      \item Stream chunk (9000) + eval-fold (3500)
     \end{itemize}
   \end{columns}
 
   \vspace{0.4em}
-  {\footnotesize Backbone: Qwen-2.5-3B-Instruct. Verifier judge: MiniCheck (Flan-T5-Large). Encoder: SBERT all-mpnet-base-v2. Retriever: 21M-passage DPR over Wikipedia. Reranker: BAAI/bge-reranker-v2-m3.}
+  {\scriptsize Backbone: Qwen-2.5-3B-Instruct. Verifier judge: MiniCheck (Flan-T5-Large). Encoder: SBERT all-mpnet-base-v2. Retriever: 21M-passage DPR over Wikipedia. Reranker: BAAI/bge-reranker-v2-m3.}
 \end{frame}
 
 % =====================================================================
-\section*{Architecture diagram (split across 4 slides for fit)}
+\section*{Architecture diagram (4 continuation slides)}
 
-\begin{frame}{Architecture diagram (1/4) — Stages 1--3 (input $\to$ tier)}
+\begin{frame}{Architecture (1/4) -- Stages 1--3 (input $\to$ tier)}
   \centering
-  \begin{adjustbox}{max width=\textwidth,max height=0.78\textheight,center}
+  \begin{adjustbox}{max width=\textwidth,max height=0.72\textheight,center}
   \begin{tikzpicture}[node distance=0.6cm and 0.7cm]
     \node[stage] (q)  {Query $q$};
     \node[stage,right=of q]   (s1) {Stage 1\\ Pre-routing\\ $u_{\text{pre}}$};
     \node[stage,right=of s1]  (s2) {Stage 2\\ SBERT encode\\ FAISS top-1};
     \node[stage,right=of s2]  (s3) {Stage 3\\ Router\\ $\mathcal{S}=0.7s+0.3 u_{\text{stored}}$};
-
     \node[tier,below=0.9cm of s3,xshift=-3.2cm] (t1) {Tier 1\\ memory-direct};
     \node[tier,below=0.9cm of s3]                (t2) {Tier 2\\ zero-shot};
     \node[tier,below=0.9cm of s3,xshift=3.2cm]  (t3) {Tier 3\\ RAG};
     \node[draw=caemred,thick,dashed,fit=(t1)(t2)(t3),inner sep=0.25cm,
           label={[font=\tiny,caemred]above:safety override forces Tier 3 if $u_{\text{pre}} < 0.60$}] {};
-
     \node[font=\tiny,below=0.05cm of t1] {$\mathcal{S} \ge 0.90$};
     \node[font=\tiny,below=0.05cm of t2] {$s > 0.75$};
     \node[font=\tiny,below=0.05cm of t3] {fallback};
-
     \node[draw=caemblue!50,thick,dashed,rounded corners,fit=(t3),inner sep=0.4cm,
           label={[font=\scriptsize,caemblue]right:continued $\to$ Stage 4}] {};
-
-    \draw[arrow] (q) -- (s1);
-    \draw[arrow] (s1) -- (s2);
-    \draw[arrow] (s2) -- (s3);
-    \draw[arrow] (s3) -- (t1);
-    \draw[arrow] (s3) -- (t2);
-    \draw[arrow] (s3) -- (t3);
+    \draw[arrow] (q) -- (s1); \draw[arrow] (s1) -- (s2); \draw[arrow] (s2) -- (s3);
+    \draw[arrow] (s3) -- (t1); \draw[arrow] (s3) -- (t2); \draw[arrow] (s3) -- (t3);
   \end{tikzpicture}
   \end{adjustbox}
 
-  \vspace{0.3em}
-  {\scriptsize Three tiers compete for the cheapest path that earns the right to answer. The safety override is an OR-condition --- model readiness AND memory quality must both clear bars before Tier 1/2 fire.}
+  \vspace{0.2em}
+  {\scriptsize Three tiers compete for the cheapest path that earns the right to answer. Safety override is OR-condition: model readiness AND memory quality must both clear bars.}
 \end{frame}
 
 % =====================================================================
-\begin{frame}{Architecture diagram (2/4) — Stages 4--5 (execute $\to$ 9 signals)}
+\begin{frame}{Architecture (2/4) -- Stages 4--5 (execute $\to$ 9 signals)}
   \centering
-  \begin{adjustbox}{max width=\textwidth,max height=0.78\textheight,center}
+  \begin{adjustbox}{max width=\textwidth,max height=0.72\textheight,center}
   \begin{tikzpicture}[node distance=0.5cm and 0.6cm]
     \node[draw=caemblue!50,thick,dashed,rounded corners,minimum width=2.2cm,
           minimum height=0.5cm,align=center,font=\tiny,fill=caemblue!5] (in) {(from Stage 3)\\ Tier choice};
-
     \node[stage,right=1.0cm of in] (s4) {Stage 4 -- execute tier\\ generate answer + chain};
-
     \node[stage,right=1.0cm of s4,minimum width=4.0cm,minimum height=2.6cm,align=left,font=\tiny] (s5) {%
       \textbf{Stage 5 -- nine-signal verifier}\\[2pt]
       A. Internal calibration\\
@@ -181,35 +186,29 @@
       \quad $p_{\text{ground,max}}, _{\text{,mean}}, _{\text{,atomic}}$\\[2pt]
       D. Q-A relevance\\
       \quad $q_{\text{a,rel}}$};
-
     \node[draw=caemred,thick,dashed,below=0.4cm of s5,minimum width=4.0cm,
           align=center,font=\tiny,fill=caemred!5,rounded corners] (retired)
          {$h_{\text{norm}}$ (10th candidate) retired post-audit\\(boost weight $\approx -5\times 10^{-4}$)};
-
     \node[draw=caemblue!50,thick,dashed,rounded corners,minimum width=2.2cm,
           minimum height=0.5cm,align=center,font=\tiny,fill=caemblue!5,right=1.0cm of s5]
          (out) {(to Stage 5b)\\ 9-signal vector};
-
-    \draw[arrow] (in) -- (s4);
-    \draw[arrow] (s4) -- (s5);
-    \draw[arrow] (s5) -- (out);
-    \draw[carry] (s5.south) -- (retired.north);
+    \draw[arrow] (in) -- (s4); \draw[arrow] (s4) -- (s5);
+    \draw[arrow] (s5) -- (out); \draw[carry] (s5.south) -- (retired.north);
   \end{tikzpicture}
   \end{adjustbox}
 
-  \vspace{0.3em}
-  {\scriptsize Tier-1 hits SKIP Stage 5 (the stored entry is trusted by prior commitment). Tier-2 and Tier-3 outputs go through the full ensemble. The four families are deliberately diverse: white-box (model internals), gray-box (samplings), black-box (external grounding, q-a relevance).}
+  \vspace{0.2em}
+  {\scriptsize Tier-1 SKIPS Stage 5; the entry is trusted by prior commitment. Tier 2/3 outputs go through the full ensemble.}
 \end{frame}
 
 % =====================================================================
-\begin{frame}{Architecture diagram (3/4) — Stage 5b -- 6 (composite $\to$ decide)}
+\begin{frame}{Architecture (3/4) -- Stages 5b -- 6 (composite $\to$ decide)}
   \centering
-  \begin{adjustbox}{max width=\textwidth,max height=0.78\textheight,center}
+  \begin{adjustbox}{max width=\textwidth,max height=0.72\textheight,center}
   \begin{tikzpicture}[node distance=0.6cm and 0.6cm]
     \node[draw=caemblue!50,thick,dashed,rounded corners,minimum width=2.0cm,
           minimum height=0.5cm,align=center,font=\tiny,fill=caemblue!5]
          (in) {(from Stage 5)\\ 9 signals};
-
     \node[stage,right=of in,minimum width=2.8cm,align=center,font=\tiny]
          (iso) {per-signal\\ isotonic\\ $\mathrm{iso}_j(\cdot)\to P_j$};
     \node[stage,right=of iso,minimum width=2.6cm,align=center,font=\tiny]
@@ -217,28 +216,17 @@
                   $\ell=b+\sum w_j L_j$};
     \node[stage,right=of boost,minimum width=2.0cm,align=center,font=\tiny]
          (sig) {sigmoid\\ $u_{\text{stored}}$};
-
     \node[decision,below=1.0cm of iso,minimum width=10cm,align=center,font=\scriptsize]
-         (gate) {Stage 6 -- conformal gate \\ $\tau_{\text{store}}=0.6676,\ \tau_{\text{defer}}=0.5207$ (locked Cycle-0 fit, $\alpha_{\text{store}}=0.05$)};
-
-    \node[decision,below=0.6cm of gate,xshift=-3.6cm,minimum width=2.0cm] (st)  {STORE};
-    \node[decision,below=0.6cm of gate,xshift=-1.2cm,minimum width=2.0cm] (df)  {DEFERRED};
-    \node[decision,below=0.6cm of gate,xshift=1.2cm,minimum width=2.0cm]  (di)  {DISCARD};
-    \node[decision,below=0.6cm of gate,xshift=3.6cm,minimum width=2.0cm]  (ab)  {ABSTAIN};
-
-    \node[font=\tiny,below=0.02cm of st] {$\ge \tau_{\text{store}}$};
-    \node[font=\tiny,below=0.02cm of df] {$\ge \tau_{\text{defer}}$};
-    \node[font=\tiny,below=0.02cm of di] {evidence disagree};
-    \node[font=\tiny,below=0.02cm of ab] {no evidence};
-
+         (gate) {Stage 6 -- conformal gate \\ $\tau_{\text{store}}=0.6676,\ \tau_{\text{defer}}=0.5207$ ($\alpha_{\text{store}}=0.05$, locked Cycle-0)};
+    \node[decision,below=0.5cm of gate,xshift=-3.6cm,minimum width=2.0cm] (st)  {STORE};
+    \node[decision,below=0.5cm of gate,xshift=-1.2cm,minimum width=2.0cm] (df)  {DEFERRED};
+    \node[decision,below=0.5cm of gate,xshift=1.2cm,minimum width=2.0cm]  (di)  {DISCARD};
+    \node[decision,below=0.5cm of gate,xshift=3.6cm,minimum width=2.0cm]  (ab)  {ABSTAIN};
     \node[draw=caemred,thick,dashed,rounded corners,right=0.4cm of sig,
           minimum width=3.0cm,align=center,font=\tiny,fill=caemred!5]
-         (early) {Confabulation early-exit\\$u_{\text{int}}\!\ge\!0.70\,\wedge\,p_{\text{gnd,max}}\!\le\!0.20$\\$\Rightarrow$ DISCARD $\to$ Tier 3};
-
-    \draw[arrow] (in) -- (iso);
-    \draw[arrow] (iso) -- (boost);
-    \draw[arrow] (boost) -- (sig);
-    \draw[arrow] (sig) -- (gate);
+         (early) {Confab.\ early-exit\\$u_{\text{int}}\!\ge\!0.70\!\wedge\!p_{\text{gnd,max}}\!\le\!0.20$\\$\Rightarrow$ DISCARD $\to$ Tier 3};
+    \draw[arrow] (in) -- (iso); \draw[arrow] (iso) -- (boost);
+    \draw[arrow] (boost) -- (sig); \draw[arrow] (sig) -- (gate);
     \draw[arrow] (gate.south -| st) -- (st);
     \draw[arrow] (gate.south -| df) -- (df);
     \draw[arrow] (gate.south -| di) -- (di);
@@ -249,166 +237,251 @@
 \end{frame}
 
 % =====================================================================
-\begin{frame}{Architecture diagram (4/4) — Stage 8 cycle-boundary loop}
+\begin{frame}{Architecture (4/4) -- Stage 8 cycle-boundary loop}
   \centering
-  \begin{adjustbox}{max width=\textwidth,max height=0.78\textheight,center}
-  \begin{tikzpicture}[node distance=0.5cm and 0.55cm]
+  \begin{adjustbox}{max width=\textwidth,max height=0.72\textheight,center}
+  \begin{tikzpicture}[node distance=0.45cm and 0.5cm]
     \node[loop] (s1) {Step 1\\ SIL fine-tune\\ + retention guard};
-    \node[loop,right=of s1] (s21) {Step 2.1\\ cal-fold scoring\\ (post-SIL)};
+    \node[loop,right=of s1] (s21) {Step 2.1\\ cal-fold\\ scoring};
     \node[loop,right=of s21] (s22) {Step 2.2\\ refit $T$\\ (cached $u_{\text{pre}}$)};
     \node[loop,right=of s22] (s23) {Step 2.3\\ refit isotonic\\+ conformal $\tau$};
     \node[loop,right=of s23] (s24) {Step 2.4\\ verifier\\ hot-reload};
-
-    \node[loop,below=0.8cm of s24] (s25) {Step 2.5\\ retroactive\\ re-verify};
+    \node[loop,below=0.7cm of s24] (s25) {Step 2.5\\ retroactive\\ re-verify};
     \node[loop,left=of s25] (s4)  {Step 4\\ stream chunk\\ 9000 queries};
     \node[loop,left=of s4]  (s5)  {Step 5\\ eval-fold\\ 3500 samples};
     \node[loop,left=of s5]  (close){close cycle\\ gdrive offload\\ summary row};
     \node[loop,left=of close,fill=caemred!25] (next) {Cycle $N{+}1$};
-
-    \draw[arrow] (s1) -- (s21);
-    \draw[arrow] (s21) -- (s22);
-    \draw[arrow] (s22) -- (s23);
-    \draw[arrow] (s23) -- (s24);
-    \draw[arrow] (s24.south) -- ++(0,-0.4) -| (s25.north);
-    \draw[arrow] (s25) -- (s4);
-    \draw[arrow] (s4) -- (s5);
-    \draw[arrow] (s5) -- (close);
-    \draw[arrow] (close) -- (next);
+    \draw[arrow] (s1) -- (s21); \draw[arrow] (s21) -- (s22);
+    \draw[arrow] (s22) -- (s23); \draw[arrow] (s23) -- (s24);
+    \draw[arrow] (s24.south) -- ++(0,-0.3) -| (s25.north);
+    \draw[arrow] (s25) -- (s4); \draw[arrow] (s4) -- (s5);
+    \draw[arrow] (s5) -- (close); \draw[arrow] (close) -- (next);
     \draw[carry,bend left=20] (next.north) to (s1.north);
   \end{tikzpicture}
   \end{adjustbox}
 
+  \vspace{0.2em}
+  {\scriptsize Order matters: \emph{recalibrate before retroverify}, so retroverify scores stored entries through the FRESHLY refit verifier. Asymmetric rollback: failed cycle (retention $<0.93$) reverts $\theta$ but keeps memory pool.}
+\end{frame}
+
+% =====================================================================
+\section*{Goals, requirements, hypotheses, commitments}
+
+\begin{frame}{Specific objectives 1--4 (Ch1 \S specific-objectives)}
+  \scriptsize
+  \begin{enumerate}
+    \item \textbf{Verified episodic memory with a four-outcome decision.} Admission rule finer than a binary threshold; every generated answer enters one of \{STORE, DEFERRED, DISCARD, ABSTAIN\} via the calibrated probability composite + the confabulation early-exit. Storage is similarity-indexed with novelty filter and value-based pruning combining recency, retrieval frequency, and stored-answer quality.
+    \item \textbf{Pre-generation confidence and three-tier routing with safety override.} $u_{\text{pre}}$ from encoder-only forward pass, temperature-scaled on a disjoint fold, used \emph{independently} from memory similarity. Router combines query-to-memory similarity with stored-answer quality into a single dispatch score over \{memory-direct, zero-shot, RAG\}. Independent safety override forces RAG whenever $u_{\text{pre}}<0.60$ -- grounded retrieval is available before generation begins.
+    \item \textbf{Nine-signal post-generation verifier with calibrated probability composite.} Four families: internal calibration, sample-set agreement, external grounding (3 rules), Q-A relevance. Each signal goes through per-signal isotonic, then through L$_2$-regularised logistic boost; replaces fixed weighted sums used in earlier verifier ensembles.
+    \item \textbf{Conformal storage gate with two operating points.} Composite $\to$ decision via split-conformal at pre-registered $\alpha_{\text{store}}=0.05$ (precision target 0.95) and $\alpha_{\text{defer}}=0.40$ (target 0.60). Distribution-free precision guarantee transfers approximately to the eval fold under exchangeability.
+  \end{enumerate}
+\end{frame}
+
+% =====================================================================
+\begin{frame}{Specific objectives 5--7 (Ch1 \S specific-objectives)}
+  \scriptsize
+  \begin{enumerate}\setcounter{enumi}{4}
+    \item \textbf{Retroactive review and deferred reconsideration.} Verifier internal-calibration signals read the generator's hidden state, so stored composites drift after every fine-tune. Retroactive re-verification at every cycle boundary re-scores stored entries under the updated model and prunes entries below $\tau_{\text{retro}}=0.50$. Deferred-buffer pass promotes entries that crossed $\tau_{\text{store}}$ and discards those past TTL.
+    \item \textbf{Constrained self-improvement with retention guard.} Training pool curated from stored episodes with $u_{\text{stored}} \ge \tau_{\text{train}} = 0.75$ (\emph{strictly above} the storage threshold $\tau_{\text{store}}=0.6676$). Fine-tune under L$_2$ anchor toward base parameters (first-order EWC). Held-out probe before+after; abort with weight rollback if retention $<\rho_{\min}=0.93$. Memory survives rollback (asymmetric rollback).
+    \item \textbf{Empirical validation against external baselines and ablations.} 7-benchmark panel: 3 training (FEVER, TQA, NQ) + 4 transfer (TruthfulQA, StrategyQA, ARC-Challenge, ASQA), with MMLU as held-out retention probe. Composite hallucination metric, per-tier behaviour, retention ratio, calibration trajectory cycle by cycle. 7 external baselines under matched protocol with paired McNemar + BCa bootstrap under Holm correction; pre-registered ablations.
+  \end{enumerate}
+
   \vspace{0.3em}
-  {\scriptsize The order matters: \emph{recalibrate before retroverify}, so retroverify scores stored entries through the FRESHLY refit verifier. Asymmetric rollback: a failed cycle (retention $<0.93$) reverts $\theta$ but keeps the memory pool intact.}
+  {\scriptsize Each objective is a separately-checkable empirical deliverable. The empirical chapter reports the receipt for every one.}
+\end{frame}
+
+% =====================================================================
+\begin{frame}{Five pre-registered hypotheses (Ch1 \S hypotheses)}
+  \footnotesize
+  Each hypothesis names a quantity, a deciding direction, a deciding statistic. The first four map to theorems; H5 is the operational claim.
+
+  \vspace{0.4em}
+  \begin{tabular}{@{}p{0.6cm}p{8.5cm}p{4cm}@{}}
+    \toprule
+    \textbf{ID} & \textbf{Hypothesis} & \textbf{Maps to} \\
+    \midrule
+    H1 & Verifier balanced accuracy $> 0.5$ on cal-matched distribution \emph{at every cycle} & Theorem 1 \emph{precondition} \\
+    H2 & Pool purity is non-decreasing across cycles whenever H1 holds & Theorem 1 (purity floor) \\
+    H3 & Late-cycle pool-purity increments fall \emph{inside} the predicted convergence envelope & Theorem 3 (geometric envelope) \\
+    H4 & Composite Hallucination Metric at horizon approaches a parameter-bounded asymptote & Theorem 4 (asymptotic floor) \\
+    H5 & Per-cycle Tier-1 hit rate grows monotonically; produces measurable per-query cost reduction & Operational claim (deployment) \\
+    \bottomrule
+  \end{tabular}
+
+  \vspace{0.4em}
+  {\scriptsize Each hypothesis is reported in \texttt{tab:hypothesis-verdicts} (Ch5) as \emph{supported}, \emph{partially supported}, or \emph{unsupported} at trajectory's end.}
+\end{frame}
+
+% =====================================================================
+\begin{frame}{Functional requirements FR1--FR6 (Ch3 \S func-reqs)}
+  \scriptsize
+  \begin{tabular}{@{}p{0.6cm}p{4cm}p{8cm}@{}}
+    \toprule
+    \textbf{ID} & \textbf{Requirement} & \textbf{Architectural component delivering it} \\
+    \midrule
+    FR1 & Calibrated answer per query & Nine-signal verifier feeding the calibrated probability composite \\
+    FR2 & Explicit abstention under uncertainty & Conformal storage gate + confabulation early-exit \\
+    FR3 & Commit verified episodes to memory & Four-outcome decision tree (STORE branch) \\
+    FR4 & Recall on similar subsequent queries & Three-tier router with combined-score dispatch + safety override \\
+    FR5 & Cycle-boundary regularised fine-tune & SIL loop with quadratic anchor + strict training threshold \\
+    FR6 & Retention guard with weight rollback & Held-out retention probe + asymmetric memory-vs-weights rollback \\
+    \bottomrule
+  \end{tabular}
+
+  \vspace{0.6em}
+  \begin{block}{Where the statelessness gap closes}
+    FR3 + FR4 together kill statelessness: every verified answer is a permanent record indexed by query similarity, available at $\sim$50 ms (Tier 1) for any future similar question. The cost of the original Tier-3 generation amortises over every future Tier-1 hit. A traditional RAG system throws every retrieval result away after generation -- CAEM keeps verified ones.
+  \end{block}
+\end{frame}
+
+% =====================================================================
+\begin{frame}{Non-functional requirements NFR1--NFR5 (Ch3 \S nonfunc-reqs)}
+  \scriptsize
+  \begin{tabular}{@{}p{0.6cm}p{3.5cm}p{4cm}p{4.5cm}@{}}
+    \toprule
+    \textbf{ID} & \textbf{Requirement} & \textbf{Registered target} & \textbf{Cycle-zero receipt} \\
+    \midrule
+    NFR1 & Per-query latency envelope & Tier-dependent: embed lookup (T1), 1 decode (T2), retrieve+grounded decode (T3) & Per-tier trajectory in Ch5 \\
+    NFR2 & Storage precision floor & $\Pr(\mathrm{EM}{=}1\mid u_{\text{stored}}\!\ge\!\tau_{\text{store}})_{\text{cal}} \ge 0.90$ & \alert{$0.9643$ over 56 stored entries on 1500-sample fold} \good \\
+    NFR3 & Retention floor & $\rho(M_t) \ge 0.93$ of cycle-0 baseline on held-out probe & Per-cycle trajectory in Ch5 \\
+    NFR4 & Reproducibility envelope & Every artefact regenerable from one seed + one commit & Locked configuration JSONs + public-host snapshot \\
+    NFR5 & Integrity envelope & Disjointness between eval, calibration, seed, rehearsal folds & Cross-fold disjointness verified per benchmark \\
+    \bottomrule
+  \end{tabular}
+\end{frame}
+
+% =====================================================================
+\begin{frame}{Six design commitments (Ch3 \S constraints)}
+  \scriptsize
+  \begin{enumerate}
+    \item \textbf{Single-backbone commitment.} Generator FIXED across every cycle and every tier. \emph{All reported gains are attributable to memory + calibration + the loop, not to a backbone swap.}
+    \item \textbf{Pooled-calibration commitment.} Composite + conformal thresholds fitted ONCE on a calibration fold pooled across training benchmarks; applied verbatim at every scoring site. \emph{No per-benchmark calibration leakage.}
+    \item \textbf{Local-execution commitment.} No external model API in the inference path. Verifier ensemble + embedding encoder + passage index + generator all run from open weights on a single rented GPU. \emph{Deployable without third-party dependencies.}
+    \item \textbf{Bounded-cycle commitment.} SIL loop capped at 10 cycles; early stop only on the registered equilibrium diagnostic. \emph{Ensures the empirical claim is not propped up by an arbitrary horizon.}
+    \item \textbf{Matched-protocol commitment.} Every external baseline evaluated under same samples, prompts, scoring rules. \emph{The comparison panel is not confounded by re-implementation choices.}
+    \item \textbf{Single-seed reproducibility.} Random-state surface capped at one recorded seed; per-cycle artefact catalogue + pre-Step-7 snapshot on a public dataset host. \emph{Trajectory regenerable end-to-end by a third party.}
+  \end{enumerate}
 \end{frame}
 
 % =====================================================================
 \section*{Per-stage deep dive}
 
-\begin{frame}{Stage 1 — pre-routing confidence $u_{\text{pre}}$}
-  Two cheap signals from one short forward pass (`caem/memory/entry.py:209`):
+\begin{frame}{Stage 1 -- pre-routing confidence $u_{\text{pre}}$}
+  \footnotesize
+  Two cheap signals from one short forward pass (\code{caem/memory/entry.py:209}):
   \begin{itemize}\small
-    \item $u_{\text{token}}$ — geometric mean of per-token log-probabilities of the draft answer
-    \item $c_{\text{conv}}$ — encoder-layer convergence ratio (variance of early layers / variance of late layers)
+    \item $u_{\text{token}}$ -- geometric mean of per-token log-probabilities of the draft answer
+    \item $c_{\text{conv}}$ -- encoder-layer convergence ratio (variance early / variance late layers)
   \end{itemize}
-
   \[
-    u_{\text{pre}} \;=\; \sigma\!\left(\frac{\operatorname{logit}\bigl(0.60\,u_{\text{token}} + 0.40\,(1{+}c_{\text{conv}})^{-1}\bigr)}{T}\right)
+    u_{\text{pre}} = \sigma\!\left(\frac{\operatorname{logit}\bigl(0.60\,u_{\text{token}} + 0.40\,(1{+}c_{\text{conv}})^{-1}\bigr)}{T}\right)
   \]
-  $T$ is re-fit at every cycle by ECE-minimisation on the 1500-sample held-out cal-fold (\code{config.temperature\_scalar}; updated by Step 2.2).
+  $T$ refit at every cycle by ECE-min on 1500-sample cal-fold (Step 2.2).
 
-  \vspace{0.3em}
-  \why{The 0.60 / 0.40 split favours token-level confidence (cheap, well-calibrated by SFT) over the convergence ratio (noisier signal). Both reach into model internals so neither requires an extra forward pass.}
+  \vspace{0.2em}
+  \why{0.60/0.40 split favours token-level confidence (cheap, well-calibrated by SFT) over the noisier convergence ratio. Both reach into model internals -- no extra forward pass.}
 
-  \altn{Single-signal $u_{\text{pre}} = u_{\text{token}}$ alone misses the encoder-layer instability that confidently-wrong outputs exhibit. Including $c_{\text{conv}}$ adds $<5$\% latency and catches a class of failures token-prob alone cannot.}
-
-  \vspace{0.3em}
-  \textbf{Used by:} (i) router safety override (Stage 3); (ii) Stage-6 ABSTAIN gate; (iii) Step 2.2 T re-fit input.
+  \altn{Single-signal $u_{\text{pre}} = u_{\text{token}}$: misses the encoder-layer instability that confidently-wrong outputs exhibit. Adding $c_{\text{conv}}$ catches a class token-prob alone cannot.}
 \end{frame}
 
 % =====================================================================
-\begin{frame}{Stages 2--3 — episodic memory and the three-tier router}
+\begin{frame}{Stages 2--3 -- memory and the three-tier router}
   \footnotesize
-  \textbf{Memory:} FAISS index over SBERT (all-mpnet-base-v2) embeddings of past verified $(q, a)$ pairs. Top-1 search returns similarity $s$ and the neighbour's stored quality $u_{\text{stored,nbr}}$.
+  \textbf{Memory:} FAISS index over SBERT embeddings of past verified $(q,a)$ pairs. Top-1 returns similarity $s$ and neighbour's $u_{\text{stored,nbr}}$.
 
-  \vspace{0.3em}
-  \textbf{Combined dispatch score:}
-  \[
-    \mathcal{S} \;=\; \lambda \cdot s \;+\; (1{-}\lambda)\cdot u_{\text{stored,nbr}}, \quad \lambda = 0.70 \quad\text{(\code{config.routing\_lambda})}.
-  \]
+  \vspace{0.2em}
+  \textbf{Combined dispatch score:} $\mathcal{S} = 0.70\,s + 0.30\,u_{\text{stored,nbr}}$ (\code{routing\_lambda=0.70}).
 
-  \textbf{Dispatch rules in fixed evaluation order (\code{caem/routing/router.py:149}):}
-  \begin{enumerate}
-    \item \alert{Safety override}: if $u_{\text{pre}} < 0.60 \Rightarrow$ Tier 3 unconditionally.
-    \item Tier 1 (memory-direct) if $\mathcal{S} \ge 0.90$ — serve neighbour, NO generation, NO verification.
-    \item Tier 2 (zero-shot) if similarity $> 0.75$ AND not Tier 1 — generate without retrieval.
-    \item Tier 3 (RAG) — fallback, retrieve top-K passages + grounded generation.
+  \vspace{0.2em}
+  \textbf{Dispatch rules in fixed order} (\code{router.py:149}):
+  \begin{enumerate}\small
+    \item Safety override: if $u_{\text{pre}} < 0.60 \Rightarrow$ Tier 3 unconditionally.
+    \item Tier 1 (memory-direct) if $\mathcal{S} \ge 0.90$ -- serve neighbour, NO generation, NO verifier.
+    \item Tier 2 (zero-shot) if similarity $> 0.75$ AND not Tier 1 -- generate without retrieval.
+    \item Tier 3 (RAG) -- fallback floor.
   \end{enumerate}
 
-  \why{Three tiers, not two, because the binary memory-vs-generate decision over-burdens a single threshold. Tier 2 absorbs the ``in-distribution but novel question'' band where the model can answer zero-shot but no neighbour is close enough to trust.}
+  \why{Three tiers because a binary memory-vs-generate decision over-burdens a single threshold. Tier 2 absorbs the ``in-distribution but novel question'' band where the model knows zero-shot but no neighbour is close enough.}
 
-  \why{Safety override is OR, not AND: the OR-condition expresses that model readiness AND memory quality are \emph{both} mandatory --- low confidence wins regardless of how good the neighbour is.}
-
-  \altn{No memory tier (RAG-only baseline B2): pays full retrieval+generation cost on every query, no memorisation benefit. Plain fine-tuning baseline B6: pays full forward-pass on every query and offers no per-query confidence axis.}
+  \why{Safety override is OR not AND: model readiness AND memory quality are \emph{both} mandatory -- low confidence wins regardless of how good the neighbour is.}
 \end{frame}
 
 % =====================================================================
-\begin{frame}{Stage 4 — tier execution: why three handlers}
-  \footnotesize
-  \begin{tabular}{@{}p{2cm}p{4cm}p{6cm}@{}}
+\begin{frame}{Stage 4 -- tier execution: why three handlers}
+  \scriptsize
+  \begin{tabular}{@{}p{1.7cm}p{4.2cm}p{6.5cm}@{}}
     \toprule
     \textbf{Tier} & \textbf{What it does} & \textbf{Cost / when chosen} \\
     \midrule
     Tier 1 (memory) & Returns neighbour's stored answer; verifier skipped & $\sim$50 ms / query;
-                    chosen when memory has a match committed under $u_{\text{stored}} \ge \tau_{\text{store}}$ and similarity $\ge 0.97$-ish (combined $\ge 0.90$). \\
-    Tier 2 (zero-shot) & Single forward pass without retrieval; verifier runs & $\sim$3--5 s / query;
-                    chosen for in-distribution queries where the model's own knowledge suffices. \\
-    Tier 3 (RAG) & Retrieve from 21M passages, rerank with BAAI/bge-reranker, generate grounded; verifier runs & $\sim$10 s / query;
+                    chosen when memory has match committed under $u_{\text{stored}}\ge\tau_{\text{store}}$ (combined $\ge 0.90$). \\
+    Tier 2 (zero-shot) & Single forward pass, no retrieval; verifier runs & $\sim$3--5 s / query;
+                    in-distribution queries where the model's own knowledge suffices. \\
+    Tier 3 (RAG) & Retrieve from 21M passages, rerank, generate grounded; verifier runs & $\sim$10 s / query;
                     architectural floor when nothing else has earned it. \\
     \bottomrule
   \end{tabular}
 
-  \vspace{0.4em}
-  \textbf{Cost--quality compounding:}
-  \begin{itemize}\small
-    \item Early cycles: Tier 1 share $\approx 0$\%, Tier 3 share $> 90$\%.
-    \item Late cycles: Tier 1 share grows as the verified pool fills; mean per-query latency drops accordingly.
-    \item This is a load-bearing differentiator vs plain fine-tuning, which still pays a full forward pass per query forever.
+  \vspace{0.5em}
+  \textbf{Cost--quality compounding} (load-bearing for the ``cost reduction'' claim H5):
+  \begin{itemize}\scriptsize
+    \item Early cycles: Tier 1 share $\approx 0$\%, Tier 3 share $> 90$\% -- pay full RAG cost.
+    \item Late cycles: Tier 1 share grows as the verified pool fills.
+    \item Mean per-query latency drops $\propto$ Tier-1 share. Plain fine-tuning still pays a full forward pass forever -- this is one of CAEM's load-bearing differentiators.
   \end{itemize}
 
-  \why{Verifier is deliberately SKIPPED on Tier 1: the entry was committed under the conformal gate at storage time, so re-verifying every recall would (a) double the compute and (b) be circular --- the verifier would just confirm what the prior gate already established. This is the per-query precision contract acting like a paid receipt.}
+  \why{Verifier SKIPPED on Tier 1: the entry was committed under the conformal gate at storage time, so re-verifying every recall would (a) double the compute and (b) be circular. The per-query precision contract acts like a paid receipt.}
 \end{frame}
 
 % =====================================================================
 \begin{frame}{Stage 5 -- Family A: internal calibration}
-  Three signals from the model itself. White-box, zero extra forward passes.
+  \scriptsize
+  Three signals from the model itself. White-box, zero extra forward passes (re-uses Stage-1 forward).
 
   \vspace{0.3em}
   \begin{tabular}{@{}lp{4.5cm}p{5cm}@{}}
     \toprule
     Signal & Definition & Purpose \\
     \midrule
-    $u_{\text{token}}$ & geometric mean per-token log-prob of draft & calibrated by SFT, cheap, baseline confidence \\
-    $u_{\text{dropout}}$ & variance over $K=5$ MC-Dropout passes (rate $0.10$) & catches answers stable under deterministic decode but fragile under noise \\
-    $u_{\text{internal}}$ & $\tfrac{1}{2}\,u_{\text{token}} + \tfrac{1}{2}(1 - u_{\text{dropout}})$ & combined internal stability signal \\
+    $u_{\text{token}}$ & geometric mean per-token log-prob of draft & calibrated by SFT, baseline confidence \\
+    $u_{\text{dropout}}$ & variance over $K=5$ MC-Dropout passes (rate $0.10$) & catches deterministic-decode-stable but dropout-fragile answers \\
+    $u_{\text{internal}}$ & $\tfrac{1}{2}u_{\text{token}} + \tfrac{1}{2}(1{-}u_{\text{dropout}})$ & combined internal stability for early-exit \\
     \bottomrule
   \end{tabular}
 
   \vspace{0.4em}
-  \why{$K=5$ is the published Bayesian-dropout balance \tiny\cite{NEURIPS2017_84ddfb34}\normalsize: enough to estimate predictive variance, few enough to keep the per-query cost under one extra forward pass equivalent.}
+  \why{$K=5$ is the published Bayesian-dropout balance (Gal 2016): enough to estimate predictive variance, few enough for one extra forward pass equivalent.}
 
-  \why{Combination via $u_{\text{internal}}$ is the input to the Stage-6 confabulation early-exit. Linear combination chosen over multiplication so the signals stay in $[0,1]$ and the boost layer can re-weight them on log-odds without sign-flipping artefacts.}
+  \why{$u_{\text{internal}}$ feeds the Stage-6 confabulation early-exit. Linear combination keeps signals in $[0,1]$ for downstream isotonic.}
 
-  \altn{Just $u_{\text{token}}$ alone: published research on \cite{kadavath2022language} confirms token-prob misses the over-confident ``I'm sure'' failure mode. Adding $u_{\text{dropout}}$ catches that.}
+  \altn{$u_{\text{token}}$ alone misses the over-confident ``I'm sure'' failure mode (Kadavath et al.\ 2022). Adding $u_{\text{dropout}}$ catches it.}
 \end{frame}
 
 % =====================================================================
 \begin{frame}{Stage 5 -- Family B: sample-set agreement}
-  \footnotesize
-  Resample $M{=}3$ chains at $T{=}0.7$ and measure inter-chain agreement.
+  \scriptsize
+  Resample $M{=}3$ chains at $T{=}0.7$. Inter-chain agreement and chain-to-answer entailment.
 
-  \vspace{0.4em}
-  \begin{tabular}{@{}lp{5cm}p{5cm}@{}}
+  \vspace{0.3em}
+  \begin{tabular}{@{}lp{4.7cm}p{5cm}@{}}
     \toprule
     Signal & Definition & Closes which failure mode \\
     \midrule
-    $s_{\text{avg}}$ & Mean unique-pair cosine over $M{=}3$ chains in SBERT space & ``self-consistency'': the same model produces the same answer when re-rolled \tiny\cite{wang2023selfconsistency}\normalsize \\
-    $p_{\text{entail}}$ & Mean MiniCheck NLI entailment of each chain $\to$ served answer & ``the served answer is well-formed but is NOT what the chains support'' \\
+    $s_{\text{avg}}$ & mean unique-pair cosine over $M=3$ chains in SBERT space & ``self-consistency'': model produces same answer on re-roll (Wang et al.\ 2023) \\
+    $p_{\text{entail}}$ & mean MiniCheck NLI entailment chain $\to$ served answer & ``served answer is well-formed but is NOT what the chains support'' \\
     \bottomrule
   \end{tabular}
 
   \vspace{0.4em}
-  \why{$M=3$ is the wall-clock floor for self-consistency to discriminate stable from unstable answers --- $M=1$ gives zero variance, $M=10$ adds little discriminative power per Wang et al.}
+  \why{$M=3$: $M=1$ gives zero variance, $M=10$ adds little discriminative power per Wang et al. $T=0.7$: greedy collapses chains to identical strings ($s_{\text{avg}}=1$ trivially); $T=1.0$ is too noisy.}
 
-  \why{Why $T=0.7$ and not greedy: greedy ($T=0$) collapses all chains to the same string, $s_{\text{avg}} = 1$ trivially. $T = 1.0$ is too noisy; $T = 0.7$ is the empirical sweet spot from the published self-consistency line.}
-
-  \alert{Note:} the original 10th candidate $h_{\text{norm}}$ (normalised semantic entropy at $K=10$, $T=1.0$) was empirically retired --- the cycle-0 calibration audit fitted a boost weight of \alert{$-5 \times 10^{-4}$}, statistically zero. It cost $\sim$4\,s/sample for no information gain. Receipt: \code{cycle\_0/composite\_calibration.json}.
+  \alert{Empirical retirement of $h_{\text{norm}}$:} the original 10th candidate (normalised semantic entropy at $K=10$, $T=1.0$) was retired post Cycle-0 audit -- fitted boost weight \alert{$-5\times 10^{-4}$}, statistically zero. It cost $\sim$4\,s/sample for no information gain. Saved $\sim$50 hours over the trajectory. Receipt: \code{cycle\_0/composite\_calibration.json}.
 \end{frame}
 
 % =====================================================================
-\begin{frame}{Stage 5 -- Family C: external grounding (and the rerank choice)}
-  \footnotesize
-  Three signals over passages retrieved from a 21M-passage Wikipedia DPR index, reranked by BAAI/bge-reranker-v2-m3:
+\begin{frame}{Stage 5 -- Family C: external grounding}
+  \scriptsize
+  Three signals over passages retrieved from 21M-passage Wikipedia DPR + reranked by BAAI/bge-reranker-v2-m3.
 
   \vspace{0.3em}
   \begin{tabular}{@{}lp{6cm}p{3.5cm}@{}}
@@ -417,49 +490,47 @@
     \midrule
     $p_{\text{ground,max}}$ & strongest of top-3 reranked passages $\to$ answer & ``one passage clearly supports'' \\
     $p_{\text{ground,mean}}$ & mean over all top-3 $\to$ answer & ``broad support across passages'' \\
-    $p_{\text{ground,atomic}}$ & length-gated atomic-fact decomp $\to$ each top-3 & ``answer claims something not in any passage'' \cite{min-etal-2023-factscore} \\
+    $p_{\text{ground,atomic}}$ & length-gated atomic-fact decomp $\to$ each top-3 (Min et al.\ 2023) & ``answer claims something not in any passage'' \\
     \bottomrule
   \end{tabular}
 
   \vspace{0.4em}
-  \alert{Important architectural detail:} the reranker scores pairs of \alert{$(query + answer, \text{passage})$}, not just $(query, \text{passage})$ (\code{verifier.py:1822}).
+  \alert{Important architectural detail:} reranker scores pairs of \alert{$(query + answer, \text{passage})$}, NOT $(query, \text{passage})$ (\code{verifier.py:1822}).
 
-  \vspace{0.2em}
-  \why{Concatenating the answer to the query forces the reranker to find passages that could substantiate the \emph{specific claim} the model just produced --- the load-bearing input to $p_{\text{ground,*}}$. If we ranked by topical relevance to the question only, the top passages might be on-topic but say nothing about the answer.}
+  \why{Concatenating the answer to the query forces the reranker to find passages that could substantiate the \emph{specific claim} the model just produced. If we ranked by topical relevance to the question only, top passages might be on-topic but say nothing about the actual claim.}
 
-  \why{This is also why the rerank is NOT cacheable across cycles: the served answer changes after every SIL fine-tune, so the rerank pair is different and the top-3 changes. The cost is paid every cycle by design.}
+  \why{This is also why the rerank is NOT cacheable across cycles: served answer changes after every SIL fine-tune, so the rerank pair differs and top-3 changes. The cost is paid per cycle by design.}
 \end{frame}
 
 % =====================================================================
 \begin{frame}{Stage 5 -- Family D + composite math}
-  \footnotesize
-  \textbf{Family D (one signal):} $q_{\text{a,rel}}$ -- independent cross-encoder score of $(\text{question}, \text{served\_answer})$. The verifier's cross-encoder is FROZEN; the generator does NOT influence it.
+  \scriptsize
+  \textbf{Family D (one signal):} $q_{\text{a,rel}}$ -- independent cross-encoder score of $(\text{question}, \text{served\_answer})$. Verifier's cross-encoder is FROZEN.
+
+  \why{This single signal carries the largest weight ($w = 0.500$). It catches the ``off-topic but grounded'' failure mode -- model confidently answers a related-but-different question, retrieval finds passages supporting the wrong question. Internal/grounding signals miss this.}
 
   \vspace{0.4em}
-  \why{This single signal carries the strongest weight ($w = 0.500$) in the boost layer. The reason: it's the only signal that catches the ``off-topic but grounded'' failure mode --- model confidently answers a related-but-different question and retrieval finds passages supporting the wrong question. Internal/grounding signals miss this; q-a relevance catches it.}
-
-  \vspace{0.5em}
-  \textbf{Stage 5b -- calibrated probability composite (\code{cal\_prob\_composite.py:280}):}
-  \begin{enumerate}\small
-    \item For each signal $j$: $P_j = \mathrm{iso}_j(\text{signal}_j) \in [0,1]$. \quad (per-signal isotonic regression, fit on cycle-0 cal-fold)
-    \item Convert to log-odds: $L_j = \log\bigl(P_j/(1{-}P_j)\bigr)$.
-    \item L$_2$-regularised logistic boost \tiny\cite{cherian2024conformal}\normalsize: $\quad\operatorname{logit}(u_{\text{stored}}) = b + \sum_j w_j L_j$.
+  \textbf{Stage 5b -- composite (\code{cal\_prob\_composite.py:280}):}
+  \begin{enumerate}\scriptsize
+    \item For each signal $j$: $P_j = \mathrm{iso}_j(\text{signal}_j) \in [0,1]$ (isotonic, fit on Cycle-0 cal-fold).
+    \item $L_j = \log(P_j/(1{-}P_j))$.
+    \item L$_2$ logistic boost (Cherian 2024): $\operatorname{logit}(u_{\text{stored}}) = b + \sum_j w_j L_j$.
     \item Sigmoid back: $u_{\text{stored}} = \sigma(\cdot) \in (0,1)$.
   \end{enumerate}
 
-  \why{Per-signal isotonic before the boost: each signal has its own monotone but non-linear calibration curve --- e.g.\ MiniCheck entailment isn't linear in $P(\text{correct})$. Isotonic absorbs that without parametric assumptions.}
+  \why{Per-signal isotonic before boost: each signal has its own monotone but non-linear calibration curve. Isotonic absorbs that without parametric assumptions.}
 
-  \why{Why L$_2$ not L$_1$: every signal in the registered set is expected to carry non-zero discriminative signal under the registered hypotheses; L$_2$ shrinks weights smoothly without setting any to zero, preserving the architectural commitment to nine-signal coverage. \altn{L$_1$ would zero some weights and turn the boost layer into a feature-selection step, which is what the cycle-0 audit performs separately and explicitly (h_norm retirement).}}
+  \why{L$_2$ not L$_1$: every signal carries non-zero discriminative signal under the registered hypotheses; L$_2$ shrinks smoothly without setting weights to zero (preserves architectural commitment to nine-signal coverage).}
 
-  \why{$C = 0.01$ (strong regulariser) chosen by the 25-variant pre-registered Step 7.0.3 sweep over $C \in \{0.01, 0.10, 1.00\}$. Locked because empirical evaluation-fold ID precision dominated.}
+  \why{$C = 0.01$ chosen by 25-variant Step 7.0.3 sweep over $C \in \{0.01, 0.10, 1.00\}$, locked by best ID precision.}
 \end{frame}
 
 % =====================================================================
 \begin{frame}{Stage 5b -- locked Cycle-0 boost weights}
-  \footnotesize
-  Read directly from \code{outputs/cycle\_0/composite\_calibration.json}:
+  \scriptsize
+  Pulled directly from \code{outputs/cycle\_0/composite\_calibration.json}:
 
-  \vspace{0.4em}
+  \vspace{0.3em}
   \begin{tabular}{@{}lr|lr@{}}
     \toprule
     Signal & Weight & Signal & Weight \\
@@ -471,181 +542,194 @@
     & & $u_{\text{dropout}}$ & $+0.083$ \\
     \rowcolor{caemred!15}$h_{\text{norm}}$ & $\mathbf{-0.0005}$ \alert{(retired)} & & \\
     \midrule
-    \multicolumn{4}{@{}c@{}}{\textbf{Intercept $b = +1.099$, em\_rate on cal-fold $= 0.243$, n=1500}} \\
+    \multicolumn{4}{@{}c@{}}{\textbf{Intercept $b = +1.099$, em\_rate cal-fold $= 0.243$, $n=1500$}} \\
     \bottomrule
   \end{tabular}
 
   \vspace{0.4em}
-  \textbf{Interpretation:}
-  \begin{itemize}\small
-    \item Q-A relevance + grounding family carry \alert{$\sim$74\%} of the total weight --- discriminative power lives in external evidence.
-    \item Internal signals contribute $\sim$26\% --- they catch failure modes the external signals miss but are dominated.
-    \item $h_{\text{norm}}$'s near-zero weight justified its retirement --- $\sim$4\,s/sample bought zero discrimination.
+  \begin{itemize}\scriptsize
+    \item Q-A relevance + grounding family carry \alert{$\sim$74\%} of the weight -- discriminative power lives in \emph{external evidence}.
+    \item Internal signals contribute $\sim$26\% -- they catch failure modes the external signals miss but are dominated.
+    \item $h_{\text{norm}}$'s near-zero weight justified its retirement -- 4 s/sample for zero discrimination.
   \end{itemize}
 \end{frame}
 
 % =====================================================================
 \begin{frame}{Stage 6 -- four-outcome decision tree}
-  \footnotesize
-  \textbf{Conformal split-CP gate} fitted on the cycle-0 cal-fold (\code{outputs/cycle\_0/conformal\_gate.json}):
-
-  \begin{itemize}\small
+  \scriptsize
+  \textbf{Conformal split-CP gate} (\code{outputs/cycle\_0/conformal\_gate.json}):
+  \begin{itemize}\scriptsize
     \item $\alpha_{\text{store}} = 0.05 \Rightarrow$ precision target $0.95$ \quad $\to \tau_{\text{store}} = 0.6676$ \quad ($n_{\text{store}} = 56$, $\pi_{\text{store}} = 0.9643$)
-    \item $\alpha_{\text{defer}} = 0.40 \Rightarrow$ precision target $0.60$ \quad $\to \tau_{\text{defer}} = 0.5207$ \quad ($n_{\text{defer}} = 191$, $\pi_{\text{defer}} = 0.6021$)
+    \item $\alpha_{\text{defer}} = 0.40 \Rightarrow$ precision target $0.60$ \quad $\to \tau_{\text{defer}} = 0.5207$
   \end{itemize}
 
   \vspace{0.3em}
-  \textbf{Decision rule} (verifier.py:65--70):
+  \textbf{Decision rule} (\code{verifier.py:65--70}):
   \[
   \texttt{decision} = \begin{cases}
     \texttt{STORE}    & u_{\text{stored}} \ge \tau_{\text{store}} \\
     \texttt{DEFERRED} & \tau_{\text{defer}} \le u_{\text{stored}} < \tau_{\text{store}} \\
-    \texttt{ABSTAIN}  & u_{\text{stored}} < \tau_{\text{defer}} \;\wedge\; p_{\text{ground,max}} < \phi_{\text{pg}} \\
-    \texttt{DISCARD}  & u_{\text{stored}} < \tau_{\text{defer}} \;\wedge\; p_{\text{ground,max}} \ge \phi_{\text{pg}}
+    \texttt{ABSTAIN}  & u_{\text{stored}} < \tau_{\text{defer}} \;\wedge\; p_{\text{ground,max}} < 0.20 \\
+    \texttt{DISCARD}  & u_{\text{stored}} < \tau_{\text{defer}} \;\wedge\; p_{\text{ground,max}} \ge 0.20
   \end{cases}
   \]
-  with $\phi_{\text{pg}} = 0.20$ (the abstention floor; \emph{distinct} from the safety floor $0.60$ on $u_{\text{pre}}$).
 
-  \vspace{0.2em}
-  \textbf{Confabulation early-exit} (precedence over the composite, \code{verifier.py:54}):
+  \textbf{Confabulation early-exit (precedence over composite):}
   \[
     u_{\text{internal}} \ge 0.70 \;\wedge\; p_{\text{ground,max}} \le 0.20 \;\Rightarrow\; \texttt{DISCARD},\ \text{escalate to Tier 3}.
   \]
 
-  \why{The early-exit catches the dangerous quadrant ``model is sure but evidence directly contradicts'' --- this is observationally distinct from low-confidence answers and the composite alone could miss it because $u_{\text{stored}}$ might still be moderate.}
+  \why{The early-exit catches the dangerous quadrant: ``model is sure but evidence directly contradicts.'' Composite alone could miss this because $u_{\text{stored}}$ might still be moderate.}
 
-  \why{Two distinct ABSTAIN/DISCARD outcomes (not one) because they need different production responses: ABSTAIN means ``no evidence at all, hide the answer''; DISCARD means ``some evidence but signals disagree, show with a hedge''.}
+  \why{Two distinct ABSTAIN/DISCARD outcomes (not one) because each needs a different production response. ABSTAIN: ``no evidence at all, hide answer.'' DISCARD: ``evidence exists, signals disagree, show with hedge.''}
 \end{frame}
 
 % =====================================================================
 \begin{frame}{Stage 7 -- production response per decision}
   \footnotesize
-  \textbf{User-facing output rules from \code{caem/production/confidence.py}:}
+  User-facing output rules (\code{caem/production/confidence.py}):
 
   \vspace{0.3em}
-  \begin{tabular}{@{}lcccp{4.5cm}@{}}
+  \begin{tabular}{@{}lcccp{4.2cm}@{}}
     \toprule
     Decision & \textbf{show\_answer} & tag & label & user-facing caveat \\
     \midrule
     STORE    & \good & verified     & high     & --- (clean confident answer) \\
-    DEFERRED & \good & provisional  & moderate & ``I'll reconsider this at my next learning cycle.\\&&&& Please ask again later for an updated answer.'' \\
-    DISCARD  & \good & conflicting  & low      & ``Evidence exists but some signals disagree --- \\&&&& independent verification is recommended.'' \\
-    ABSTAIN  & {\color{caemred}\ding{55}} & insufficient & very\_low & substituted: ``I don't have enough evidence \\&&&& to answer this reliably.'' \\
+    DEFERRED & \good & provisional  & moderate & ``I'll reconsider this at my\\&&&& next learning cycle.'' \\
+    DISCARD  & \good & conflicting  & low      & ``Evidence exists but signals\\&&&& disagree -- verify independently.'' \\
+    ABSTAIN  & \bad & insufficient  & very\_low & ``I don't have enough evidence\\&&&& to answer this reliably.'' \\
     \bottomrule
   \end{tabular}
-  \newcommand{\good}{\color{caemgreen}\ding{51}}
-  \renewcommand{\good}{\color{caemgreen}\ding{51}}
 
-  \vspace{0.5em}
-  \textbf{Key observations:}
-  \begin{itemize}\small
+  \vspace{0.4em}
+  \begin{itemize}\scriptsize
     \item Confidence is always shown; only the answer text is hidden (ABSTAIN).
-    \item DEFERRED + DISCARD show the answer with a hedge --- the user is informed that the system is uncertain and why.
-    \item This matters for trust calibration: a system that always shows or always hides is less informative than one that grades the trust level.
+    \item DEFERRED + DISCARD show the answer with a hedge -- user is informed the system is uncertain and why.
+    \item This matters for trust calibration: a system that always shows or always hides is less informative than one that grades trust.
   \end{itemize}
 
-  \why{The four-class output schema lets the deployer build trust-aware UX: STORE entries can be ``trusted answers'', DEFERRED/DISCARD can be ``hedged with caveat'', ABSTAIN is ``honest refusal''. Plain fine-tuning has no such axis --- it just emits a string.}
+  \why{The four-class output schema lets the deployer build trust-aware UX. Plain fine-tuning has no such axis -- it just emits a string.}
 \end{frame}
 
 % =====================================================================
-\begin{frame}{Cycle-boundary loop -- Step 1: SIL fine-tune}
-  \footnotesize
-  Fine-tune the generator on verified episodes from memory + a general-domain mix (\code{caem/training/self\_improvement.py}).
+\begin{frame}{Cycle loop -- Step 1: SIL fine-tune}
+  \scriptsize
+  Fine-tune the generator on verified episodes from memory + general-domain mix (\code{caem/training/self\_improvement.py}).
 
   \vspace{0.3em}
-  \textbf{Loss function:}
-  \[
-    \mathcal{L} \;=\; \mathcal{L}_{\mathrm{CE}}(\theta) \;+\; \lambda_{\text{anc}}\,\|\theta - \theta_{t-1}\|_{2}^{2}.
-  \]
-  $\theta_{t-1}$ kept on CPU and streamed per-parameter via PCIe (frees $\sim$6 GB GPU; OOM-mitigation patch).
+  \textbf{Loss:} $\mathcal{L} = \mathcal{L}_{\mathrm{CE}}(\theta) + \lambda_{\text{anc}}\,\|\theta - \theta_{t-1}\|_2^2$. \quad
+  $\theta_{t-1}$ on CPU, streamed per-parameter via PCIe (frees $\sim$6 GB GPU; OOM-mitigation patch).
 
   \vspace{0.3em}
   \textbf{Optimisation envelope:}
-  \begin{itemize}\small
-    \item AdamW8bit (bitsandbytes) with gradient checkpointing and AMP bf16
-    \item \code{torch.compiler.set\_stance("force\_eager")} for the SIL block (avoids the SDPA-compiled-backward OOM)
-    \item batch\_size $= 4$, grad\_accum\_steps $= 4 \Rightarrow$ effective batch $= 16$
-    \item epochs\_per\_cycle $= 3$
+  \begin{itemize}\scriptsize
+    \item AdamW8bit (bitsandbytes) + gradient checkpointing + AMP bf16
+    \item \code{torch.compiler.set\_stance("force\_eager")} for SIL block (avoids SDPA-compile-backward OOM)
+    \item batch\_size $= 4$, grad\_accum\_steps $= 4 \Rightarrow$ effective batch $= 16$; epochs\_per\_cycle $= 3$
+    \item Training pool: $u_{\text{stored}} \ge \tau_{\text{train}} = 0.75 > \tau_{\text{store}} = 0.6676$ -- training threshold STRICTER than storage
   \end{itemize}
 
   \vspace{0.3em}
-  \textbf{Retention guard:} measure MMLU on 200 held-out items pre + post fine-tune. If
-  \[
-    \rho = \frac{\text{MMLU}_{\text{post}}}{\text{MMLU}_{\text{pristine}}} \;<\; \rho_{\min} = 0.93,
-  \]
-  \alert{abort the cycle}: restore $\theta_{t-1}$, \alert{KEEP the accumulated memory pool}. This is asymmetric rollback.
+  \textbf{Retention guard:} measure MMLU on 200 held-out items pre+post fine-tune. If $\rho = \mathrm{MMLU}_{\text{post}}/\mathrm{MMLU}_{\text{pristine}} < \rho_{\min} = 0.93$, \alert{abort cycle}, restore $\theta_{t-1}$, KEEP memory pool.
 
-  \why{L$_2$ anchor is a first-order approximation to elastic weight consolidation \cite{doi:10.1073/pnas.1611835114}. Full EWC requires the per-weight Fisher diagonal, which we cannot compute on a 3.086\,B-parameter generator within the cycle budget. The uniform-Fisher approximation bounds drift cheaply.}
+  \why{L$_2$ anchor is first-order EWC (Kirkpatrick 2017). Full EWC requires per-weight Fisher diagonal -- can't compute on 3.086\,B params within cycle budget. Uniform-Fisher approximation bounds drift cheaply.}
 
-  \why{$\rho_{\min}=0.93$ rather than $1.00$: a strict lower bound would abort too aggressively (small noise drops can cross 1.00), 0.93 is the published continual-learning practical floor and matches MMLU's measurement noise.}
+  \why{$\rho_{\min} = 0.93$ not $1.00$: strict bound aborts on small noise; 0.93 is the published continual-learning practical floor matching MMLU's measurement noise.}
+
+  \why{$\tau_{\text{train}} > \tau_{\text{store}}$: training pool quality MUST be stricter than user-facing storage. Otherwise borderline-stored entries contaminate the gradient signal.}
 \end{frame}
 
 % =====================================================================
-\begin{frame}{Cycle-boundary loop -- Steps 2.1--2.5: recalibration before retroverify}
-  \footnotesize
-  \begin{enumerate}\small
-    \item \textbf{Step 2.1} -- score the same disjoint 1500-sample cal-fold under the post-SIL model. Cache $u_{\text{pre}}$ + 9 signals + EM per sample to \code{cycle\_N/calibration/\{bench\}\_cycle\{N\}.json}.
-    \item \textbf{Step 2.2} -- re-fit $T$ by ECE-min on (cached $u_{\text{pre}}$, em). \alert{Reads the cache} written by 2.1 instead of re-running the pipeline (saves $\sim$3.5 h per cycle; recent optimisation).
-    \item \textbf{Step 2.3} -- re-fit per-signal isotonic curves AND conformal $\tau$ on the post-SIL cal-fold. EMA-smooth: $\tau_{\text{new}} = 0.7\,\tau_{\text{prev}} + 0.3\,\tau_{\text{fit}}$ (\code{adaptive\_thresholds\_ema\_alpha = 0.7}).
-    \item \textbf{Step 2.4} -- hot-reload the verifier's calibration JSONs in the running process (no restart).
-    \item \textbf{Step 2.5} -- retroactive re-verification: re-score every stored episode through the freshly-recalibrated verifier; prune below $\tau_{\text{retro}} = 0.50$, keep + upgrade upward otherwise.
+\begin{frame}{Cycle loop -- Steps 2.1--2.5: recalibrate before retroverify}
+  \scriptsize
+  \begin{enumerate}\scriptsize
+    \item \textbf{Step 2.1} -- score the same disjoint 1500-sample cal-fold under post-SIL model. Cache $u_{\text{pre}}$ + 9 signals + EM per sample to \code{cycle\_N/calibration/}.
+    \item \textbf{Step 2.2} -- re-fit $T$ by ECE-min on (cached $u_{\text{pre}}$, em). \alert{Reads cache} from 2.1 instead of re-running pipeline (saves $\sim$3.5 h/cycle).
+    \item \textbf{Step 2.3} -- re-fit per-signal isotonic + conformal $\tau$ on post-SIL fold. EMA-smooth: $\tau_{\text{new}} = 0.7\,\tau_{\text{prev}} + 0.3\,\tau_{\text{fit}}$.
+    \item \textbf{Step 2.4} -- hot-reload verifier in running process (no restart).
+    \item \textbf{Step 2.5} -- retroactive re-verification: re-score every stored entry through fresh verifier; prune below $\tau_{\text{retro}} = 0.50$, keep + upgrade upward otherwise.
   \end{enumerate}
 
-  \why{Recalibrate THEN retroverify (not the reverse): if we retroverified under the stale verifier, we'd re-score memory through cycle-$N{-}1$'s thresholds and over-prune EM-correct entries because the post-SIL signal distribution has shifted. Correct order: first recalibrate to the new distribution, then re-score memory.}
+  \why{Recalibrate THEN retroverify (NOT reverse): if we retroverified under the stale verifier, we'd re-score memory through cycle-$N{-}1$'s thresholds and over-prune EM-correct entries because the post-SIL signal distribution shifted. Correct order: first recalibrate to new distribution, then re-score memory.}
 
-  \why{EMA factor $0.7$ keeps thresholds slow-moving --- a higher factor would freeze the thresholds (calibration drift accumulates), a lower factor would chase single-cycle noise (storage rate oscillates). 0.7 is the empirical compromise.}
+  \why{EMA factor $0.7$: keeps thresholds slow-moving. Higher $\Rightarrow$ frozen (calibration drift accumulates). Lower $\Rightarrow$ chases single-cycle noise. 0.7 is the empirical compromise.}
 
-  \why{$\tau_{\text{retro}} = 0.50$ < $\tau_{\text{defer}} = 0.52$ deliberately: an entry borderline-deferred but no longer storage-quality is still kept for the deferred-reconsider pass at the next cycle, rather than categorically deleted.}
+  \why{$\tau_{\text{retro}} = 0.50 < \tau_{\text{defer}} = 0.52$ deliberately: an entry borderline-deferred but no longer storage-quality is still kept for the deferred-reconsider pass at next cycle, rather than categorically deleted.}
 \end{frame}
 
 % =====================================================================
-\begin{frame}{Cycle-boundary loop -- Steps 4 + 5: stream + eval}
-  \footnotesize
-  \textbf{Step 4 -- cycle-$N$ stream chunk:} 9000 fresh queries (3000 each from the training panel: FEVER, TriviaQA, NQ) flow through the full Stage 1--7 pipeline under cycle-$N$ calibration. STORE/DEFER outcomes accumulate into memory and the deferred buffer respectively.
+\begin{frame}{Cycle loop -- Steps 4 + 5: stream + eval}
+  \scriptsize
+  \textbf{Step 4 -- cycle-$N$ stream chunk:} 9000 fresh queries (3000 each from training panel: FEVER, TQA, NQ) flow through full Stage 1--7 under cycle-$N$ calibration. STORE/DEFER outcomes accumulate in memory + deferred buffer.
 
   \vspace{0.3em}
-  \textbf{Step 5 -- cycle-$N$ eval-fold:} 3500 disjoint samples ($500 \times 7$ benchmarks) measured per cycle. Writes per-sample JSON to \code{eval/\{bench\}\_cycle\{N\}.json}. Headline metrics (EM, F1, CHM, CES, storage rate, Tier-1 hit rate) come from these.
+  \textbf{Step 5 -- cycle-$N$ eval-fold:} 3500 disjoint samples ($500 \times 7$ benchmarks) per cycle. Per-sample JSON to \code{eval/\{bench\}\_cycle\{N\}.json}. Headline metrics: EM, F1, CHM, CES, storage rate, Tier-1 hit rate.
 
   \vspace{0.4em}
-  \textbf{Benchmark panel structure (\code{run\_phase1a.sh}):}
-  \begin{itemize}\small
-    \item Training panel (3): FEVER, TriviaQA, NQ-Open --- the model SEES these in stream chunks.
-    \item Held-out transfer panel (4): TruthfulQA, StrategyQA, ARC-Challenge, ASQA --- the model NEVER sees these in training. Test of generalisation.
+  \textbf{Benchmark panel structure:}
+  \begin{itemize}\scriptsize
+    \item Training panel (3): FEVER, TriviaQA, NQ-Open -- model SEES these in stream chunks.
+    \item Held-out transfer panel (4): TruthfulQA, StrategyQA, ARC-Challenge, ASQA -- model NEVER sees these in training.
   \end{itemize}
 
-  \why{Splitting the panel matters for the empirical claim: training-panel improvement could be memorisation, but transfer-panel improvement is the load-bearing evidence that the architecture confers cross-distribution benefit.}
+  \why{Splitting matters for the empirical claim: training-panel improvement could be memorisation, but transfer-panel improvement is the load-bearing evidence that the architecture confers cross-distribution benefit.}
 
-  \why{$N=3000$ training queries per cycle balances cycle-budget vs information per cycle. Smaller would dilute the signal of any per-cycle verifier improvement; larger would cost more wall-clock without proportional benefit.}
+  \why{$N=3000$ training queries per cycle: balance cycle-budget vs information per cycle. Smaller dilutes the verifier-improvement signal; larger costs more wall-clock without proportional benefit.}
 
-  \textbf{Cycle close:} save \code{cycle\_N/model.pt} ($\sim$6.17 GB), gdrive offload, append a row to \code{experiment\_summary.csv}. Cycle $N{+}1$ begins.
+  \textbf{Cycle close:} save \code{cycle\_N/model.pt} ($\sim$6.17 GB), gdrive offload, append row to \code{experiment\_summary.csv}. Cycle $N{+}1$ begins.
 \end{frame}
 
 % =====================================================================
 \section*{Theory and evidence}
 
-\begin{frame}{Four theoretical guarantees (each paired with empirical receipt)}
-  \footnotesize
+\begin{frame}{Four theoretical guarantees (each with empirical receipt)}
+  \scriptsize
   \begin{enumerate}\setlength\itemsep{0.4em}
-    \item \textbf{Pool purity floor.} Under upward-only retroactive update: \alert{$\pi_t \ge 1 - \alpha_{\text{store}}$ for all $t$}.
-          \emph{Receipt:} per-cycle pool purity should not drop below $\min(0.95, \pi_{\text{retro}})$ at any cycle. Reading: \code{outputs/full\_run/pool\_purity\_per\_cycle.csv}.
+    \item \textbf{Theorem 1 -- Pool purity floor.} Under upward-only retroactive update: \alert{$\pi_t \ge 1 - \alpha_{\text{store}}$ for all $t$}.
+          \emph{Receipt:} per-cycle pool purity $\ge \min(0.95, \pi_{\text{retro}})$. \emph{Hypothesis:} H1, H2.
 
-    \item \textbf{Monotonicity.} Storage rate AND pool purity are monotonic in the verifier's discrimination $d$ (Cohen's $d$ on cal-fold) AND in the base-model accuracy $p_+$.
-          \emph{Receipt:} $d_t$ vs $\sigma_t$ vs $\pi_t$ trajectory across the 10 cycles in Ch5 figure.
+    \item \textbf{Theorem 2 -- Monotonicity.} Storage rate AND pool purity both rise with verifier discrimination $d$ (Cohen's $d$ on cal-fold) AND base-model accuracy $p_+$.
+          \emph{Receipt:} $d_t$ vs $\sigma_t$ vs $\pi_t$ trajectory across 10 cycles in Ch5 figure.
 
-    \item \textbf{Geometric envelope.} The precision-asymptote gap satisfies $|\pi_t - \pi_\infty| \le A\,r^{t}$ with contraction rate $r = \mathcal{O}\!\bigl(\sigma\,\Phi(d/\sqrt{2})\bigr)$.
-          \emph{Receipt:} exponential-decay fit to $G_t = |\pi_t - \pi_\infty|$ across cycles; Phase 4 produces \code{purity\_curve\_fit.json}.
+    \item \textbf{Theorem 3 -- Geometric envelope.} $|\pi_t - \pi_\infty| \le A\,r^{t}$ with contraction rate $r = \mathcal{O}\!\bigl(\sigma\,\Phi(d/\sqrt{2})\bigr)$.
+          \emph{Receipt:} exponential-decay fit to gap $G_t = |\pi_t - \pi_\infty|$ across cycles. \emph{Hypothesis:} H3.
 
-    \item \textbf{Asymptotic Tier-1 hallucination floor.} The memory-direct tier's hallucination rate is bounded:
+    \item \textbf{Theorem 4 -- Asymptotic Tier-1 hallucination floor.}
           \[
             H_\infty \;\le\; \alpha_{\text{store}} + (1{-}\alpha_{\text{store}})\,\varepsilon_{\text{arch}}.
           \]
-          The floor is set by the conformal level $\alpha_{\text{store}}$, NOT by deployment scale. \alert{This is the load-bearing theoretical claim} — scale alone cannot beat $\alpha_{\text{store}}$.
+          The floor is set by $\alpha_{\text{store}}$, NOT by deployment scale. \alert{This is the load-bearing theoretical claim} -- scale alone cannot beat $\alpha_{\text{store}}$. \emph{Hypothesis:} H4.
   \end{enumerate}
 \end{frame}
 
 % =====================================================================
+\begin{frame}{Theorem-to-hypothesis registration map}
+  \scriptsize
+  \begin{tabular}{@{}p{0.6cm}p{4cm}p{4cm}p{4cm}@{}}
+    \toprule
+    \textbf{ID} & \textbf{Hypothesis} & \textbf{Theorem / claim} & \textbf{Deciding statistic} \\
+    \midrule
+    H1 & Verifier balanced acc.\ $> 0.5$ at every cycle & Theorem 1 precondition & per-cycle balanced accuracy \\
+    H2 & Pool purity non-decreasing under H1 & Theorem 1 (purity floor) & per-cycle $\pi_t$ trajectory \\
+    H3 & Late-cycle increments inside envelope & Theorem 3 (convergence) & residual vs envelope upper bound \\
+    H4 & CHM $\to$ parameter-bounded asymptote & Theorem 4 (asymptotic) & gap final-cycle CHM vs predicted asymp.\ \\
+    H5 & Tier-1 hit rate grows; per-query cost drops & Operational claim (deployment) & per-cycle Tier-1 share, pooled latency \\
+    \bottomrule
+  \end{tabular}
+
+  \vspace{0.5em}
+  \begin{block}{What each hypothesis tells us if it fails}
+    H1 fails $\Rightarrow$ Theorem 1 precondition violated, purity floor not guaranteed.\\
+    H2 fails $\Rightarrow$ purity drift outside the registered direction; suggests retroactive update broke the upward-only invariant.\\
+    H3 fails $\Rightarrow$ contraction rate over-optimistic; the geometric model may need replacement.\\
+    H4 fails $\Rightarrow$ asymptotic floor over-optimistic; system has not converged within budget.\\
+    H5 fails $\Rightarrow$ memory accumulation insufficient to deliver cost reduction at this scale of training pool.
+  \end{block}
+\end{frame}
+
+% =====================================================================
 \begin{frame}{Locked Cycle-0 configuration (every constant on disk)}
-  \footnotesize
+  \scriptsize
   \begin{tabular}{@{}lr@{\quad}lr@{}}
     \toprule
     \textbf{Quantity} & \textbf{Value} & \textbf{Quantity} & \textbf{Value} \\
@@ -657,28 +741,27 @@
     $\alpha_{\text{ema}}$ smoothing & 0.70 & $\pi_{\text{defer}}$ (cal-fold) & 0.6021 \\
     $\rho_{\min}$ retention floor & 0.93 & em\_rate (cal-fold) & 0.243 \\
     $\tau_{\text{retro}}$ prune & 0.50 & cal-fold size $n$ & 1500 \\
-    safety floor $u_{\text{pre}}^{\min}$ & 0.60 & training-panel queries/cycle & 9000 \\
-    abstention floor $\phi_{\text{pg}}$ & 0.20 & cycles in main run & 10 \\
-    Tier-1 combined threshold & 0.90 & eval-fold (held-out) & 3500 \\
-    Tier-2 sim threshold & 0.75 & MMLU probe (retention) & 200 \\
-    routing $\lambda$ & 0.70 & SIL eff.\ batch & 16 \\
-    $M$ chains, $T$ & 3, 0.7 & SIL epochs/cycle & 3 \\
-    $K$ MC-Dropout, rate & 5, 0.10 & cold-start memory size & 137 \\
+    $\tau_{\text{train}}$ training & 0.75 & training-panel queries/cycle & 9000 \\
+    safety floor $u_{\text{pre}}^{\min}$ & 0.60 & cycles in main run & 10 \\
+    abstention floor $\phi_{\text{pg}}$ & 0.20 & eval-fold (held-out) & 3500 \\
+    Tier-1 combined threshold & 0.90 & MMLU probe (retention) & 200 \\
+    Tier-2 sim threshold & 0.75 & SIL eff.\ batch & 16 \\
+    routing $\lambda$ & 0.70 & SIL epochs/cycle & 3 \\
+    $M$ chains, $T$ & 3, 0.7 & cold-start memory size & 137 \\
     \bottomrule
   \end{tabular}
 
-  \vspace{0.4em}
-  All values committed to git \emph{before} the empirical record was consulted (pre-registration discipline). Receipts: \code{outputs/cycle\_0/composite\_calibration.json}, \code{conformal\_gate.json}, \code{calibrated\_thresholds.json}.
+  \vspace{0.3em}
+  {\scriptsize All values committed to git \emph{before} the empirical record was consulted. Receipts: \code{outputs/cycle\_0/composite\_calibration.json}, \code{conformal\_gate.json}, \code{calibrated\_thresholds.json}.}
 \end{frame}
 
 % =====================================================================
 \begin{frame}{Worked example -- correct answer correctly ABSTAINed}
-  \footnotesize
-  \textbf{Question (TriviaQA, cal-fold):} \emph{Who duetted with Aretha Franklin on ``Sisters Are Doin' It for Themselves''?}
-
+  \scriptsize
+  \textbf{Question (TriviaQA, cal-fold):} \emph{Who duetted with Aretha Franklin on ``Sisters Are Doin' It for Themselves''?}\\
   \textbf{Model's draft:} ``Annie Lennox'' \quad (gold: \emph{Annie Lennox} -- \alert{em $= 1.0$, correct}).
 
-  \vspace{0.4em}
+  \vspace{0.3em}
   \begin{tabular}{@{}lr|lr@{}}
     $u_{\text{token}}$       & 0.059 & $p_{\text{entail}}$        & 0.059 \\
     $u_{\text{dropout}}$     & 0.80  & $p_{\text{ground,max}}$    & 0.040 \\
@@ -688,80 +771,102 @@
   \end{tabular}
 
   \vspace{0.3em}
-  Decision: $u_{\text{stored}} < \tau_{\text{defer}} = 0.521$ AND $p_{\text{ground,max}} < 0.20 \Rightarrow$ \alert{ABSTAIN} (user sees ``I do not know'').
+  Decision: $u_{\text{stored}} < \tau_{\text{defer}} = 0.521$ AND $p_{\text{ground,max}} < 0.20 \Rightarrow$ \alert{ABSTAIN}.
 
-  \vspace{0.4em}
+  \vspace{0.3em}
   \textbf{Why this is the right call architecturally:}
-  \begin{itemize}\small
-    \item The signal profile is observationally indistinguishable from a confabulation: low token confidence, MC-dropout instability, no passage entailment.
-    \item The verifier never knows ground truth at decision time --- it must infer reliability from evidence.
-    \item Storing low-evidence-but-correct entries WOULD break the precision contract (more false-stores accepted in exchange for catching this rare-fact correct).
-    \item The eval-fold still records EM $= 1.0$ on the prediction (Ch5 headline metric is correct); only the memory-write is suppressed.
+  \begin{itemize}\scriptsize
+    \item Signal profile is observationally indistinguishable from a confabulation: low token confidence, MC-Dropout instability, no passage entailment.
+    \item Verifier never knows ground truth at decision time -- it must infer reliability from evidence.
+    \item Storing low-evidence-but-correct entries WOULD break the precision contract.
+    \item Eval-fold still records EM $= 1.0$ on the prediction (Ch5 headline metric correct); only memory write suppressed.
   \end{itemize}
 
-  \alert{This is the load-bearing precision/recall trade.} Plain fine-tuning has no per-query trade --- it serves whatever it generates.
+  \alert{This is the load-bearing precision/recall trade.} Plain fine-tuning has no per-query trade -- it serves whatever it generates.
 \end{frame}
 
 % =====================================================================
-\section*{Positioning, limitations, conclusion}
+\section*{Positioning}
 
-\begin{frame}{Why CAEM beats plain exact-match-labelled fine-tuning}
+\begin{frame}{Five differentiators vs plain fine-tuning (Appendix G)}
+  \footnotesize
   At the same labelling budget, the simpler baseline (B6 in Ch5) is plain fine-tuning. CAEM's load-bearing wins:
 
   \vspace{0.4em}
-  \begin{enumerate}\small
+  \begin{enumerate}\scriptsize
     \item \textbf{Per-query precision contract.} Conformal-bounded $1{-}\alpha_{\text{store}} = 0.95$ at every served STORE; fine-tuning emits a string with no confidence axis.
     \item \textbf{Memory-direct serving tier.} Tier-1 hit-rate compounds cost savings as the verified pool grows; fine-tuning still pays a full forward pass per query.
-    \item \textbf{Asymmetric rollback.} A failed cycle restores weights but \emph{keeps memory}; fine-tuning's failed run loses all gradient progress.
-    \item \textbf{Verifier as sample-efficiency multiplier.} The cycle-boundary labelled batch validates a precision contract; the gradient signal does not have to carry it directly.
-    \item \textbf{Inference-time error catching.} Verifier keeps running after the fine-tune saturates against the parametric capacity ceiling. Fine-tuning has nowhere left to go once that ceiling is hit.
+    \item \textbf{Asymmetric rollback.} Failed cycle restores weights but \emph{keeps memory}; fine-tuning's failed run loses all gradient progress.
+    \item \textbf{Verifier as sample-efficiency multiplier.} Cycle-boundary labelled batch validates a precision contract; gradient signal does not have to carry it directly.
+    \item \textbf{Inference-time error catching.} Verifier keeps running after fine-tune saturates against the parametric capacity ceiling. Fine-tuning has nowhere left to go once that ceiling is hit.
+  \end{enumerate}
+\end{frame}
+
+% =====================================================================
+\begin{frame}{What CAEM does that traditional RAG cannot (statelessness)}
+  \footnotesize
+  \textbf{Traditional RAG:} retrieve passages $\to$ generate $\to$ \alert{discard everything}. Same query in next session $\to$ pay full retrieval+generation cost again, possibly get a different (inconsistent) answer.
+
+  \vspace{0.5em}
+  \textbf{CAEM:} retrieve $\to$ generate $\to$ verify $\to$ \emph{store the verified answer}. Future similar queries hit the memory tier in $\sim$50 ms.
+
+  \vspace{0.5em}
+  \textbf{Compounded benefits:}
+  \begin{enumerate}\small
+    \item \textbf{Cost amortisation.} The Tier-3 RAG cost ($\sim$10 s) is paid ONCE; every future Tier-1 hit on the same neighbourhood pays only $\sim$50 ms.
+    \item \textbf{Answer consistency.} The same query in different sessions returns the SAME stored answer. Traditional RAG can return inconsistent answers because retrieval and generation both have stochastic components.
+    \item \textbf{Domain-specific knowledge accumulation.} A deployment in (say) legal QA accumulates verified legal answers over time -- the system gets specifically better at the queries the user actually asks.
+    \item \textbf{Self-improvement via cycle-boundary fine-tune.} Verified episodes feed Step 1 SIL fine-tune. The model learns from its own RAG-mediated correctness. Traditional RAG cannot do this because it has no memory of which retrievals led to correct answers.
+    \item \textbf{Quality control on accumulation.} Conformal gate ensures the memory only fills with provably high-precision entries ($\ge 95\%$). Verified pool grows monotonically in quality.
   \end{enumerate}
 \end{frame}
 
 % =====================================================================
 \begin{frame}{What CAEM does NOT solve (honest limitations)}
-  \begin{itemize}\small
-    \item \textbf{Cold-start hallucinations.} Cycles 0--1 have a small memory and a low Tier-1 share, so most queries hit Tier 3 with only the verifier as defense. Pool purity benefits only emerge once the memory accumulates.
-    \item \textbf{Verifier judge ceiling.} MiniCheck NLI itself can mis-classify (the worked example showed $p_{\text{entail}} = 0.06$ on a correct answer). The composite + isotonic mitigate this but cannot exceed the judge's inherent ceiling.
-    \item \textbf{Cross-encoder rerank cost.} The reranker is the largest single wall-clock component ($\sim$2.4 s/sample) and is not cacheable across cycles because the rerank pair includes the model's answer.
-    \item \textbf{High-confidence rare-fact false negatives.} The architecture trades these for the precision contract --- a registered, deliberate, but non-trivial cost.
-    \item \textbf{Distribution shift outside the calibration fold.} Conformal guarantees hold under exchangeability; queries from a fundamentally different distribution may violate the precision lower bound until the next cal-fold drawn from the new distribution restores calibration.
-    \item \textbf{Compute cost at training time.} Per-cycle calibration + retroverify + stream + eval $\approx$ 14 hours on a 5090 with current optimisations. Plain fine-tuning is faster per cycle in pure wall-clock.
+  \scriptsize
+  \begin{itemize}
+    \item \textbf{Cold-start hallucinations.} Cycles 0--1 have small memory + low Tier-1 share, so most queries hit Tier 3 with only the verifier as defense. Pool purity benefits emerge only after memory accumulates.
+    \item \textbf{Verifier judge ceiling.} MiniCheck NLI itself can mis-classify (the worked example showed $p_{\text{entail}} = 0.06$ on a correct answer). Composite + isotonic mitigate but cannot exceed the judge's ceiling.
+    \item \textbf{Cross-encoder rerank cost.} Reranker is the largest single wall-clock component ($\sim$2.4 s/sample) and is NOT cacheable across cycles because the rerank pair includes the model's answer (which changes per cycle).
+    \item \textbf{High-confidence rare-fact false negatives.} Architecture trades these for the precision contract -- registered, deliberate, but non-trivial cost.
+    \item \textbf{Distribution shift outside the calibration fold.} Conformal guarantees hold under exchangeability; queries from a fundamentally different distribution may violate the precision lower bound until the next cal-fold from the new distribution restores calibration.
+    \item \textbf{Compute cost at training time.} Per-cycle cal+retroverify+stream+eval $\approx$ 14 hours on a 5090 with current optimisations. Plain fine-tuning is faster per cycle in pure wall-clock (but weaker on every other axis).
+    \item \textbf{Memory pollution risk under bias.} If the cold-start seed contains systematic bias, the verifier can perpetuate it via SIL fine-tune. Mitigation: integrity envelope NFR5 (fold disjointness) + retroactive prune at $\tau_{\text{retro}}$.
   \end{itemize}
 \end{frame}
 
 % =====================================================================
 \begin{frame}{Empirical campaign status (today)}
-  \footnotesize
+  \scriptsize
   \begin{itemize}
     \item \textbf{Cycle 0:} done. 25-variant pre-registered sweep over $(\alpha_{\text{store}}, C)$ selected $\alpha = 0.05$, $C = 0.01$. Locked artefacts on disk.
-    \item \textbf{Cycle 1:} running today. SIL fine-tune complete ($\mathcal{L}: 1.276 \to 0.722$, MMLU retention $1.000$). Step 2.1 cal-fold scoring in progress.
-    \item \textbf{Step 7 main:} 10-cycle SIL trajectory. ETA $\sim$5.5 days under current optimisations (was 7--8 days before optimisations).
+    \item \textbf{Cycle 1:} running today. SIL fine-tune $\good$ ($\mathcal{L}: 1.276 \to 0.722$, MMLU retention $1.000$, FEVER cal-fold EM $0.5280$, TQA $0.3960$, NQ $0.1640$). Cycle-boundary recalibration $\good$ (Steps 2.1--2.5 fired in $\sim$3\,s with cache fast-path). Currently mid Step-4 cycle-1 stream.
+    \item \textbf{Step 7 main:} 10-cycle SIL trajectory. ETA $\sim$5.5 days under current optimisations.
     \item \textbf{Phase 4 (after main):} external baselines B1--B7 on matched protocol, paired McNemar + BCa bootstrap under Holm correction, purity validation, Ch5 table generation.
   \end{itemize}
 
   \vspace{0.4em}
-  \textbf{Optimisations applied this week:}
-  \begin{itemize}\small
-    \item Empirical retirement of $h_{\text{norm}}$ (boost weight $\approx 0$) -- saved $\sim$50\,h over the trajectory.
+  \textbf{Live optimisations applied this week:}
+  \begin{itemize}\scriptsize
+    \item Empirical retirement of $h_{\text{norm}}$ (boost weight $\approx 0$) -- saved $\sim$50\,h.
     \item $u_{\text{pre}}$ cache on Step 2.2 -- saves $\sim$3.5\,h per cycle ($\sim$30\,h total).
-    \item OOM mitigation suite ($\theta_{t-1}$ on CPU + force-eager + batch 4 $\times$ grad-accum 4 + expandable allocator) for the 32 GB envelope.
-    \item Considered passage cache, retracted: rerank pair includes answer (changes per cycle), savings dropped from estimated 30\,h to $<1$\,h, not worth a halt.
+    \item OOM mitigation suite ($\theta_{t-1}$ on CPU + force-eager + batch $4 \times$ grad-accum 4 + expandable allocator).
+    \item Considered passage cache, retracted -- rerank pair includes answer, savings dropped from estimated 30\,h to $<1$\,h.
   \end{itemize}
 \end{frame}
 
 % =====================================================================
-\begin{frame}{Contribution summary}
+\begin{frame}{Contribution summary (Ch1 \S contributions)}
   \begin{block}{Architectural contribution}
-    An eight-stage pipeline combining episodic memory, a confidence-aware three-tier router, a nine-signal verifier ensemble across four families, a calibrated-probability composite (per-signal isotonic + L$_2$ logistic boost), and a conformal split-CP storage gate, wrapped in a cycle-boundary self-improvement loop with retention guard.
+    Eight-stage pipeline combining episodic memory, confidence-aware three-tier router with safety override, nine-signal verifier across four families, calibrated probability composite (per-signal isotonic + L$_2$ logistic boost), and conformal split-CP storage gate, wrapped in a cycle-boundary self-improvement loop with retention guard.
   \end{block}
 
   \begin{block}{Theoretical contribution}
-    Four theorems characterise the storage-class trajectory: pool-purity floor, monotonicity in verifier discrimination, geometric envelope of the precision-asymptote gap, and asymptotic hallucination floor set by the conformal level rather than by deployment scale.
+    Four theorems characterise storage-class trajectory: pool-purity floor, monotonicity in verifier discrimination, geometric envelope of precision-asymptote gap, asymptotic hallucination floor set by conformal level rather than by deployment scale.
   \end{block}
 
   \begin{block}{Engineering contribution}
-    A reproducible pre-registered empirical pipeline: every threshold, fit-time procedure, and artefact path committed to code \emph{before} the empirical record is consulted; every architectural decision paired with a verifiable on-disk receipt. Empirical retirement of one signal mid-thesis demonstrates that the discipline catches what it was registered to catch.
+    Reproducible pre-registered empirical pipeline. Every threshold, fit-time procedure, and artefact path committed to code \emph{before} the empirical record is consulted; every architectural decision paired with a verifiable on-disk receipt. Empirical retirement of one signal mid-thesis demonstrates the discipline catches what it was registered to catch.
   \end{block}
 \end{frame}
 
