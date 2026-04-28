@@ -1,168 +1,189 @@
 # CAEM — Next Session Plan
 
-**Updated 2026-04-27 09:15 UTC | Session 9 — citation audit + step_7_main monitoring + Phase 4 prep**
+**Updated 2026-04-28 15:10 UTC | Session 10 — autonomous Step 7 main + Phase 4 receipts after return**
 
 ---
 
-## State at session boundary (2026-04-27 09:15 UTC)
+## State at handoff
 
-**`step_7_main` 10-cycle main run is LIVE in tmux `plan_a`.** Session 8 today landed seven architectural patches that finally got the cycle boundary working. Cycle 1 is in mid-flight:
+**Runner:** alive in `tmux plan_a`, relaunched at 14:56:25 UTC under fully-fixed pipeline. Cycle 1 SIL just completed (loss 1.276 → 0.721, MMLU retention 1.0080). Currently in checkpoint save → Step 2.1 cal-fold scoring.
 
+**Bugs found and fixed today (2026-04-28):**
+
+| Commit | Fix |
+|--------|-----|
+| `517e09e` | Per-cycle conformal refit inherits `α_store` from previous cycle's gate JSON instead of config default (was silently drifting 0.05 → 0.20). |
+| `6adc695` | Per-cycle refit passes `--cherian_boost --boost_C 0.01` to match locked Step 7.0.1 baseline (was producing identity-mode composite, intercept=0). |
+| `b4d610d` | `CAEMConfig.conformal_alpha_store` default pinned to 0.05 (belt-and-suspenders fallback). |
+
+**Recovery (out-of-tree, outputs/ is gitignored):**
+- `outputs/cycle_0/composite_calibration.json` restored from `outputs/.snapshot_staging/archive/pre_step7_main_2026-04-26/` (boost_intercept=1.099, q_a_relevance=0.500, em_rate=0.243).
+- `outputs/cycle_0/conformal_gate.json` restored to α=0.05, τ_store=0.6676 from `outputs/cycle_0/sweep/variant_a050_C0.010.json`.
+- Two contaminated cycle_1 directories preserved at `outputs/_halted_runs/cycle_1.contaminated_alpha020_*` and `outputs/_halted_runs/cycle_1.composite_corrupted_*`.
+
+**Lock chain confirmed:** α=0.05 + Cherian boost + C=0.01 propagate cycle 0 → cycle 10 via three redundant paths (prev_gate inheritance, canonical-path copy at cycle close, config dataclass default). No drift path remains.
+
+---
+
+## Autonomous monitor while user is away
+
+`/loop` wakeup at 60-min cadence. Per-cycle progress logged; cycle-1 boundary refit is the empirical landmark — should show `boost=fit` AND `alpha_store: 0.05` in the new `cycle_1/conformal_gate.json`. Auto-restart on crash per `RESUME_GUIDE.md`. **No halt actions planned.**
+
+ETA Step 7 main complete: ~May 5. ETA Phase 4 (auto-runs after Step 7 per `run_phase1a.sh`): ~May 6–7.
+
+---
+
+## P1 — On return, verify Step 7 main completed
+
+```bash
+cd /workspace/caem
+ls outputs/full_run/run_complete.json     # exists if Step 7 finished
+cat outputs/full_run/experiment_summary.csv | head -15   # 11 rows = 10 cycles + cycle 0 baseline
+grep -c "decision=STORE" outputs/full_run/run.log
 ```
-07:50  Cycle 1 SIL fine-tune begins (137 verified episodes from cold-seed)
-07:53→07:54  Epoch 1/2/3 → loss 1.2771 / 0.8380 / 0.7219
-07:55  Post-fine-tune MMLU = 0.6250 → ρ = 1.0000 PASS (floor 0.93)
-08:00  gdrive offload OK → cycle_1/model.pt; retroverify=0/0 (correctly skipped)
-08:00  Step 2.1 calibration-fold scoring under post-SIL model BEGINS
-09:04  FEVER calibration fold complete (cycle_1/calibration/fever_cycle1.json on disk)
-09:04  TriviaQA calibration fold begins
-NOW    TriviaQA fold ~25% in, NQ fold pending; Step 2.2-2.5 pending
+
+If `run_complete.json` exists: Step 7 main is done; Phase 4 (Steps 8–21) may already be auto-running per `run_phase1a.sh`. If runner is still in Step 7: check tmux log for the cycle index, let it complete naturally.
+
+---
+
+## P2 — Run Phase 4 theorem receipts MANUALLY
+
+**IMPORTANT:** `scripts/theorem_receipts.py` was wired into `run_phase1a.sh` on 2026-04-28 as `step_19_6_theorem_receipts`, but the **currently-running bash runner has the OLD `ALL_STEPS` array cached in memory** and will NOT pick up the new step. The wiring helps future runs only. **For this run, the receipts must be invoked manually after Phase 4 completes.**
+
+After Step 7 main + Phase 4 (B1-B7, purity, correlations, aggregate, tables) finishes:
+
+```bash
+cd /workspace/caem && source /venv/main/bin/activate
+python -m scripts.theorem_receipts \
+    --output_dir outputs/full_run/theorem_receipts \
+    --full_run_dir outputs/full_run \
+    --summary_csv outputs/full_run/experiment_summary.csv
 ```
 
-**Cron `199ba368` fires every 30 min (:13 and :43)** to keep autonomous status checks running.
+Outputs (six JSONs):
+- `receipt_envelope_fit.json` — geometric envelope fit (Theorem 5)
+- `receipt_eps_arch.json` — joint architectural FNR aggregation (Theorem 7)
+- `receipt_gap_decay.json` — exponential decay fit (Cor convergence-rate)
+- `receipt_corpus_floor.json` — top-k retrieval miss subset proxy (Cor corpus-floor)
+- `receipt_self_correction.json` — survival distribution (Cor self-correction)
+- `receipt_tau_retro_sensitivity.json` — τ_retro at 0.50 vs empirically-optimal per cycle
 
 ---
 
-## What today's session (Session 8) accomplished
+## P3 — Document the bug-fix story in Ch5 §threats
 
-Seven coordinated patches that took the runner from "OOM at every cycle attempt" to "trajectory in flight under the architecturally-correct cycle-boundary order":
+One paragraph (~150 words) added to `thesis_report/chapters/chapter_5.tex` near the threats-to-validity subsection:
 
-### Memory mitigation (5 patches)
-1. **bf16 anchor on CPU + PCIe stream** (`caem/training/self_improvement.py`) — replaced fp32-on-GPU theta_prev with CPU-resident bf16 streamed per-parameter via PCIe at L₂-step. Saves ~12 GB GPU.
-2. **`PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`** (`run_phase1a.sh`) — defragments the allocator; cut the unused-but-reserved overhead from 646 MB → 77 MB.
-3. **`torch.compiler.set_stance("force_eager")` for SIL backward** — bypasses inductor's compiled SDPA backward that materialises full-sequence attention gradient buffers. Saves ~3 GB.
-4. **`batch_size=4, grad_accum_steps=4`** (`caem/config.py`) — quarters per-step memory while keeping effective batch at 16. Cuts the 4.37 GiB single-allocation OOM.
-5. **L₂ penalty one-shot device+dtype cast** (`caem/training/self_improvement.py:_l2_penalty`) — `p0.to(device, dtype=p.dtype, non_blocking=True)` replaces the two-step transfer that double-allocated. Saves transient peak.
-
-### Architectural fixes (2 patches)
-6. **Early-exit `is_query_time` gate** (`caem/verification/verifier.py:verify`) — confabulation early-exit now scoped to query-time inference; retroverify passes False to avoid spurious-prune of EM-correct stored entries on memorised chains.
-7. **Cycle-boundary recalibration WIRED** (`scripts/run_experiment.py` Steps 2.1-2.5 + `caem/verification/verifier.py:reload_calibration`):
-   ```
-   Step 1   SIL fine-tune (verify_fn=None, no internal retroverify)
-   Step 2.1 score calibration fold under post-SIL model → cycle_{N}/calibration/
-   Step 2.2 re-fit T (ECE-min)
-   Step 2.3 re-fit isotonic + conformal τ (label-dependent, EMA α=0.7)
-            → cycle_{N}/composite_calibration.json + conformal_gate.json
-   Step 2.4 pipeline.verifier.reload_calibration(...) — verifier rebound
-   Step 2.5 retroactive re-verify under recalibrated verifier
-   ```
-
-### Documentation
-- `README.md` — full rewrite reflecting current state
-- `docs/PRODUCTION_RUNBOOK.md` — end-to-end production deployment recipe
-- `thesis_report/appendix/appendix_g.tex` — architecture-positioning Q&A:
-  - **Part I:** 6 entries on positioning vs plain fine-tuning (5 differentiators + when-not-to-deploy)
-  - **Part II:** 6 entries on design-justification (same fold across cycles, production-fold differs, recalibrate-before-retroverify, is_query_time gate, τ_train > τ_store, three-layer dedup)
-- `thesis_report/core/abstract.tex` — written, 522 words, 5 strategic citations, training/transfer-panel split made explicit
-- `thesis_report/chapters/chapter_4.tex` §4.2.7.3 — rewritten under the corrected cycle-boundary order; production-parity paragraph fixed
-- `thesis_report/chapters/chapter_5.tex` §5.6 — boundary-of-architectural-value paragraph appended
+> *"During cycle 1 of Step 7 main on 2026-04-28, the per-cycle conformal refit was discovered to drift from the locked Cycle-0 calibration via two independent code paths. First, `run_experiment.py:run_per_cycle_conformal_refit` read `α_store` from the dataclass default (0.20) instead of inheriting from the previous cycle's gate JSON (0.05). Second, the same function did not pass `--cherian_boost --boost_C 0.01` to `recalibrate_conformal_at_cycle.py`, producing an identity-weighted composite (boost intercept zero, no Cherian L2 fit). Both bugs were fixed in commits 517e09e, 6adc695, b4d610d. Cycle 1 was re-run from scratch under the corrected pipeline; cycles 2–10 inherit α=0.05 + Cherian boost via three converging fallback paths (prev-gate JSON, canonical copy, config default). The Phase 4 receipts in §sec:check-* track the empirical realisation of the locked Cycle-0 contract across the corrected trajectory."*
 
 ---
 
-## What's next — Session 9 priorities, in order
+## P4 — Refine τ_retro = 0.50 prose in Ch4
 
-### P1 — Citation audit (NEW, manual verification task)
+The cal-fold sensitivity reading shows π_retro at τ=0.50 is ~0.44, not 0.50. Drop the "more-likely-correct-than-wrong" framing.
 
-**Goal:** walk every `\cite{...}` reference in the thesis tree and verify against `bibliography/references.bib` AND against the cited paper's actual content. The body-prose claims about prior work must be empirically true. The citation audit covers three layers:
+**Edit `thesis_report/chapters/chapter_4.tex` §retroverify:**
 
-| Layer | What gets verified | How |
-|---|---|---|
-| Key existence | every `\cite{KEY}` resolves to an entry in `references.bib` | `grep -oE '\\cite[pt]?\{[^}]+\}' chapters/*.tex` → join against `references.bib` keys |
-| Metadata correctness | the bib entry's author, year, venue, title match the cited paper | per-entry against arxiv / semantic-scholar / venue page |
-| Claim-attribution correctness | the prose's claim about the paper is what the paper actually says | per-citation against the paper's actual content (abstract + relevant section) |
-
-**Layer 3 is the load-bearing audit.** A claim like "Mohri-Hashimoto demonstrate a precision lift from 78% to 93% on Natural Questions" must trace to the exact numbers in their paper. A claim like "Farquhar et al. report AUROC 0.790 on fabrication detection" must trace to their specific reported figure. Misattribution is the failure mode this audit prevents.
-
-**Scope:** all `\cite` entries in `thesis_report/chapters/{chapter_1..6}.tex` + `thesis_report/appendix/{appendix_a..g}.tex` + `thesis_report/core/abstract.tex`. Approximately 84 cited entries per the README.
-
-**Audit method (proposed):** I'll generate an audit checklist file at `thesis_report/audit_phase_a_citations.md` with one row per citation, listing:
-- Citation key
-- File + line where cited
-- The prose claim that surrounds the citation (excerpt)
-- The bib entry's title + venue + year
-- A "claim verified against paper" column to fill manually
-
-User then walks through the checklist and ticks off each row, flagging any misattribution. Misattributions get fixed (either tighten the prose or swap the citation).
-
-### P2 — Continue monitoring step_7_main
-
-The 30-min cron handles this autonomously. Critical milestones to watch:
-- ~10:50 UTC — Step 2.1 (calibration-fold scoring) finishes. The `outputs/full_run/cycle_1/calibration/{fever,triviaqa,natural_questions}_cycle1.json` files complete.
-- ~10:51 UTC — Step 2.2-2.4 fire. Log line: `Verifier calibration reloaded: composite=outputs/full_run/cycle_1/composite_calibration.json | gate=...`
-- ~10:51-11:25 UTC — Step 2.5 retroverify on 260 cold-seed entries.
-- **~11:25 UTC — `Retroverify complete: N updated, M removed` log line.** This is the empirical-fix-worked confirmation:
-  - **M ≪ 139** (e.g., 10–30) → architectural fix worked. Recalibrated isotonic curves correctly absorb the post-SIL signal-distribution drift. ✅
-  - M ≈ 139 → recalibration didn't change retroverify behavior; would need investigation.
-  - M > 139 → fresh recalibration is more aggressive than Cycle-0; would require config tweak.
-- ~11:25 UTC onward — Cycle 1 Step 4 (ingest 9000 fresh queries from cycle stream chunk) + Step 5 (eval pass over 3500 queries × 7 benchmarks).
-- ~14:00 UTC — Cycle 1 done. Cycle 2 SIL fine-tune begins.
-
-**Total trajectory ETA at current cadence:** ~10 cycles × 4-6h each ≈ **2-3 days wall clock** (vs initial 7-8 day estimate; cycle pace is faster than projected because steps 2.1-2.5 run in parallel with the eval pass on different data).
-
-### P3 — Phase 4 readiness checklist (gated on step_7_main + #112 + #113)
-
-Once trajectory lands:
-
-- [ ] **Task #111 — Halt + rewire B6/B7/ablation dynamic cycle count.** B6 vanilla FT and B7 EWC-only FT in `scripts/run_baseline.py` currently hardcode `--num_cycles 10`. If CAEM equilibrium-gate early-stops at, say, Cycle 6, B6/B7 must run 6 cycles too for matched-scale comparison. Patch: read realised cycle count from `outputs/full_run/equilibrium_gate.json` at runner-launch.
-- [ ] **Task #112 — External baselines + significance tests.** B1-B7 on test fold under matched protocol; paired McNemar + BCa bootstrap + Holm correction; outputs go to `outputs/significance/per_benchmark.json` + `tab_sig_test.tex`.
-- [ ] **Task #113 — Diagnostics.** `scripts/run_purity_validation.py`, `cycle2_retention_diagnostic.py`, `signal_correlation_matrix.py`, `aggregate_ablation.py`. Outputs feed `tab_purity.tex`, `tab_continual.tex`, `tab_calibration_trajectory.tex`.
-- [ ] **Task #114 / Phase 4 — Ch5/Ch6 artefact generation.** 12 stub `figures/auto/*.tex` files get overwritten by real numbers. Trigger via `scripts/make_tables.py` + `scripts/make_figures.py` + `scripts/aggregate_calibration_trajectory.py` + `scripts/render_production_samples.py` + `scripts/phase4_artifacts.py`. Cross-check every `\Cref{tab:*}` / `\Cref{fig:*}` in chapters against the now-populated `figures/auto/`.
-
-### P4 — Final thesis polish (post-Phase 4)
-
-- [ ] Compile thesis_report/main.tex once; fix any unresolved \Cref / \cite errors
-- [ ] Recompile after Phase-4 auto-tex regen
-- [ ] Re-read Chapter 5 / 6 prose end-to-end after real numbers replace stubs (some prose framing may need tightening)
-- [ ] Bibliography ordering check (Cref-style)
+```diff
+- The prune threshold is registered at τ_retro = 0.50, below the deferral
+- threshold so that an entry that is borderline-deferred-quality but no longer
+- storage-quality is still kept for the deferred-reconsider pass
++ The prune threshold is registered at τ_retro = 0.50: a recall-favouring
++ floor that maintains the architectural invariant
++ τ_retro < τ_defer < τ_store < τ_train. Empirical π_retro on the actual
++ stored pool per cycle is reported in §sec:check-purity; the cal-fold
++ sensitivity analysis (receipt_tau_retro_sensitivity.json) shows the
++ threshold's behaviour on the broader population for context.
+```
 
 ---
 
-## Open architectural questions (registered, not blocking the trajectory)
+## P5 — Phase 4 baselines + Ch5 tables (auto-runs after Step 7 main)
 
-1. **Within-cycle calibration drift in production with long cycles.** §5.6 §"Threats to Validity" registers this; production runbook §8 quantifies it (4-8% ECE inflation at 60-90 days, 5-15% at 120+ days). Mitigation: drift-triggered cycle boundaries that fire before the calendar cadence.
+`run_phase1a.sh` continues automatically after Step 7 main:
 
-2. **Rotating-fold protocol for trajectories beyond 10 cycles.** Same calibration fold every cycle is the right protocol at the 10-cycle horizon (variance isolation dominates); at 50+ cycles a rotating-fold partition over a 5000-sample reservoir would reduce same-fold over-fitting risk. Registered as Phase 1b future-work.
+- Step 8: FLARE smoke
+- Step 9–14: Baselines B1–B7 (zero-shot, RAG, Self-Consistency, calibrate-then-abstain, FLARE, EWC fine-tune, EWC + retention guard)
+- Step 15: Paired McNemar + BCa bootstrap with Holm correction
+- Step 19: Purity validation
+- Step 20.1: Aggregate results CSV
+- Step 21: Ch5 table generation (`tab_headline.csv`, `tab_baselines.csv`, `tab_ablations.csv`, `tab_chm_decomp.csv`)
 
-3. **Long-hypothesis Qwen judge under task-specific fine-tune.** Currently ablated because it fails the registered Pearson floor of 0.70 against MiniCheck on the v5 overlap fold. Refitting on a synthetic claim-support corpus may re-license inclusion. Phase 1b.
+Verify they ran:
 
-4. **LoRA SIL primary path.** Full-parameter SIL is feasible at 3B-parameter scale on consumer-grade GPU; at 7B+ a parameter-efficient adapter alternative is the only practical path. Phase 1b.
-
----
-
-## Quick-reference
-
-| Document | Purpose |
-|---|---|
-| `run_phase1a.sh` | canonical 30+-step Phase 1a runbook (idempotent, resumable) |
-| `docs/PRODUCTION_RUNBOOK.md` | production deployment + per-cycle labelled refresh recipe |
-| `README.md` | repo-level overview + locked-configuration reference |
-| `thesis_report/main.tex` | Ch 1-6 + Appendix A-G manuscript |
-| `thesis_report/appendix/appendix_g.tex` | architecture-positioning + design-justification Q&A |
-| `branch_C_log.md` | dated implementation diary |
-| `caem-implementation-log.md` | longer-form decision rationale |
-
-| Key path | What it is |
-|---|---|
-| `outputs/cycle_0/composite_calibration.json` | locked Cycle 0 isotonic + boost |
-| `outputs/cycle_0/conformal_gate.json` | locked Cycle 0 τ_store=0.6676, τ_defer=0.5207 |
-| `outputs/full_run/cycle_{N}/composite_calibration.json` | per-cycle refreshed isotonic + boost |
-| `outputs/full_run/cycle_{N}/conformal_gate.json` | per-cycle refreshed τ |
-| `outputs/full_run/cycle_{N}/calibration/{bm}_cycle{N}.json` | per-cycle calibration fold scored under post-SIL |
-| `outputs/full_run/eval/{bm}_cycle{N}.json` | per-cycle eval (500 q × 7 benchmarks) |
-| `outputs/full_run/memory_store_cycle_{N}.{faiss,meta}` | per-cycle memory snapshot |
+```bash
+ls outputs/baselines/B*/                       # expect B1-B7 dirs
+ls outputs/full_run/sig_tests/                 # mcnemar_holm.json
+ls outputs/full_run/aggregate_results.json
+ls outputs/full_run/tab_*.csv                  # 4 Ch5 tables
+```
 
 ---
 
-## Resume protocol if compaction happens mid-session
+## P6 — Citation audit
 
-If the conversation gets compacted, re-orient by:
-1. Read this file
-2. Read `branch_C_log.md` last 10 dated entries
-3. Read `caem/training/self_improvement.py:_finetune` (lines 795-870) for the cycle-1 OOM patches
-4. Read `scripts/run_experiment.py:1521-1580` for the cycle-boundary order
-5. Check `tmux ls` and `tail -20 outputs/full_run/run.log` for live runner state
-6. The 30-min cron `199ba368` continues firing autonomous status checks regardless of conversation state
+Walk every `\cite{}` against `references.bib` AND against the cited paper's actual content. Generate `thesis_report/audit_phase_a_citations.md` with columns:
+
+| File | Line | `\cite{key}` | bib_present | claim_in_prose | paper_supports_claim | notes |
+
+Long manual task (~several hours). Critical for thesis integrity.
 
 ---
 
-**End of plan.** Next: start P1 citation audit. Generate the audit checklist file and walk it together.
+## P7 — Final thesis polish
+
+After everything above:
+- Splice Phase 4 tables into Ch5 (replace `\input{...}` placeholders)
+- Refresh auto-figures: `python -m scripts.make_figures`
+- Compile: `cd thesis_report && pdflatex main.tex && bibtex main && pdflatex main.tex && pdflatex main.tex`
+- Fix unresolved `\ref{}` and undefined cites
+- Final structural review per `feedback_thesis_coherence` memory (terminology, registry counts, fold semantics, cross-references)
+
+---
+
+## Open issues (deferred, no urgency)
+
+1. Task #42 — Document 9-subtype CHM coverage methodology in thesis (low priority)
+2. Task #98 — LoRA SIL future work (Phase 1b, deferred)
+3. Task #111 — B6/B7 + ablation dynamic cycle count rewire (auto-handled by `run_phase1a.sh` if Step 7 early-stops)
+
+---
+
+## Locked configuration snapshot (2026-04-28 15:10 UTC)
+
+| Value | Where | Current |
+|------|-------|--------:|
+| `α_store` | `cycle_0/conformal_gate.json` | **0.05** (restored from sweep) |
+| `α_defer` | `cycle_0/conformal_gate.json` | **0.40** |
+| `τ_store` | `cycle_0/conformal_gate.json` | **0.6676** |
+| `τ_defer` | `cycle_0/conformal_gate.json` | **0.5207** |
+| `τ_retro` | `config.py:664` | **0.50** |
+| `τ_train` | `config.py:627` | **0.75** |
+| `ρ_min` retention | `config.py:636` | **0.93** |
+| `α_ema` | `config.py:274` | **0.7** |
+| Boost intercept | `cycle_0/composite_calibration.json` | **+1.099** (restored) |
+| Boost C | hard-coded in `run_experiment.py:cmd` | **0.01** |
+| `disable_h_norm` | `config.py` | **True** |
+| `top_passages` logging | `eval/harness.py` | active from cycle 1+ |
+| Safety floor `u_pre^min` | `config.py:127` | **0.60** |
+| Tier-1 combined | `config.py:123` | **0.90** |
+| Tier-2 similarity | `config.py:124` | **0.75** |
+| Routing λ | `config.py:121` | **0.70** |
+| M chains, T_a | `config.py:140,143` | **3, 0.7** |
+| K MC-Dropout | `verifier.py:24` | **5** |
+
+All values match thesis claims. Three independent guards lock the calibration chain across cycles 1–10.
+
+---
+
+## Resume command on return
+
+```bash
+cd /workspace/caem
+tmux ls                                              # check plan_a alive
+tail outputs/full_run/run.log | head -50             # most recent activity
+ls outputs/full_run/run_complete.json 2>&1            # main run complete?
+cat outputs/full_run/experiment_summary.csv 2>&1 | head -15
+```
+
+If everything is green: proceed to P2 (theorem receipts) and onward.
