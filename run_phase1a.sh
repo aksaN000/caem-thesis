@@ -846,6 +846,35 @@ step_19_5_corr() {
 }
 
 # ============================================================================
+# Step 19.6 — Phase 4 theorem receipts (2026-04-28)
+# ============================================================================
+# Produces six receipt JSONs under outputs/full_run/theorem_receipts/ that
+# back the formal theorem statements in Ch4 §11 and Ch5 §sec:check-*:
+#   receipt_envelope_fit.json        thm:convergence + thm:bayes-convergence
+#   receipt_eps_arch.json            thm:asymptotic-elim + cor:tier1-floor
+#   receipt_gap_decay.json           cor:convergence-rate
+#   receipt_corpus_floor.json        cor:corpus-floor
+#   receipt_self_correction.json     cor:self-correction
+#   receipt_tau_retro_sensitivity.json   defends τ_retro=0.50
+# Reads outputs/full_run/experiment_summary.csv + cycle_*/ artefacts.
+# Idempotent: skips if envelope receipt already present.
+step_19_6_theorem_receipts() {
+    local out="outputs/full_run/theorem_receipts/receipt_envelope_fit.json"
+    if [[ -f "$out" ]]; then
+        log "Step 19.6: theorem receipts already generated — skipping"
+        return 0
+    fi
+    band "Step 19.6 — Phase 4 theorem receipts (envelope, eps_arch, gap, floor, survival, τ_retro)"
+    python -m scripts.theorem_receipts \
+        --output_dir outputs/full_run/theorem_receipts \
+        --full_run_dir outputs/full_run \
+        --summary_csv outputs/full_run/experiment_summary.csv \
+        2>&1 | tee -a "$RUNNER_LOG" || {
+            log "Step 19.6: theorem_receipts returned non-zero; some receipts may be partial."
+        }
+}
+
+# ============================================================================
 # Step 20.1 — Aggregate ablation (Phase 1a produces only `full` row; that's OK)
 # ============================================================================
 step_20_aggregate() {
@@ -1052,6 +1081,7 @@ main() {
     step_19_purity
     step_19_2_eval
     step_19_5_corr
+    step_19_6_theorem_receipts    # Phase 4 theorem receipts (added 2026-04-28)
     step_20_aggregate
 
     # --- Ch5/Ch6 artefact generation (added 2026-04-24) ---
