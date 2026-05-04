@@ -28,7 +28,7 @@ All Phase A steps are CPU-only with zero GPU contention.
 
 ### A.2 Demo assets (this week, ~3 hours)
 
-- [ ] **A.2.1** Write `docs/PANEL_DEMO_SCRIPT.md` with 5-7 questions exercising: verified answer, deferred answer, refusal (ABSTAIN), refusal (DISCARD), memory hit if available, safety override on out-of-domain query.
+- [x] **A.2.1** Write `docs/PANEL_DEMO_SCRIPT.md` with 5-7 questions exercising: verified answer, deferred answer, refusal (ABSTAIN), refusal (DISCARD), memory hit if available, safety override on out-of-domain query. **(2026-05-04 — 7 questions written, all anchored in actual cycle-3 cal-fold readings; ~15 min total demo + Q&A budget)**
 - [ ] **A.2.2** Write `docs/DEMO_QUICKSTART.md` — one-page operator cheat sheet for day-of demo (single launch command, troubleshooting, port forwarding, fallback to legacy CLI).
 - [ ] **A.2.3** Write `scripts/expose_demo_remote.sh` — Cloudflare tunnel one-liner exposing `localhost:8000` to a public URL for hybrid/remote defense.
 
