@@ -40,12 +40,14 @@ All edits to `scripts/caem_demo_server.py`'s inlined `_INDEX_HTML`.
 - [x] **A.3.2** Add "Memory match" sidebar showing nearest-neighbor stored episode + cosine similarity (~50 lines HTML + JS + JSON field plumbed from pipeline result). Demonstrates Tier 1 routing. **(2026-05-04 — `<details>` panel showing matched entry id, cosine sim %, stored question, stored answer, storage cycle, source benchmark, stored u_stored; uses _MEMORY_STORE.search_with_ids in /query)**
 - [x] **A.3.3** Add tier + latency badges to response card header (currently hidden in expandable explain block; surface to top). **(2026-05-04 — green/blue/purple tier badges + latency badge in response card header alongside tag and confidence%)**
 
-### A.4 Dry-run rehearsal (this week, ~1.5 hours)
+### A.4 Dry-run rehearsal (this week, ~1.5 hours) — OPERATOR-EXECUTED
 
-- [ ] **A.4.1** Run `caem_demo_server.py` locally on the lab PC with the chosen Phase A.1.4 memory snapshot.
-- [ ] **A.4.2** Walk through `PANEL_DEMO_SCRIPT.md` end-to-end. Time each query. Capture screenshots.
-- [ ] **A.4.3** Test the tunnel script: launch, share the public URL with one friend, verify they can submit a query and see the rendered card.
-- [ ] **A.4.4** Note any UX rough edges + fix in A.3 if needed.
+⚠ A.4 must be run on the lab PC (or Vast instance with GPU) by the operator. The conversation-side prep (A.1 to A.3) is complete; the dry-run is the empirical verification step.
+
+- [ ] **A.4.1** Run `caem_demo_server.py` locally on the lab PC with the chosen Phase A.1.4 memory snapshot. **Command:** see `docs/DEMO_QUICKSTART.md` §1.
+- [ ] **A.4.2** Walk through `PANEL_DEMO_SCRIPT.md` end-to-end. Time each query. Capture screenshots. Save screenshots to `outputs/production/audit/dryrun_screenshots_YYYYMMDD/`.
+- [ ] **A.4.3** Test the tunnel script: launch `bash scripts/expose_demo_remote.sh`, share the public URL with one friend, verify they can submit a query and see the rendered card.
+- [ ] **A.4.4** Note any UX rough edges + fix in A.3 if needed. Append fixes as new commits referencing A.3.x in the message.
 
 ---
 
