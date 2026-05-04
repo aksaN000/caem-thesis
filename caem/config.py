@@ -767,7 +767,16 @@ class CAEMConfig:
     # which FIFO eviction takes over regardless of TTL). The per-cycle
     # retroverify cost rises modestly (~30 → ~45-60 min/cycle at peak buffer
     # size) but stays well under the eval-fold cost. Effective from cycle 2.
-    deferred_buffer_ttl_cycles: int = 4
+    # 2026-05-04: reverted to ttl=2 from ttl=4 alongside the orchestrator
+    # deferred-buffer fix at cycle-4 close (Path Y mid-trajectory transition).
+    # Reconsideration begins firing at cycle 5; an entry has at most TWO
+    # reconsider() invocations (cycle N+1, cycle N+2) to be promoted before
+    # being TTL-dropped. Matches the original Ch4 sec:deferred-reconsider
+    # registration; the prior 4-cycle change (registered 2026-04-30) was
+    # never empirically validated because reconsideration never fired during
+    # cycles 1-4 and is reverted to align the live cycles 5-10 with the
+    # registered thesis design.
+    deferred_buffer_ttl_cycles: int = 2
 
     # ------------------------------------------------------------------ #
     # Retrieval feedback loop                                              #
