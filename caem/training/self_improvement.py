@@ -446,6 +446,20 @@ class SelfImprovementLoop:
         n_deferred_promoted = 0
         n_deferred_ttl_dropped = 0
         n_deferred_kept = 0
+        if deferred_buffer is None:
+            # Loud-failure log per the 2026-05-04 orchestrator gap finding.
+            # Until that finding, omitting deferred_buffer at the call site
+            # silently skipped the entire reconsideration block, leaving
+            # the deferred buffer accumulating without ever being drained.
+            # If this WARNING fires in a production run, the orchestrator
+            # is missing the deferred_buffer kwarg at sil.run_cycle(...).
+            logger.warning(
+                "Cycle %d: deferred_buffer not provided to run_cycle -- "
+                "DeferredBuffer.reconsider() will NOT fire this cycle. "
+                "If this is a production run, check the orchestrator's "
+                "sil.run_cycle() call site. See branch_C_log 2026-05-04.",
+                cycle_num,
+            )
         if deferred_buffer is not None and not aborted:
             effective_fn = reconsider_fn or verify_fn
             if effective_fn is None:
