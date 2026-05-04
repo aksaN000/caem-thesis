@@ -3655,3 +3655,142 @@ The 2026-05-04 memory rule `feedback_read_code_after_compaction.md` was strength
 - `outputs/full_run/cycle_0/conformal_gate.json` — operational cycle-0 fit (different artefact, different purpose)
 - `docs/PRODUCTION_RUNBOOK.md` — deployment design (not previously cross-referenced from thesis chapters)
 - Memory entries: `caem_temperature_cap_clarification.md`, `reference_caem_production_runbook.md`, updated `feedback_read_code_after_compaction.md`
+
+
+## 2026-05-04 — Production deployment plan executed: Phase A polish + checkpoint-loading fix
+
+Created `PRODUCTION_NEXT_SESSION_PLAN.md` and executed Phase A (conversation-side polish) end-to-end. Phase A delivers a unified production-grade CAEM demo with three access modes (local browser, Cloudflare-tunnel public URL, optional Phase 1c Ollama on consumer laptops). Architectural surface was consolidated from two redundant entry points (`caem_chat.py` + `caem_demo_server.py`) onto the demo server alone; chat REPL marked legacy.
+
+### Steps completed and pushed (Phase A.1 – A.5)
+
+- **A.1.1** — `scripts/caem_chat.py` LEGACY header note pointing to demo server as canonical surface.
+- **A.1.2** — `scripts/caem_demo_server.py` imports cleanly on local CPU (no model load).
+- **A.1.3** — `scripts/caem_chat.py` imports cleanly.
+- **A.1.4** — Decision: pre-defense rehearsal demo locked on cycle-3 memory snapshot (~681 entries, 18 cal-fold Tier 1 hits across c1-c3, 3.07% stream-chunk Tier 1 on FEVER c3). Switch to cycle-10 in Phase B.4 after May 15.
+- **A.2.1** — `docs/PANEL_DEMO_SCRIPT.md`: 7 questions empirically anchored in cycle-3 cal fold (verified Tier 1 hit, verified Tier 2 STORE, provisional DEFERRED, insufficient ABSTAIN, conflicting DISCARD via confab gate, safety override, optional live memory accumulation round-trip). Total demo budget ~15 min.
+- **A.2.2** — `docs/DEMO_QUICKSTART.md`: 10-section operator cheat sheet (launch commands cycle-3 + cycle-10, endpoints, troubleshooting matrix, terminal-fallback path).
+- **A.2.3** — `scripts/expose_demo_remote.sh`: Cloudflare ephemeral tunnel script with sanity-check on `/health` before exposing.
+- **A.3.1** — Evidence panel: collapsible `<details>` showing top-3 reranked passages from `vout.top_passages`.
+- **A.3.2** — Memory-match sidebar: collapsible `<details>` showing matched entry id, cosine similarity %, stored question, stored answer, storage_cycle, source_benchmark, matched u_stored.
+- **A.3.3** — Tier (green/blue/purple) + latency badges in response card header.
+- **A.5** (NEW, fix for omission user caught) — checkpoint-loading patch.
+
+### A.5 detail: checkpoint loading was missing from the demo server
+
+Pre-patch `caem_demo_server.py` loaded ONLY base HuggingFace Qwen via `load_base_generator(...)`, regardless of which memory snapshot the operator pointed at. So the trained MEMORY (cycle-N stored entries) was loaded correctly, but Tier 2/3 generations came from base Qwen (NOT post-SIL) and storage thresholds came from cycle-0 sweep-variant calibration (NOT EMA-smoothed per-cycle τ). The post-cycle-N trajectory readings were therefore not reproducible from the demo.
+
+Three new CLI flags close the gap:
+- `--checkpoint PATH` — load post-SIL `model.pt` via `model.load_state_dict(...)` after base model construction.
+- `--composite_calibration PATH` — override `config.composite_calibration_path` so the verifier reads per-cycle isotonic curves + boost weights.
+- `--conformal_gate PATH` — override `config.conformal_gate_path` so the gate operates at the EMA-smoothed per-cycle τ.
+
+All three should be passed together with the same cycle's artefacts. Without them the server logs a clear WARN and runs in degraded "framing-only" mode (memory hits + tier routing demonstrate the architecture, but Tier 2/3 generations and storage thresholds are stale).
+
+### Canonical launch commands
+
+Pre-defense rehearsal (cycle-3 artefacts):
+
+```bash
+python scripts/caem_demo_server.py \
+    --memory outputs/full_run/memory_store_cycle_3 \
+    --passage_index data/passage_index \
+    --checkpoint outputs/full_run/cycle_3/model.pt \
+    --composite_calibration outputs/full_run/cycle_3/composite_calibration.json \
+    --conformal_gate outputs/full_run/cycle_3/conformal_gate.json \
+    --device cuda --port 8000
+```
+
+Defense day (cycle-10 production-swapped, post Phase B):
+
+```bash
+python scripts/caem_demo_server.py \
+    --memory outputs/production/memory_store/memory_store \
+    --passage_index data/passage_index \
+    --checkpoint outputs/production/cycle_0/model.pt \
+    --composite_calibration outputs/production/composite_calibration.json \
+    --conformal_gate outputs/production/conformal_gate.json \
+    --device cuda --port 8000
+```
+
+### Three demo access modes registered
+
+1. **Local lab PC**: `http://localhost:8000` after one launch command.
+2. **Remote (panel projector / friends)**: `bash scripts/expose_demo_remote.sh` → public Cloudflare URL.
+3. **Laptop, no GPU rental** (Phase 1c, post-defense): same demo server with `--backend ollama` flag (NOT yet built; documented as Phase D in `PRODUCTION_NEXT_SESSION_PLAN.md`).
+
+### Commits pushed to `feat/qwen-3b-goal1` on `aksaN000/caem-thesis`
+
+```
+55487c6..3af7172  docs+ops: production deployment plan + thesis threats hedge + cycle-4 watchdogs + 0.38 config lock
+3af7172..36dd05e  plan+chat: A.1.1-A.1.4 done — caem_chat marked legacy, demo imports verified, cycle-3 memory locked
+36dd05e..49a0c77  demo: A.2.1 done — PANEL_DEMO_SCRIPT.md with 7 questions anchored in cycle-3 cal fold
+49a0c77..faa2461  demo: A.2.2 + A.2.3 done — quickstart cheat sheet + Cloudflare tunnel script
+faa2461..b60fe72  demo UI: A.3.1 + A.3.2 + A.3.3 done — evidence + memory-match panels + tier/latency badges
+b60fe72..4fce3f2  plan: mark A.4 as operator-executed (lab PC needed for actual dry-run)
+4fce3f2..eb45507  demo: A.5 fix — load fine-tuned checkpoint + per-cycle calibration in demo server
+```
+
+### Source artefacts
+
+- `PRODUCTION_NEXT_SESSION_PLAN.md` — phased plan with checkable state markers (Phase A done, B + C pending cycle-10, D post-defense).
+- `scripts/caem_demo_server.py` — patched with `--checkpoint`, `--composite_calibration`, `--conformal_gate` flags and evidence + memory-match UI panels.
+- `scripts/expose_demo_remote.sh` — Cloudflare tunnel script.
+- `docs/DEMO_QUICKSTART.md` — operator cheat sheet.
+- `docs/PANEL_DEMO_SCRIPT.md` — 7-question defense walkthrough.
+
+### What remains
+
+- **A.4** (dry-run on lab PC or 3060) — operator-executed once GPU access is available. User has 12 GB 3060 + 16 GB RAM locally; setup guide written, expected total wall-time ~2 h active + ~60-90 min background passage-index download.
+- **Phase B** (production swap, post cycle-10 close ~May 15) — `cp` of cycle-10 artefacts into `outputs/production/` + config edits + smoke test. ~30 min total.
+- **Phase C** (defense day) — launch + walk through 7-question script.
+- **Phase D** (Phase 1c, post-defense) — Ollama backend for laptop deployment, ~10-15 h new code.
+
+
+## 2026-05-04 — FINDING: deferred-buffer reconsideration pass never fires in Phase 1a trajectory
+
+While answering the user's question "will cycle 4 use deferred ones?", verified against `caem/training/self_improvement.py:449-479` and `scripts/run_experiment.py:1591-1596`. The orchestrator passes only `cycle_num`, `memory_store`, `general_data`, `verify_fn=None` to `sil.run_cycle()` — neither `deferred_buffer` nor `reconsider_fn` is supplied. Per the conditional `if deferred_buffer is not None and not aborted:` at line 449, the reconsideration block never enters.
+
+### Empirical evidence in run.log
+
+Deferred buffer sizes across cycles:
+- Cycle 1 close: 1,040 entries saved
+- Cycle 2 close: 2,471 entries saved (+1,431)
+- Cycle 3 close: 4,423 entries saved (+1,952)
+- Cycle 4 close (projected): ~6,000+ entries
+
+No `"Deferred reconsideration"` or `"Deferred promoted"` or `"Deferred TTL-dropped"` line appears anywhere in run.log. The DeferredBuffer log emissions are limited to `save` and `load` calls during cycle close + resume.
+
+### Implications
+
+1. **Cycle 4 (and every prior cycle) does NOT use deferred entries.** The reconsideration pass that promotes DEFERRED→STORE and enforces the TTL=4-cycle drop is dormant for the entire Phase 1a trajectory.
+
+2. **TTL is also dormant.** Every deferred entry has `age=0` because the only place age increments is inside `DeferredBuffer.reconsider()`. No entry has been TTL-dropped because the TTL check has never been evaluated.
+
+3. **Section 4.9 thesis claim ("Deferred-Entry Reconsideration") is architecturally registered but empirically vacuous for Phase 1a.** The code path exists (`caem/memory/deferred.py:245-419`, 175 lines, fully tested), but the orchestrator does not invoke it.
+
+### What IS working
+
+- DEFERRED-class push from `pipeline._maybe_store` at `pipeline.py:883-905` — verified by the monotone buffer growth
+- `DeferredBuffer.save` / `load` round-trip across resume — verified by `Restored deferred buffer from Cycle N` log lines
+- The bounded-FIFO `maxlen=10000` cap (config.py `deferred_buffer_max_size`) — not yet hit at cycle 4
+
+### Decision: Path 1 (disclose, don't patch)
+
+Path 1 (recommended): add a Threats-to-Validity paragraph to Ch5 §sec:disc-limitations acknowledging that the deferred-buffer reconsideration pass was registered architecturally but did not run during the Phase 1a trajectory due to an orchestrator gap. Frame Phase 1a's deferred-buffer behaviour as the persistence layer only; register the reconsideration-active mode as Phase 1b future work.
+
+Path 2 (rejected): patch `run_experiment.py:1591` to pass `deferred_buffer=pipeline.deferred_buffer, reconsider_fn=pipeline.make_reconsider_deferred_fn()`. Takes effect on next process restart (cycle 5+). Cycles 1-4 stay as they are; cycles 5-10 would have reconsideration active. This makes the trajectory non-stationary mid-run which violates `feedback_thesis_coherence.md` and the registered "no methodology drift" rule.
+
+### Defence-ready paragraph for Ch5 §sec:disc-limitations
+
+> The deferred-entry reconsideration pass specified in \Cref{sec:deferred-reconsider} is registered as an architectural component but did not fire during the Phase 1a trajectory due to an orchestrator-level gap: the per-cycle SelfImprovementLoop invocation in the trajectory script omits the deferred-buffer argument, so the reconsideration code path is dormant across all ten cycles. The deferred buffer accumulates DEFERRED-class admissions correctly across cycles (the persistence layer functions as registered), but no entry was promoted to the storage class via reconsideration and no entry was TTL-dropped, because both behaviours are gated on a reconsideration call that never runs. The architectural claim in \Cref{sec:deferred-reconsider} that the buffer functions as a queue of candidates revisited under improving verifiers is therefore registered as Phase 1b future work rather than as an empirical finding of the present trajectory; the contribution validated by the realised trajectory is the storage gate plus the retroactive re-verification pass plus the self-improvement fine-tune, with the deferred-buffer reconsideration pass logged as a registered-but-dormant component.
+
+### Source artefacts
+
+- `caem/training/self_improvement.py:449-479` — the gated reconsideration block in run_cycle
+- `scripts/run_experiment.py:1591-1596` — the actual call site, omits `deferred_buffer` + `reconsider_fn` kwargs
+- `outputs/full_run/run.log` — empirical evidence (4,423 entries saved at c3 close, no reconsideration log lines)
+- `caem/memory/deferred.py:245-419` — the reconsideration logic itself (correct, just never invoked)
+
+### Phase 1b future-work item registered
+
+`scripts/run_experiment.py:1591` patch — pass `deferred_buffer=pipeline.deferred_buffer, reconsider_fn=pipeline.make_reconsider_deferred_fn()` to `sil.run_cycle()`. Single-line conceptual change; activates the dormant reconsideration code path. Apply on the Phase 1b reset where the trajectory restarts from scratch.
