@@ -1587,12 +1587,27 @@ def run_experiment(ns: argparse.Namespace) -> None:
         # Step 2.4 below, AFTER the cycle-boundary recalibration so it
         # reads through the freshly-refit isotonic curves and conformal
         # thresholds rather than through stale Cycle-0 calibration.
+        #
+        # 2026-05-04 deferred-buffer wiring fix: previously the call site
+        # omitted ``deferred_buffer`` and ``reconsider_fn``, so the SIL
+        # run_cycle conditional ``if deferred_buffer is not None and not
+        # aborted:`` evaluated False on every cycle and the deferred
+        # reconsideration pass never fired. Cycles 1-4 of the live Phase
+        # 1a trajectory accumulated ~5000+ DEFERRED entries with age=0;
+        # none promoted, none TTL-dropped. The fix below threads the
+        # pipeline's deferred_buffer + a reconsider closure into SIL so
+        # the cycle-boundary reconsideration pass runs as registered in
+        # Ch4 §sec:deferred-reconsider. See branch_C_log 2026-05-04
+        # entries (orchestrator gap finding + counterfactual plan +
+        # decision to apply mid-trajectory at cycle 4 close, Path Y).
         logger.info("  Step 1: SelfImprovementLoop.run_cycle(%d) ...", cycle_num)
         cycle_result = sil.run_cycle(
             cycle_num=cycle_num,
             memory_store=pipeline.memory_store,
             general_data=general_data,
             verify_fn=None,
+            deferred_buffer=pipeline.deferred_buffer,
+            reconsider_fn=pipeline.make_reconsider_deferred_fn(),
         )
 
         if cycle_result.aborted:
