@@ -177,6 +177,42 @@ def make_app():
         answer = getattr(result, "display_answer", None) or result.answer or ""
         vout = getattr(result, "verifier_output", None)
 
+        # A.3.2 — memory-match sidebar data: re-encode the query and probe
+        # the memory store for the nearest neighbour. This mirrors the
+        # routing-time k=1 search that the pipeline already ran internally.
+        memory_match: Optional[Dict[str, Any]] = None
+        if _MEMORY_STORE is not None and len(_MEMORY_STORE) > 0:
+            try:
+                emb = _PIPELINE._encode_query(q.question)
+                hits = _MEMORY_STORE.search_with_ids(emb, k=1)
+                if hits:
+                    entry, entry_id, sim = hits[0]
+                    memory_match = {
+                        "entry_id": int(entry_id),
+                        "similarity": float(sim),
+                        "matched_question": getattr(entry, "question", "")[:200],
+                        "matched_answer": getattr(entry, "answer", "")[:200],
+                        "matched_cycle": int(getattr(entry, "storage_cycle", -1)),
+                        "matched_benchmark": getattr(entry, "source_benchmark", "") or "",
+                        "matched_u_stored": float(getattr(entry, "u_stored", 0.0) or 0.0),
+                    }
+            except Exception:
+                memory_match = None
+
+        # A.3.1 — evidence-passage data: surface the top-3 reranked passages
+        # the verifier used for grounding. Try .text first, fall back to id.
+        evidence: Optional[list] = None
+        if vout is not None:
+            tps = getattr(vout, "top_passages", None) or []
+            evidence = []
+            for p in tps[:3]:
+                txt = getattr(p, "text", None)
+                pid = getattr(p, "id", None) or getattr(p, "passage_id", None)
+                evidence.append({
+                    "id": str(pid) if pid is not None else None,
+                    "text": (txt[:400] if isinstance(txt, str) else None),
+                })
+
         pr: Optional[Dict[str, Any]]
         explanation: Optional[Dict[str, Any]] = None
         if vout is None:
@@ -214,6 +250,13 @@ def make_app():
                 "s_avg": float(getattr(vout, "s_avg", 0) or 0),
                 "decision": vout.decision,
             }
+        # A.3.1 + A.3.2 — attach evidence + memory-match data to explanation
+        # so the front-end can render expandable panels.
+        if explanation is not None:
+            if evidence is not None:
+                explanation["evidence"] = evidence
+            if memory_match is not None:
+                explanation["memory_match"] = memory_match
 
         return QueryOut(
             question=q.question,
@@ -257,11 +300,30 @@ _INDEX_HTML = """<!DOCTYPE html>
   .insufficient{background:#eceff1;border-color:#546e7a;}
   .tag{font-weight:600;text-transform:uppercase;letter-spacing:0.05em;font-size:0.85em;}
   .pct{float:right;font-variant-numeric:tabular-nums;}
+  .badges{display:inline-flex;gap:6px;margin-left:10px;font-size:0.75em;}
+  .badge{padding:2px 8px;border-radius:4px;background:#fff;border:1px solid #aaa;
+         color:#555;font-family:monospace;text-transform:none;letter-spacing:0;
+         font-weight:500;}
+  .badge.tier1{border-color:#2e7d32;color:#2e7d32;}
+  .badge.tier2{border-color:#1565c0;color:#1565c0;}
+  .badge.tier3{border-color:#6a1b9a;color:#6a1b9a;}
   .answer{margin-top:10px;font-size:1.05em;line-height:1.5;}
   .caveat{margin-top:10px;color:#555;font-style:italic;font-size:0.95em;}
   .explain{margin-top:14px;padding-top:10px;border-top:1px dashed #bbb;
            font-size:0.85em;color:#666;font-family:monospace;}
   .explain span{margin-right:12px;}
+  details{margin-top:12px;font-size:0.9em;}
+  details summary{cursor:pointer;color:#4a6fd0;user-select:none;font-weight:500;}
+  details summary:hover{text-decoration:underline;}
+  .panel{margin-top:8px;padding:10px;background:#fff;border-left:3px solid #4a6fd0;
+         border-radius:3px;font-size:0.9em;color:#333;}
+  .panel.match{border-left-color:#2e7d32;}
+  .panel .label{color:#888;font-size:0.85em;margin-right:6px;}
+  .panel .pid{color:#888;font-family:monospace;font-size:0.8em;}
+  .panel pre{margin:6px 0 0 0;white-space:pre-wrap;word-wrap:break-word;
+             font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+             font-size:0.9em;line-height:1.4;}
+  .panel + .panel{margin-top:6px;}
   .hint{color:#888;margin-top:10px;font-size:0.85em;}
   #loader{display:none;margin-top:20px;color:#888;}
 </style>
@@ -297,12 +359,42 @@ async function ask() {
     const icon = ICONS[pr.icon] || '·';
     const shown = pr.show_answer ? pr.answer : "I don't have enough evidence to answer this reliably.";
     let html = `<div class="resp ${pr.tag}">`;
-    html += `<div><span class="tag">${icon} ${pr.tag} · ${pr.label.replace('_',' ')}</span><span class="pct">${pct}%</span></div>`;
+    // A.3.3 — tier + latency badges in the response card header
+    const tierClass = `tier${d.tier}`;
+    html += `<div><span class="tag">${icon} ${pr.tag} · ${pr.label.replace('_',' ')}</span>`;
+    html += `<span class="badges"><span class="badge ${tierClass}">tier ${d.tier}</span><span class="badge">${d.latency_ms.toFixed(0)} ms</span></span>`;
+    html += `<span class="pct">${pct}%</span></div>`;
     html += `<div class="answer">${escapeHtml(shown)}</div>`;
     if (pr.caveat) html += `<div class="caveat">${escapeHtml(pr.caveat)}</div>`;
     if (d.explanation) {
+      // A.3.2 — memory-match sidebar (collapsible)
+      const mm = d.explanation.memory_match;
+      if (mm) {
+        const simPct = (mm.similarity * 100).toFixed(1);
+        html += `<details><summary>Memory match · sim=${simPct}% · cycle ${mm.matched_cycle} · ${escapeHtml(mm.matched_benchmark)}</summary>`;
+        html += `<div class="panel match"><span class="label">stored question:</span>`;
+        html += `<pre>${escapeHtml(mm.matched_question)}</pre>`;
+        html += `<div style="margin-top:6px;"><span class="label">stored answer:</span><pre>${escapeHtml(mm.matched_answer)}</pre></div>`;
+        html += `<div style="margin-top:6px;font-size:0.85em;color:#666;">entry id ${mm.entry_id} · u_stored=${mm.matched_u_stored.toFixed(3)}</div>`;
+        html += `</div></details>`;
+      }
+      // A.3.1 — evidence-passage section (collapsible)
+      const ev = d.explanation.evidence;
+      if (ev && ev.length > 0) {
+        html += `<details><summary>Evidence (top-${ev.length} reranked passages)</summary>`;
+        ev.forEach((p, i) => {
+          html += `<div class="panel">`;
+          html += `<div><span class="label">passage ${i+1}</span>`;
+          if (p.id) html += `<span class="pid">${escapeHtml(p.id)}</span>`;
+          html += `</div>`;
+          if (p.text) html += `<pre>${escapeHtml(p.text)}</pre>`;
+          else html += `<div style="color:#999;font-size:0.85em;">passage text not surfaced (id-only mode)</div>`;
+          html += `</div>`;
+        });
+        html += `</details>`;
+      }
+      // Per-signal numeric breakdown (existing explain block, kept for the panel)
       html += '<div class="explain">';
-      html += `<span>tier=${d.tier}</span><span>latency=${d.latency_ms.toFixed(0)}ms</span>`;
       for (const [k,v] of Object.entries(d.explanation)) {
         if (typeof v === 'number') html += `<span>${k}=${v.toFixed(3)}</span>`;
       }

@@ -36,9 +36,9 @@ All Phase A steps are CPU-only with zero GPU contention.
 
 All edits to `scripts/caem_demo_server.py`'s inlined `_INDEX_HTML`.
 
-- [ ] **A.3.1** Add expandable "Evidence" section showing top-3 reranked passages on click (~30 lines HTML + JS). Demonstrates grounding to panel.
-- [ ] **A.3.2** Add "Memory match" sidebar showing nearest-neighbor stored episode + cosine similarity (~50 lines HTML + JS + JSON field plumbed from pipeline result). Demonstrates Tier 1 routing.
-- [ ] **A.3.3** Add tier + latency badges to response card header (currently hidden in expandable explain block; surface to top).
+- [x] **A.3.1** Add expandable "Evidence" section showing top-3 reranked passages on click (~30 lines HTML + JS). Demonstrates grounding to panel. **(2026-05-04 — `<details>` panel showing top-3 reranked passages with text + passage id; surfaces from `vout.top_passages` via `/query` endpoint)**
+- [x] **A.3.2** Add "Memory match" sidebar showing nearest-neighbor stored episode + cosine similarity (~50 lines HTML + JS + JSON field plumbed from pipeline result). Demonstrates Tier 1 routing. **(2026-05-04 — `<details>` panel showing matched entry id, cosine sim %, stored question, stored answer, storage cycle, source benchmark, stored u_stored; uses _MEMORY_STORE.search_with_ids in /query)**
+- [x] **A.3.3** Add tier + latency badges to response card header (currently hidden in expandable explain block; surface to top). **(2026-05-04 — green/blue/purple tier badges + latency badge in response card header alongside tag and confidence%)**
 
 ### A.4 Dry-run rehearsal (this week, ~1.5 hours)
 
