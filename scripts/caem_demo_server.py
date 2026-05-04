@@ -81,7 +81,32 @@ def _build_pipeline(
     passage_index: Path,
     model: str,
     device: str,
+    checkpoint: Optional[Path] = None,
+    composite_calibration: Optional[Path] = None,
+    conformal_gate: Optional[Path] = None,
 ):
+    """Construct the full CAEM pipeline.
+
+    The default path loads the *base* HuggingFace generator (no fine-tuning)
+    and the cycle-0 sweep variant calibration. To demonstrate the actual
+    post-cycle-N CAEM behaviour you saw in the research trajectory, supply:
+
+    - ``checkpoint``: path to a fine-tuned ``model.pt`` produced by SIL
+      (e.g. ``outputs/full_run/cycle_3/model.pt`` or ``cycle_10/model.pt``).
+      Loaded via ``model.load_state_dict`` *after* the base model.
+    - ``composite_calibration``: per-cycle composite_calibration.json
+      (e.g. ``outputs/full_run/cycle_3/composite_calibration.json``).
+      Overrides ``config.composite_calibration_path`` so the verifier reads
+      this cycle's isotonic curves and boost weights instead of cycle-0's.
+    - ``conformal_gate``: per-cycle conformal_gate.json with the
+      EMA-smoothed τ_store and τ_defer.
+
+    All three should usually be passed together (same cycle). Without
+    ``checkpoint`` the demo runs base Qwen on Tier 2/3 generations, which
+    only demonstrates the architecture's framing layer (memory hits, tier
+    routing, four-outcome decision tree) but not the SIL fine-tune
+    contribution to base accuracy.
+    """
     import torch
 
     from caem.config import CAEMConfig
@@ -95,11 +120,48 @@ def _build_pipeline(
     logger.info("Loading config + models...")
     config = CAEMConfig()
 
+    # Override calibration paths BEFORE the verifier is constructed, so
+    # the composite + gate are read from the requested per-cycle JSONs.
+    if composite_calibration is not None:
+        config.composite_calibration_path = str(composite_calibration)
+        logger.info("Using composite calibration: %s", composite_calibration)
+    if conformal_gate is not None:
+        config.conformal_gate_path = str(conformal_gate)
+        logger.info("Using conformal gate: %s", conformal_gate)
+
     t0 = time.perf_counter()
     gen_model, tokenizer = load_base_generator(
         model, use_sdpa=True, use_torch_compile=True,
     )
     logger.info("Qwen loaded in %.1fs", time.perf_counter() - t0)
+
+    # Load fine-tuned weights if a SIL checkpoint is provided. Without
+    # this the pipeline runs the HuggingFace base model on Tier 2/3
+    # generations, which does NOT match the trajectory readings.
+    if checkpoint is not None:
+        ckpt_path = Path(checkpoint)
+        if not ckpt_path.exists():
+            raise FileNotFoundError(
+                f"--checkpoint {ckpt_path} does not exist. "
+                f"Without a checkpoint the demo runs base HuggingFace Qwen, "
+                f"which does NOT reflect post-SIL CAEM behaviour."
+            )
+        t1 = time.perf_counter()
+        state = torch.load(str(ckpt_path), map_location=device, weights_only=False)
+        # Some SIL checkpoints save the bare state_dict; others wrap it.
+        if isinstance(state, dict) and "model" in state and isinstance(state["model"], dict):
+            state = state["model"]
+        gen_model.load_state_dict(state)
+        logger.info(
+            "Loaded fine-tuned generator weights from %s in %.1fs",
+            ckpt_path, time.perf_counter() - t1,
+        )
+    else:
+        logger.warning(
+            "No --checkpoint provided. Running BASE HuggingFace Qwen on "
+            "Tier 2/3 generations. Memory hits + framing layer work, but "
+            "Tier 2/3 answers will NOT match the post-SIL trajectory readings."
+        )
 
     encoder = QueryEncoder(device=device)
     passage_store = PassageStore.load(str(passage_index))
@@ -428,7 +490,22 @@ def main() -> int:
                    help="Memory store path (without .faiss/.meta suffix).")
     p.add_argument("--passage_index", type=Path,
                    default=Path("data/passage_index"))
-    p.add_argument("--model", type=str, default="Qwen/Qwen2.5-3B-Instruct")
+    p.add_argument("--model", type=str, default="Qwen/Qwen2.5-3B-Instruct",
+                   help="HuggingFace model id for the base generator. "
+                        "Fine-tuned weights are layered on via --checkpoint.")
+    p.add_argument("--checkpoint", type=Path, default=None,
+                   help="Path to a fine-tuned model.pt (e.g. "
+                        "outputs/full_run/cycle_3/model.pt). REQUIRED to "
+                        "demonstrate post-SIL CAEM behaviour. Without it, "
+                        "Tier 2/3 generations come from base HF Qwen.")
+    p.add_argument("--composite_calibration", type=Path, default=None,
+                   help="Path to per-cycle composite_calibration.json. "
+                        "Overrides config.composite_calibration_path. "
+                        "Pass alongside --checkpoint for matching cycle.")
+    p.add_argument("--conformal_gate", type=Path, default=None,
+                   help="Path to per-cycle conformal_gate.json with "
+                        "EMA-smoothed τ_store / τ_defer. Pass alongside "
+                        "--checkpoint and --composite_calibration.")
     p.add_argument("--device", type=str, default="cuda")
     p.add_argument("--host", type=str, default="0.0.0.0")
     p.add_argument("--port", type=int, default=8000)
@@ -445,6 +522,9 @@ def main() -> int:
         passage_index=ns.passage_index,
         model=ns.model,
         device=ns.device,
+        checkpoint=ns.checkpoint,
+        composite_calibration=ns.composite_calibration,
+        conformal_gate=ns.conformal_gate,
     )
     _set_pipeline(pipeline, memory_store, ns.cadence)
 
