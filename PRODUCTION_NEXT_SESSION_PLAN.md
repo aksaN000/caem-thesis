@@ -15,6 +15,48 @@ Mark each step `[x]` once complete. After every batch, commit + push.
 
 ---
 
+## Current state — HALTED 2026-05-04 23:13 UTC pending Vast recharge
+
+The Phase 1a trajectory was halted cleanly at the cycle-5 SIL-and-reconsideration phase (mid-cycle) on 2026-05-04 to stop GPU spend until the next Vast credit recharge. The halt is by user choice, not a failure.
+
+### What completed before the halt
+
+- Cycles 0 through 4: full trajectory artefacts on disk and on gdrive (`gdrive:caem-phase1a/full_run/cycle_{0,1,2,3,4}/`). Per-cycle `model.pt`, `composite_calibration.json`, `conformal_gate.json`, `calibrated_thresholds.json`, `meta.pkl`, plus `memory_store_cycle_N.{faiss,meta}`, `deferred_buffer_cycle_N.pkl`, and `retroverify_cycleN.json` are all backed up. (Cycle 2's calibration JSONs are split across `cycle_2/`, `cycle_2_artefacts/`, and `cycle_2_calibration/` for legacy reasons but are complete.)
+- Path Y orchestrator patch was applied and tested live: cycle 5 SIL fine-tune completed cleanly (MMLU retention 1.04× pristine, well above the 0.93 threshold), and the deferred-reconsideration sweep fired for the first time in the trajectory at 23:11:43 with `Deferred reconsideration: sweeping 6422 entries (promote_threshold=0.451, ttl=2 cycles)` — empirical confirmation that the orchestrator gap is closed and TTL=2 reconsideration is now active.
+- `cycle_5/model.pt` and `cycle_5/meta.pkl` exist locally (~6.2 GB) but are mid-cycle artefacts: cycle 5's eval pass, retroverify pass, and per-cycle persistence files (`memory_store_cycle_5.*`, `deferred_buffer_cycle_5.pkl`, `retroverify_cycle5.json`) were not written before the halt. These will be regenerated on resume.
+
+### What was running at the moment of halt
+
+The reconsideration sweep was in flight (6,422 entries against the post-cycle-5 verifier); the per-cycle eval pass had not started. The cycle-5 close artefacts were not written, so on resume the runner restarts cycle 5 from scratch (the `--resume_from_cycle 5` path restores from cycle 4 and re-runs cycle 5's SIL + reconsideration + eval).
+
+### Resume protocol (next session, after Vast recharge)
+
+1. Spin up a Vast 5090 instance and pull the repo + restore artefacts:
+   ```bash
+   git clone https://github.com/aksaN000/caem-thesis.git
+   cd caem-thesis
+   git checkout feat/qwen-3b-goal1
+   # restore outputs/ from gdrive
+   rclone copy gdrive:caem-phase1a/full_run/ outputs/full_run/ --transfers 4 --checkers 8
+   ```
+2. Verify cycle-4 artefacts on disk (the resume base): `cycle_4/{model.pt,composite_calibration.json,conformal_gate.json,calibrated_thresholds.json,meta.pkl}`, `memory_store_cycle_4.{faiss,meta}`, `deferred_buffer_cycle_4.pkl`, `retroverify_cycle4.json`, `mmlu_baseline.json`, `dataset_splits.json`.
+3. Confirm the orchestrator patch is in place at `scripts/run_experiment.py:1591` (the `deferred_buffer=pipeline.deferred_buffer, reconsider_fn=pipeline.make_reconsider_deferred_fn()` kwargs).
+4. Confirm `caem/config.py:770` has `deferred_buffer_ttl_cycles: int = 2`.
+5. Launch resumed runner in tmux:
+   ```bash
+   tmux new-session -d -s plan_a -x 220 -y 60 \
+       'source /venv/main/bin/activate && cd /workspace/caem && \
+        ./run_phase1a.sh --resume_from_cycle 5 2>&1 | tee -a outputs/phase1a_runner.log'
+   ```
+6. Verify within 60s: `grep "RESUMING EXPERIMENT FROM CYCLE 5" outputs/full_run/run.log` returns the marker line.
+7. Verify within ~30 min (during cycle 5 SIL): a `Deferred reconsideration: sweeping N entries` line appears in run.log. Without it the orchestrator patch did not engage and the run should be halted again.
+
+### Estimated resume cost
+
+Cycles 5 through 10 = six cycles. Each cycle is roughly 4-6 hours wall-clock under the current batched-cal envelope (SIL fine-tune ~30 min, reconsideration sweep ~5 min, eval pass on seven benchmarks ~3-4 hours, retroverify ~30 min). Budget ~30 GPU-hours for the trajectory completion alone, ~$15-20 of Vast credit. Add another ~$15-20 for B.5b baseline rescoring (Phase B.5b in this plan) and ~$10-15 for the B1-B7 baseline runs themselves (Phase B preceding the rescore). Total recharge target for the path through to the cycle-10 close + comparison panel is around ~$40-55 of Vast credit.
+
+---
+
 ## Phase A — Pre-defense polish (parallel to cycles 5-10, ~7 hours total)
 
 All Phase A steps are CPU-only with zero GPU contention.
@@ -117,25 +159,19 @@ All edits to `scripts/caem_demo_server.py`'s inlined `_INDEX_HTML`.
 
 **Phase 1b future work registered separately:** instrument-side ablation — measure baseline CHM under each cycle's verifier (not just cycle-10) to characterise how the verifier itself contributes to the CAEM advantage. NOT part of Phase 1a defense scope.
 
-### B.6 Counterfactual reconstruction of deferred-buffer reconsideration (post-cycle-10, ~6-10h, ~$3-5 GPU)
+### B.6 Counterfactual reconstruction — REMOVED 2026-05-04 (replaced by Path Y live data)
 
-**Why:** During Phase 1a the orchestrator omitted the `deferred_buffer` kwarg to `sil.run_cycle()`, so `DeferredBuffer.reconsider()` never fired (4,423+ deferred entries at age=0 by cycle 3). The reconsideration code path is correctly implemented and unit-tested; the call site in `scripts/run_experiment.py:1591-1596` is the gap. Recover the deferred-pool empirical receipt by replaying `reconsider()` against frozen artifacts (per-cycle deferred-buffer pickles + per-cycle verifier states). See branch_C_log 2026-05-04 entry for full design + algorithm + thesis integration plan.
+**Originally registered** as a post-cycle-10 ~$3-5 / 6-10h GPU job to replay `DeferredBuffer.reconsider()` against frozen cycle-1..10 artefacts, recovering the per-entry promotion outcome that the live trajectory missed because of the orchestrator gap at `scripts/run_experiment.py:1591`.
 
-- [ ] **B.6.1** Confirm all required frozen artifacts exist on disk:
-  - `outputs/full_run/deferred_buffer_cycle_{1..10}.pkl` (~5-15 MB each)
-  - `outputs/full_run/cycle_{1..10}/model.pt` (~6 GB each — re-download from gdrive if locally pruned)
-  - `outputs/full_run/cycle_{1..10}/composite_calibration.json`
-  - `outputs/full_run/cycle_{1..10}/conformal_gate.json`
-- [ ] **B.6.2** Write `scripts/reconstruct_deferred_survival.py` (~70 lines) per the algorithm in branch_C_log 2026-05-04 entry. Replay `DeferredBuffer.reconsider()` for each cycle boundary against the frozen verifier of that cycle. Track per-entry outcome: promoted on chance N, TTL-dropped at age 4, or still in buffer.
-- [ ] **B.6.3** Smoke-test the script on a single cycle pair (e.g. cycle-1 buffer × cycle-2 verifier) to validate the verifier construction + entry replay path before running the full multi-cycle reconstruction.
-- [ ] **B.6.4** Run the full reconstruction on a GPU instance (Vast 5090 or local 3060). Estimate: ~6-10 GPU-hours total for ~10000-12000 entries × 9 cycle-pair replays.
-- [ ] **B.6.5** Output: `outputs/full_run/cycle_10/deferred_counterfactual_reconstruction.json` with per-chance promotion histogram, per-cycle promoted count, per-benchmark breakdown, total counterfactual stored-pool growth, TTL-drop trajectory.
-- [ ] **B.6.6** Update Ch5 §sec:disc-limitations with the empirical receipt + the orchestrator-gap disclosure (defence-ready paragraph drafted in branch_C_log 2026-05-04 entry).
-- [ ] **B.6.7** Backup the reconstruction artefact: `rclone copy outputs/full_run/cycle_10/deferred_counterfactual_reconstruction.json gdrive:caem-phase1a/production/`.
+**Replaced 2026-05-04** by Path Y: the orchestrator gap was patched (`deferred_buffer=pipeline.deferred_buffer, reconsider_fn=pipeline.make_reconsider_deferred_fn()` added to the `sil.run_cycle()` call), the `deferred_buffer_ttl_cycles` config was reverted from 4 back to the originally-registered 2, the cycle-4-close halt-restart procedure was executed cleanly, and the runner resumed from cycle 5 with reconsideration ACTIVE at every subsequent cycle boundary. See `scripts/halt_and_resume_with_deferred_fix.sh` and `branch_C_log.md` 2026-05-04 entries (Path Y + TTL=2 revert).
 
-**Methodological scope:** the counterfactual recovers per-entry promotion outcome (deterministic given verifier + entry) but cannot recover the path-dependent downstream effect on subsequent SIL fine-tunes (the trajectory's stored pool would have been different had reconsideration fired live). The receipt validates the deferred-pool *mechanism*, not the trajectory's downstream EM trajectory. This scope is honestly disclosed in Ch5.
+**What this means for the receipt:**
+- The deferred-pool empirical receipt is now provided by **live cycle-5-through-10 trajectory data** rather than by counterfactual reconstruction.
+- Cycle 5 is the documented one-time backlog reconciliation: the ~6,400 entries deferred across cycles 1-4 (which all sat at age=0 because the dormant pass never advanced their ages) are rescored together under the post-cycle-5 verifier, with promotion or TTL-drop outcomes logged in `outputs/full_run/run.log` and persisted in `deferred_buffer_cycle_5.pkl`.
+- Cycles 6-10 are the steady-state two-track survivability window: each cycle boundary's reconsideration sweep emits per-entry promote / age / TTL-drop log lines, and the per-cycle stored-pool growth attributable to the deferred path is read directly off the trajectory.
+- The cycle-5-through-10 window is the empirical receipt for the deferred-pool half of the two-track design; cycles 1-4 contribute to the storage-pool receipt only. Ch5 §sec:disc-limitations was updated 2026-05-04 to register this two-phase reading and document the cycle-4-close transition as the methodology-refinement point.
 
-**Phase 1b orchestrator fix** (registered separately): patch `scripts/run_experiment.py:1591-1596` to pass `deferred_buffer=pipeline.deferred_buffer, reconsider_fn=pipeline.make_reconsider_deferred_fn()` to `sil.run_cycle()`. Five-line change. Activates the live reconsideration path for any future rerun. NOT applied to the Phase 1a trajectory because mid-run methodology change violates `feedback_thesis_coherence.md` and breaks the `thm:convergence` envelope fit.
+**Methodological note:** Path Y delivers a stronger receipt than the counterfactual reconstruction would have, because the live trajectory captures the path-dependent downstream effect of promoted entries on subsequent SIL fine-tunes (the counterfactual could only recover per-entry outcome in isolation). Zero additional GPU cost for the empirical receipt.
 
 ---
 
