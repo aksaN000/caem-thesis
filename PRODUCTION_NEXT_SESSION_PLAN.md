@@ -74,6 +74,7 @@ All edits to `scripts/caem_demo_server.py`'s inlined `_INDEX_HTML`.
   - `cp outputs/full_run/deferred_buffer_cycle_10.pkl outputs/production/deferred_buffer.pkl`
 - [ ] **B.2.4** Copy cycle-10 model checkpoint to production location (large file, ~6 GB):
   - `cp outputs/full_run/cycle_10/model.pt outputs/production/cycle_0/model.pt` (production cycle counter starts at 0)
+  - **The demo server loads this via `--checkpoint outputs/production/cycle_0/model.pt` (added 2026-05-04). Without this flag the server runs base HuggingFace Qwen, which does NOT reflect post-SIL CAEM behaviour.**
 - [ ] **B.2.5** Edit `caem/config.py` to point composite + gate paths at production:
   - `composite_calibration_path = "outputs/production/composite_calibration.json"`
   - `conformal_gate_path        = "outputs/production/conformal_gate.json"`

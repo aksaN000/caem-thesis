@@ -151,21 +151,27 @@ After question 7 (or skip 7 for time), invite the panel to type their own questi
 ## Quick-launch reference (also in `DEMO_QUICKSTART.md`)
 
 ```bash
-# Pre-defense rehearsal (cycle-3 memory)
+# Pre-defense rehearsal (cycle-3 memory + fine-tuned weights + calibration)
 cd /workspace/caem
 python scripts/caem_demo_server.py \
     --memory outputs/full_run/memory_store_cycle_3 \
     --passage_index data/passage_index \
+    --checkpoint outputs/full_run/cycle_3/model.pt \
+    --composite_calibration outputs/full_run/cycle_3/composite_calibration.json \
+    --conformal_gate outputs/full_run/cycle_3/conformal_gate.json \
     --port 8000
 
-# Defense day (cycle-10 production-swapped memory)
+# Defense day (cycle-10 production-swapped artefacts)
 python scripts/caem_demo_server.py \
     --memory outputs/production/memory_store/memory_store \
     --passage_index data/passage_index \
+    --checkpoint outputs/production/cycle_0/model.pt \
+    --composite_calibration outputs/production/composite_calibration.json \
+    --conformal_gate outputs/production/conformal_gate.json \
     --port 8000
 
 # Optional: expose to a public URL via Cloudflare tunnel
 bash scripts/expose_demo_remote.sh
 ```
 
-Open `http://localhost:8000` (or the public URL) in a browser.
+Open `http://localhost:8000` (or the public URL) in a browser. **All three of `--checkpoint`, `--composite_calibration`, and `--conformal_gate` are needed for a representative demo** — without them the server runs base Qwen + cycle-0 calibration, which demonstrates the framing layer but not the SIL contribution.

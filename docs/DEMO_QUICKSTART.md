@@ -6,7 +6,7 @@
 
 ## 1. Launch the demo (lab PC, ~60-120 sec to ready)
 
-### Pre-defense rehearsal (cycle-3 memory)
+### Pre-defense rehearsal (cycle-3 memory + cycle-3 fine-tuned weights + cycle-3 calibration)
 
 ```bash
 cd /workspace/caem
@@ -14,11 +14,14 @@ python scripts/caem_demo_server.py \
     --memory outputs/full_run/memory_store_cycle_3 \
     --passage_index data/passage_index \
     --model Qwen/Qwen2.5-3B-Instruct \
+    --checkpoint outputs/full_run/cycle_3/model.pt \
+    --composite_calibration outputs/full_run/cycle_3/composite_calibration.json \
+    --conformal_gate outputs/full_run/cycle_3/conformal_gate.json \
     --device cuda \
     --port 8000
 ```
 
-### Defense day (cycle-10 production-swapped memory)
+### Defense day (cycle-10 production-swapped memory + weights + calibration)
 
 ```bash
 cd /workspace/caem
@@ -26,9 +29,16 @@ python scripts/caem_demo_server.py \
     --memory outputs/production/memory_store/memory_store \
     --passage_index data/passage_index \
     --model Qwen/Qwen2.5-3B-Instruct \
+    --checkpoint outputs/production/cycle_0/model.pt \
+    --composite_calibration outputs/production/composite_calibration.json \
+    --conformal_gate outputs/production/conformal_gate.json \
     --device cuda \
     --port 8000
 ```
+
+### Why all three flags (`--checkpoint`, `--composite_calibration`, `--conformal_gate`)
+
+Without `--checkpoint` the demo runs base HuggingFace Qwen on Tier 2/3 generations, which does NOT match the trajectory readings. Without the calibration JSON overrides the verifier reads cycle-0 sweep variant calibration, not the per-cycle EMA-smoothed thresholds. All three should be passed together with the same cycle's artefacts. If you omit them the server logs WARN and runs in degraded "framing-only" mode (memory hits + tier routing still demonstrate the architecture, but Tier 2/3 generations and storage thresholds are stale).
 
 ### Wait for the ready line
 
