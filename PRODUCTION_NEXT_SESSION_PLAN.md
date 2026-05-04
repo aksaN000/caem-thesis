@@ -102,6 +102,26 @@ All edits to `scripts/caem_demo_server.py`'s inlined `_INDEX_HTML`.
 - [ ] **B.5.2** Tar + copy to USB stick or external drive: `tar czf caem_production_cycle10_$(date +%Y%m%d).tar.gz outputs/production/`.
 - [ ] **B.5.3** Record a screen-capture video of one successful demo walkthrough as failsafe (~5 min). Store alongside the tarball.
 
+### B.6 Counterfactual reconstruction of deferred-buffer reconsideration (post-cycle-10, ~6-10h, ~$3-5 GPU)
+
+**Why:** During Phase 1a the orchestrator omitted the `deferred_buffer` kwarg to `sil.run_cycle()`, so `DeferredBuffer.reconsider()` never fired (4,423+ deferred entries at age=0 by cycle 3). The reconsideration code path is correctly implemented and unit-tested; the call site in `scripts/run_experiment.py:1591-1596` is the gap. Recover the deferred-pool empirical receipt by replaying `reconsider()` against frozen artifacts (per-cycle deferred-buffer pickles + per-cycle verifier states). See branch_C_log 2026-05-04 entry for full design + algorithm + thesis integration plan.
+
+- [ ] **B.6.1** Confirm all required frozen artifacts exist on disk:
+  - `outputs/full_run/deferred_buffer_cycle_{1..10}.pkl` (~5-15 MB each)
+  - `outputs/full_run/cycle_{1..10}/model.pt` (~6 GB each — re-download from gdrive if locally pruned)
+  - `outputs/full_run/cycle_{1..10}/composite_calibration.json`
+  - `outputs/full_run/cycle_{1..10}/conformal_gate.json`
+- [ ] **B.6.2** Write `scripts/reconstruct_deferred_survival.py` (~70 lines) per the algorithm in branch_C_log 2026-05-04 entry. Replay `DeferredBuffer.reconsider()` for each cycle boundary against the frozen verifier of that cycle. Track per-entry outcome: promoted on chance N, TTL-dropped at age 4, or still in buffer.
+- [ ] **B.6.3** Smoke-test the script on a single cycle pair (e.g. cycle-1 buffer × cycle-2 verifier) to validate the verifier construction + entry replay path before running the full multi-cycle reconstruction.
+- [ ] **B.6.4** Run the full reconstruction on a GPU instance (Vast 5090 or local 3060). Estimate: ~6-10 GPU-hours total for ~10000-12000 entries × 9 cycle-pair replays.
+- [ ] **B.6.5** Output: `outputs/full_run/cycle_10/deferred_counterfactual_reconstruction.json` with per-chance promotion histogram, per-cycle promoted count, per-benchmark breakdown, total counterfactual stored-pool growth, TTL-drop trajectory.
+- [ ] **B.6.6** Update Ch5 §sec:disc-limitations with the empirical receipt + the orchestrator-gap disclosure (defence-ready paragraph drafted in branch_C_log 2026-05-04 entry).
+- [ ] **B.6.7** Backup the reconstruction artefact: `rclone copy outputs/full_run/cycle_10/deferred_counterfactual_reconstruction.json gdrive:caem-phase1a/production/`.
+
+**Methodological scope:** the counterfactual recovers per-entry promotion outcome (deterministic given verifier + entry) but cannot recover the path-dependent downstream effect on subsequent SIL fine-tunes (the trajectory's stored pool would have been different had reconsideration fired live). The receipt validates the deferred-pool *mechanism*, not the trajectory's downstream EM trajectory. This scope is honestly disclosed in Ch5.
+
+**Phase 1b orchestrator fix** (registered separately): patch `scripts/run_experiment.py:1591-1596` to pass `deferred_buffer=pipeline.deferred_buffer, reconsider_fn=pipeline.make_reconsider_deferred_fn()` to `sil.run_cycle()`. Five-line change. Activates the live reconsideration path for any future rerun. NOT applied to the Phase 1a trajectory because mid-run methodology change violates `feedback_thesis_coherence.md` and breaks the `thm:convergence` envelope fit.
+
 ---
 
 ## Phase C — Defense day (D-day, ~15 minutes prep)

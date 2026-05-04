@@ -3794,3 +3794,147 @@ Path 2 (rejected): patch `run_experiment.py:1591` to pass `deferred_buffer=pipel
 ### Phase 1b future-work item registered
 
 `scripts/run_experiment.py:1591` patch — pass `deferred_buffer=pipeline.deferred_buffer, reconsider_fn=pipeline.make_reconsider_deferred_fn()` to `sil.run_cycle()`. Single-line conceptual change; activates the dormant reconsideration code path. Apply on the Phase 1b reset where the trajectory restarts from scratch.
+
+
+## 2026-05-04 — DECISION: counterfactual reconstruction for the deferred-buffer empirical receipt
+
+User decision (under financial-hardship constraint): do NOT rerun cycles 0-10. Recover the deferred-buffer reconsideration empirical receipt via post-hoc counterfactual reconstruction from frozen artifacts. Run after cycle 10 close to avoid GPU contention with the live trajectory.
+
+### Why counterfactual reconstruction is methodologically valid
+
+The Phase 1a orchestrator gap (`run_experiment.py:1591-1596` omits `deferred_buffer` + `reconsider_fn` kwargs) prevents `DeferredBuffer.reconsider()` from firing during the live trajectory, but does not destroy the input data the function would have processed. Both halves of `reconsider()`'s input are preserved on disk:
+
+- **Buffer state at each cycle boundary**: `outputs/full_run/deferred_buffer_cycle_{1,2,3,4,...,10}.pkl` (DeferredBuffer pickles saved + uploaded to gdrive at every cycle close).
+- **Per-cycle verifier state**: `cycle_N/model.pt` (post-N-SIL Qwen weights), `cycle_N/composite_calibration.json` (per-signal isotonic + boost weights), `cycle_N/conformal_gate.json` (EMA-smoothed τ_store + τ_defer).
+
+Because `verifier.verify(question, answer)` is deterministic given fixed weights + calibration + thresholds, replaying `reconsider()` against these frozen states produces exactly the result the live pass would have produced. The counterfactual is a one-shot replay of a deterministic function, not a Monte-Carlo simulation; the receipt is reproducible by anyone running the same script against the same artifacts.
+
+### What the reconstruction CAN and CANNOT recover
+
+**Can recover (deterministic from frozen inputs):**
+- Per-entry promotion outcome at each chance: would-be-promoted at chance 1 / 2 / 3 / 4, or TTL-dropped at age 4.
+- Per-cycle promotion count and TTL-drop count.
+- Per-benchmark breakdown of the deferred → promoted pipeline.
+- Survival-by-chance histogram for the entire trajectory.
+- Total counterfactual stored-pool growth.
+- Per-promoted-entry post-promotion `u_stored` distribution (validates the gate's contract on promoted entries).
+
+**Cannot recover (the trajectory's path-dependent downstream effects):**
+- Effect of having more stored entries on subsequent SIL fine-tunes. If reconsider() had been firing, cycle 2's SIL would have trained on cycle-1-promotions + cycle-1-stores; cycle 3's SIL would have trained on a fundamentally different memory pool. The reconstruction can say "X entries would have been promoted" but cannot prove "and therefore the next cycle's FEVER EM would have been Y." The trajectory's path is permanently altered; only the per-cycle promotion decision is recoverable.
+- Deferred-buffer consolidation cascade. Promoted entries that would have been near-duplicates of existing stored entries would have been filtered by `is_novel`; the reconstruction can either ignore this filter (over-counting promotions) or apply it (under-counting because it uses the live trajectory's actual stored-pool snapshot, which is path-dependent).
+
+The receipt produced is therefore: "The deferred-buffer mechanism would have produced X% promotion at each chance, validating the bounded-exploration design under the locked thresholds and per-cycle verifier improvement." Not: "and therefore the trajectory would have been Y% better." That's a registered limitation and gets honestly disclosed in Ch5.
+
+### Algorithm outline (`scripts/reconstruct_deferred_survival.py`)
+
+```python
+# Inputs frozen on disk:
+#   outputs/full_run/deferred_buffer_cycle_{N}.pkl      for N = 1..10
+#   outputs/full_run/cycle_{N}/model.pt                  for N = 0..10
+#   outputs/full_run/cycle_{N}/composite_calibration.json
+#   outputs/full_run/cycle_{N}/conformal_gate.json
+
+# Initialize empty per-entry tracking dict keyed by content-hash of question.
+entry_outcomes = {}
+
+# For each cycle boundary N where reconsider() would have fired:
+for cycle_N in range(2, 11):  # reconsider() at end of cycle 1 = c2 boundary, etc.
+    buffer = pickle.load(open(f'deferred_buffer_cycle_{cycle_N - 1}.pkl', 'rb'))
+    verifier = build_verifier_at_cycle(cycle_N)  # loads model.pt, composite, gate
+    tau_store = read_tau_store(f'cycle_{cycle_N}/conformal_gate.json')
+
+    for de in buffer.entries:
+        if de.question_hash in entry_outcomes:
+            # Already promoted or TTL-dropped at an earlier chance
+            continue
+
+        vout = verifier.verify(de.question, de.answer)
+        chance = de.age + 1  # de.age is the would-be age coming into this reconsider()
+
+        if vout.decision == "STORE" and vout.u_stored >= tau_store:
+            entry_outcomes[de.question_hash] = {
+                "outcome": "promoted",
+                "chance": chance,
+                "cycle_when_promoted": cycle_N,
+                "u_stored_at_promotion": vout.u_stored,
+                "source_benchmark": de.source_benchmark,
+            }
+        elif chance >= ttl_cycles:  # ttl_cycles = 4
+            entry_outcomes[de.question_hash] = {
+                "outcome": "ttl_dropped",
+                "chance": chance,
+                "cycle_when_dropped": cycle_N,
+            }
+        # else: kept, age advances on next cycle's reconsider()
+
+# Aggregate output
+output = {
+    "promoted_by_chance": Counter(...),
+    "ttl_dropped_at_age_4": ...,
+    "still_in_buffer_at_cycle_10_end": ...,
+    "per_benchmark_promotion_rate": {...},
+    "per_cycle_promoted_count": {...},
+    "total_counterfactual_stored_growth": ...,
+}
+write_to('outputs/full_run/cycle_10/deferred_counterfactual_reconstruction.json', output)
+```
+
+### Cost
+
+- ~70 lines of Python (~3-4 hours to write + test against a single-entry smoke).
+- 1 GPU instance for ~6-10 hours total runtime (deterministic re-verification of ~10000-12000 entries × ~9 cycle-pair replays).
+- ~$3-5 of Vast credit if run on rented GPU after cycle 10 close.
+- Or zero cost if run on user's local 3060 (12 GB sufficient for the verifier-only forward passes).
+
+### When to run
+
+After cycle 10 close (~May 15 BDT). All required artifacts (`cycle_10/model.pt`, `cycle_10/composite_calibration.json`, `cycle_10/conformal_gate.json`, `deferred_buffer_cycle_10.pkl`) must exist. No contention with the live training run because the live run will have ended.
+
+### Thesis integration
+
+**Ch5 §sec:disc-limitations** receives a paragraph documenting:
+1. The orchestrator gap that left reconsideration dormant during Phase 1a.
+2. The counterfactual reconstruction methodology and its scope (per-entry promotion outcome recoverable; downstream trajectory effect not recoverable).
+3. The empirical numbers from the reconstruction (per-chance promotion rates, total counterfactual stored growth).
+4. Phase 1b future-work item: orchestrator one-line fix that activates the live reconsideration path for any future rerun.
+
+**Ch4 §sec:deferred-reconsider** receives a TTL value correction (line 400: `\tau_{\text{ttl}} = 2` → `\tau_{\text{ttl}} = 4`) reflecting the 2026-04-30 config change from `deferred_buffer_ttl_cycles=2` to `=4`.
+
+**Ch5 §sec:disc-limitations final paragraph** registers the counterfactual reconstruction as the deferred-pool empirical receipt, with the caveat that the receipt validates the mechanism rather than reproducing the trajectory's path-dependent downstream effects.
+
+### Phase 1b orchestrator fix (registered, applies on any future rerun)
+
+```python
+# scripts/run_experiment.py:1591-1596 — change from:
+cycle_result = sil.run_cycle(
+    cycle_num=cycle_num,
+    memory_store=pipeline.memory_store,
+    general_data=general_data,
+    verify_fn=None,
+)
+# to:
+cycle_result = sil.run_cycle(
+    cycle_num=cycle_num,
+    memory_store=pipeline.memory_store,
+    general_data=general_data,
+    verify_fn=None,
+    deferred_buffer=pipeline.deferred_buffer,
+    reconsider_fn=pipeline.make_reconsider_deferred_fn(),
+)
+```
+
+Five extra lines. The DeferredBuffer module is unit-tested. Activates the dormant code path on next process restart. Apply on the Phase 1b reset where the trajectory restarts from scratch with reconsideration active throughout.
+
+### Source artefacts (registered for the post-cycle-10 reconstruction)
+
+- `caem/memory/deferred.py:reconsider` — the function being replayed (175 lines, deterministic given verifier + entry).
+- `caem/memory/deferred.py:DeferredEntry` — the pickled entry schema (question, answer, embedding, storage_cycle_pushed, initial_u_stored, age, source_benchmark).
+- `outputs/full_run/deferred_buffer_cycle_{1..10}.pkl` — frozen buffer states (~5-15 MB each).
+- `outputs/full_run/cycle_{1..10}/model.pt` — frozen verifier weights (~6 GB each; gdrive backup).
+- `outputs/full_run/cycle_{1..10}/composite_calibration.json` — per-cycle isotonic curves.
+- `outputs/full_run/cycle_{1..10}/conformal_gate.json` — EMA-smoothed τ_store + τ_defer.
+
+### Decision rationale
+
+User has spent $244 of Vast credit to date during financial hardship. The cost of a clean rerun (~$180 + 7 days timeline slip) outweighs the benefit of a perfectly clean trajectory when the deferred-pool receipt can be recovered counterfactually for ~$3-5 + 6-10h of post-trajectory inference. The thesis defends successfully under honest disclosure + counterfactual receipt: the architecture's deferred-pool design is (a) registered in Ch4 §sec:deferred-reconsider, (b) implemented and unit-tested in `caem/memory/deferred.py`, (c) empirically validated by counterfactual reconstruction for the per-entry promotion outcome, and (d) registered as Phase 1b future work for any forward rerun. The trade-off accepts an explicit-disclosure limitation in exchange for not burning additional credit on a marginal-quality improvement.
+
