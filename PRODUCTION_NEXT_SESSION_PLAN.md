@@ -21,10 +21,10 @@ All Phase A steps are CPU-only with zero GPU contention.
 
 ### A.1 Cleanup + verification (today, ~30 min)
 
-- [ ] **A.1.1** Mark `scripts/caem_chat.py` as legacy (one-line header note pointing at `caem_demo_server.py`). Do NOT delete; keep as terminal-only fallback.
-- [ ] **A.1.2** Smoke-test `scripts/caem_demo_server.py` imports on local CPU (no model load): `python -c "import scripts.caem_demo_server"` should succeed.
-- [ ] **A.1.3** Smoke-test `scripts/caem_chat.py` imports on local CPU.
-- [ ] **A.1.4** Decide demo memory snapshot for pre-defense rehearsal: cold-start (260 entries) OR cycle-3 (rich enough to demo Tier 1) OR wait for cycle-10 (final). Log decision in this file.
+- [x] **A.1.1** Mark `scripts/caem_chat.py` as legacy (one-line header note pointing at `caem_demo_server.py`). Do NOT delete; keep as terminal-only fallback. **(2026-05-04 — header note added)**
+- [x] **A.1.2** Smoke-test `scripts/caem_demo_server.py` imports on local CPU (no model load): `python -c "import scripts.caem_demo_server"` should succeed. **(2026-05-04 — clean import)**
+- [x] **A.1.3** Smoke-test `scripts/caem_chat.py` imports on local CPU. **(2026-05-04 — clean import)**
+- [x] **A.1.4** Decide demo memory snapshot for pre-defense rehearsal: cold-start (260 entries) OR cycle-3 (rich enough to demo Tier 1) OR wait for cycle-10 (final). Log decision in this file. **(2026-05-04 — DECISION: cycle-3 memory snapshot for pre-defense rehearsal. Rationale: cycle-3 is post-3-SIL-cycles trained memory with Tier 1 hits visible on cal fold (1+8+9 across c1-c3 = 18 hits) and stream-chunk Tier 1 = 3.07% on FEVER c3, large enough to demonstrate memory routing live. Available locally at `outputs/full_run/memory_store_cycle_3.{faiss,meta}` (~3 MB FAISS) and on gdrive at `caem-phase1a/full_run/cycle_3/`. Switch to cycle-10 in Phase B.4 once it closes ~May 15.)**
 
 ### A.2 Demo assets (this week, ~3 hours)
 
@@ -150,6 +150,7 @@ All edits to `scripts/caem_demo_server.py`'s inlined `_INDEX_HTML`.
 Append every operator decision here with date.
 
 - 2026-05-04 — Plan created. Single product = `caem_demo_server.py`. `caem_chat.py` marked legacy. Three access modes: local browser, public URL via tunnel, Ollama (Phase 1c). Default backend: HuggingFace bf16 Qwen-3B for defense.
+- 2026-05-04 — A.1.4 decision: pre-defense rehearsal demo will run on cycle-3 memory (`outputs/full_run/memory_store_cycle_3.{faiss,meta}`, ~3 MB, 18 cal-fold Tier 1 hits + 3% stream-chunk Tier 1 on FEVER). Re-stage with cycle-10 memory after cycle-10 close per Phase B.4.
 - (next decision goes here)
 
 ---

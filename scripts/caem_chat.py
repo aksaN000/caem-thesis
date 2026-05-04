@@ -2,6 +2,16 @@
 """
 scripts/caem_chat.py
 ====================
+LEGACY — TERMINAL-ONLY FALLBACK.
+
+The canonical CAEM demo surface is `scripts/caem_demo_server.py` (FastAPI
+web UI + JSON API). This terminal CLI is kept as a fallback for
+screen-share contexts where a browser is unavailable, but new features
+(evidence-passage toggle, memory-neighbor sidebar, tier+latency badges,
+Ollama backend in Phase 1c) land in the demo server first and may not be
+mirrored here. See PRODUCTION_NEXT_SESSION_PLAN.md Step A.1.1 for the
+deprecation rationale.
+
 Interactive CLI chat — runs the full CAEM pipeline and renders each
 response through the Ship 1 production envelope.
 
