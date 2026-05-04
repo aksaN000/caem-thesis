@@ -3938,3 +3938,46 @@ Five extra lines. The DeferredBuffer module is unit-tested. Activates the dorman
 
 User has spent $244 of Vast credit to date during financial hardship. The cost of a clean rerun (~$180 + 7 days timeline slip) outweighs the benefit of a perfectly clean trajectory when the deferred-pool receipt can be recovered counterfactually for ~$3-5 + 6-10h of post-trajectory inference. The thesis defends successfully under honest disclosure + counterfactual receipt: the architecture's deferred-pool design is (a) registered in Ch4 §sec:deferred-reconsider, (b) implemented and unit-tested in `caem/memory/deferred.py`, (c) empirically validated by counterfactual reconstruction for the per-entry promotion outcome, and (d) registered as Phase 1b future work for any forward rerun. The trade-off accepts an explicit-disclosure limitation in exchange for not burning additional credit on a marginal-quality improvement.
 
+
+
+## 2026-05-04 — TTL=2 revert + Ch4/Ch5 thesis update for cycle-5 reconsideration activation (Path Y)
+
+User decision: revert `deferred_buffer_ttl_cycles` from 4 back to 2, matching the original Ch4 §sec:deferred-reconsider thesis registration. The 2026-04-30 change to TTL=4 was registered under the assumption that reconsideration would run every cycle from c1 onward; under Path Y where reconsideration only activates from cycle 5, the original TTL=2 registration is the correct value and avoids a second methodology drift on top of the orchestrator-gap fix.
+
+### Changes applied
+
+1. **`caem/config.py:770`** — `deferred_buffer_ttl_cycles: int = 2` (reverted from 4). Inline comment registers the revert rationale.
+
+2. **`thesis_report/chapters/chapter_4.tex` line 400** — `\tau_{\text{ttl}} = 2` and "two reconsideration passes" (reverted to original). Matches the live config.
+
+3. **`thesis_report/chapters/chapter_5.tex` §sec:disc-limitations** — added the user-requested explicit phase-split framing as a continuation of the Threats-to-Validity paragraph:
+
+   > "The deferred-entry reconsideration pass specified in \Cref{sec:deferred-reconsider} is activated from cycle five onward: cycles one through four populate the deferred buffer without revisiting it, and from cycle five every cycle boundary runs the reconsideration pass against the freshly recalibrated verifier under the registered time-to-live of two cycles, so the trajectory is read in two phases with the cycle-five boundary serving as the documented transition point. Cycle five therefore exhibits a one-time backlog flush as the accumulated deferred entries from cycles one through four are re-graded together under the post-cycle-five verifier, and cycles five through ten exhibit the steady-state two-track survivability behaviour the architecture was designed for: the storage pool is protected by indefinite retroactive re-verification, and the deferred pool is bounded by the two-cycle reconsideration budget. The empirical receipt for the deferred-pool half of the design is reported on the cycles five through ten window; cycles one through four contribute to the storage-pool receipt only."
+
+### Why no edits to other chapters
+
+- Ch1 + Ch2 references to deferred reconsideration / TTL are generic architectural descriptions, not empirical claims about all 10 cycles. They remain accurate as registered design statements.
+- Ch5 §sec:adj-cal-eval-gap describes the cross-cycle recovery PATHS abstractly; the realized-vs-design empirical gap is canonically disclosed in §sec:disc-limitations.
+- Ch6 has no deferred-buffer references.
+
+### What this means for the live trajectory
+
+The auto-halt-restart background process (PID 358593) detects "Cycle 4 done in" → halts plan_a → verifies cycle-4 artefacts on disk + on gdrive → restarts with `--resume_from_cycle 5`. The new process will read `caem/config.py` at startup, see `deferred_buffer_ttl_cycles = 2`, and the orchestrator patch at `run_experiment.py:1591` will pass `deferred_buffer=pipeline.deferred_buffer, reconsider_fn=pipeline.make_reconsider_deferred_fn()` to `sil.run_cycle()`. From cycle 5 onward, reconsideration will fire every cycle with TTL=2.
+
+### TTL=2 implications for the post-c4 trajectory
+
+- Cycle 5 reconsideration: ~6,000 backlog entries enter at age=0 → some chunk promoted, rest age to 1
+- Cycle 6 reconsideration: age=1 entries get their second chance; if not promoted now, they're TTL-dropped at next cycle
+- Cycle 7 reconsideration: TTL drops fire for the first time (entries at age=2 hit the TTL=2 ceiling)
+- Cycles 8-10: steady state with new admissions cycling through 2-cycle promotion windows
+
+This is faster than TTL=4 — entries either earn promotion within 2 cycles of admission, or are recognized as not promotable and cleaned out. Buffer size stays smaller. SIL training pool growth is more conservative (fewer recovered late-cycle promotions) but matches the original thesis registration.
+
+### Commit chain
+
+```
+fcdcb47..17625c4  PATH Y: autonomous halt+restart script
+17625c4..9d1f6ed  PATH Y: gdrive safety
+9d1f6ed..(next)   plan+thesis: TTL=2 revert + Ch5 phase-split framing
+```
+
