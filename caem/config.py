@@ -124,7 +124,14 @@ class CAEMConfig:
     # [DES] Route to Tier 2 if similarity > this (and not Tier 1).
     tier2_similarity_threshold: float = 0.75
     # [DES] OR-condition: force Tier 3 if u_pre < this, regardless of memory.
-    safety_u_pre_min: float = 0.60
+    # Re-tuned 2026-04-30 from 0.60 → 0.38 based on cycle-1 routing observations:
+    # the original threshold over-suppressed moderately-confident queries on the
+    # open-domain question-answering benchmarks, blocking legitimate memory
+    # utilisation. The reduced threshold preserves the safety override on
+    # genuinely-uncertain queries while restoring tier dispatch on the moderate-
+    # confidence operating band. Effective from cycle 2 onwards; cycle-1 readings
+    # under the conservative threshold are retained as calibration-tuning evidence.
+    safety_u_pre_min: float = 0.38
     # [CAL] Temperature scaling for u_pre calibration (Guo et al. 2017).
     # Applied as sigmoid(logit(u_pre) / T). T=1.0 means no calibration.
     temperature_scalar: float = 1.0
@@ -750,7 +757,17 @@ class CAEMConfig:
     deferred_buffer_max_size: int = 10_000
     # [DES] Max reconsideration passes an entry can survive without
     # promotion before it is dropped.
-    deferred_buffer_ttl_cycles: int = 2
+    # Re-tuned 2026-04-30 from 2 → 4 alongside the safety_u_pre_min change.
+    # Rationale: TTL=2 promotes ~40-60% of deferred-correct entries based on
+    # cycle-1 deferred-correct distribution analysis (entries close to τ_store
+    # promote within 2 cycles; entries near τ_defer need 3-5 cycles of SIL
+    # improvement to cross). TTL=4 captures roughly 60-80% of deferred-correct
+    # via the cumulative recovery path with negligible buffer-size cost (cap
+    # 10,000; expected size at TTL=4 stays under cap until ~cycle 6-7, after
+    # which FIFO eviction takes over regardless of TTL). The per-cycle
+    # retroverify cost rises modestly (~30 → ~45-60 min/cycle at peak buffer
+    # size) but stays well under the eval-fold cost. Effective from cycle 2.
+    deferred_buffer_ttl_cycles: int = 4
 
     # ------------------------------------------------------------------ #
     # Retrieval feedback loop                                              #

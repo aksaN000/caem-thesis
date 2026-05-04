@@ -1534,6 +1534,38 @@ def run_experiment(ns: argparse.Namespace) -> None:
 
         pipeline.current_cycle = prev_cycle
 
+        # Restore pristine MMLU anchor from cycle-0 baseline JSON. Without this
+        # the SIL trainer's `_pristine_mmlu` is None on a fresh process start
+        # (in-memory only), and `run_cycle` re-anchors it to the *current*
+        # post-fine-tune model's MMLU (e.g. 0.6300 from the cycle-1 model)
+        # instead of the true cycle-0 pristine (0.6250). All retention ratios
+        # downstream then divide by the wrong denominator. The cycle-0 baseline
+        # is persisted to ``mmlu_baseline.json`` at the cycle-0 measurement;
+        # re-loading it here keeps the retention guard's anchor stable across
+        # arbitrarily many process restarts.
+        baseline_path = output_dir / "mmlu_baseline.json"
+        if baseline_path.exists():
+            try:
+                with open(baseline_path, "r", encoding="utf-8") as f:
+                    sil._pristine_mmlu = float(json.load(f)["mmlu_baseline"])
+                logger.info(
+                    "Restored pristine MMLU anchor for SIL retention guard: %.4f "
+                    "(loaded from %s).", sil._pristine_mmlu, baseline_path.name,
+                )
+            except (json.JSONDecodeError, KeyError, ValueError) as exc:
+                logger.warning(
+                    "Failed to parse %s (%s); SIL will re-anchor pristine MMLU "
+                    "on the first resumed cycle (this contaminates retention "
+                    "ratios from this cycle forward).", baseline_path, exc,
+                )
+        else:
+            logger.warning(
+                "No %s on disk; SIL will re-anchor pristine MMLU on the first "
+                "resumed cycle. Retention ratios from this cycle forward will "
+                "use the post-fine-tune model's MMLU as the denominator, not "
+                "the original cycle-0 pristine value.", baseline_path,
+            )
+
     # -- CYCLES 1..N --------------------------------------------------------- #
     start_cycle = max(1, ns.resume_from_cycle)
     for cycle_num in range(start_cycle, config.num_cycles + 1):
@@ -1708,6 +1740,53 @@ def run_experiment(ns: argparse.Namespace) -> None:
         )
         harness.run_all(this_cycle_chunk, cycle=cycle_num, store_to_memory=True)
 
+        # ------------------------------------------------------------------ #
+        # Step 4b (added 2026-04-30): snapshot Step-4 stream-chunk JSONs    #
+        # before Step 5 (transfer eval, n=500) overwrites them.             #
+        #                                                                    #
+        # Both Step 4 (this stream-chunk eval, n=3000, store_to_memory=True) #
+        # and Step 5 below (transfer eval, n=500, store_to_memory=False)    #
+        # write to ``eval/{benchmark}_cycle{N}.json`` -- the second pass    #
+        # overwrites the first. The 3000-sample per-sample data is the most #
+        # thesis-relevant artefact (deployed storage precision, decision    #
+        # x EM matrices, signal fingerprints). Snapshotting here under a    #
+        # ``_streamchunk`` suffix preserves it.                             #
+        # ------------------------------------------------------------------ #
+        try:
+            for _bm in this_cycle_chunk:
+                _src = output_dir / "eval" / f"{_bm}_cycle{cycle_num}.json"
+                _snap = output_dir / "eval" / f"{_bm}_cycle{cycle_num}_streamchunk.json"
+                if _src.exists():
+                    import shutil as _shutil_pp
+                    _shutil_pp.copy2(_src, _snap)
+                    logger.info("  Step 4b: stream-chunk snapshot %s -> %s",
+                                _src.name, _snap.name)
+                    if os.environ.get("CAEM_GDRIVE_OFFLOAD", "0") == "1":
+                        try:
+                            import subprocess as _subprocess_pp
+                            _run_name = output_dir.name
+                            _remote = (f"gdrive:caem-phase1a/{_run_name}/"
+                                       f"cycle_{cycle_num}/eval_stream_chunk/")
+                            _r = _subprocess_pp.run(
+                                ["rclone", "copy", str(_snap), _remote,
+                                 "--transfers", "2", "--checkers", "4", "--no-traverse"],
+                                capture_output=True, text=True, timeout=600,
+                            )
+                            if _r.returncode == 0:
+                                logger.info("  Step 4b: gdrive upload OK %s", _snap.name)
+                            else:
+                                logger.warning(
+                                    "  Step 4b: gdrive upload FAILED for %s (rc=%d): %s",
+                                    _snap.name, _r.returncode, _r.stderr[:200],
+                                )
+                        except Exception as _exc_gd:
+                            logger.warning(
+                                "  Step 4b: gdrive upload errored for %s (%s)",
+                                _snap.name, _exc_gd,
+                            )
+        except Exception as _exc_snap:
+            logger.warning("  Step 4b: stream-chunk snapshot failed (%s)", _exc_snap)
+
         # Step 5: Evaluate all benchmarks (Dev/Transfer split), NO Memory Leakage
         logger.info("  Step 5: Evaluating all benchmarks (cycle=%d) ...", cycle_num)
         cycle_results = harness.run_all(eval_samples, cycle=cycle_num, store_to_memory=False)
@@ -1739,6 +1818,76 @@ def run_experiment(ns: argparse.Namespace) -> None:
         # over-pruned EM-correct cold-seed entries because the post-SIL
         # raw signal distribution falls outside the Cycle-0 fit envelope.
         # See Ch4 §Cycle-boundary recalibration for the corrected order.
+
+        # ------------------------------------------------------------------ #
+        # Step 6c (added 2026-04-30): cycle-close gdrive offload of every   #
+        # per-cycle JSON / pkl / faiss artefact, not just model.pt.         #
+        #                                                                    #
+        # The existing self_improvement.py CAEM_GDRIVE_OFFLOAD path uploads #
+        # only the model checkpoint. To make the trajectory fully           #
+        # reconstructable from gdrive (cross-instance backup + post-run      #
+        # analytical scripts that don't have local disk), this batch        #
+        # uploads the cycle-N calibration artefacts, retroverify JSON,      #
+        # memory store + meta + deferred buffer, and the transfer-eval      #
+        # JSONs. Failures are non-fatal; local disk is the on-disk          #
+        # guarantee.                                                         #
+        # ------------------------------------------------------------------ #
+        if os.environ.get("CAEM_GDRIVE_OFFLOAD", "0") == "1":
+            try:
+                import subprocess as _subp_close
+                _run_name = output_dir.name
+                _gd_root = f"gdrive:caem-phase1a/{_run_name}"
+                _cyc_remote = f"{_gd_root}/cycle_{cycle_num}"
+
+                # 1. cycle_{N}/ local artefacts (calibration, composite, gate)
+                #    upload to gdrive cycle_{N}/ (model.pt already there from SIL offload)
+                _r1 = _subp_close.run(
+                    ["rclone", "copy", str(output_dir / f"cycle_{cycle_num}"),
+                     f"{_cyc_remote}/",
+                     "--exclude", "**/embeddings/*",
+                     "--transfers", "4", "--checkers", "8"],
+                    capture_output=True, text=True, timeout=600,
+                )
+                if _r1.returncode == 0:
+                    logger.info("  Step 6c: gdrive offload cycle_%d/ artefacts OK", cycle_num)
+                else:
+                    logger.warning("  Step 6c: gdrive cycle_%d/ artefacts rc=%d: %s",
+                                   cycle_num, _r1.returncode, _r1.stderr[:200])
+                # 2. cycle-close root artefacts -> cycle_{N}/
+                for _f in [f"retroverify_cycle{cycle_num}.json",
+                           f"memory_store_cycle_{cycle_num}.faiss",
+                           f"memory_store_cycle_{cycle_num}.meta",
+                           f"deferred_buffer_cycle_{cycle_num}.pkl"]:
+                    _src = output_dir / _f
+                    if _src.exists():
+                        _subp_close.run(
+                            ["rclone", "copy", str(_src), f"{_cyc_remote}/",
+                             "--no-traverse"],
+                            capture_output=True, text=True, timeout=600,
+                        )
+                # 3. transfer-eval JSONs (n=500 final per bench) -> cycle_{N}/eval_transfer/
+                for _bm_close in eval_samples.keys():
+                    _src = output_dir / "eval" / f"{_bm_close}_cycle{cycle_num}.json"
+                    if _src.exists():
+                        _subp_close.run(
+                            ["rclone", "copy", str(_src),
+                             f"{_cyc_remote}/eval_transfer/", "--no-traverse"],
+                            capture_output=True, text=True, timeout=600,
+                        )
+                # 4. global/: mmlu_baseline + dataset_splits + run.log snapshot
+                _gd_global = f"{_gd_root}/global"
+                for _glob_f in ["mmlu_baseline.json", "dataset_splits.json", "run.log"]:
+                    _src = output_dir / _glob_f
+                    if _src.exists():
+                        _subp_close.run(
+                            ["rclone", "copy", str(_src), f"{_gd_global}/",
+                             "--no-traverse"],
+                            capture_output=True, text=True, timeout=600,
+                        )
+                logger.info("  Step 6c: cycle %d gdrive offload sweep complete", cycle_num)
+            except Exception as _exc_close:
+                logger.warning("  Step 6c: cycle-close gdrive offload errored (%s)",
+                               _exc_close)
 
         logger.info("Cycle %d done in %.1f min.", cycle_num, (time.time() - t0) / 60)
 
