@@ -102,6 +102,21 @@ All edits to `scripts/caem_demo_server.py`'s inlined `_INDEX_HTML`.
 - [ ] **B.5.2** Tar + copy to USB stick or external drive: `tar czf caem_production_cycle10_$(date +%Y%m%d).tar.gz outputs/production/`.
 - [ ] **B.5.3** Record a screen-capture video of one successful demo walkthrough as failsafe (~5 min). Store alongside the tarball.
 
+### B.5b Baseline-output verifier rescoring for CHM comparison (post-cycle-10, ~25-35h, ~$15-20 GPU)
+
+**Why:** B1-B7 baseline outputs record only bare prediction + EM/F1; they do not carry CAEM's 9 verifier signals or the 4-outcome decision class. Without these, CHM (the 8-subtype confident-error metric registered in Ch5 §sec:setup-metrics) cannot be computed on baseline outputs and the cross-comparison "CAEM has lower hallucination rate than baselines" claim is unsupported. The rescoring pass measures everyone's outputs through the same locked CAEM verifier (cycle-10 calibration) — same metric, same instrument, different generators — which is the methodologically standard approach for cross-system hallucination comparison (FActScore, MiniCheck-style benchmarks).
+
+- [ ] **B.5b.1** Write `scripts/rescore_baselines_through_verifier.py` (~80 lines): for each baseline in B1-B7, for each benchmark eval JSON row, run `caem.verifier.verify(question, prediction)` to populate the 9 signals; apply the 4-outcome decision tree at the locked cycle-10 thresholds; recompute CHM 8-subtypes per row; aggregate per baseline per benchmark.
+- [ ] **B.5b.2** Use the locked cycle-10 verifier configuration uniformly across all baselines: `--composite_calibration outputs/production/composite_calibration.json --conformal_gate outputs/production/conformal_gate.json --checkpoint outputs/production/cycle_0/model.pt` (post-Phase-B production swap). Same instrument applied to every system.
+- [ ] **B.5b.3** Run on a Vast GPU instance after the B1-B7 baselines themselves complete: ~3500 verifier calls per baseline × 7 baselines ≈ 25-35 GPU-hours total. Estimate ~$15-20 of credit.
+- [ ] **B.5b.4** Output: `outputs/baselines/{baseline}/{benchmark}_cycle0_with_chm.json` per (baseline, benchmark). Contains the original prediction + 9 verifier signals + decision class + CHM 8-subtype flags + EM/F1.
+- [ ] **B.5b.5** Aggregate: `outputs/baselines/chm_comparison.json` with per-baseline CHM rate vs CAEM cycle-10 CHM rate, broken down by benchmark and by subtype. This is the canonical "CAEM vs baselines on hallucination rate" table for Ch5 §sec:comp-baselines.
+- [ ] **B.5b.6** Update Ch5 §sec:summary-hypotheses H1 verdict cells against the baseline-CHM comparison.
+
+**Methodological preservation:** the rescoring contract uses the **locked cycle-10 CAEM verifier** as the measurement instrument; CAEM's per-cycle internal verifier improvement is a separate property. The cross-comparison measures generators (CAEM vs zero-shot vs CoT vs RAG vs CoT+RAG vs 5-shot vs vanilla-FT vs EWC-FT) under one fixed verification instrument. This isolates the generator-side contribution from the verifier-side improvement.
+
+**Phase 1b future work registered separately:** instrument-side ablation — measure baseline CHM under each cycle's verifier (not just cycle-10) to characterise how the verifier itself contributes to the CAEM advantage. NOT part of Phase 1a defense scope.
+
 ### B.6 Counterfactual reconstruction of deferred-buffer reconsideration (post-cycle-10, ~6-10h, ~$3-5 GPU)
 
 **Why:** During Phase 1a the orchestrator omitted the `deferred_buffer` kwarg to `sil.run_cycle()`, so `DeferredBuffer.reconsider()` never fired (4,423+ deferred entries at age=0 by cycle 3). The reconsideration code path is correctly implemented and unit-tested; the call site in `scripts/run_experiment.py:1591-1596` is the gap. Recover the deferred-pool empirical receipt by replaying `reconsider()` against frozen artifacts (per-cycle deferred-buffer pickles + per-cycle verifier states). See branch_C_log 2026-05-04 entry for full design + algorithm + thesis integration plan.
