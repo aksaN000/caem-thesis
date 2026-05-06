@@ -207,6 +207,18 @@ class UnifiedVerifierOutput:
     # contribution rather than a silent 0 that would penalise every answer.
     q_a_relevance: float = 0.5
 
+    # --- Alias overlap (v2 Fix 6) ----------------------------------------- #
+    # Fraction of named entities in the answer whose Wikidata alias set
+    # intersects the alias set of entities in the retrieved top passages.
+    # Catches the case where the answer uses a different surface form
+    # ("William Jefferson Clinton") than the passage ("Bill Clinton") for
+    # the same Wikidata entity Q1124 — string match (p_ground_*) misses
+    # this and NLI (p_entail) misses it whenever the passage doesn't spell
+    # out both forms. Defaults to 0.5 (neutral) so the composite isotonic
+    # treats the signal as missing rather than penalising every answer
+    # before the resolver has been wired.
+    alias_overlap: float = 0.5
+
 
 # ============================================================================ #
 # NLI ensemble helper                                                           #
@@ -455,6 +467,7 @@ class UnifiedVerifier:
         reranker: Optional[Any] = None,
         passage_retriever: Optional[Callable[[str, int], List[str]]] = None,
         qa_relevance_scorer: Optional[Any] = None,
+        alias_resolver: Optional[Any] = None,
         enable_atomic: bool = True,
         config: Optional[CAEMConfig] = None,
         device: Optional[str] = None,
@@ -472,6 +485,13 @@ class UnifiedVerifier:
         # FlagEmbedding.FlagReranker, or a thin wrapper). None disables
         # the signal and the composite falls back to the 0.5 neutral prior.
         self.qa_relevance_scorer = qa_relevance_scorer
+        # v2 Fix 6: Wikidata alias resolver. Any object exposing
+        # ``resolve(entity: str) -> Set[str]`` is compatible (see
+        # caem/verification/alias_overlap.py for the protocol +
+        # InMemoryAliasResolver / WikidataAliasResolver). None disables
+        # the alias_overlap signal and the composite reads the 0.5
+        # neutral prior from the dataclass default.
+        self.alias_resolver = alias_resolver
         self.enable_atomic = enable_atomic
 
         if device is None:
@@ -888,6 +908,16 @@ class UnifiedVerifier:
             q_a_relevance = self._compute_q_a_relevance(query, scoring_answer)
         _per_stage_ms["q_a_relevance"] = (_t.perf_counter() - _ts) * 1000.0
 
+        # ---------- alias overlap (v2 Fix 6) ------------------------------ #
+        # Wikidata alias coverage between answer entities and passage
+        # entities. Falls back to the 0.5 neutral prior when no resolver is
+        # configured or extraction yields no entities — same convention as
+        # q_a_relevance. See caem/verification/alias_overlap.py.
+        _ts = _t.perf_counter()
+        with section("verifier.alias_overlap"):
+            alias_overlap = self._compute_alias_overlap(scoring_answer, top_passages)
+        _per_stage_ms["alias_overlap"] = (_t.perf_counter() - _ts) * 1000.0
+
         # Accumulate onto instance (batch-level rollup done by verify_batch).
         if not hasattr(self, "_last_verify_stage_ms"):
             self._last_verify_stage_ms = {}
@@ -935,6 +965,7 @@ class UnifiedVerifier:
                 atomic_facts=atomic_facts,
                 per_atom_entail=per_atom_entail,
                 q_a_relevance=float(q_a_relevance),
+                alias_overlap=float(alias_overlap),  # v2 Fix 6
             )
 
         # ---------- composite --------------------------------------------- #
@@ -952,6 +983,7 @@ class UnifiedVerifier:
             p_ground_max=p_ground_max,
             u_token=float(u_token),
             u_dropout=float(u_dropout),
+            alias_overlap=float(alias_overlap),  # v2 Fix 6
             source_benchmark=source_benchmark,
         )
 
@@ -995,6 +1027,7 @@ class UnifiedVerifier:
             atomic_facts=atomic_facts,
             per_atom_entail=per_atom_entail,
             q_a_relevance=float(q_a_relevance),
+            alias_overlap=float(alias_overlap),  # v2 Fix 6
         )
 
     def should_store(self, out: UnifiedVerifierOutput) -> bool:
@@ -2465,6 +2498,36 @@ class UnifiedVerifier:
         prob = 1.0 / (1.0 + math.exp(-logit))
         return float(np.clip(prob, 0.0, 1.0))
 
+    def _compute_alias_overlap(
+        self,
+        answer: str,
+        passages: Sequence[str],
+    ) -> float:
+        """Compute the alias_overlap signal (v2 Fix 6).
+
+        Falls back to the 0.5 neutral prior when no resolver is configured
+        on this verifier instance. Routes the live (answer, passages) pair
+        through caem.verification.alias_overlap.compute_alias_overlap so
+        the scorer code is the single source of truth.
+
+        Why a separate signal: see UnifiedVerifierOutput.alias_overlap
+        and caem/verification/alias_overlap.py module docstring.
+        """
+        resolver = getattr(self, "alias_resolver", None)
+        if resolver is None:
+            return 0.5
+        try:
+            from caem.verification.alias_overlap import compute_alias_overlap
+            return float(compute_alias_overlap(
+                answer or "", list(passages or []), resolver,
+            ))
+        except Exception as exc:  # pragma: no cover -- defensive
+            logger.warning(
+                "alias_overlap scorer failed (%s) -- falling back to 0.5 "
+                "neutral prior.", exc,
+            )
+            return 0.5
+
     # ====================================================================== #
     # Composite + decision                                                    #
     # ====================================================================== #
@@ -2482,6 +2545,7 @@ class UnifiedVerifier:
         p_ground_max: float = 0.0,
         u_token: float = 0.5,
         u_dropout: float = 0.5,
+        alias_overlap: float = 0.5,
         source_benchmark: Optional[str] = None,
     ) -> float:
         """Combine 9+1 verifier signals into a calibrated u_stored ∈ [0, 1].
@@ -2516,6 +2580,7 @@ class UnifiedVerifier:
                 "u_dropout": float(u_dropout),
                 "p_entail": float(p_entail),
                 "q_a_relevance": float(q_a_relevance),
+                "alias_overlap": float(alias_overlap),  # v2 Fix 6
             }
             # v2 Fix 2 — per-benchmark composite lookup. The composite object
             # accepts an optional source_benchmark kwarg; when None or when the
