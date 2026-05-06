@@ -208,7 +208,15 @@ class CalProbComposite:
     Signals not present in the calibration are skipped (no contribution).
     """
 
-    SCHEMA_VERSION: str = "branchC.2026-04-25"
+    # v2 (2026-05-06): nested schema supports per-benchmark calibrations.
+    # v1 (2026-04-25) holds a single global calibration. Loader auto-detects
+    # which format the JSON uses and populates either `self.calibrations`
+    # only (v1 → still works as fallback / legacy) or both
+    # `self.calibrations` (pooled fallback) PLUS `self.per_benchmark`
+    # (the dict the verifier dispatches by source_benchmark).
+    SCHEMA_VERSION_V1: str = "branchC.2026-04-25"
+    SCHEMA_VERSION_V2: str = "branchC.2026-05-06"
+    SCHEMA_VERSION: str = SCHEMA_VERSION_V2  # default for new fits
 
     def __init__(self) -> None:
         self.calibrations: Dict[str, _SignalCalibration] = {}
@@ -217,6 +225,12 @@ class CalProbComposite:
         # When None, log-odds use identity weights (default behaviour).
         self.boost_weights: Optional[Dict[str, float]] = None
         self.boost_intercept: float = 0.0
+        # v2 Fix 2 — per-benchmark calibration registry. When non-empty,
+        # predict() routes by source_benchmark to the right per-bench
+        # CalProbComposite. When empty (v1 fallback), predict() uses
+        # the pooled `self.calibrations` directly. Both are populated by
+        # fit_per_benchmark(); v1 fit() leaves this empty.
+        self.per_benchmark: Dict[str, "CalProbComposite"] = {}
 
     # ------------------------------------------------------------------ #
     # Fitting                                                              #
@@ -335,11 +349,84 @@ class CalProbComposite:
             logger.info("  boost weight  %-20s  %+.3f", sig, w)
 
     # ------------------------------------------------------------------ #
+    # Per-benchmark fitting (v2)                                           #
+    # ------------------------------------------------------------------ #
+
+    def fit_per_benchmark(
+        self,
+        samples_by_benchmark: Dict[str, Sequence[Dict[str, Any]]],
+        signals: Sequence[str] = COMPOSITE_SIGNALS,
+        fit_boost: bool = True,
+        boost_C: float = 0.01,
+    ) -> "CalProbComposite":
+        """v2 Fix 2 — fit one composite per benchmark + a pooled global fallback.
+
+        Each entry in ``samples_by_benchmark`` is a labelled per-benchmark
+        cal-fold (same row schema as ``fit()`` expects: ``em`` plus per-
+        signal floats). The pooled union is fit into ``self.calibrations``
+        as the global fallback (used when the verifier sees a query with
+        unknown ``source_benchmark`` at deployment); each per-benchmark
+        slice is fit into a child CalProbComposite stored in
+        ``self.per_benchmark[benchmark]``.
+
+        At predict time the verifier passes ``source_benchmark`` through;
+        ``predict()`` dispatches to the per-bench composite when known and
+        falls back to the global pooled composite otherwise.
+
+        Parameters
+        ----------
+        samples_by_benchmark
+            Mapping benchmark name -> labelled cal-fold rows.
+        signals, fit_boost, boost_C
+            Same semantics as :meth:`fit`. boost_C default 0.01 matches the
+            cycle-0 sweep selection of the v1 trajectory.
+        """
+        # 1. Pooled global fallback fit
+        pooled: List[Dict[str, Any]] = []
+        for bm_samples in samples_by_benchmark.values():
+            pooled.extend(bm_samples)
+        if pooled:
+            self.fit(
+                pooled, signals=signals,
+                fit_boost=fit_boost, boost_C=boost_C,
+            )
+            self.metadata["pooled_n"] = len(pooled)
+
+        # 2. Per-benchmark fits
+        for bm, bm_samples in samples_by_benchmark.items():
+            child = CalProbComposite()
+            child.fit(
+                bm_samples, signals=signals,
+                fit_boost=fit_boost, boost_C=boost_C,
+            )
+            child.metadata["benchmark"] = bm
+            self.per_benchmark[bm] = child
+            logger.info(
+                "cal_prob_composite.fit_per_benchmark: %s n=%d signals=%d boost=%s",
+                bm, len(bm_samples), len(child.calibrations),
+                "fit" if child.boost_weights is not None else "identity",
+            )
+
+        self.metadata["per_benchmark_count"] = len(self.per_benchmark)
+        self.metadata["per_benchmark_names"] = sorted(self.per_benchmark.keys())
+        self.metadata["schema_version"] = self.SCHEMA_VERSION_V2
+        return self
+
+    # ------------------------------------------------------------------ #
     # Prediction                                                           #
     # ------------------------------------------------------------------ #
 
-    def predict(self, signal_values: Dict[str, float]) -> float:
+    def predict(
+        self,
+        signal_values: Dict[str, float],
+        source_benchmark: Optional[str] = None,
+    ) -> float:
         """Compute composite score from a dict of signal values.
+
+        v2 Fix 2 — when ``source_benchmark`` is supplied AND a matching
+        per-benchmark calibration exists in ``self.per_benchmark``, route
+        through that per-benchmark child composite. Otherwise fall back to
+        the pooled global composite in ``self.calibrations``.
 
         Missing signals are skipped (no contribution). All-empty input
         returns 0.5 (neutral).
@@ -349,6 +436,19 @@ class CalProbComposite:
         intercept is added before the sigmoid; otherwise identity weights
         are used (plain log-odds sum).
         """
+        # v2 dispatch: route by source_benchmark if a per-bench child exists
+        if (
+            source_benchmark is not None
+            and source_benchmark in self.per_benchmark
+        ):
+            return self.per_benchmark[source_benchmark]._predict_pooled(signal_values)
+
+        # Fallback path (v1-equivalent): pooled global composite
+        return self._predict_pooled(signal_values)
+
+    def _predict_pooled(self, signal_values: Dict[str, float]) -> float:
+        """Internal — predict using this composite's own pooled calibrations
+        + boost. Same as the v1 predict() body."""
         log_odds = self.boost_intercept if self.boost_weights is not None else 0.0
         contrib = 0
         for sig, cal in self.calibrations.items():
@@ -371,20 +471,57 @@ class CalProbComposite:
     # I/O                                                                  #
     # ------------------------------------------------------------------ #
 
-    def save(self, path: str) -> None:
-        out = {
-            "schema_version": self.SCHEMA_VERSION,
-            "metadata": self.metadata,
+    def _calibration_block(self) -> Dict[str, Any]:
+        """Serialize this composite's pooled calibrations + boost as a block.
+        Used for both top-level v1 writes and per-benchmark child writes."""
+        return {
             "calibrations": [c.to_dict() for c in self.calibrations.values()],
             "boost_weights": self.boost_weights,
             "boost_intercept": self.boost_intercept,
         }
+
+    def _load_calibration_block(self, block: Dict[str, Any]) -> None:
+        """Populate this composite's pooled calibrations + boost from a block.
+        Used for both top-level v1 loads and per-benchmark child loads."""
+        self.calibrations = {}
+        for cd in block.get("calibrations", []):
+            cal = _SignalCalibration.from_dict(cd)
+            self.calibrations[cal.signal] = cal
+        bw = block.get("boost_weights")
+        if isinstance(bw, dict) and bw:
+            self.boost_weights = {str(k): float(v) for k, v in bw.items()}
+        else:
+            self.boost_weights = None
+        self.boost_intercept = float(block.get("boost_intercept", 0.0))
+
+    def save(self, path: str) -> None:
+        # v2 Fix 2 — emit nested schema when per_benchmark is populated;
+        # otherwise emit the v1-compatible flat schema for back-compat with
+        # tooling that expects pre-v2 composite_calibration.json shape.
+        if self.per_benchmark:
+            out = {
+                "schema_version": self.SCHEMA_VERSION_V2,
+                "metadata": self.metadata,
+                "global": self._calibration_block(),
+                "per_benchmark": {
+                    bm: child._calibration_block()
+                    for bm, child in self.per_benchmark.items()
+                },
+            }
+        else:
+            out = {
+                "schema_version": self.SCHEMA_VERSION_V1,
+                "metadata": self.metadata,
+                **self._calibration_block(),
+            }
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         with open(path, "w") as f:
             json.dump(out, f, indent=2)
         logger.info(
-            "cal_prob_composite: saved %d signals (boost=%s) -> %s",
+            "cal_prob_composite: saved %s (signals=%d, per_benchmark=%d, boost=%s) -> %s",
+            "v2 nested" if self.per_benchmark else "v1 flat",
             len(self.calibrations),
+            len(self.per_benchmark),
             "fit" if self.boost_weights is not None else "identity",
             path,
         )
@@ -394,26 +531,35 @@ class CalProbComposite:
         with open(path) as f:
             d = json.load(f)
         ver = d.get("schema_version")
-        if ver != cls.SCHEMA_VERSION:
-            logger.warning(
-                "cal_prob_composite: schema mismatch (%s vs %s); attempting forward-compat load",
-                ver, cls.SCHEMA_VERSION,
-            )
         obj = cls()
         obj.metadata = dict(d.get("metadata", {}))
-        for cd in d.get("calibrations", []):
-            cal = _SignalCalibration.from_dict(cd)
-            obj.calibrations[cal.signal] = cal
-        bw = d.get("boost_weights")
-        if isinstance(bw, dict) and bw:
-            obj.boost_weights = {str(k): float(v) for k, v in bw.items()}
-        obj.boost_intercept = float(d.get("boost_intercept", 0.0))
-        logger.info(
-            "cal_prob_composite: loaded %d signal calibrations (boost=%s) from %s",
-            len(obj.calibrations),
-            "fit" if obj.boost_weights is not None else "identity",
-            path,
-        )
+
+        # v2 nested schema: {global: {...}, per_benchmark: {bm: {...}, ...}}
+        if ver == cls.SCHEMA_VERSION_V2 or "global" in d or "per_benchmark" in d:
+            obj._load_calibration_block(d.get("global", {}))
+            for bm, block in (d.get("per_benchmark") or {}).items():
+                child = cls()
+                child._load_calibration_block(block)
+                child.metadata = {"benchmark": bm}
+                obj.per_benchmark[bm] = child
+            logger.info(
+                "cal_prob_composite: loaded v2 nested (global signals=%d, per_benchmark=%d) from %s",
+                len(obj.calibrations), len(obj.per_benchmark), path,
+            )
+        else:
+            # v1 flat schema (legacy single-composite JSON)
+            if ver and ver != cls.SCHEMA_VERSION_V1:
+                logger.warning(
+                    "cal_prob_composite: unknown schema_version %s; treating as v1 flat",
+                    ver,
+                )
+            obj._load_calibration_block(d)
+            logger.info(
+                "cal_prob_composite: loaded v1 flat (%d signal calibrations, boost=%s) from %s",
+                len(obj.calibrations),
+                "fit" if obj.boost_weights is not None else "identity",
+                path,
+            )
         return obj
 
     # ------------------------------------------------------------------ #
