@@ -1522,26 +1522,65 @@ def run_experiment(ns: argparse.Namespace) -> None:
         # reads through the freshly-refit isotonic curves and conformal
         # thresholds rather than through stale Cycle-0 calibration.
         #
-        # 2026-05-04 deferred-buffer wiring fix: previously the call site
-        # omitted ``deferred_buffer`` and ``reconsider_fn``, so the SIL
-        # run_cycle conditional ``if deferred_buffer is not None and not
-        # aborted:`` evaluated False on every cycle and the deferred
-        # reconsideration pass never fired. Cycles 1-4 of the live Phase
-        # 1a trajectory accumulated ~5000+ DEFERRED entries with age=0;
-        # none promoted, none TTL-dropped. The fix below threads the
-        # pipeline's deferred_buffer + a reconsider closure into SIL so
-        # the cycle-boundary reconsideration pass runs as registered in
-        # Ch4 §sec:deferred-reconsider. See branch_C_log 2026-05-04
-        # entries (orchestrator gap finding + counterfactual plan +
-        # decision to apply mid-trajectory at cycle 4 close, Path Y).
+        # v2 Fix 11 LAYER 1 — Orchestrator-level deferred reconsideration guard.
+        # The May-4 v1 orchestrator gap left the deferred reconsideration pass
+        # dormant for cycles 1-4 because deferred_buffer + reconsider_fn were
+        # silently omitted. Layer 1 hard-fails at run_cycle entry if the
+        # pipeline doesn't expose the required surfaces. This makes the
+        # gap structurally impossible to recur.
+        if not getattr(config, "allow_skip_deferred", False):
+            assert pipeline.deferred_buffer is not None, (
+                "v2 Fix 11 layer 1: pipeline.deferred_buffer is None at "
+                "cycle %d run_cycle entry. The deferred reconsideration "
+                "sweep cannot fire. See PRODUCTION_NEXT_SESSION_PLAN v2 "
+                "Phase 0 Fix 11. Pass --allow_skip_deferred to opt out "
+                "(NOT recommended for production trajectories)." % cycle_num
+            )
+            _reconsider_fn = pipeline.make_reconsider_deferred_fn()
+            assert callable(_reconsider_fn), (
+                "v2 Fix 11 layer 1: pipeline.make_reconsider_deferred_fn() "
+                "did not return a callable at cycle %d. The reconsideration "
+                "closure cannot be invoked." % cycle_num
+            )
+        else:
+            _reconsider_fn = (
+                pipeline.make_reconsider_deferred_fn()
+                if pipeline.deferred_buffer is not None
+                else None
+            )
+
         logger.info("  Step 1: SelfImprovementLoop.run_cycle(%d) ...", cycle_num)
         cycle_result = sil.run_cycle(
             cycle_num=cycle_num,
             memory_store=pipeline.memory_store,
             verify_fn=None,
             deferred_buffer=pipeline.deferred_buffer,
-            reconsider_fn=pipeline.make_reconsider_deferred_fn(),
+            reconsider_fn=_reconsider_fn,
         )
+
+        # v2 Fix 11 LAYER 3 — Post-cycle log assertion. The reconsideration
+        # sweep's success path emits a "Deferred reconsideration: sweeping
+        # N entries" line. If the deferred buffer was non-empty at entry
+        # but no such line appears in this cycle's log slice, the sweep
+        # silently failed (e.g., the if-branch in self_improvement.py was
+        # bypassed by a future refactor). Layer 3 catches this.
+        if (
+            not getattr(config, "allow_skip_deferred", False)
+            and pipeline.deferred_buffer is not None
+            and getattr(cycle_result, "deferred_buffer_size_at_entry", 0) > 0
+            and not getattr(cycle_result, "reconsider_fired", False)
+            and not cycle_result.aborted
+        ):
+            raise RuntimeError(
+                "v2 Fix 11 layer 3: cycle %d closed but the deferred "
+                "reconsideration sweep did not fire (deferred_buffer had "
+                "%d entries at entry; cycle_result.reconsider_fired=False). "
+                "This is the May-4 orchestrator-gap signature. See "
+                "branch_C_log 2026-05-04 for the original incident." % (
+                    cycle_num,
+                    getattr(cycle_result, "deferred_buffer_size_at_entry", 0),
+                )
+            )
 
         if cycle_result.aborted:
             logger.warning(

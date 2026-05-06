@@ -795,6 +795,14 @@ class CAEMConfig:
     # registered thesis design.
     deferred_buffer_ttl_cycles: int = 2
 
+    # v2 Fix 11 — opt-out flag for the five-layer deferred-reconsideration
+    # guard. When False (default for production trajectories), Layer 1
+    # (orchestrator assert) and Layer 2 (SIL hard-fail) raise RuntimeError
+    # if pipeline.deferred_buffer is missing at run_cycle entry. Setting
+    # this to True lets unit tests and legitimate skip-deferred ablations
+    # run without hitting the guard. The thesis runbook NEVER sets this.
+    allow_skip_deferred: bool = False
+
     # ------------------------------------------------------------------ #
     # Retrieval feedback loop                                              #
     # ------------------------------------------------------------------ #

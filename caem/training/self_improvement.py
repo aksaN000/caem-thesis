@@ -130,6 +130,10 @@ class CycleResult:
     n_deferred_promoted:   int = 0
     n_deferred_ttl_dropped: int = 0
     n_deferred_kept:       int = 0
+    # v2 Fix 11 layer 3 fields — let the orchestrator's post-cycle assertion
+    # verify that the deferred reconsideration sweep fired when expected.
+    deferred_buffer_size_at_entry: int = 0
+    reconsider_fired: bool = False
     # Branch C Goal 4 item 3 (memory consolidation @ SBERT 0.88).
     # Counts the clusters that actually had >= 2 members and the total
     # number of episodes the consolidation pass removed. Zero when the
@@ -297,6 +301,28 @@ class SelfImprovementLoop:
 
         logger.info("=== Self-Improvement Cycle %d ===", cycle_num)
 
+        # v2 Fix 11 LAYER 2 — Hard-fail early if deferred_buffer is missing.
+        # This must fire BEFORE _collect_episodes (which can early-return) so
+        # the orchestrator-wiring bug is caught regardless of training-pool
+        # contents. Pre-empts the May-4 v1 gap where the buffer-less code
+        # path silently skipped reconsideration for cycles 1-4.
+        if deferred_buffer is None:
+            if not getattr(cfg, "allow_skip_deferred", False):
+                raise RuntimeError(
+                    "v2 Fix 11 layer 2: deferred_buffer kwarg is required at "
+                    "cycle %d run_cycle entry. Pass pipeline.deferred_buffer "
+                    "and pipeline.make_reconsider_deferred_fn() to "
+                    "sil.run_cycle(). Set cfg.allow_skip_deferred=True to "
+                    "opt out (NOT recommended for production runs). This "
+                    "guard prevents the May-4 orchestrator gap from "
+                    "recurring." % cycle_num
+                )
+            logger.warning(
+                "Cycle %d: deferred_buffer not provided AND allow_skip_deferred=True. "
+                "Skipping deferred reconsideration. NOT recommended for production.",
+                cycle_num,
+            )
+
         episode_pairs = self._collect_episodes(memory_store)
         logger.info("Cycle %d: %d verified episodes collected.", cycle_num, len(episode_pairs))
         self._log_chain_diagnostics(cycle_num)
@@ -450,20 +476,14 @@ class SelfImprovementLoop:
         n_deferred_promoted = 0
         n_deferred_ttl_dropped = 0
         n_deferred_kept = 0
-        if deferred_buffer is None:
-            # Loud-failure log per the 2026-05-04 orchestrator gap finding.
-            # Until that finding, omitting deferred_buffer at the call site
-            # silently skipped the entire reconsideration block, leaving
-            # the deferred buffer accumulating without ever being drained.
-            # If this WARNING fires in a production run, the orchestrator
-            # is missing the deferred_buffer kwarg at sil.run_cycle(...).
-            logger.warning(
-                "Cycle %d: deferred_buffer not provided to run_cycle -- "
-                "DeferredBuffer.reconsider() will NOT fire this cycle. "
-                "If this is a production run, check the orchestrator's "
-                "sil.run_cycle() call site. See branch_C_log 2026-05-04.",
-                cycle_num,
-            )
+        deferred_buffer_size_at_entry = (
+            deferred_buffer.size if deferred_buffer is not None else 0
+        )
+        reconsider_fired = False
+
+        # Layer 2 guard fired at the top of run_cycle if deferred_buffer was None.
+        # Reaching this point with deferred_buffer is None implies allow_skip_deferred
+        # was True (legitimate opt-out) — proceed without reconsideration.
         if deferred_buffer is not None and not aborted:
             effective_fn = reconsider_fn or verify_fn
             if effective_fn is None:
@@ -482,6 +502,7 @@ class SelfImprovementLoop:
                             verify_fn=effective_fn,
                             memory_store=memory_store,
                         )
+                    reconsider_fired = True
                     logger.info(
                         "Cycle %d: deferred reconsideration complete -- "
                         "%d promoted, %d TTL-dropped, %d kept (buffer size %d, "
@@ -546,6 +567,8 @@ class SelfImprovementLoop:
             n_deferred_promoted=n_deferred_promoted,
             n_deferred_ttl_dropped=n_deferred_ttl_dropped,
             n_deferred_kept=n_deferred_kept,
+            deferred_buffer_size_at_entry=deferred_buffer_size_at_entry,
+            reconsider_fired=reconsider_fired,
             n_consolidated_clusters=n_consolidated_clusters,
             n_consolidated_removed=n_consolidated_removed,
         )
