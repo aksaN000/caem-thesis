@@ -78,6 +78,7 @@ COMPOSITE_SIGNALS: Tuple[str, ...] = (
     "p_ground_mean",
     "p_ground_atomic",
     "q_a_relevance",
+    "alias_overlap",  # v2 Fix 6 — Wikidata alias coverage of answer entities
 )
 
 # Minimum samples per signal to fit calibration; below this, signal is skipped.
