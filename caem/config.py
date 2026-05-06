@@ -638,13 +638,18 @@ class CAEMConfig:
     warmup_steps: int = 500
     # [DES] Only include verified episodes above this quality in training data.
     min_u_stored_for_training: float = 0.75
-    # [DES] Mix 10% general-domain data to prevent catastrophic forgetting.
-    general_data_ratio: float = 0.10
-    # [DES] Number of TriviaQA-train general-domain QA pairs to load for the
-    # 10% anti-forgetting mix. Sized so there is never a shortage when the
-    # cycle's training batch grows. Scripts offset past the SIL pool so the
-    # mix is disjoint from the TriviaQA SIL training episodes.
-    general_data_size: int = 1000
+    # DEPRECATED in v2 (2026-05-06). The 10% general-domain mix was removed
+    # along with load_general_data() in scripts/run_experiment.py. Anti-
+    # forgetting is now provided by (a) LoRA SIL primitive (Fix 8) — small
+    # adapter parameter budget cannot bulldoze base representations, (b)
+    # loss reweighting via temperature mixing T=2 with bounded 3x upsampling
+    # and DoReMi floor (Fix 3), and (c) cold-start gold-labelled fallback
+    # for zero-count benchmarks. The multi-modal retention probe (Fix 4)
+    # provides the empirical retention guard. These fields are retained as
+    # config-schema compatibility for older calibrated_config_*.json files
+    # but are NOT consumed by the v2 SIL training loop.
+    general_data_ratio: float = 0.0  # was 0.10; v2 zeroes this
+    general_data_size: int = 0  # was 1000; v2 zeroes this
     # [DES] Abort fine-tuning if general capability drops below this retention.
     forgetting_tolerance: float = 0.93
 

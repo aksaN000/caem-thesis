@@ -299,72 +299,6 @@ def build_pipeline(config: Any, ns: Any, m: Dict[str, Any]) -> "CAEMPipeline":
 # implementations if needed.
 
 # -----------------------------------------------------------------------------
-# General-domain data (anti-forgetting mix for fine-tuning)
-# -----------------------------------------------------------------------------
-
-def load_general_data(n: int = 1000, sil_pool_size: int = 0) -> list:
-    """Load general QA pairs for the 10% anti-forgetting data mix.
-
-    Uses a small subset of TriviaQA or a synthetic fallback.
-    The SelfImprovementLoop mixes 10% of these into the training set
-    to satisfy the forgetting_tolerance ≥ 0.93 constraint (§4.6).
-
-    Parameters
-    ----------
-    n : int
-        Number of general-domain pairs to load.
-    sil_pool_size : int
-        Size of the TriviaQA SIL training pool for the current run. We skip
-        past the first ``sil_pool_size`` TriviaQA train rows so the general-
-        data mix does NOT overlap with the SIL training pool when TriviaQA
-        is also in ``TRAINING_BENCHMARKS``. Overlap would mean the "general"
-        anti-forgetting probe was contaminated by training signal.
-    """
-    from caem.training.self_improvement import QAPair
-
-    try:
-        from datasets import load_dataset
-        logger.info(
-            "Loading TriviaQA for general-domain mix (skip=%d, n=%d) ...",
-            sil_pool_size, n,
-        )
-        # MUST use "train" split -- "validation" overlaps with the evaluation
-        # set used in run_cycle(). Using validation here would contaminate the
-        # forgetting guard with evaluation data.
-        ds = load_dataset("trivia_qa", "rc.nocontext", split="train")
-        # Offset past the SIL pool so the "general" anti-forgetting mix is
-        # strictly disjoint from the TriviaQA training episodes.
-        start = min(sil_pool_size, max(0, len(ds) - n))
-        end = min(start + n, len(ds))
-        pairs = []
-        for item in ds.select(range(start, end)):
-            row = cast(Mapping[str, Any], item)
-            q = str(row.get("question", ""))
-            answer_obj = cast(Mapping[str, Any], row.get("answer", {}))
-            ans = str(answer_obj.get("value", "") or "")
-            if q and ans:
-                pairs.append(QAPair(question=q, answer=ans))
-        logger.info("  General-domain mix: %d QA pairs loaded.", len(pairs))
-        return pairs
-    except Exception as exc:
-        # Fail LOUDLY: the general-mix anchor data is used for the
-        # forgetting_tolerance constraint in §4.6; silently substituting 200
-        # toy arithmetic pairs would produce thesis-invalid retention numbers.
-        # Callers (run_smoke_experiment) that legitimately want a synthetic
-        # mix should pass the `--smoke_test` flag and go through the
-        # `make_synthetic_samples` path instead.
-        logger.error(
-            "TriviaQA load failed (%s). Refusing to silently substitute a "
-            "synthetic general-domain mix — that would fabricate the anti-"
-            "forgetting retention measurements. Fix the dataset cache / "
-            "network and re-run, or use --smoke_test for a flagged synthetic "
-            "run.",
-            exc,
-        )
-        raise
-
-
-# -----------------------------------------------------------------------------
 # Calibration (temperature scaling)
 # -----------------------------------------------------------------------------
 
@@ -1275,16 +1209,16 @@ def run_experiment(ns: argparse.Namespace) -> None:
         raise
 
     # -- General-domain data (for anti-forgetting mix) ---------------------- #
-    # Skip past the TriviaQA-train rows that may be in the SIL training pool
-    # so the anti-forgetting probe is strictly disjoint from training signal.
-    trivia_sil_pool_size = (
-        len(train_samples.get("triviaqa", []))
-        if "triviaqa" in train_samples else 0
-    )
-    general_data = load_general_data(
-        n=getattr(config, "general_data_size", 1000),
-        sil_pool_size=trivia_sil_pool_size,
-    )
+    # v2 architecture (2026-05-06): general-domain mix REMOVED. The 1000
+    # hardcoded TriviaQA samples that previously augmented every SIL training
+    # pool are gone. Anti-forgetting is now provided by (a) LoRA's small
+    # adapter parameter budget (~5M trainable params; capacity competition
+    # cannot bulldoze base representations), (b) loss reweighting via
+    # temperature mixing T=2 with bounded 3x upsampling and DoReMi floor,
+    # and (c) cold-start gold-labelled fallback for zero-count benchmarks.
+    # The multi-modal retention probe (MMLU + TriviaQA test + HotpotQA test)
+    # provides the empirical retention guard. See PRODUCTION_NEXT_SESSION_PLAN
+    # v2 §Phase 0 Fix 13 for the rationale.
 
     # -- Eval harness -------------------------------------------------------- #
     harness = m["EvalHarness"](
@@ -1604,7 +1538,6 @@ def run_experiment(ns: argparse.Namespace) -> None:
         cycle_result = sil.run_cycle(
             cycle_num=cycle_num,
             memory_store=pipeline.memory_store,
-            general_data=general_data,
             verify_fn=None,
             deferred_buffer=pipeline.deferred_buffer,
             reconsider_fn=pipeline.make_reconsider_deferred_fn(),
