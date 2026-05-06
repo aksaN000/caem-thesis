@@ -1752,7 +1752,10 @@ def run_experiment(ns: argparse.Namespace) -> None:
                         try:
                             import subprocess as _subprocess_pp
                             _run_name = output_dir.name
-                            _remote = (f"gdrive:caem-phase1a/{_run_name}/"
+                            # v2: configurable gdrive bucket (default "v2");
+                            # v1 archive is under archive_v1/.
+                            _gd_bucket = os.environ.get("CAEM_GDRIVE_BUCKET", "v2")
+                            _remote = (f"gdrive:caem-phase1a/{_gd_bucket}/{_run_name}/"
                                        f"cycle_{cycle_num}/eval_stream_chunk/")
                             _r = _subprocess_pp.run(
                                 ["rclone", "copy", str(_snap), _remote,
@@ -1823,7 +1826,10 @@ def run_experiment(ns: argparse.Namespace) -> None:
             try:
                 import subprocess as _subp_close
                 _run_name = output_dir.name
-                _gd_root = f"gdrive:caem-phase1a/{_run_name}"
+                # v2: configurable gdrive bucket (default "v2");
+                # v1 archive is under archive_v1/.
+                _gd_bucket = os.environ.get("CAEM_GDRIVE_BUCKET", "v2")
+                _gd_root = f"gdrive:caem-phase1a/{_gd_bucket}/{_run_name}"
                 _cyc_remote = f"{_gd_root}/cycle_{cycle_num}"
 
                 # 1. cycle_{N}/ local artefacts (calibration, composite, gate)
