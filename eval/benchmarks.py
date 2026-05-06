@@ -594,6 +594,129 @@ def load_arc_challenge(
 
 
 # -----------------------------------------------------------------------------
+# HotpotQA (v2 — multi-hop entity recall)
+# -----------------------------------------------------------------------------
+
+def load_hotpotqa(
+    split: str = "validation",
+    n: Optional[int] = None,
+    seed: int = 42,
+    config_name: str = "distractor",
+) -> List[BenchmarkSample]:
+    """Load HotpotQA samples for v2 multi-hop training-panel benchmark.
+
+    HotpotQA contains multi-hop questions requiring reasoning across
+    multiple Wikipedia paragraphs. The "distractor" config (default)
+    provides 10 candidate paragraphs per question (2 supporting + 8
+    distractor). For CAEM the prompt only uses the question text;
+    supporting facts are accessed via the Tier-3 RAG retrieval path
+    (the verifier does NOT receive distractor passages directly).
+
+    Sample schema:
+      question   : str    -- raw question text
+      answers    : list   -- single gold answer string (HotpotQA is single-answer)
+      gold_label : None
+      id         : str
+      benchmark  : "hotpotqa"
+    """
+    try:
+        from datasets import load_dataset
+    except ImportError as e:
+        raise ImportError("HuggingFace `datasets` is required for HotpotQA loading.") from e
+
+    logger.info("Loading HotpotQA [%s, %s] from HuggingFace...", config_name, split)
+    ds = load_dataset("hotpot_qa", config_name, split=split)
+
+    samples: List[BenchmarkSample] = []
+    for i, row in enumerate(cast(Any, ds)):
+        row = cast(Dict[str, Any], row)
+        question = str(row.get("question", ""))
+        answer = str(row.get("answer", ""))
+        if not question or not answer:
+            continue
+        samples.append({
+            "question": question,
+            "answers": [answer],
+            "gold_label": None,
+            "id": str(row.get("id", f"hotpot_{i}")),
+            "benchmark": "hotpotqa",
+        })
+
+    if n is not None and n < len(samples):
+        rng = random.Random(seed)
+        samples = rng.sample(samples, n)
+
+    return samples
+
+
+# -----------------------------------------------------------------------------
+# CommonsenseQA (v2 — 5-choice MCQ commonsense)
+# -----------------------------------------------------------------------------
+
+def load_commonsense_qa(
+    split: str = "validation",
+    n: Optional[int] = None,
+    seed: int = 42,
+) -> List[BenchmarkSample]:
+    """Load CommonsenseQA samples for v2 5-choice MCQ training-panel benchmark.
+
+    CommonsenseQA presents a question with 5 labelled options A-E. The
+    constrained prompt explicitly enumerates the option text alongside
+    each label so the verifier's multichoice scorer can substitute the
+    answer text into the hypothesis at NLI time. (The 4-choice
+    multichoice_scorer regex already accepts A-E; CSQA exercises the
+    5-option path.)
+
+    Sample schema:
+      question   : str    -- "Question: ... Choices: (A) ... (B) ... (C) ... (D) ... (E) ...\nAnswer with..."
+      answers    : list   -- single letter A/B/C/D/E
+      gold_label : str    -- the correct letter
+      id         : str
+      benchmark  : "commonsense_qa"
+
+    Note: CommonsenseQA's test split labels are not public; eval/test
+    folds draw from the dev split (1221 samples). The v2 split allocator
+    (caem/benchmark_splits.py) handles this.
+    """
+    try:
+        from datasets import load_dataset
+    except ImportError as e:
+        raise ImportError("HuggingFace `datasets` is required for CommonsenseQA loading.") from e
+
+    logger.info("Loading CommonsenseQA [%s] from HuggingFace...", split)
+    ds = load_dataset("commonsense_qa", split=split)
+
+    samples: List[BenchmarkSample] = []
+    for i, row in enumerate(cast(Any, ds)):
+        row = cast(Dict[str, Any], row)
+        question_text = str(row.get("question", ""))
+        choices = row.get("choices", {})
+        labels = choices.get("label", [])
+        texts = choices.get("text", [])
+        correct_label = str(row.get("answerKey", "") or "")
+        if not question_text or not labels or not correct_label:
+            continue
+        choices_text = " ".join([f"({lbl}) {txt}" for lbl, txt in zip(labels, texts)])
+        question = (
+            f"Question: {question_text} Choices: {choices_text}\n"
+            f"Answer with just the multiple choice letter."
+        )
+        samples.append({
+            "question": question,
+            "answers": [correct_label],
+            "gold_label": correct_label,
+            "id": str(row.get("id", f"csqa_{i}")),
+            "benchmark": "commonsense_qa",
+        })
+
+    if n is not None and n < len(samples):
+        rng = random.Random(seed)
+        samples = rng.sample(samples, n)
+
+    return samples
+
+
+# -----------------------------------------------------------------------------
 # Unified loader
 # -----------------------------------------------------------------------------
 
@@ -633,6 +756,10 @@ def load_benchmark(
         return load_asqa(n=n, seed=seed, **kwargs)
     elif name == "arc_challenge":
         return load_arc_challenge(n=n, seed=seed, **kwargs)
+    elif name == "hotpotqa":
+        return load_hotpotqa(n=n, seed=seed, **kwargs)
+    elif name == "commonsense_qa":
+        return load_commonsense_qa(n=n, seed=seed, **kwargs)
     else:
         raise ValueError(
             f"Unknown benchmark '{name}'."
@@ -745,6 +872,37 @@ def make_synthetic_samples(
                 "gold_label": label,
                 "id": f"arc_synth_{i}",
                 "benchmark": "arc_challenge",
+            })
+
+    elif benchmark == "hotpotqa":
+        # Multi-hop QA synthetic — bridge entity between two facts.
+        for i in range(n):
+            samples.append({
+                "question": (
+                    f"Who is the spouse of the person who founded company_{i}?"
+                ),
+                "answers": [f"spouse_of_founder_{i}"],
+                "gold_label": None,
+                "id": f"hotpot_synth_{i}",
+                "benchmark": "hotpotqa",
+            })
+
+    elif benchmark == "commonsense_qa":
+        # 5-choice MCQ synthetic — exercises CSQA's 5-option path.
+        labels = ["A", "B", "C", "D", "E"]
+        for i in range(n):
+            label = labels[i % 5]
+            samples.append({
+                "question": (
+                    f"Question: Commonsense scenario {i}? "
+                    f"Choices: (A) opt_a_{i} (B) opt_b_{i} (C) opt_c_{i} "
+                    f"(D) opt_d_{i} (E) opt_e_{i}\n"
+                    f"Answer with just the multiple choice letter."
+                ),
+                "answers": [label],
+                "gold_label": label,
+                "id": f"csqa_synth_{i}",
+                "benchmark": "commonsense_qa",
             })
 
     else:
