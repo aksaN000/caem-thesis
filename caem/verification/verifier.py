@@ -960,6 +960,7 @@ class UnifiedVerifier:
             u_stored=u_stored,
             p_contra=p_contra,
             p_ground_max=p_ground_max,
+            source_benchmark=source_benchmark,  # v2 Fix 1 — per-bench gate dispatch
         )
 
         logger.debug(
@@ -2567,6 +2568,7 @@ class UnifiedVerifier:
         u_stored: float,
         p_contra: float,
         p_ground_max: float,
+        source_benchmark: Optional[str] = None,
     ) -> Tuple[str, bool]:
         """Apply the Branch C decision tree. Returns (decision, abstained).
 
@@ -2589,7 +2591,10 @@ class UnifiedVerifier:
         # When the gate JSON is loaded, use its calibrated thresholds.
         # Otherwise fall back to the legacy fixed thresholds.
         if self._conformal_gate is not None:
-            return self._conformal_gate.decide(u_stored, p_ground_max, abstain_pg)
+            return self._conformal_gate.decide(
+                u_stored, p_ground_max, abstain_pg,
+                source_benchmark=source_benchmark,  # v2 Fix 1 — per-bench dispatch
+            )
 
         store_thr = cfg.store_threshold
         defer_thr = cfg.defer_threshold
