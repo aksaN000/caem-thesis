@@ -373,7 +373,9 @@ class BatchPipeline:
         per_sample_tier: List[int] = []
         per_sample_routing: List[tuple] = []
         for s in samples:
-            tier, emb, pre_conf, search, routing = self._peek_routing(s.query)
+            tier, emb, pre_conf, search, routing = self._peek_routing(
+                s.query, source_benchmark=s.source_benchmark,
+            )
             per_sample_tier.append(tier)
             per_sample_routing.append((emb, pre_conf, search, routing))
 
@@ -460,15 +462,19 @@ class BatchPipeline:
 
     # ---- Internal helpers ----------------------------------------------- #
 
-    def _peek_tier(self, query: str) -> int:
+    def _peek_tier(self, query: str, source_benchmark: Optional[str] = None) -> int:
         """Return the tier this query would be routed to. Thin wrapper
         around :meth:`_peek_routing` for call sites that only need the
         tier int (e.g. tests). Equivalent to ``_peek_routing(q)[0]``.
         """
-        tier, _, _, _, _ = self._peek_routing(query)
+        tier, _, _, _, _ = self._peek_routing(query, source_benchmark=source_benchmark)
         return tier
 
-    def _peek_routing(self, query: str) -> tuple:
+    def _peek_routing(
+        self,
+        query: str,
+        source_benchmark: Optional[str] = None,
+    ) -> tuple:
         """Run Stages 1-3 once and return the full routing bundle:
         ``(tier, query_embedding, pre_conf, search_with_ids, routing)``.
 
@@ -477,13 +483,24 @@ class BatchPipeline:
         kwarg so each sample pays the Stage 1-3 cost exactly once
         instead of twice (once for tier-bucket dispatch, once inside
         the serial ``answer`` call).
+
+        v2 Fix 12: ``source_benchmark`` is forwarded into
+        ``pre_estimator.estimate`` (per-benchmark T_b) and
+        ``router.route`` (per-benchmark safety_u_pre_min_b) so the bundle
+        threaded back to ``answer`` reflects the same per-benchmark
+        dispatch as the serial path.
         """
         query_embedding = self.p._encode_query(query)
-        pre_conf = self.p.pre_estimator.estimate(query)
+        pre_conf = self.p.pre_estimator.estimate(
+            query, source_benchmark=source_benchmark,
+        )
         search_with_ids = self.p.memory_store.search_with_ids(
             query_embedding, k=1,
         )
-        routing = self.p.router.route(pre_conf, search_with_ids)
+        routing = self.p.router.route(
+            pre_conf, search_with_ids,
+            source_benchmark=source_benchmark,
+        )
         return (
             int(routing.tier),
             query_embedding,

@@ -214,6 +214,136 @@ def fit_temperature_scalar(
 
 
 # -----------------------------------------------------------------------------
+# v2 Fix 12 — per-benchmark u_pre calibration
+# -----------------------------------------------------------------------------
+
+def fit_per_benchmark_temperatures(
+    records: List[Dict[str, Any]],
+    *,
+    pooled_T: float = 1.0,
+    min_n_per_bench: int = 20,
+) -> Dict[str, float]:
+    """Fit a per-benchmark temperature T_b on the calibration fold.
+
+    Each record must carry ``benchmark`` (str), ``u_pre`` (float in [0,1]),
+    and ``em`` (0/1 or float). Benchmarks with fewer than
+    ``min_n_per_bench`` valid records fall back to ``pooled_T``.
+
+    Returns ``{benchmark: T_b}`` for every benchmark seen in records.
+    """
+    by_bench: Dict[str, List[Tuple[float, int]]] = {}
+    for r in records:
+        bm = r.get("benchmark")
+        u = r.get("u_pre")
+        em = r.get("em")
+        if bm is None or u is None or em is None:
+            continue
+        if not math.isfinite(float(u)):
+            continue
+        by_bench.setdefault(str(bm), []).append((float(u), int(bool(em))))
+
+    out: Dict[str, float] = {}
+    for bm, pairs in by_bench.items():
+        if len(pairs) < min_n_per_bench:
+            logger.info(
+                "fit_per_benchmark_temperatures: bench=%s has %d samples (<%d) "
+                "— falling back to pooled T=%.4f",
+                bm, len(pairs), min_n_per_bench, pooled_T,
+            )
+            out[bm] = float(pooled_T)
+            continue
+        u_arr = [u for u, _ in pairs]
+        em_arr = [e for _, e in pairs]
+        # If a benchmark is fully correct or fully wrong, T-fitting is
+        # ill-posed (NLL is unbounded in the bound-direction); fall back.
+        if sum(em_arr) == 0 or sum(em_arr) == len(em_arr):
+            logger.info(
+                "fit_per_benchmark_temperatures: bench=%s has degenerate labels "
+                "(sum=%d/%d) — falling back to pooled T=%.4f",
+                bm, sum(em_arr), len(em_arr), pooled_T,
+            )
+            out[bm] = float(pooled_T)
+            continue
+        # Convert u_pre [0,1] → logits in the same way calibrate_pipeline does
+        logits = []
+        for u in u_arr:
+            u_clamped = min(max(u, 1e-7), 1.0 - 1e-7)
+            logits.append(math.log(u_clamped / (1.0 - u_clamped)))
+        T_b = fit_temperature_scalar(logits, em_arr)
+        out[bm] = float(T_b)
+    return out
+
+
+def fit_per_benchmark_safety_floors(
+    records: List[Dict[str, Any]],
+    *,
+    pooled_floor: float = 0.38,
+    target_precision: float = 0.50,
+    min_n_per_bench: int = 20,
+) -> Dict[str, float]:
+    """Fit a per-benchmark safety_u_pre_min_b on the calibration fold.
+
+    The OR-condition ``u_pre < safety_u_pre_min_b → Tier 3`` is a
+    safety-first router gate, not an EM-style classifier threshold. We
+    pick the SMALLEST u_pre threshold whose conditional precision
+    ``P(EM=1 | u_pre >= threshold)`` exceeds ``target_precision`` on the
+    calibration fold; below that threshold, the model is empirically
+    less than ``target_precision``-likely to be correct, so the router
+    forces Tier 3 to be safe.
+
+    Falls back to ``pooled_floor`` for benchmarks with fewer than
+    ``min_n_per_bench`` samples or no threshold satisfying the
+    precision target.
+    """
+    by_bench: Dict[str, List[Tuple[float, int]]] = {}
+    for r in records:
+        bm = r.get("benchmark")
+        u = r.get("u_pre")
+        em = r.get("em")
+        if bm is None or u is None or em is None:
+            continue
+        if not math.isfinite(float(u)):
+            continue
+        by_bench.setdefault(str(bm), []).append((float(u), int(bool(em))))
+
+    out: Dict[str, float] = {}
+    for bm, pairs in by_bench.items():
+        if len(pairs) < min_n_per_bench:
+            logger.info(
+                "fit_per_benchmark_safety_floors: bench=%s has %d samples (<%d) "
+                "— falling back to pooled floor=%.3f",
+                bm, len(pairs), min_n_per_bench, pooled_floor,
+            )
+            out[bm] = float(pooled_floor)
+            continue
+        # Sweep candidate thresholds ascending; first one whose conditional
+        # precision exceeds the target wins. Step size = 0.01 of the [0,1]
+        # u_pre range — coarse enough to be stable on n=100 samples, fine
+        # enough that any reasonable floor lands within 1 percentage point.
+        pairs.sort(key=lambda t: t[0])
+        chosen: Optional[float] = None
+        for cand in [i * 0.01 for i in range(0, 101)]:
+            keep = [(u, e) for u, e in pairs if u >= cand]
+            if len(keep) < max(10, min_n_per_bench // 2):
+                # too thin to score — stop walking up
+                break
+            prec = sum(e for _, e in keep) / float(len(keep))
+            if prec >= target_precision:
+                chosen = cand
+                break
+        if chosen is None:
+            logger.info(
+                "fit_per_benchmark_safety_floors: bench=%s no threshold met "
+                "precision target %.2f — falling back to pooled floor=%.3f",
+                bm, target_precision, pooled_floor,
+            )
+            out[bm] = float(pooled_floor)
+        else:
+            out[bm] = float(chosen)
+    return out
+
+
+# -----------------------------------------------------------------------------
 # Diagnostic: signal AUROC (logged only, not used to fit weights)
 # -----------------------------------------------------------------------------
 #

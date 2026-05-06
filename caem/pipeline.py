@@ -466,7 +466,10 @@ class CAEMPipeline:
             query_embedding = self._encode_query(query)
 
             # -- Stage 3a: Pre-routing confidence --------------------------- #
-            pre_conf = self.pre_estimator.estimate(query)
+            # v2 Fix 12: source_benchmark dispatches per-benchmark T_b.
+            pre_conf = self.pre_estimator.estimate(
+                query, source_benchmark=source_benchmark,
+            )
 
             # -- Stage 1: Memory search (k=1 for routing) ------------------- #
             # Use search_with_ids so Tier-1 stats updates can call back without
@@ -476,7 +479,12 @@ class CAEMPipeline:
             )
 
             # -- Stage 3b: Route --------------------------------------------- #
-            routing = self.router.route(pre_conf, search_with_ids)
+            # v2 Fix 12: source_benchmark dispatches per-benchmark
+            # safety_u_pre_min_b for the OR-condition.
+            routing = self.router.route(
+                pre_conf, search_with_ids,
+                source_benchmark=source_benchmark,
+            )
 
         logger.debug(
             "Routing: Tier %d | u_pre=%.4f | sim=%.4f | score=%.4f | safety=%s",

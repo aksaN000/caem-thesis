@@ -117,7 +117,11 @@ class PreRoutingConfidenceEstimator:
     # Public API                                                           #
     # ------------------------------------------------------------------ #
 
-    def estimate(self, query: str) -> PreRoutingConfidence:
+    def estimate(
+        self,
+        query: str,
+        source_benchmark: Optional[str] = None,
+    ) -> PreRoutingConfidence:
         """Compute pre-routing confidence for a single query.
 
         Parameters
@@ -125,6 +129,12 @@ class PreRoutingConfidenceEstimator:
         query : str
             The raw question text. Gets wrapped in ChatML internally for
             decoder-only generation.
+        source_benchmark : str or None, default None
+            Benchmark tag (v2 Fix 12). When provided and present in
+            ``CAEMConfig.temperature_scalar_per_benchmark``, the per-benchmark
+            T_b is used for the calibration sigmoid; otherwise the pooled
+            ``temperature_scalar`` is used. Per-benchmark safety threshold is
+            looked up by the router, not here.
 
         Returns
         -------
@@ -145,14 +155,25 @@ class PreRoutingConfidenceEstimator:
             + cfg.u_pre_cconv_weight * confidence_from_cconv
         )
         raw_u_pre = float(np.clip(raw_u_pre, 0.0, 1.0))
-        u_pre = self._apply_temperature_scaling(raw_u_pre)
+        u_pre = self._apply_temperature_scaling(raw_u_pre, source_benchmark)
 
+        # Per-benchmark T_b for log clarity; falls back to pooled T_global.
+        T_used = (
+            cfg.get_temperature_for(source_benchmark)
+            if hasattr(cfg, "get_temperature_for")
+            else float(getattr(cfg, "temperature_scalar", 1.0) or 1.0)
+        )
+        safety_thr = (
+            cfg.get_safety_u_pre_min_for(source_benchmark)
+            if hasattr(cfg, "get_safety_u_pre_min_for")
+            else float(getattr(cfg, "safety_u_pre_min", 0.38))
+        )
         logger.debug(
-            "u_pre estimate | query='%s...' | u_token=%.4f | c_conv=%.4f | "
+            "u_pre estimate | query='%s...' | bench=%s | u_token=%.4f | c_conv=%.4f | "
             "conf_cconv=%.4f | raw_u_pre=%.4f | T=%.4f | u_pre=%.4f | safe=%s",
-            query[:50], u_token, c_conv, confidence_from_cconv,
-            raw_u_pre, cfg.temperature_scalar, u_pre,
-            u_pre >= cfg.safety_u_pre_min,
+            query[:50], source_benchmark, u_token, c_conv, confidence_from_cconv,
+            raw_u_pre, T_used, u_pre,
+            u_pre >= safety_thr,
         )
 
         return PreRoutingConfidence(
@@ -341,13 +362,24 @@ class PreRoutingConfidenceEstimator:
                 )
         return f"<|im_start|>user\n{query}<|im_end|>\n<|im_start|>assistant\n"
 
-    def _apply_temperature_scaling(self, prob: float) -> float:
-        """Apply sigmoid(logit(prob)/T) for calibrated confidence.
+    def _apply_temperature_scaling(
+        self,
+        prob: float,
+        source_benchmark: Optional[str] = None,
+    ) -> float:
+        """Apply sigmoid(logit(prob)/T_b) for calibrated confidence.
 
-        Temperature scaling is calibrated offline and stored in config.
-        T=1.0 leaves values unchanged.
+        v2 Fix 12: when ``source_benchmark`` is supplied and a per-benchmark
+        T_b is present in ``CAEMConfig.temperature_scalar_per_benchmark``,
+        that T_b is used; otherwise the pooled ``temperature_scalar`` is
+        used. T=1.0 leaves values unchanged.
         """
-        T = float(getattr(self.config, "temperature_scalar", 1.0) or 1.0)
+        cfg = self.config
+        if hasattr(cfg, "get_temperature_for"):
+            T = float(cfg.get_temperature_for(source_benchmark) or 1.0)
+        else:  # back-compat for an older CAEMConfig without the helper
+            T = float(getattr(cfg, "temperature_scalar", 1.0) or 1.0)
+
         p = float(np.clip(prob, 0.0, 1.0))
         if T <= 0.0 or abs(T - 1.0) < 1e-8:
             return p
