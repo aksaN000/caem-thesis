@@ -742,6 +742,7 @@ class UnifiedVerifier:
         top_passages: Optional[List[str]] = None,
         atomic_override: Optional[Tuple[List[str], List[float]]] = None,
         is_query_time: bool = True,
+        source_benchmark: Optional[str] = None,
     ) -> UnifiedVerifierOutput:
         """Compute all nine signals, form the composite, and emit a decision.
 
@@ -951,6 +952,7 @@ class UnifiedVerifier:
             p_ground_max=p_ground_max,
             u_token=float(u_token),
             u_dropout=float(u_dropout),
+            source_benchmark=source_benchmark,
         )
 
         # ---------- decision tree ----------------------------------------- #
@@ -1003,6 +1005,7 @@ class UnifiedVerifier:
         inputs: List[Tuple[str, str]],
         u_tokens: Optional[List[Optional[float]]] = None,
         u_dropouts: Optional[List[Optional[float]]] = None,
+        source_benchmarks: Optional[List[Optional[str]]] = None,
     ) -> List[UnifiedVerifierOutput]:
         """Run verification on N (query, answer) pairs in one batched pass.
 
@@ -1169,6 +1172,9 @@ class UnifiedVerifier:
                 se_samples=se_samples_per_sample[i],
                 top_passages=top_passages_per_sample[i],
                 atomic_override=override,
+                source_benchmark=(
+                    source_benchmarks[i] if source_benchmarks is not None else None
+                ),
             ))
             per_stage_ms["verify_per_sample_total"] += (_t.perf_counter() - _ts) * 1000.0
         total_ms = (_t.perf_counter() - _t0) * 1000.0
@@ -2475,6 +2481,7 @@ class UnifiedVerifier:
         p_ground_max: float = 0.0,
         u_token: float = 0.5,
         u_dropout: float = 0.5,
+        source_benchmark: Optional[str] = None,
     ) -> float:
         """Combine 9+1 verifier signals into a calibrated u_stored ∈ [0, 1].
 
@@ -2509,7 +2516,20 @@ class UnifiedVerifier:
                 "p_entail": float(p_entail),
                 "q_a_relevance": float(q_a_relevance),
             }
-            u = self._cal_prob_composite.predict(signal_values)
+            # v2 Fix 2 — per-benchmark composite lookup. The composite object
+            # accepts an optional source_benchmark kwarg; when None or when the
+            # composite holds a single global calibration (v1 format), the
+            # source_benchmark is ignored and the global predict() runs. Once
+            # Stage B of Fix 2 lands (per-benchmark calibration JSON), this
+            # call dispatches to the right per-bench isotonic + boost weights.
+            try:
+                u = self._cal_prob_composite.predict(
+                    signal_values, source_benchmark=source_benchmark,
+                )
+            except TypeError:
+                # Backward-compat: pre-v2 CalProbComposite.predict(signal_values)
+                # without source_benchmark kwarg. Falls through to global path.
+                u = self._cal_prob_composite.predict(signal_values)
             return float(np.clip(u, 0.0, 1.0))
 
         # ---------------- weighted_sum branch (legacy) ---------------- #

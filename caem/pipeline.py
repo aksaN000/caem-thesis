@@ -534,7 +534,11 @@ class CAEMPipeline:
                 # the verifier does not pay for a duplicate forward pass.
                 u_tok = getattr(post_conf, "u_token", None) if post_conf else None
                 u_drop = getattr(post_conf, "u_dropout", None) if post_conf else None
-                vout = self._verify(query, answer_str, u_token=u_tok, u_dropout=u_drop)
+                vout = self._verify(
+                    query, answer_str,
+                    u_token=u_tok, u_dropout=u_drop,
+                    source_benchmark=source_benchmark,  # v2 Fix 2 keystone
+                )
             u_stored_scalar = vout.u_stored if vout else None
             if store_to_memory:
                 entry_id, stored_flag = self._maybe_store(
@@ -561,7 +565,10 @@ class CAEMPipeline:
             else:
                 # Tier 3 has no pre-computed internal signals, so the verifier
                 # computes u_token and u_dropout itself.
-                vout = self._verify(query, answer_str)
+                vout = self._verify(
+                    query, answer_str,
+                    source_benchmark=source_benchmark,  # v2 Fix 2 keystone
+                )
             u_stored_scalar = vout.u_stored if vout else None
             if store_to_memory:
                 entry_id, stored_flag = self._maybe_store(
@@ -735,6 +742,7 @@ class CAEMPipeline:
         *,
         u_token: Optional[float] = None,
         u_dropout: Optional[float] = None,
+        source_benchmark: Optional[str] = None,
     ) -> Optional[UnifiedVerifierOutput]:
         """Run UnifiedVerifier and return the full nine-signal output.
 
@@ -766,6 +774,7 @@ class CAEMPipeline:
                 return self.verifier.verify(
                     query, answer,
                     u_token=u_token, u_dropout=u_dropout,
+                    source_benchmark=source_benchmark,
                 )
         except Exception as exc:
             logger.error("Verification failed: %s -- answer will not be stored.", exc)
@@ -802,8 +811,12 @@ class CAEMPipeline:
                 # + threshold prune downstream still removes confidently-
                 # wrong stored entries (new_u_stored < tau_retro = 0.50).
                 # See verifier.py:verify() docstring for the full rationale.
+                # v2 Fix 2 — thread source_benchmark from EpisodicEntry into
+                # the verifier so the per-benchmark composite + decision tree
+                # use the right calibration at retroverify time.
                 return verifier.verify(
                     entry.question, entry.answer, is_query_time=False,
+                    source_benchmark=getattr(entry, "source_benchmark", None),
                 )
             except Exception as exc:  # pragma: no cover -- defensive
                 logger.warning(
@@ -829,9 +842,17 @@ class CAEMPipeline:
 
         def _reconsider(deferred_entry) -> Optional[UnifiedVerifierOutput]:
             try:
+                # v2 Fix 2 — thread source_benchmark from DeferredEntry into the
+                # verifier so the per-benchmark composite + decision tree use
+                # the right calibration at reconsideration time. (Previously
+                # this site dropped the benchmark tag, causing all reconsidered
+                # entries to be scored under the global pooled composite even
+                # though the entries' source_benchmark was preserved on the
+                # DeferredEntry.)
                 return verifier.verify(
                     deferred_entry.question,
                     deferred_entry.answer,
+                    source_benchmark=getattr(deferred_entry, "source_benchmark", None),
                 )
             except Exception as exc:  # pragma: no cover -- defensive
                 logger.warning(
