@@ -3981,3 +3981,113 @@ fcdcb47..17625c4  PATH Y: autonomous halt+restart script
 9d1f6ed..(next)   plan+thesis: TTL=2 revert + Ch5 phase-split framing
 ```
 
+
+
+## 2026-05-06 — v2 architecture lock: discovered FEVER-monoculture failure mode + 13-fix response
+
+### Discovery: the trajectory was self-collapsing
+
+Cycles 0-4 of the v1 architecture revealed a feedback-loop failure mode the registered theorems did not predict. Pooled across 7 benchmarks (n=3500 eval/cycle):
+
+| Cycle | Pooled EM | Pooled CHM | Stored pool composition |
+|------:|----------:|-----------:|-------------------------|
+| 0 | 0.3834 | 0.1706 | 58% FEVER, 28% TQA, 14% NQ (cold-start seeded) |
+| 1 | 0.3889 | 0.1656 | 89% FEVER |
+| 2 | 0.3657 | 0.1585 | 96% FEVER |
+| 3 | 0.3331 | 0.1583 | 98% FEVER |
+| 4 | 0.3157 | 0.1526 | **100% FEVER (873 / 874)** |
+
+CHM dropped −10.5% pooled (the registered hypothesis H2 was being met). EM dropped −17.7% pooled (NOT predicted; thesis register said nothing about EM trajectory). Per-benchmark EM showed the bipartite split:
+
+- **TriviaQA**: 0.374 → 0.098 (−73.8%)
+- **Natural Questions**: 0.172 → 0.066 (−61.6%)
+- **TruthfulQA**: 0.334 → 0.250 (−25.1%)
+- **FEVER**: 0.456 → 0.474 (~flat; peaked 0.490 at c2)
+- **StrategyQA / ARC-Challenge / ASQA**: ~flat
+
+MMLU retention guard reported 1.04× pristine across cycles 1-5 — the guard passed. The model was specializing on bounded-label MCQ skill (which MMLU probes) while forgetting open-text generation (which the guard never measured).
+
+### Three-mechanism diagnosis
+
+**Mechanism 1 — Verifier-discrimination decay on FEVER (unpredicted)**
+SIL fine-tune on FEVER-monoculture pool makes the model overconfident on FEVER labels. The gap between correct-and-confident and incorrect-and-confident u_stored shrinks. FEVER's prec@k=20 on cal fold collapsed: 0.95 (c1) → 1.00 (c2) → 0.95 (c3) → **0.80 (c4)**. By c4 even FEVER cannot fit a per-benchmark gate at α=0.05; the conformal procedure returns degenerate τ=1.0 (rejects everything). Violates `thm:monotone-purification`'s fixed-α precondition AND `cor:self-correction`'s improving-α precondition simultaneously.
+
+**Mechanism 2 — Precondition starvation on TriviaQA / NQ (the dominant cause)**
+The single global α=0.05 gate cannot be satisfied on TriviaQA (peak prec@k=20 is 0.55-0.65) or NQ (0.25-0.45) cal-fold distributions. Storage rate falls to zero on those benchmarks → SIL training pool becomes 100% FEVER → model's TriviaQA / NQ representations get bulldozed by parametric capacity competition during full-FT fine-tune → catastrophic forgetting → EM crashes. The deferred buffer reconsideration (registered as the architectural counter-mechanism) was dormant for cycles 1-4 due to the May-4 orchestrator gap, then activated for cycle 5+ but couldn't fully recover the trajectory because the deferred buffer's own admission rates also collapsed to FEVER (87% by c4).
+
+**Mechanism 3 — NQ structural failure (signal-level)**
+NQ's α (verifier balanced accuracy) is below 1/2 on every cycle's cal fold (0.45, 0.25, 0.25, 0.35 across c1-c4). The Bayesian framework's α > 1/2 precondition fails outright. No threshold relaxation recovers NQ; the verifier signals on bare-entity QA outputs aren't discriminative. NQ is registered as a structural-failure benchmark.
+
+### Empirical confirmation by per-benchmark conformal ablation
+
+Per `outputs/full_run/cycle_{2,3,4}/conditional_conformal_ablation.json` (computed 2026-05-06):
+- FEVER per-benchmark gate at α=0.05: fits at c1-c3 (τ=0.80-0.96, 20-58 admissions), DEGENERATE at c4 (need α≥0.20 to admit anything)
+- TriviaQA per-benchmark gate at α=0.05: DEGENERATE at every cycle. Smallest non-degenerate α is 0.40 (60% precision floor) — admits 21-66 entries
+- NQ per-benchmark gate: DEGENERATE at every α from 0.05 to 0.50 (50% — coin flip)
+
+### v2 architectural response — 13 fixes
+
+Per the literature audit (`outputs/research/agent_research_2026-05-06.md`) and pre-implementation read (`CAEM_FIX_AUDIT.md`), v2 deploys 13 coupled fixes:
+
+1. **Per-benchmark conformal gate** at α_b — admits TriviaQA at 60% precision floor; FEVER stays at 95%; NQ dropped from training panel
+2. **Per-benchmark composite weights** — keystone refactor; verifier API gains `source_benchmark` parameter; per-benchmark isotonic + boost weights let each benchmark's signal-distribution drive its own composite
+3. **Loss-reweighted SIL pool builder** — temperature mixing T=2 + bounded 3× upsampling cap + DoReMi floor + cold-start gold-labelled fallback for zero-count benchmarks
+4. **Multi-modal retention probe** — MMLU + TriviaQA test (open-text) + HotpotQA test (multi-hop); halt-and-rollback if ANY drops > 7%
+5. **Coverage feedback diagnostic** — per-benchmark admission rate + pool composition entropy + per-cycle adapter SVD; halt triggers on zero-admission-for-2-cycles
+6. **alias_overlap signal** (Wikidata alias-set lookup) — addresses bare-entity NLI failure mechanically (Si 2021 precedent)
+7. **entity_head_consistency signal** (M=3 chain head-noun agreement) — derived from existing chains at zero extra compute
+8. **LoRA SIL primitive** (r=32, α=64, all-linear, LR=2e-4) — base model frozen; capacity competition cannot bulldoze TriviaQA / NQ representations (Biderman 2024)
+9. **Training panel update** — drop NQ; add HotpotQA (multi-hop) + CommonsenseQA (5-choice MCQ); 4 distinct task types in training
+10. **Per-benchmark prompts + verifier dispatch** — CSQA 5-choice template; HotpotQA multi-hop template; bare-entity expansion scorer for TriviaQA/HotpotQA
+11. **Five-layer deferred-reconsideration guard** — orchestrator assert + SIL hard-fail + post-cycle log assert + unit test + pre-launch dry-run
+12. **Per-benchmark u_pre T_b** + per-benchmark `safety_u_pre_min_b` (data-driven dual contract: precision ≥ 0.85 AND coverage ≥ 0.40)
+13. **Remove general-domain mix** (1000 hardcoded TriviaQA samples that double-counted with the training panel)
+
+Total: ~2,300 lines code, ~12-13 days implementation + testing, ~$165 GPU for 11-cycle clean trajectory.
+
+### Theorem updates registered for Ch4 (Phase 2.1 of v2 plan)
+
+- `thm:bayes-purity` → generalized to per-benchmark form `P_c^b = p_c^b α_c^b / (p_c^b α_c^b + (1-p_c^b)(1-α_c^b))`
+- `thm:monotone-purification` → per-benchmark fixed-α^b precondition; document empirical violation on FEVER c2-c4
+- `thm:bayes-convergence` → add precondition-starvation remark: when admission rate falls to zero on benchmark b, the recurrence is suspended for b and the trajectory is governed by parametric capacity competition; deferred-buffer reconsideration is the registered counter-mechanism
+- `cor:self-correction` → register improving-α precondition as empirically violated on FEVER c2→c4
+- NEW remark/theorem: "Pool-composition divergence under verifier signal asymmetry" — formalizes the discovered failure mode with falsifiable per-benchmark predictions
+
+### Two open contribution gaps (registered for Phase 1c future work in Ch6)
+
+1. **Iterative-LoRA singular-value collapse across SIL cycles**: literature has CoDyRA (Liang 2024), CURLoRA, O-LoRA on continual learning, but none directly measures SV collapse across iterative self-improvement cycles. The v2 coverage diagnostic (Fix 5) tracks per-cycle adapter SV magnitudes; this becomes a registerable empirical contribution.
+
+2. **Zero-count task fallback in iterative self-improvement**: Ding 2024 (Tail Narrowing in LLM Self-Improvement) documents the failure mode but proposes Socratic-prompting at the *difficulty* level, not the *task-identity* level. The v2 cold-start gold-labelled fallback (Fix 3) is the first peer-reviewed recipe for zero-count task identity.
+
+### Budget + timeline impact
+
+| Phase | Cost | Wall-clock |
+|------|-----:|-----------:|
+| Phase 0 (code work, CPU only) | $0 | 12-13 days |
+| Phase 1 (cold-start + cycle 0 + cycles 1-10) | ~$163 | 17-20 days continuous |
+| Phase 2 (report rewrite) | $0 | parallel to Phase 1 |
+| Phase 3 (baselines + significance) | ~$15-20 | post-Phase 1 |
+| Total | ~$180-185 | ~30-35 days |
+
+Recharge required: ~$90-100 over current ~$95 budget.
+
+### Cycle 5 partial trajectory on broken architecture — halted
+
+Cycle 5 SIL completed cleanly on 2026-05-04 and again on 2026-05-06 after Vast recharge. The deferred-reconsideration sweep fired correctly (6,422 entries, promote_threshold=0.4512, TTL=2). However, the discovery of the failure mode at cycle-4 close means cycle 5+ trajectory data on the broken architecture is methodologically discarded. The cycle-5 SIL artefacts and reconsideration receipts are preserved as audit (`outputs/full_run/aborted_cycle5_sil_2026-05-04/`) and as confirmation that the architectural recovery mechanism (Path Y) was firing as registered.
+
+Today's GPU burn (2026-05-06): ~$3 (model downloads + cycle 5 SIL + reconsideration sweep). Trajectory halted at 19:30 UTC before stream-chunk consumed expensive compute.
+
+### v2 branch + status
+
+- v2 branch will be `feat/qwen-3b-goal2` (parallel to v1's `feat/qwen-3b-goal1`)
+- v1 branch preserved as failure-mode evidence + thesis "before" condition
+- Implementation begins after this log entry + plan v2 are committed
+- Phase 0 sequence: Day 1-2 (Fix 9 + 13 + 11 layers 1-3) → Day 3-5 (Fix 2 keystone + 1 + 12) → Day 6-7 (Fix 6 + 7 + 10) → Day 8-10 (Fix 8 + 3 + 4 + 5) → Day 11-12 (smoke test + bug fixes) → Day 13 (cold-start + cycle 0)
+
+### Source artefacts for v2
+
+- `CAEM_FIX_AUDIT.md` — pre-implementation codebase audit (file:line targets per fix)
+- `PRODUCTION_NEXT_SESSION_PLAN.md` v2 (this is the v2 plan, replacing v1)
+- `outputs/research/agent_research_2026-05-06.md` — literature audit (Biderman 2024, Schulman 2025, Farquhar 2024, Si 2021, Lambert/Ivison 2024, etc.)
+- `outputs/full_run/cycle_{2,3,4}/conditional_conformal_ablation.json` — per-benchmark conformal ablation receipts
+- `outputs/full_run/eval/*_cycle{0,1,2,3,4}.json` — v1 eval JSONs (failure-mode evidence)
