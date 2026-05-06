@@ -87,6 +87,7 @@ class AdaptiveRouter:
         self,
         pre_confidence: PreRoutingConfidence,
         search_results: Sequence[Union[Tuple[EpisodicEntry, float], Tuple[EpisodicEntry, int, float]]],
+        source_benchmark: Optional[str] = None,
     ) -> RoutingDecision:
         """Compute a routing decision for one query.
 
@@ -98,6 +99,11 @@ class AdaptiveRouter:
             Output of EpisodicMemoryStore.search() as (entry, similarity),
             or search_with_ids() as (entry, entry_id, similarity).
             May be empty if the store has no episodes yet.
+        source_benchmark : str or None, default None
+            Benchmark tag (v2 Fix 12). When provided and present in
+            ``CAEMConfig.safety_u_pre_min_per_benchmark``, the per-benchmark
+            safety threshold is used for the OR-condition check; otherwise
+            the pooled ``safety_u_pre_min`` is used.
 
         Returns
         -------
@@ -107,6 +113,11 @@ class AdaptiveRouter:
         """
         cfg = self.config
         u_pre = pre_confidence.u_pre
+        # v2 Fix 12: per-benchmark safety floor falls back to pooled global.
+        if hasattr(cfg, "get_safety_u_pre_min_for"):
+            safety_thr = cfg.get_safety_u_pre_min_for(source_benchmark)
+        else:
+            safety_thr = float(cfg.safety_u_pre_min)
 
         # -- Unpack memory search result ----------------------------------- #
         if search_results:
@@ -125,7 +136,7 @@ class AdaptiveRouter:
             retrieved_entry_id = None
 
         # -- Mechanism 1 -- OR-condition (MUST be evaluated first) ---------- #
-        if u_pre < cfg.safety_u_pre_min:
+        if u_pre < safety_thr:
             routing_score = cfg.routing_lambda * similarity + (1 - cfg.routing_lambda) * u_stored_retrieved
             decision = RoutingDecision(
                 tier=3,
@@ -137,8 +148,8 @@ class AdaptiveRouter:
                 retrieved_entry_id=retrieved_entry_id,
             )
             logger.debug(
-                "OR-condition fired: u_pre=%.4f < %.2f -> Tier 3 (safety override).",
-                u_pre, cfg.safety_u_pre_min,
+                "OR-condition fired: u_pre=%.4f < %.2f (bench=%s) -> Tier 3 (safety override).",
+                u_pre, safety_thr, source_benchmark,
             )
             return decision
 

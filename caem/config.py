@@ -16,7 +16,7 @@ See: hyperparameter-reference.md for the full three-category breakdown.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Optional, Tuple
+from typing import Dict, Optional, Tuple
 
 
 # ---------------------------------------------------------------------------
@@ -147,6 +147,29 @@ class CAEMConfig:
     # [CAL] Temperature scaling for u_pre calibration (Guo et al. 2017).
     # Applied as sigmoid(logit(u_pre) / T). T=1.0 means no calibration.
     temperature_scalar: float = 1.0
+
+    # ------------------------------------------------------------------ #
+    # v2 Fix 12 — per-benchmark u_pre calibration                         #
+    # ------------------------------------------------------------------ #
+    # Each training benchmark exposes a different distribution over query
+    # length, named-entity density, and answer surface form. The pooled
+    # global T_global + safety_u_pre_min above are kept as the back-compat
+    # fallback used when source_benchmark is None or unknown; the per-
+    # benchmark dicts below override them when a query carries a known
+    # benchmark tag.
+    #
+    # Populated empirically from the cycle-0 calibration fold by
+    # scripts/run_calibration.py (per-benchmark Platt + ECE minimisation
+    # under a closed-form sweep), then EMA-smoothed at every later cycle
+    # boundary (see scripts/recalibrate_thresholds_at_cycle.py). When
+    # adaptive_thresholds_per_cycle = False these dicts are frozen at the
+    # cycle-0 fit.
+    #
+    # Empty defaults below mean: until cycle-0 calibration writes per-bench
+    # values, every query falls back to the pooled global T_global +
+    # safety_u_pre_min via get_temperature_for() / get_safety_u_pre_min_for().
+    temperature_scalar_per_benchmark: Dict[str, float] = field(default_factory=dict)
+    safety_u_pre_min_per_benchmark: Dict[str, float] = field(default_factory=dict)
 
     # ------------------------------------------------------------------ #
     # Post-generation confidence (Stage 4a, Tier 2 only -- 4 signals)      #
@@ -846,3 +869,40 @@ class CAEMConfig:
     # fine-tuning shifts the logit distribution and a Cycle-0 T drifts
     # out of calibration by Cycle N (Ovadia et al. NeurIPS 2019,
     # Thulasidasan et al. 2019, Guo et al. 2017).
+
+    # ------------------------------------------------------------------ #
+    # v2 Fix 12 helpers — per-benchmark u_pre dispatch                    #
+    # ------------------------------------------------------------------ #
+    def get_temperature_for(self, source_benchmark: Optional[str]) -> float:
+        """Return T_b for a benchmark, or pooled T_global as fallback.
+
+        Falls back to the pooled ``temperature_scalar`` when
+        ``source_benchmark`` is ``None`` or not present in
+        ``temperature_scalar_per_benchmark``. Mirrors the dispatch contract
+        used by Fix 1 (per-benchmark conformal gate) and Fix 2B
+        (per-benchmark composite).
+        """
+        if source_benchmark is None:
+            return float(self.temperature_scalar)
+        return float(
+            self.temperature_scalar_per_benchmark.get(
+                source_benchmark, self.temperature_scalar,
+            )
+        )
+
+    def get_safety_u_pre_min_for(
+        self, source_benchmark: Optional[str]
+    ) -> float:
+        """Return per-benchmark safety_u_pre_min_b, or pooled global as fallback.
+
+        Falls back to the pooled ``safety_u_pre_min`` when
+        ``source_benchmark`` is ``None`` or not present in
+        ``safety_u_pre_min_per_benchmark``.
+        """
+        if source_benchmark is None:
+            return float(self.safety_u_pre_min)
+        return float(
+            self.safety_u_pre_min_per_benchmark.get(
+                source_benchmark, self.safety_u_pre_min,
+            )
+        )
