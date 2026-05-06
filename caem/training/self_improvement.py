@@ -1242,15 +1242,17 @@ class SelfImprovementLoop:
                         )
 
         # --- Tier 2: Google Drive every-cycle offload (env-gated) -------
-        # When CAEM_GDRIVE_OFFLOAD=1, upload EVERY cycle's model.pt via rclone
-        # to gdrive:caem-phase1a/<run_name>/cycle_<n>/model.pt. Drive's ~5 TiB
-        # budget makes per-cycle offload trivial (no milestone filtering
-        # needed). Failures are non-fatal — the local rolling-N is still the
-        # on-disk guarantee; Drive is cross-instance / post-run backup.
+        # When CAEM_GDRIVE_OFFLOAD=1, upload EVERY cycle's adapter via rclone.
+        # v2 (2026-05-06): per-cycle artefacts land under
+        # gdrive:caem-phase1a/<bucket>/<run_name>/cycle_<n>/  where <bucket>
+        # is read from CAEM_GDRIVE_BUCKET (defaults to "v2"). v1 cycles 0-4
+        # are archived under gdrive:caem-phase1a/archive_v1/full_run/ as
+        # failure-mode evidence (see branch_C_log 2026-05-06).
         if os.environ.get("CAEM_GDRIVE_OFFLOAD", "0") == "1":
             import subprocess
             run_name = self.output_dir.name
-            remote_path = f"gdrive:caem-phase1a/{run_name}/cycle_{cycle_num}/"
+            gd_bucket = os.environ.get("CAEM_GDRIVE_BUCKET", "v2")
+            remote_path = f"gdrive:caem-phase1a/{gd_bucket}/{run_name}/cycle_{cycle_num}/"
             try:
                 result = subprocess.run(
                     ["rclone", "copy", str(weights_path), remote_path,
