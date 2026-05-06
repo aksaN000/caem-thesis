@@ -285,7 +285,6 @@ class SelfImprovementLoop:
         self,
         cycle_num: int,
         memory_store: EpisodicMemoryStore,
-        general_data: List[QAPair],
         seed: int = 42,
         verify_fn: Optional[Callable[[Any], Any]] = None,
         deferred_buffer: Optional[Any] = None,
@@ -312,12 +311,17 @@ class SelfImprovementLoop:
                 mmlu_retention=float("nan"),
             )
 
-        random.shuffle(general_data)
-
-        train_pairs, n_general_used = self._mix(episode_pairs, general_data)
+        # v2 architecture (2026-05-06): general-domain mix REMOVED. The
+        # SIL training pool is now built entirely from verified episodes
+        # passing the per-benchmark conformal gate, with loss reweighting
+        # (Fix 3) providing benchmark balance. Anti-forgetting is provided
+        # by LoRA's small parameter budget + multi-modal retention probe.
+        train_pairs = list(episode_pairs)
+        random.shuffle(train_pairs)
+        n_general_used = 0
         logger.info(
-            "Cycle %d: training on %d pairs (%d episodes + %d general).",
-            cycle_num, len(train_pairs), len(episode_pairs), n_general_used,
+            "Cycle %d: training on %d pairs (%d episodes; general-mix REMOVED in v2).",
+            cycle_num, len(train_pairs), len(episode_pairs),
         )
 
         theta_prev = self._snapshot_weights()
@@ -693,21 +697,10 @@ class SelfImprovementLoop:
             for i, preview in enumerate(previews, start=1):
                 logger.info("Cycle %d: chain preview %d/3: %s", cycle_num, i, str(preview))
 
-    def _mix(
-        self,
-        episode_pairs: List[QAPair],
-        general_data: List[QAPair],
-    ) -> Tuple[List[QAPair], int]:
-        """Mix episode data with general_data at config.general_data_ratio."""
-        ratio = self.config.general_data_ratio
-        n_episodes = len(episode_pairs)
-        n_general_target = round(n_episodes * ratio / max(1.0 - ratio, 1e-9))
-        n_general_used = min(n_general_target, len(general_data))
-
-        general_sample = random.sample(general_data, n_general_used)
-        combined = episode_pairs + general_sample
-        random.shuffle(combined)
-        return combined, n_general_used
+    # _mix() removed in v2 architecture (2026-05-06). The general-domain
+    # anti-forgetting mix is replaced by Fix 3 (loss reweighting) + Fix 8
+    # (LoRA's parameter budget) + Fix 4 (multi-modal retention probe).
+    # See PRODUCTION_NEXT_SESSION_PLAN v2 Phase 0 Fix 13 for the rationale.
 
     # ------------------------------------------------------------------ #
     # Fine-tuning                                                          #
