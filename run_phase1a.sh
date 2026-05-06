@@ -75,8 +75,13 @@ trap 'on_err $LINENO' ERR
 # that stresses Path B (AdaptiveNLIJudge routes long-hyp to Qwen-judge),
 # enabling the "modular verifier" claim without increasing compute.
 # TriviaQA retains the short-factoid multi-alias role.
-BENCHMARKS=(fever triviaqa natural_questions truthfulqa strategyqa arc_challenge asqa)
-BASELINE_BENCHES="fever triviaqa natural_questions truthfulqa strategyqa arc_challenge asqa"
+# v2 (2026-05-06): training panel restructured. NQ moved to transfer (structural-failure
+# diagnostic; α<½ on every cal fold cycles 1-4). HotpotQA + CommonsenseQA added to
+# training (4 distinct task types: claim verification + entity recall + multi-hop +
+# 5-choice MCQ). ARC-Challenge + ASQA dropped from active eval (ARC redundant with
+# CSQA's MCQ task; ASQA's EM near-zero by design — wrong metric for hallucination claim).
+BENCHMARKS=(fever triviaqa hotpotqa commonsense_qa truthfulqa strategyqa natural_questions)
+BASELINE_BENCHES="fever triviaqa hotpotqa commonsense_qa truthfulqa strategyqa natural_questions"
 # Branch C 2026-04-22 evening panel (Option C). Training pool: {fever, triviaqa,
 # natural_questions} — all large-train benchmarks supporting 10-cycle stream at
 # n=3000/cycle (reduced from 5000 on 2026-04-24 to fit the self-funded compute

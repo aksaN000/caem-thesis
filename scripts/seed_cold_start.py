@@ -127,6 +127,12 @@ def _check_deps():
 # Training-split loaders
 # -----------------------------------------------------------------------------
 
+from caem.config import TRAINING_BENCHMARKS as _TRAINING_BENCHMARKS  # noqa: E402
+
+# Alias for the new dynamic check (was hardcoded to ("fever","triviaqa","natural_questions")).
+TRAINING_BENCHMARKS = _TRAINING_BENCHMARKS
+
+
 def load_train_samples(benchmark: str, n: int, seed: int = 0) -> List[dict]:
     """Load training-split questions for cold-start seeding.
 
@@ -158,15 +164,15 @@ def load_train_samples(benchmark: str, n: int, seed: int = 0) -> List[dict]:
         )
         return []
 
-    elif benchmark in ("fever", "triviaqa", "natural_questions"):
-        # Branch C 2026-04-22 evening: the cold-start seed pool MUST be drawn
-        # from the SAME benchmark_splits allocation Step 7.0+ will use, so
-        # that seed/purity/calib/train-chunks remain content-hash disjoint.
-        # Previously we used load_benchmark(split="train", n=n) with its own
-        # shuffle seed, which produced a DIFFERENT 1000-sample subset than
-        # benchmark_splits.py's first-200 seed pool → expected ~1-2 sample
-        # overlap leakage between cold-start memory and later purity/calib
-        # pools. Aligning here eliminates that channel entirely.
+    elif benchmark in TRAINING_BENCHMARKS:
+        # v2 (2026-05-06): hardcoded list ("fever", "triviaqa", "natural_questions")
+        # replaced with the dynamic TRAINING_BENCHMARKS constant. Without this fix,
+        # adding HotpotQA + CommonsenseQA to the v2 training panel would silently
+        # bypass the canonical benchmark_splits seed pool extraction and either
+        # raise on the unknown branch or fall through to a different code path.
+        # The cold-start seed pool MUST be drawn from the SAME benchmark_splits
+        # allocation Step 7.0+ will use, so that seed/purity/calib/train-chunks
+        # remain content-hash disjoint.
         from caem.benchmark_splits import (
             build_benchmark_pools, DEFAULT_SEED_SIZE,
         )

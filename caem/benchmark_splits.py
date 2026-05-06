@@ -54,20 +54,15 @@ logger = logging.getLogger(__name__)
 
 
 # =============================================================================
-# Panel definition (Branch C 2026-04-22)
+# Panel definition (v2 — 2026-05-06)
 # =============================================================================
+# v2 single source of truth re-exported from caem.config to prevent drift.
+# (v1 had duplicate constants here that drifted from caem/config.py during
+# the cycle 0-4 trajectory; v2 imports them so config.py is canonical.)
 
-TRAINING_BENCHMARKS: Tuple[str, ...] = (
-    "fever",
-    "triviaqa",
-    "natural_questions",
-)
-
-TRANSFER_BENCHMARKS: Tuple[str, ...] = (
-    "truthfulqa",
-    "strategyqa",
-    "arc_challenge",
-    "asqa",  # Transfer-only; provides Path B long-hypothesis evidence via eval trajectory
+from caem.config import (  # noqa: E402  (deliberate late import to avoid cycle)
+    TRAINING_BENCHMARKS,
+    TRANSFER_BENCHMARKS,
 )
 
 ALL_BENCHMARKS: Tuple[str, ...] = TRAINING_BENCHMARKS + TRANSFER_BENCHMARKS
@@ -85,10 +80,23 @@ DEFAULT_SEED_SIZE: int = 1000  # CANDIDATE pool, not store target.
 # benchmarks (e.g., ASQA at 53% would need ~375 candidates).
 DEFAULT_PURITY_SIZE: int = 500
 DEFAULT_CALIBRATION_SIZE: int = 500
-DEFAULT_TRAIN_CHUNK_SIZE: int = 5000
+DEFAULT_TRAIN_CHUNK_SIZE: int = 1000  # v2 default (was 5000); see PER_BENCHMARK override
 DEFAULT_N_CYCLES: int = 10
 DEFAULT_EVAL_SIZE: int = 500
 DEFAULT_TEST_SIZE: int = 500
+
+# v2 (2026-05-06): per-benchmark stream-chunk override. Falls back to
+# DEFAULT_TRAIN_CHUNK_SIZE for benchmarks not listed here. CSQA needs the
+# smaller chunk because its train pool is only 9741 samples; at 1000/cycle
+# the seed (1000) + cal (500) + 10×1000 SIL stream + eval (500) + test (500)
+# = 13,500 would exceed available pool. With CSQA at 700/cycle: total
+# allocation = 1000 + 500 + 7000 + 500 + 500 = 9,500 of 9741 train + 1221 dev.
+PER_BENCHMARK_TRAIN_CHUNK_SIZE: Dict[str, int] = {
+    "fever":          1000,  # 145k train: trivial headroom
+    "triviaqa":       1000,  # 87k train: trivial headroom
+    "hotpotqa":       1000,  # 90k train: trivial headroom
+    "commonsense_qa":  700,  # 9.7k train: tight but no repetition
+}
 
 # Per-benchmark dev/test split names for eval pool.
 _EVAL_SPLIT_MAP: Dict[str, Optional[str]] = {
@@ -96,9 +104,11 @@ _EVAL_SPLIT_MAP: Dict[str, Optional[str]] = {
     "triviaqa": "validation",
     "natural_questions": "validation",
     "asqa": "dev",
-    "truthfulqa": None,        # single-split; load_benchmark returns the pool
+    "truthfulqa": None,         # single-split; load_benchmark returns the pool
     "strategyqa": "test",
     "arc_challenge": "test",
+    "hotpotqa": "validation",   # v2 NEW: HotpotQA distractor config dev split
+    "commonsense_qa": "validation",  # v2 NEW: CSQA test labels not public, use dev
 }
 
 

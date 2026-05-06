@@ -39,24 +39,36 @@ from typing import Optional, Tuple
 TRAINING_BENCHMARKS: Tuple[str, ...] = (
     "fever",
     "triviaqa",
-    "natural_questions",
+    "hotpotqa",
+    "commonsense_qa",
 )
-# Branch C 2026-04-22 evening decision: ASQA demoted to TRANSFER-ONLY.
-# Training panel capped at 3 benchmarks with large train splits (FEVER ~145k,
-# TriviaQA ~87k, NQ ~87k) — enough to sustain 10-cycle stream mode at
-# 5000 samples/cycle without reuse. ASQA's 4353 train is structurally
-# insufficient for stream mode. ASQA remains in the eval panel
-# (500 eval/cycle from dev) as Path B (Qwen-judge) long-form evidence.
-# See caem/benchmark_splits.py for authoritative panel definition.
+# v2 architecture (2026-05-06): training panel restructured to 4 task types.
+#   - FEVER          (claim verification, ~145k train) -- bounded label space
+#   - TriviaQA       (single-hop entity recall, ~87k train) -- bare-entity QA
+#   - HotpotQA       (multi-hop QA, ~90k train) -- multi-passage reasoning  [NEW]
+#   - CommonsenseQA  (5-choice MCQ commonsense, ~9.7k train) -- bounded label  [NEW]
+# Natural Questions DROPPED from training: empirical α<½ on every cal fold
+# (cycles 1-4, see branch_C_log 2026-05-06) -- structural-failure benchmark
+# under the verifier; kept ONLY in the transfer eval panel as a diagnostic.
+# ASQA dropped (long-form, EM near-zero by design — wrong metric).
+# ARC-Challenge dropped (4-choice MCQ — redundant with CSQA's 5-choice).
+# Stream chunk: 1000/cycle on FEVER/TriviaQA/HotpotQA, 700/cycle on CSQA
+# (CSQA's 9.7k train = 1000+500+500+700×10+500+500 = 9700, no repetition).
+# See caem/benchmark_splits.py for authoritative panel + per-benchmark sizes.
 
 TRANSFER_BENCHMARKS: Tuple[str, ...] = (
     "truthfulqa",
     "strategyqa",
-    "arc_challenge",
-    "asqa",  # Branch C 2026-04-22 evening: transfer-only for Path B (Qwen-judge)
-             # long-form evidence. Eval trajectory only; never trained on.
-             # Must stay in sync with caem/benchmark_splits.py TRANSFER_BENCHMARKS.
+    "natural_questions",  # v2: moved from training -> transfer (structural-failure
+                          # diagnostic; verifier α<½ means Bayesian framework
+                          # doesn't apply; kept eval-only for thesis disclosure).
 )
+# v2 (2026-05-06): transfer eval panel pruned from 4 -> 3 benchmarks.
+# ARC-Challenge removed (redundant with CSQA's MCQ task type in training).
+# ASQA removed (long-form, EM near-zero -- ROUGE-L diverges from CHM).
+# Loaders for ARC/ASQA remain in eval/benchmarks.py for back-compat with
+# legacy ablations + demo server (`scripts/caem_demo_server.py`); they just
+# do NOT enter the active eval trajectory.
 
 
 @dataclass
