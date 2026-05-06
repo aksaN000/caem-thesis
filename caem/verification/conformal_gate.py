@@ -50,7 +50,12 @@ class ConformalStorageGate:
     needed.
     """
 
-    SCHEMA_VERSION: str = "branchC.2026-04-25"
+    # v2 (2026-05-06): nested schema supports per-benchmark gates dispatched
+    # by source_benchmark. v1 (2026-04-25) holds a single global gate. Loader
+    # auto-detects which format the JSON uses.
+    SCHEMA_VERSION_V1: str = "branchC.2026-04-25"
+    SCHEMA_VERSION_V2: str = "branchC.2026-05-06"
+    SCHEMA_VERSION: str = SCHEMA_VERSION_V2  # default for new fits
 
     def __init__(
         self,
@@ -73,19 +78,47 @@ class ConformalStorageGate:
         self.store_precision = float(store_precision)
         self.defer_n = int(defer_n)
         self.defer_precision = float(defer_precision)
+        # v2 Fix 1 — per-benchmark gates registry. When non-empty,
+        # decide(..., source_benchmark="X") dispatches to per_benchmark["X"].
+        # When empty (v1 fallback), decide() uses the pooled tau_store/tau_defer.
+        # Populated by fit_per_benchmark(); v1 fit() leaves this empty.
+        self.per_benchmark: Dict[str, "ConformalStorageGate"] = {}
 
     # ----------------------------------------------------------- decide #
-    def decide(self, u_stored: float, p_ground_max: float, abstain_pg: float) -> Tuple[str, bool]:
+    def decide(
+        self,
+        u_stored: float,
+        p_ground_max: float,
+        abstain_pg: float,
+        source_benchmark: Optional[str] = None,
+    ) -> Tuple[str, bool]:
         """Apply the conformal-calibrated four-outcome tree.
+
+        v2 Fix 1 — when ``source_benchmark`` is supplied AND a matching
+        per-benchmark gate exists in ``self.per_benchmark``, dispatch to
+        that per-bench gate's tau_store / tau_defer. Otherwise fall back
+        to this gate's pooled tau_store / tau_defer.
 
         Same outcome semantics as the existing ``UnifiedVerifier._decide``;
         only the threshold values change. The early-exit confabulation gate
         (``u_internal ≥ 0.70 AND p_ground_max ≤ 0.20`` ⇒ DISCARD) is applied
         BEFORE this gate is consulted in ``verify()``.
         """
-        if u_stored >= self.tau_store:
+        # v2 dispatch
+        if (
+            source_benchmark is not None
+            and source_benchmark in self.per_benchmark
+        ):
+            child = self.per_benchmark[source_benchmark]
+            tau_store = child.tau_store
+            tau_defer = child.tau_defer
+        else:
+            tau_store = self.tau_store
+            tau_defer = self.tau_defer
+
+        if u_stored >= tau_store:
             return "STORE", False
-        if u_stored >= self.tau_defer:
+        if u_stored >= tau_defer:
             return "DEFERRED", False
         if p_ground_max < abstain_pg:
             return "ABSTAIN", True
@@ -177,10 +210,91 @@ class ConformalStorageGate:
         )
         return gate
 
+    # ------------------------------------------------------ per-benchmark fit #
+    @classmethod
+    def fit_per_benchmark(
+        cls,
+        samples_by_benchmark: Dict[str, Sequence[Dict[str, Any]]],
+        alphas_per_benchmark: Optional[Dict[str, Tuple[float, float]]] = None,
+        score_key: str = "u_stored",
+        em_key: str = "em",
+        default_alpha_store: float = 0.05,
+        default_alpha_defer: float = 0.40,
+        min_n: int = 20,
+    ) -> "ConformalStorageGate":
+        """v2 Fix 1 — fit one gate per benchmark + a pooled global fallback.
+
+        The pooled-union fold is fit at the v1-default α=0.05 to populate
+        the parent gate's tau_store/tau_defer (used as the deployment-time
+        fallback when source_benchmark is None or unknown). Each per-bench
+        cal-fold is fit at its registered α_b — relaxed for benchmarks
+        whose verifier signals can't reach the 95% precision floor at α=0.05
+        (e.g. TriviaQA at α=0.40 = 60% precision floor).
+
+        Parameters
+        ----------
+        samples_by_benchmark
+            Mapping benchmark name -> labelled cal-fold rows.
+        alphas_per_benchmark
+            Per-benchmark (alpha_store, alpha_defer) override. Benchmarks
+            absent from this dict use (default_alpha_store, default_alpha_defer).
+            v2 default per the locked architecture:
+              α_FEVER     = 0.05 / 0.40
+              α_TriviaQA  = 0.40 / 0.50  (relaxed: signal can't hit 95% floor)
+              α_HotpotQA  = 0.05 / 0.40
+              α_CSQA      = 0.05 / 0.40
+        """
+        if alphas_per_benchmark is None:
+            alphas_per_benchmark = {}
+
+        # 1. Pooled global fallback
+        pooled: List[Dict[str, Any]] = []
+        for bm_samples in samples_by_benchmark.values():
+            pooled.extend(bm_samples)
+        if not pooled:
+            raise ValueError(
+                "fit_per_benchmark: pooled samples empty across all benchmarks"
+            )
+        parent = cls.fit(
+            calib_samples=pooled,
+            score_key=score_key, em_key=em_key,
+            alpha_store=default_alpha_store, alpha_defer=default_alpha_defer,
+            min_n=min_n,
+        )
+        logger.info(
+            "fit_per_benchmark: pooled global tau_store=%.3f tau_defer=%.3f (n=%d, alpha=%.2f)",
+            parent.tau_store, parent.tau_defer, parent.cal_n, default_alpha_store,
+        )
+
+        # 2. Per-benchmark fits
+        for bm, bm_samples in samples_by_benchmark.items():
+            a_s, a_d = alphas_per_benchmark.get(
+                bm, (default_alpha_store, default_alpha_defer)
+            )
+            try:
+                child = cls.fit(
+                    calib_samples=bm_samples,
+                    score_key=score_key, em_key=em_key,
+                    alpha_store=a_s, alpha_defer=a_d,
+                    min_n=min_n,
+                )
+                parent.per_benchmark[bm] = child
+                logger.info(
+                    "fit_per_benchmark: %s tau_store=%.3f tau_defer=%.3f (n=%d, alpha_s=%.2f, alpha_d=%.2f)",
+                    bm, child.tau_store, child.tau_defer,
+                    child.cal_n, a_s, a_d,
+                )
+            except ValueError as e:
+                logger.warning(
+                    "fit_per_benchmark: %s skipped (%s)", bm, e,
+                )
+        return parent
+
     # ----------------------------------------------------------- I/O #
-    def to_dict(self) -> Dict[str, Any]:
+    def _self_block(self) -> Dict[str, Any]:
+        """Serialize this gate's own thresholds + diagnostics as a block.
+        Used for both top-level v1 writes and per-benchmark child writes."""
         return {
-            "schema_version": self.SCHEMA_VERSION,
             "tau_store": self.tau_store,
             "tau_defer": self.tau_defer,
             "alpha_store": self.alpha_store,
@@ -192,30 +306,86 @@ class ConformalStorageGate:
             "defer_precision": self.defer_precision,
         }
 
+    def to_dict(self) -> Dict[str, Any]:
+        # v1-style flat dict (back-compat for tooling expecting pre-v2 schema)
+        return {
+            "schema_version": self.SCHEMA_VERSION_V1,
+            **self._self_block(),
+        }
+
     def save(self, path: str) -> None:
+        # v2 Fix 1 — emit nested schema when per_benchmark is populated;
+        # otherwise emit the v1-compatible flat schema for back-compat.
+        if self.per_benchmark:
+            out = {
+                "schema_version": self.SCHEMA_VERSION_V2,
+                "global": self._self_block(),
+                "per_benchmark": {
+                    bm: child._self_block()
+                    for bm, child in self.per_benchmark.items()
+                },
+            }
+        else:
+            out = {
+                "schema_version": self.SCHEMA_VERSION_V1,
+                **self._self_block(),
+            }
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         with open(path, "w") as f:
-            json.dump(self.to_dict(), f, indent=2)
-        logger.info(
-            "ConformalStorageGate saved -> %s  (τ_store=%.3f τ_defer=%.3f)",
-            path, self.tau_store, self.tau_defer,
+            json.dump(out, f, indent=2)
+        if self.per_benchmark:
+            tau_lines = ", ".join(
+                f"{bm}: τ_s={c.tau_store:.3f}/τ_d={c.tau_defer:.3f}"
+                for bm, c in self.per_benchmark.items()
+            )
+            logger.info(
+                "ConformalStorageGate saved v2 nested -> %s  (global τ_s=%.3f τ_d=%.3f; per-bench: %s)",
+                path, self.tau_store, self.tau_defer, tau_lines,
+            )
+        else:
+            logger.info(
+                "ConformalStorageGate saved v1 flat -> %s  (τ_store=%.3f τ_defer=%.3f)",
+                path, self.tau_store, self.tau_defer,
+            )
+
+    @classmethod
+    def _from_block(cls, block: Dict[str, Any]) -> "ConformalStorageGate":
+        return cls(
+            tau_store=block["tau_store"],
+            tau_defer=block["tau_defer"],
+            alpha_store=block.get("alpha_store", 0.20),
+            alpha_defer=block.get("alpha_defer", 0.40),
+            cal_n=int(block.get("cal_n", 0)),
+            store_n=int(block.get("store_n", 0)),
+            store_precision=float(block.get("store_precision", 0.0)),
+            defer_n=int(block.get("defer_n", 0)),
+            defer_precision=float(block.get("defer_precision", 0.0)),
         )
 
     @classmethod
     def load(cls, path: str) -> "ConformalStorageGate":
         with open(path) as f:
             d = json.load(f)
-        return cls(
-            tau_store=d["tau_store"],
-            tau_defer=d["tau_defer"],
-            alpha_store=d.get("alpha_store", 0.20),
-            alpha_defer=d.get("alpha_defer", 0.40),
-            cal_n=int(d.get("cal_n", 0)),
-            store_n=int(d.get("store_n", 0)),
-            store_precision=float(d.get("store_precision", 0.0)),
-            defer_n=int(d.get("defer_n", 0)),
-            defer_precision=float(d.get("defer_precision", 0.0)),
-        )
+        ver = d.get("schema_version")
+
+        # v2 nested schema
+        if ver == cls.SCHEMA_VERSION_V2 or "global" in d or "per_benchmark" in d:
+            parent = cls._from_block(d.get("global", {}))
+            for bm, block in (d.get("per_benchmark") or {}).items():
+                parent.per_benchmark[bm] = cls._from_block(block)
+            logger.info(
+                "ConformalStorageGate loaded v2 nested (global τ_s=%.3f, per-bench=%d) from %s",
+                parent.tau_store, len(parent.per_benchmark), path,
+            )
+            return parent
+
+        # v1 flat schema (back-compat)
+        if ver and ver != cls.SCHEMA_VERSION_V1:
+            logger.warning(
+                "ConformalStorageGate: unknown schema_version %s; treating as v1 flat",
+                ver,
+            )
+        return cls._from_block(d)
 
     def summary(self) -> str:
         return (
