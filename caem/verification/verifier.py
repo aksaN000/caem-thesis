@@ -219,6 +219,16 @@ class UnifiedVerifierOutput:
     # before the resolver has been wired.
     alias_overlap: float = 0.5
 
+    # --- Entity head consistency (v2 Fix 7) ------------------------------- #
+    # Pairwise agreement of the extracted head noun across the M=3
+    # self-consistency chains. Catches the failure mode where the chains
+    # name three different entities even though their cosine similarity
+    # (s_avg) and pairwise NLI (p_entail) score high. Zero extra compute:
+    # the chains are already drawn for s_avg / p_entail. Defaults to 0.5
+    # (neutral / missing-signal) when fewer than two chains produce a
+    # head noun, mirroring q_a_relevance / alias_overlap.
+    entity_head_consistency: float = 0.5
+
 
 # ============================================================================ #
 # NLI ensemble helper                                                           #
@@ -833,6 +843,20 @@ class UnifiedVerifier:
             s_avg = self._score_s_avg(chains)
             # A1 FIX: p_entail scores chain->display_answer (short hypothesis)
             p_entail = self._score_p_entail(chains, scoring_answer)
+            # v2 Fix 7 — entity_head_consistency reuses the same M chains.
+            # Zero extra compute: head-noun extraction is regex-based and
+            # the chains have already been generated above. Catches the
+            # "chains agree in style but disagree on entity" failure mode
+            # that s_avg + p_entail miss.
+            try:
+                from caem.verification.entity_head import score_entity_head_consistency
+                entity_head_consistency = float(score_entity_head_consistency(chains))
+            except Exception as exc:  # pragma: no cover -- defensive
+                logger.warning(
+                    "entity_head_consistency failed (%s) -- falling back to "
+                    "0.5 neutral prior.", exc,
+                )
+                entity_head_consistency = 0.5
             # h_norm RETIRED 2026-04-27 — empirical boost weight ≈ −5e-4
             # on cycle-0 cal-fold (n=1500). Skip K=10 stochastic generation
             # and feed neutral sentinel into the composite isotonic+boost.
@@ -966,6 +990,7 @@ class UnifiedVerifier:
                 per_atom_entail=per_atom_entail,
                 q_a_relevance=float(q_a_relevance),
                 alias_overlap=float(alias_overlap),  # v2 Fix 6
+                entity_head_consistency=float(entity_head_consistency),  # v2 Fix 7
             )
 
         # ---------- composite --------------------------------------------- #
@@ -984,6 +1009,7 @@ class UnifiedVerifier:
             u_token=float(u_token),
             u_dropout=float(u_dropout),
             alias_overlap=float(alias_overlap),  # v2 Fix 6
+            entity_head_consistency=float(entity_head_consistency),  # v2 Fix 7
             source_benchmark=source_benchmark,
         )
 
@@ -1028,6 +1054,7 @@ class UnifiedVerifier:
             per_atom_entail=per_atom_entail,
             q_a_relevance=float(q_a_relevance),
             alias_overlap=float(alias_overlap),  # v2 Fix 6
+            entity_head_consistency=float(entity_head_consistency),  # v2 Fix 7
         )
 
     def should_store(self, out: UnifiedVerifierOutput) -> bool:
@@ -2546,6 +2573,7 @@ class UnifiedVerifier:
         u_token: float = 0.5,
         u_dropout: float = 0.5,
         alias_overlap: float = 0.5,
+        entity_head_consistency: float = 0.5,
         source_benchmark: Optional[str] = None,
     ) -> float:
         """Combine 9+1 verifier signals into a calibrated u_stored ∈ [0, 1].
@@ -2581,6 +2609,7 @@ class UnifiedVerifier:
                 "p_entail": float(p_entail),
                 "q_a_relevance": float(q_a_relevance),
                 "alias_overlap": float(alias_overlap),  # v2 Fix 6
+                "entity_head_consistency": float(entity_head_consistency),  # v2 Fix 7
             }
             # v2 Fix 2 — per-benchmark composite lookup. The composite object
             # accepts an optional source_benchmark kwarg; when None or when the
