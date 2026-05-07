@@ -1496,6 +1496,33 @@ def run_experiment(ns: argparse.Namespace) -> None:
                     "Restored calibration T = %.4f from %s",
                     T_reloaded, calib_src.name,
                 )
+                # 2026-05-07 audit fix: also restore per-benchmark T_b and
+                # safety_u_pre_min_b dicts (Fix 12). The per-cycle refit
+                # persists these into calibrated_config_cycle{N}.json since
+                # the corresponding 4d7aaa4 fix to calibrate_pipeline_temperature_only.
+                # Without this restore on resume, cfg.get_temperature_for(bench)
+                # silently falls back to the pooled T for all benchmarks and
+                # per-bench dispatch is disabled until the next per-cycle refit.
+                _per_bench_T = calib_data.get("temperature_scalar_per_benchmark") or {}
+                _per_bench_safety = calib_data.get("safety_u_pre_min_per_benchmark") or {}
+                if _per_bench_T:
+                    config.temperature_scalar_per_benchmark = {
+                        str(k): float(v) for k, v in _per_bench_T.items()
+                    }
+                    logger.info(
+                        "Restored per-benchmark T_b dict from %s: %s",
+                        calib_src.name,
+                        {k: round(v, 4) for k, v in config.temperature_scalar_per_benchmark.items()},
+                    )
+                if _per_bench_safety:
+                    config.safety_u_pre_min_per_benchmark = {
+                        str(k): float(v) for k, v in _per_bench_safety.items()
+                    }
+                    logger.info(
+                        "Restored per-benchmark safety_u_pre_min_b dict from %s: %s",
+                        calib_src.name,
+                        {k: round(v, 4) for k, v in config.safety_u_pre_min_per_benchmark.items()},
+                    )
             except (json.JSONDecodeError, KeyError, ValueError) as exc:
                 logger.warning(
                     "Failed to parse %s (%s); keeping T = %.4f.",

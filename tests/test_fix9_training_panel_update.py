@@ -146,17 +146,34 @@ def test_seed_cold_start_imports_dynamic_training_benchmarks():
 
 
 def test_run_phase1a_benchmarks_array_v2():
-    """run_phase1a.sh BENCHMARKS array contains v2 panel."""
+    """run_phase1a.sh BENCHMARKS array contains v2 panel.
+
+    2026-05-07 audit: the literal hardcoded array was replaced with
+    `BENCHMARKS=( $TRAIN_PANEL $TRANSFER_PANEL )` where TRAIN_PANEL and
+    TRANSFER_PANEL derive at runtime from caem.config.TRAINING_BENCHMARKS
+    and TRANSFER_BENCHMARKS. Test now accepts either form (literal or
+    derived) but never the v1 panel.
+    """
     with open("/workspace/caem/run_phase1a.sh") as f:
         src = f.read()
-    # v2 panel: 4 training + 3 transfer = 7 benchmarks total
-    assert "BENCHMARKS=(fever triviaqa hotpotqa commonsense_qa truthfulqa strategyqa natural_questions)" in src, (
-        "run_phase1a.sh BENCHMARKS array does not match v2 panel."
+    literal_v2 = "BENCHMARKS=(fever triviaqa hotpotqa commonsense_qa truthfulqa strategyqa natural_questions)"
+    derived_v2 = "BENCHMARKS=( $TRAIN_PANEL $TRANSFER_PANEL )"
+    assert literal_v2 in src or derived_v2 in src, (
+        "run_phase1a.sh BENCHMARKS does not match v2 panel "
+        "(neither literal nor TRAIN_PANEL+TRANSFER_PANEL derived form found)."
     )
     # The v1 panel must be gone
     assert "BENCHMARKS=(fever triviaqa natural_questions truthfulqa strategyqa arc_challenge asqa)" not in src, (
         "run_phase1a.sh still contains the v1 BENCHMARKS array; Fix 9 incomplete."
     )
+    # If derived form is used, both panel derivation lines must be present
+    if derived_v2 in src:
+        assert "TRAIN_PANEL=$(python -c 'from caem.config import TRAINING_BENCHMARKS" in src, (
+            "Derived BENCHMARKS form found but TRAIN_PANEL derivation missing."
+        )
+        assert "TRANSFER_PANEL=$(python -c 'from caem.config import TRANSFER_BENCHMARKS" in src, (
+            "Derived BENCHMARKS form found but TRANSFER_PANEL derivation missing."
+        )
 
 
 if __name__ == "__main__":
