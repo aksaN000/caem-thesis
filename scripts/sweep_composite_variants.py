@@ -130,7 +130,8 @@ def split_id_transfer(per_bench: Dict[str, Dict[str, int]]):
     try:
         from caem.benchmark_splits import TRAINING_BENCHMARKS as _TRAIN
     except ImportError:
-        _TRAIN = ("fever", "triviaqa", "natural_questions")
+        # v2 Fix 9b fallback (was the v1 3-bench panel).
+        _TRAIN = ("fever", "triviaqa", "hotpotqa", "commonsense_qa")
     id_p = {"n": 0, "store": 0, "store_correct": 0}
     tr_p = {"n": 0, "store": 0, "store_correct": 0}
     for bench, st in per_bench.items():

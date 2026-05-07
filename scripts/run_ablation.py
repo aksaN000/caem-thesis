@@ -458,10 +458,15 @@ def _build_argparser() -> argparse.ArgumentParser:
                    help="Cycle-N retroverify JSON containing cycle MMLU (for RET).")
     p.add_argument("--n_questions", type=int, default=500,
                    help="Per-benchmark eval size for every variant.")
-    p.add_argument("--benchmarks", nargs="+", default=[
-        "fever", "triviaqa", "natural_questions",
-        "truthfulqa", "strategyqa", "arc_challenge",
-    ])
+    # v2 Fix 9b: read benchmark roster from caem.config so the ablation
+    # eval panel tracks v2 splits (was hardcoded to v1 6-bench list
+    # including arc_challenge which v2 dropped).
+    from caem.config import (
+        TRAINING_BENCHMARKS as _CFG_TRAINING_BENCHMARKS,
+        TRANSFER_BENCHMARKS as _CFG_TRANSFER_BENCHMARKS,
+    )
+    p.add_argument("--benchmarks", nargs="+",
+                   default=list(_CFG_TRAINING_BENCHMARKS) + list(_CFG_TRANSFER_BENCHMARKS))
     p.add_argument("--output_dir", type=str, default="outputs/ablation")
     p.add_argument("--only", nargs="+", default=None,
                    help="Subset of variant names to run (default: all).")

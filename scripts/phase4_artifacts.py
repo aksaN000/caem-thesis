@@ -43,14 +43,26 @@ EVAL_DIR = REPO_ROOT / "outputs" / "cycle_0" / "eval"
 CYCLE0_DIR = REPO_ROOT / "outputs" / "cycle_0"
 OUT_DIR = REPO_ROOT / "outputs" / "phase4"
 
-BENCHES = ["fever", "triviaqa", "natural_questions", "truthfulqa", "strategyqa", "arc_challenge", "asqa"]
+# v2 Fix 9b: read benchmark roster from caem.config so phase-4 reports
+# track the live panel. v1 hardcoded to 7-bench panel (FEVER + TriviaQA +
+# NQ training; TruthfulQA + StrategyQA + ARC + ASQA transfer). v2 uses
+# (FEVER + TriviaQA + HotpotQA + CSQA training; TruthfulQA + StrategyQA +
+# NQ transfer). Display names extended for the new v2 benchmarks.
+from caem.config import (
+    TRAINING_BENCHMARKS as _CFG_TRAINING_BENCHMARKS,
+    TRANSFER_BENCHMARKS as _CFG_TRANSFER_BENCHMARKS,
+)
+BENCHES = list(_CFG_TRAINING_BENCHMARKS) + list(_CFG_TRANSFER_BENCHMARKS)
 BENCH_DISPLAY = {
     "fever": "FEVER", "triviaqa": "TriviaQA", "natural_questions": "NQ",
     "truthfulqa": "TruthfulQA", "strategyqa": "StrategyQA",
     "arc_challenge": "ARC-C", "asqa": "ASQA",
+    # v2 additions
+    "hotpotqa": "HotpotQA",
+    "commonsense_qa": "CSQA",
 }
-TRAIN_BENCHES = {"fever", "triviaqa", "natural_questions"}
-TRANSFER_BENCHES = {"truthfulqa", "strategyqa", "arc_challenge", "asqa"}
+TRAIN_BENCHES = set(_CFG_TRAINING_BENCHMARKS)
+TRANSFER_BENCHES = set(_CFG_TRANSFER_BENCHMARKS)
 SIGNAL_DISPLAY = [
     ("u_stored",        r"$u_{\text{stored}}$"),
     ("p_ground_mean",   r"$p^{\text{mean}}_{\text{ground}}$"),

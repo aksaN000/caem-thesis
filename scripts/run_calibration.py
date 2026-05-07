@@ -507,8 +507,17 @@ def collect_calibration_data(
             ref_label = extract_strategyqa_label(gold[0] if gold else "no")
             return float(pred_label == ref_label) if pred_label and ref_label else 0.0
         if bm == "arc_challenge":
-            pred_label = extract_arc_label(pred)
+            # ARC-Challenge: 4-choice MCQ (A-D). n_choices=4 is the
+            # extract_arc_label default but pass it explicitly for clarity.
+            pred_label = extract_arc_label(pred, n_choices=4)
             ref = gold[0] if gold else ""
+            return exact_match(pred_label, ref)
+        if bm == "commonsense_qa":
+            # v2 Fix 9b — CommonsenseQA: 5-choice MCQ (A-E). Without
+            # n_choices=5 the extractor silently rejects "E" answers
+            # and digit-fallback misses 5.
+            pred_label = extract_arc_label(pred, n_choices=5)
+            ref = (gold_label or (gold[0] if gold else "")).strip().upper()
             return exact_match(pred_label, ref)
         return exact_match(pred, gold[0] if gold else "")
 

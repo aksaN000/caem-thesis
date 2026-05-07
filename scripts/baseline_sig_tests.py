@@ -79,10 +79,18 @@ logger = logging.getLogger("baseline_sig_tests")
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s [%(levelname)s] %(message)s")
 
-BENCHMARKS = [
-    "fever", "triviaqa", "natural_questions",
-    "truthfulqa", "strategyqa", "arc_challenge", "asqa",
-]
+# v2 Fix 9b: read benchmark roster from caem.config so the significance
+# table tracks the live panel. v1 hardcoded roster was
+# {fever, triviaqa, natural_questions, truthfulqa, strategyqa,
+#  arc_challenge, asqa}. v2 trains on
+# {fever, triviaqa, hotpotqa, commonsense_qa} and transfer-evals on
+# {truthfulqa, strategyqa, natural_questions}; arc_challenge and asqa
+# are removed.
+from caem.config import (
+    TRAINING_BENCHMARKS as _CFG_TRAINING_BENCHMARKS,
+    TRANSFER_BENCHMARKS as _CFG_TRANSFER_BENCHMARKS,
+)
+BENCHMARKS = list(_CFG_TRAINING_BENCHMARKS) + list(_CFG_TRANSFER_BENCHMARKS)
 
 # All baselines pair against CAEM cycle 10 (post-training, strongest-claim
 # state). The two constants below are kept separate so a future variant

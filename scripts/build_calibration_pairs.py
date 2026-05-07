@@ -95,10 +95,21 @@ def _load_eval_samples(paths: List[Path]) -> List[Dict[str, Any]]:
     return out
 
 
-# Benchmarks we include in the 5.5 diagnostic. StrategyQA / ARC are
-# multi-choice formats whose "claim" reconstruction is benchmark-
-# specific and is deferred from the Phase 1a 5.5 audit scope.
-SUPPORTED_BENCHMARKS = {"fever", "triviaqa", "natural_questions", "asqa", "truthfulqa"}
+# Benchmarks we include in the 5.5 diagnostic.
+#
+# v2 Fix 9b: read from caem.config so the diagnostic tracks the live
+# panel. The supported set is TRAINING_BENCHMARKS + open-ended transfer
+# benchmarks (truthfulqa, natural_questions). Multi-choice formats
+# (strategyqa, arc_challenge, commonsense_qa) need benchmark-specific
+# "claim" reconstruction and are excluded — the SUPPORTED_BENCHMARKS
+# set captures only those whose claim reconstruction is well-defined
+# under FEVER-style or open-ended QA semantics.
+from caem.config import TRAINING_BENCHMARKS as _CFG_TRAINING_BENCHMARKS
+_OPEN_QA_TRANSFER = {"natural_questions", "truthfulqa", "asqa"}
+_MCQ_BENCHMARKS = {"arc_challenge", "commonsense_qa", "strategyqa"}
+SUPPORTED_BENCHMARKS = (
+    set(_CFG_TRAINING_BENCHMARKS) | _OPEN_QA_TRANSFER
+) - _MCQ_BENCHMARKS
 
 
 def _extract_claim(s: Dict[str, Any]) -> str:

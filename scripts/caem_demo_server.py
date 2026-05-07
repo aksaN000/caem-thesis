@@ -138,6 +138,16 @@ def _build_pipeline(
     # Load fine-tuned weights if a SIL checkpoint is provided. Without
     # this the pipeline runs the HuggingFace base model on Tier 2/3
     # generations, which does NOT match the trajectory readings.
+    #
+    # v2 Fix 14: detect three checkpoint shapes and dispatch:
+    #   (1) cycle_<N>/adapter/  — peft save_pretrained directory; load
+    #       via PeftModel.from_pretrained(base, dir) (v2 LoRA path).
+    #   (2) cycle_<N>/model.pt  — full state_dict (v1 full FT path).
+    #   (3) directly-named model.pt or adapter/ at the user-supplied
+    #       path — same dispatch.
+    # The dispatcher accepts either a directory (preferred for v2) or
+    # a file (v1 back-compat). Adapter directories are detected by the
+    # presence of adapter_config.json.
     if checkpoint is not None:
         ckpt_path = Path(checkpoint)
         if not ckpt_path.exists():
@@ -147,15 +157,54 @@ def _build_pipeline(
                 f"which does NOT reflect post-SIL CAEM behaviour."
             )
         t1 = time.perf_counter()
-        state = torch.load(str(ckpt_path), map_location=device, weights_only=False)
-        # Some SIL checkpoints save the bare state_dict; others wrap it.
-        if isinstance(state, dict) and "model" in state and isinstance(state["model"], dict):
-            state = state["model"]
-        gen_model.load_state_dict(state)
-        logger.info(
-            "Loaded fine-tuned generator weights from %s in %.1fs",
-            ckpt_path, time.perf_counter() - t1,
-        )
+
+        # Resolve to either a peft adapter directory or a full state_dict file.
+        adapter_dir: Optional[Path] = None
+        state_dict_file: Optional[Path] = None
+        if ckpt_path.is_dir():
+            # Either the adapter dir itself or a cycle dir containing it.
+            if (ckpt_path / "adapter_config.json").exists():
+                adapter_dir = ckpt_path
+            elif (ckpt_path / "adapter" / "adapter_config.json").exists():
+                adapter_dir = ckpt_path / "adapter"
+            elif (ckpt_path / "model.pt").exists():
+                state_dict_file = ckpt_path / "model.pt"
+        else:
+            # File path: assume legacy state_dict.
+            state_dict_file = ckpt_path
+
+        if adapter_dir is not None:
+            try:
+                from peft import PeftModel  # type: ignore
+            except ImportError as exc:
+                raise RuntimeError(
+                    f"Adapter checkpoint detected at {adapter_dir} but the "
+                    f"peft package is not installed. Install peft to use "
+                    f"v2 adapter checkpoints: pip install peft."
+                ) from exc
+            gen_model = PeftModel.from_pretrained(gen_model, str(adapter_dir))
+            logger.info(
+                "Loaded LoRA adapter from %s in %.1fs (v2 path).",
+                adapter_dir, time.perf_counter() - t1,
+            )
+        elif state_dict_file is not None:
+            state = torch.load(
+                str(state_dict_file), map_location=device, weights_only=False,
+            )
+            # Some SIL checkpoints save the bare state_dict; others wrap it.
+            if isinstance(state, dict) and "model" in state and isinstance(state["model"], dict):
+                state = state["model"]
+            gen_model.load_state_dict(state)
+            logger.info(
+                "Loaded fine-tuned generator weights from %s in %.1fs (v1 path).",
+                state_dict_file, time.perf_counter() - t1,
+            )
+        else:
+            raise FileNotFoundError(
+                f"--checkpoint {ckpt_path} contains neither an adapter "
+                f"directory (adapter_config.json) nor a model.pt file. "
+                f"Cannot resume from this path."
+            )
     else:
         logger.warning(
             "No --checkpoint provided. Running BASE HuggingFace Qwen on "

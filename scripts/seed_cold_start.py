@@ -476,7 +476,8 @@ def run_smoke_test(args: argparse.Namespace) -> None:
     from eval.benchmarks import make_synthetic_samples
 
     logger.info("SMOKE TEST MODE -- synthetic data, no model loaded.")
-    benchmarks = args.benchmarks or ["fever", "triviaqa", "natural_questions"]
+    # v2 Fix 9b: read training panel from caem.config (was hardcoded v1).
+    benchmarks = args.benchmarks or list(TRAINING_BENCHMARKS)
     for bm in benchmarks:
         samples = make_synthetic_samples(bm, n=10)
         logger.info("  %s: %d synthetic samples OK", bm, len(samples))
@@ -638,11 +639,13 @@ if __name__ == "__main__":
         default=1000,
         help="Max training questions to process per benchmark before stopping.",
     )
+    # v2 Fix 9b: argparse default tracks caem.config.TRAINING_BENCHMARKS
+    # so the cold-start seed phase always covers the live training panel.
     p.add_argument(
         "--benchmarks",
         nargs="+",
-        default=["fever", "triviaqa", "natural_questions"],
-        help="Benchmarks to seed.",
+        default=list(TRAINING_BENCHMARKS),
+        help="Benchmarks to seed (defaults to caem.config.TRAINING_BENCHMARKS).",
     )
     p.add_argument(
         "--output_dir",
