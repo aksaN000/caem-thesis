@@ -129,32 +129,77 @@ by this work.
   and the SV-collapse score; auto-relax α_b on zero-admission for
   2 consecutive cycles; hard halt on adapter rank-collapse.
 
-### Integration / verification status — pending (Day 13 work)
+### Integration / verification status — COMPLETE (2026-05-07)
 
-The architecture fixes pass their unit tests but the orchestrator
-glue and downstream-script audit have not yet been done. The Day-13
-checklist below replaces the previous Day-11/12 smoke list:
+All architecture fixes, integration audits, and orchestrator wiring
+have landed on `feat/qwen-3b-goal2`. Phase 1a is **launch-ready** as
+of commit `6397650`. The Day-13 checklist resolves as:
 
-- [ ] **Integration audit** — read every line of every modified file
-  end-to-end. Check Fix-to-Fix consistency (e.g. retention-probe
-  uses canonical_answer through verifier; pool-reweight reads
-  source_benchmark on QAPair; coverage diagnostic reads adapter
-  weights through the LoRA wrap).
-- [ ] **Downstream-script audit (Fix 9b)** — ~17 scripts hardcode v1
-  benchmark names (`fever / triviaqa / natural_questions / arc_challenge`).
-  Switch them to read `caem.config.TRAINING_BENCHMARKS` /
-  `TRANSFER_BENCHMARKS`. Fix the per-script EM extractors that need
-  CSQA-5 / HotpotQA-multihop awareness.
-- [ ] **Baseline-script audit** — B1-B7 baselines (`scripts/run_baseline_*.py`,
-  `caem/ablation/`) must construct CAEMPipeline with the v2 verifier
-  and write per-bench CSV columns. Confirm `extract_arc_label`
-  receives `n_choices=5` on CSQA samples.
-- [ ] **Production-code audit (Fix 14)** — `docs/PRODUCTION_RUNBOOK.md`,
-  `caem/production/server.py`, `scripts/expose_demo_remote.sh`. The
-  production swap-schema needs to load LoRA adapters via
-  `PeftModel.from_pretrained` and the per-bench JSONs via the v2
-  back-compat path. Demo-day questions still valid; cycle-3 → cycle-10
-  v2 anchor swap on Phase 1b close.
+- [x] **Integration audit** — three parallel audit passes covering
+  v2-fix consistency, downstream scripts, and data leakage. Every
+  CRITICAL finding fixed. ~25 false positives verified by line-by-line
+  re-reading.
+- [x] **Downstream-script audit (Fix 9b)** — 15 scripts updated to
+  read `caem.config.TRAINING_BENCHMARKS / TRANSFER_BENCHMARKS`:
+  `run_calibration.py`, `run_purity_validation.py`, `run_simple_ft.py`,
+  `run_experiment.py:1016`, `run_cyclic_ablation.py`,
+  `conditional_conformal_ablation.py`, `baseline_sig_tests.py`,
+  `build_calibration_pairs.py`, `seed_cold_start.py`,
+  `run_ablation.py`, `rescore_baselines_through_verifier.py`,
+  `phase4_artifacts.py`, plus four diagnostic-fallback constants in
+  `calibration_alpha_curve.py`, `validate_composite_weights.py`,
+  `rescore_eval_with_fitted_gate.py`, `sweep_composite_variants.py`.
+  `extract_arc_label(n_choices=5)` dispatch added in two scoring
+  scripts.
+- [x] **Baseline-script audit** — `run_baseline.py` argparse defaults
+  read v2 panel, `rescore_baselines_through_verifier.py` `_VERIFIER_FIELDS`
+  extended with `alias_overlap` + `entity_head_consistency`,
+  `caem/ablation/runner.py` skip-verifier stub explicit on the new
+  fields.
+- [x] **Production-code audit (Fix 14)** — `docs/PRODUCTION_RUNBOOK.md`
+  §11 amendments document the four operator-facing v2 deltas
+  (adapter directory replaces model.pt; nested JSON schema; new
+  coverage_diagnostic.json artefact; multi-probe forgetting guard)
+  and extend the config-flags table. `caem_demo_server.py` updated
+  with adapter-detection load path. `caem/production/confidence.py`
+  audited clean.
+- [x] **Orchestrator cold_start_loader wiring**
+  (`scripts/run_experiment.py:1597-1638`) — closure passes
+  `build_benchmark_pools(...).seed` gold pairs to
+  `sil.run_cycle(..., cold_start_loader=...)`. Fix-3 cold-start now
+  active.
+- [x] **Orchestrator coverage_diagnostic.json write**
+  (`scripts/run_experiment.py:2024-2086`) — `build_coverage_diagnostic`
+  output written per cycle. Fix-5 halt triggers and Phase-4 reports
+  now have the inputs they need.
+- [x] **Cycle-0 fit-script per-benchmark dispatch**
+  (`fit_composite_calibration.py`, `fit_conformal_gate.py`) — both
+  default to `--fit_per_benchmark` so the cycle-0 JSONs land in v2
+  nested schema; v1 pooled-only fit available via
+  `--no-fit_per_benchmark` for ablation.
+- [x] **`fit_per_benchmark_safety_floors` invocation**
+  (`run_calibration.py::calibrate_pipeline`) — runs after the
+  global T fit; updates both `cfg.*_per_benchmark` dicts in-memory
+  AND persists them to `calibrated_config.json`. Fix-12 per-bench
+  T_b + safety_u_pre_min_b active.
+- [x] **`load_checkpoint` adapter detection**
+  (`caem/training/self_improvement.py`) — detects
+  `cycle_<N>/adapter/` first via `PeftModel.from_pretrained`; falls
+  back to `cycle_<N>/model.pt` for v1. Resume-mid-trajectory now
+  loads the right LoRA weights instead of silently restarting from
+  pristine.
+- [x] **Pre-existing v1-asserting tests** updated for v2 invariants
+  (`test_benchmark_splits::TestPanelDefinition` panel sizes,
+  `test_model_loader::test_config_defaults_branch_c` LoRA primary
+  path).
+
+### Phase 1a launch — READY (2026-05-07)
+
+Total v2 commit count on `feat/qwen-3b-goal2`: 21 commits since
+2026-05-06 architecture-lock entry. 773 tests pass; pre-existing 8
+mock-seed `test_self_improvement.py` failures unchanged on baseline.
+
+Wired-but-not-trivial follow-ups (deferred until Phase 1a closes):
 - [ ] **Orchestrator wiring** in `scripts/run_experiment.py`
   post-cycle hook: feed
   `(candidate_counts, admitted_counts, pool_counts, per_bench_em, model)`
