@@ -79,7 +79,48 @@ def main() -> int:
     )
     p.add_argument("--alpha_store", type=float, default=0.20)
     p.add_argument("--alpha_defer", type=float, default=0.40)
+    # v2 Fix 1: per-benchmark conformal gate. Default ON in v2 so the
+    # cycle-0 fit produces the nested {global, per_benchmark} JSON the
+    # runtime gate dispatches against. --no-fit_per_benchmark falls
+    # back to the v1 pooled-only fit (used by the back-compat ablation
+    # sweep).
+    p.add_argument(
+        "--fit_per_benchmark",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="v2 default: fit a per-benchmark ConformalStorageGate "
+             "(pooled global + per-bench children). "
+             "--no-fit_per_benchmark reverts to the v1 pooled-only fit.",
+    )
+    # Optional per-benchmark α overrides. Empty default → every
+    # per-benchmark child uses the pooled --alpha_store / --alpha_defer
+    # values; pass e.g. fever=0.05 triviaqa=0.40 to relax FEVER while
+    # keeping TQA strict.
+    p.add_argument(
+        "--alpha_store_overrides", nargs="*", default=[],
+        help="Optional per-bench α_store overrides as 'bench=value' pairs.",
+    )
+    p.add_argument(
+        "--alpha_defer_overrides", nargs="*", default=[],
+        help="Optional per-bench α_defer overrides as 'bench=value' pairs.",
+    )
     args = p.parse_args()
+
+    def _parse_kv_list(raw: List[str]) -> Dict[str, float]:
+        out: Dict[str, float] = {}
+        for entry in raw:
+            if "=" not in entry:
+                logger.warning("skipping malformed override %r (expected bench=value)", entry)
+                continue
+            k, v = entry.split("=", 1)
+            try:
+                out[k.strip()] = float(v.strip())
+            except ValueError:
+                logger.warning("skipping malformed override %r (bad float)", entry)
+        return out
+
+    alpha_store_overrides = _parse_kv_list(args.alpha_store_overrides)
+    alpha_defer_overrides = _parse_kv_list(args.alpha_defer_overrides)
 
     paths: List[Path] = []
     for spec in args.calib_jsons:
@@ -107,13 +148,40 @@ def main() -> int:
             len(samples), args.composite_calibration_json,
         )
 
-    gate = ConformalStorageGate.fit(
-        samples,
-        score_key="u_stored",
-        em_key="em",
-        alpha_store=args.alpha_store,
-        alpha_defer=args.alpha_defer,
-    )
+    if args.fit_per_benchmark:
+        # Group samples by benchmark for the per-bench fit. Untagged
+        # samples are dropped from per-bench fitting; the parent class-
+        # method's pooled-global path still sees the union internally.
+        samples_by_bench: Dict[str, List[Dict[str, Any]]] = {}
+        for s in samples:
+            bm = s.get("benchmark") or "_untagged"
+            samples_by_bench.setdefault(bm, []).append(s)
+        per_bench_input = {
+            bm: rows for bm, rows in samples_by_bench.items()
+            if bm != "_untagged"
+        }
+        logger.info(
+            "per-benchmark conformal-gate fit: %d benchmarks (%s); "
+            "untagged samples = %d.",
+            len(per_bench_input),
+            sorted(per_bench_input.keys()),
+            len(samples_by_bench.get("_untagged", [])),
+        )
+        gate = ConformalStorageGate.fit_per_benchmark(
+            per_bench_input,
+            default_alpha_store=args.alpha_store,
+            default_alpha_defer=args.alpha_defer,
+            alpha_store_overrides=alpha_store_overrides,
+            alpha_defer_overrides=alpha_defer_overrides,
+        )
+    else:
+        gate = ConformalStorageGate.fit(
+            samples,
+            score_key="u_stored",
+            em_key="em",
+            alpha_store=args.alpha_store,
+            alpha_defer=args.alpha_defer,
+        )
     gate.save(args.output_json)
     print(gate.summary())
     return 0
