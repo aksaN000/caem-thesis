@@ -577,51 +577,62 @@ class CAEMConfig:
     use_8bit_adamw: bool = True
 
     # ------------------------------------------------------------------ #
-    # SIL training mode — Branch C 2026-04-25 (Phase 2.9, status DEFERRED) #
+    # SIL training mode — v2 (2026-05-06, ACTIVATED) — was Phase 2.9    #
     # ------------------------------------------------------------------ #
-    # Phase 2.9 design intent: switch SIL primary path from full
-    # fine-tuning to LoRA (rank 16) on Qwen attention + MLP modules with
-    # frozen base.
+    # v2 default: LoRA primary path. Replaces the v1 full fine-tune +
+    # L2-anchor path.
     #
-    # Empirical justification (Phase 1 Cycle-0 audit, n=3500, calibrated
-    # SIL pool ~100 verified episodes per benchmark per cycle):
+    # Empirical justification (v1 Phase-1a Cycle-0 audit, n=3500;
+    # calibrated SIL pool ~100 verified episodes per benchmark per cycle):
     #   - Per-cycle pool size is in the LoRA-friendly sparse-data regime;
-    #     full FT's gradient signal across 3B parameters is dominated by
-    #     the L2 anchor regularizer.
-    #   - Frozen-base LoRA bounds catastrophic forgetting mathematically.
+    #     full FT's gradient signal across 3B parameters was dominated by
+    #     the L2 anchor regulariser.
+    #   - Frozen-base LoRA bounds catastrophic forgetting mathematically:
+    #     |Δθ| is capped at the adapter parameter budget. Combined with
+    #     the multi-modal retention probe (Fix 4) this replaces the
+    #     single-MMLU forgetting guard from v1.
     #
-    # Literature alignment: Wang et al. 2023 (ICLR 2024); Biderman et al.
-    # 2024 ("LoRA Learns Less and Forgets Less"); Hu et al. 2021.
+    # Literature alignment: Hu et al. 2021 (LoRA); Wang et al. 2023 (ICLR
+    # 2024) on adapter-only continual fine-tuning; Biderman et al. 2024
+    # ("LoRA Learns Less and Forgets Less") on the per-cycle sparse-pool
+    # regime where LoRA outperforms full FT.
     #
-    # IMPLEMENTATION STATUS: DEFERRED. The training-loop path that consumes
-    # ``cfg.use_lora_training`` and wraps the base with peft.LoraConfig +
-    # peft.get_peft_model is NOT yet implemented in
-    # ``caem/training/self_improvement.py``. Audit conducted 2026-04-25 13:00 UTC
-    # confirmed no peft imports exist anywhere in the codebase. Setting
-    # this flag to True without the implementation would be silently
-    # ignored — the SIL loop runs full FT regardless.
+    # v2 hyperparameters (Biderman 2024 §4.2 + audit on Qwen-2.5-3B):
+    #   r        = 32        (from v1's 16 — extra capacity for the
+    #                         12-signal verifier-driven training pool)
+    #   alpha    = 64        (2 × r — standard LoRA scaling rule)
+    #   targets  = ALL LINEAR projections inside each transformer block
+    #              (attn q/k/v/o + MLP gate/up/down). Matches Biderman's
+    #              "all-linear LoRA" recommendation.
+    #   lr       = 2e-4      (10× the full-FT lr; LoRA budget is small
+    #                         enough to take a higher step size)
+    #   dropout  = 0.05      (Hu 2021 default)
     #
-    # Action item (Phase 1b / future work): wrap
-    # ``self.model = get_peft_model(self.model, LoraConfig(...))`` at the
-    # top of ``SelfImprovementLoop._build_optimizer``, restrict optimizer
-    # to ``adapter_params``, redefine the L2 anchor as
-    # ``||theta_adapter - theta_adapter_prev||^2``, and update
-    # checkpoint save/load to handle adapter-only state dicts.
+    # L2 anchor: REMOVED on the LoRA path. The frozen base + bounded
+    # adapter parameter count IS the implicit anchor. ``cfg.l2_lambda``
+    # is ignored when ``use_lora_training=True``; if a future ablation
+    # wants an L2 anchor over adapter weights specifically, wire it via
+    # a dedicated ``cfg.adapter_l2_lambda`` rather than re-using the
+    # backbone-anchor constant.
     #
-    # For Phase 1a (this thesis): SIL primary path remains full
-    # fine-tuning + 8-bit AdamW + L2 anchor on full backbone. The
-    # configuration constants below are kept so the future implementation
-    # has a fixed reference for hyperparameters; flipping
-    # use_lora_training=True without the corresponding code change is a
-    # silent no-op (full FT continues to run).
-    use_lora_training: bool = False  # IMPLEMENTATION DEFERRED to Phase 1b
-    lora_r: int = 16
-    lora_alpha: int = 32
+    # Checkpointing: SIL writes adapter-only state via peft's
+    # ``save_pretrained`` to ``cycle_<N>/adapter/`` instead of a
+    # multi-GB full state_dict. Disk usage drops from ~6.2 GB/cycle to
+    # ~120 MB/cycle. v1 ``cycle_<N>/model.pt`` files remain readable by
+    # the loader for back-compat with v1 checkpoints.
+    use_lora_training: bool = True   # v2 default — ACTIVE
+    lora_r: int = 32                  # v2 — was 16
+    lora_alpha: int = 64              # v2 — was 32
     lora_dropout: float = 0.05
     lora_target_modules: Tuple[str, ...] = (
+        # All-linear projections (Biderman 2024 §4.2):
         "q_proj", "k_proj", "v_proj", "o_proj",
         "gate_proj", "up_proj", "down_proj",
     )
+    # v2 LoRA learning rate (overrides ``learning_rate`` when
+    # ``use_lora_training=True``). Backbone-FT lr (1e-5) is left intact
+    # for ablation runs / back-compat with v1.
+    lora_learning_rate: float = 2e-4
 
     # ------------------------------------------------------------------ #
     # Context window (shared across backbones)                             #

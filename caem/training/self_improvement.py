@@ -273,6 +273,14 @@ class SelfImprovementLoop:
         # against the unmodified cycle-0 baseline. See reset_pristine_mmlu().
         self._pristine_mmlu: Optional[float] = None
 
+        # v2 Fix 8 — wrap the model with LoRA adapters when configured.
+        # Keep the resolved flag on self so other methods (optimizer
+        # builder, L2 penalty, checkpoint, snapshot) all branch on the
+        # same value. ``_lora_active`` is False when peft is missing or
+        # the model is a mock without any wrappable linear modules; the
+        # full-FT path remains available as the back-compat fallback.
+        self._lora_active: bool = self._apply_lora_if_enabled()
+
     # ------------------------------------------------------------------ #
     # Public API                                                           #
     # ------------------------------------------------------------------ #
@@ -284,6 +292,102 @@ class SelfImprovementLoop:
         SelfImprovementLoop instance, or multi-seed sweeps where each seed
         must re-establish its own cycle-0 baseline)."""
         self._pristine_mmlu = None
+
+    # ------------------------------------------------------------------ #
+    # v2 Fix 8 — LoRA wrapping                                            #
+    # ------------------------------------------------------------------ #
+
+    def _apply_lora_if_enabled(self) -> bool:
+        """Wrap ``self.model`` with a peft LoRA adapter when configured.
+
+        Returns ``True`` when the wrap succeeded (LoRA path active) and
+        ``False`` otherwise (full-FT path remains active).
+
+        Failure modes that fall back to full FT (with a warning):
+          * ``cfg.use_lora_training=False`` (back-compat ablation)
+          * peft is not installed
+          * the model is a mock without wrappable Linear modules
+            (most unit-test paths)
+          * the model is already a PeftModel (idempotency)
+        """
+        cfg = self.config
+        if not bool(getattr(cfg, "use_lora_training", False)):
+            return False
+
+        # Already wrapped? Skip.
+        try:
+            from peft import PeftModel  # type: ignore
+            if isinstance(self.model, PeftModel):
+                logger.info(
+                    "LoRA wrap: model is already a PeftModel — skipping "
+                    "re-wrap (idempotency).",
+                )
+                return True
+        except ImportError:
+            pass
+
+        try:
+            from peft import LoraConfig, TaskType, get_peft_model
+        except ImportError:
+            logger.warning(
+                "use_lora_training=True but peft is not installed; "
+                "falling back to full FT. Install with `pip install peft` "
+                "to enable the LoRA SIL primary path."
+            )
+            return False
+
+        # Detect whether the model has any wrappable Linear modules with
+        # the configured target names. Mock models in unit tests do not,
+        # and forcing get_peft_model on them raises a confusing error.
+        try:
+            import torch.nn as _nn
+            target_names = tuple(getattr(cfg, "lora_target_modules", ()) or ())
+            wrappable = any(
+                isinstance(m, _nn.Linear) and any(t in name for t in target_names)
+                for name, m in self.model.named_modules()
+            )
+        except Exception:
+            wrappable = True  # be permissive on unusual model objects
+        if not wrappable:
+            logger.info(
+                "LoRA wrap: no Linear modules matching target names "
+                "%s found on this model (likely a mock). Skipping wrap.",
+                target_names,
+            )
+            return False
+
+        try:
+            lora_cfg = LoraConfig(
+                r=int(cfg.lora_r),
+                lora_alpha=int(cfg.lora_alpha),
+                lora_dropout=float(cfg.lora_dropout),
+                bias="none",
+                target_modules=list(cfg.lora_target_modules),
+                task_type=TaskType.CAUSAL_LM,
+            )
+            self.model = get_peft_model(self.model, lora_cfg)
+        except Exception as exc:
+            logger.warning(
+                "LoRA wrap failed (%s); falling back to full FT.", exc,
+            )
+            return False
+
+        # Log adapter footprint for the per-cycle SVD diagnostic
+        # (Fix 5 will read these counts).
+        try:
+            n_trainable = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
+            n_total = sum(p.numel() for p in self.model.parameters())
+            ratio = n_trainable / max(n_total, 1)
+            logger.info(
+                "LoRA wrap OK | r=%d alpha=%d dropout=%.2f targets=%s | "
+                "trainable=%.2fM / total=%.2fM (%.4f%%)",
+                cfg.lora_r, cfg.lora_alpha, cfg.lora_dropout,
+                cfg.lora_target_modules,
+                n_trainable / 1e6, n_total / 1e6, 100.0 * ratio,
+            )
+        except Exception:
+            logger.info("LoRA wrap OK (param-count probe failed; nonfatal).")
+        return True
 
     def run_cycle(
         self,
@@ -737,10 +841,30 @@ class SelfImprovementLoop:
         FT headroom on 32 GB for a 3B model at batch=4 with grad checkpointing
         (see module docstring). Graceful fallback to ``torch.optim.AdamW`` on
         ImportError / non-CUDA device keeps CPU-only CI + smoke tests working.
+
+        v2 Fix 8 — LoRA path: when ``self._lora_active`` is True, build the
+        optimiser over the small adapter parameter set (everything with
+        ``requires_grad=True`` after the peft wrap) and use
+        ``cfg.lora_learning_rate`` (10× the backbone-FT lr — adapters are
+        small enough to take a higher step size).
         """
         cfg = self.config
-        lr = cfg.learning_rate
-        params = self.model.parameters()
+        if getattr(self, "_lora_active", False):
+            lr = float(getattr(cfg, "lora_learning_rate", 2e-4))
+            params = [p for p in self.model.parameters() if p.requires_grad]
+            if not params:
+                logger.warning(
+                    "LoRA path: no trainable parameters found after wrap; "
+                    "falling back to full parameter set.",
+                )
+                params = list(self.model.parameters())
+            logger.info(
+                "Optimiser parameter set: %d adapter tensors (LoRA path; "
+                "lr=%.2e).", len(params), lr,
+            )
+        else:
+            lr = cfg.learning_rate
+            params = list(self.model.parameters())
 
         want_8bit = bool(getattr(cfg, "use_8bit_adamw", False))
         on_cuda = str(self.device).startswith("cuda")
@@ -768,7 +892,7 @@ class SelfImprovementLoop:
                 self.device,
             )
 
-        optim = TorchAdamW(self.model.parameters(), lr=lr)
+        optim = TorchAdamW(params, lr=lr)
         logger.info("Fine-tuning optimiser: torch.optim.AdamW.")
         return optim
 
@@ -906,8 +1030,17 @@ class SelfImprovementLoop:
                     micro_step = 0
                     continue
 
-                l2_loss = self._l2_penalty(theta_prev_for_penalty)
-                raw_loss = ce_loss + (cfg.l2_lambda / 2.0) * l2_loss
+                # v2 Fix 8 — LoRA path skips the backbone-anchor L2 term.
+                # The frozen base + bounded adapter parameter budget IS
+                # the implicit anchor (Biderman 2024); a backbone L2
+                # would mix in a zero-anchored regulariser over weights
+                # that aren't being updated, which is meaningless and
+                # wastes wall-clock on the per-step PCIe stream.
+                if getattr(self, "_lora_active", False):
+                    raw_loss = ce_loss
+                else:
+                    l2_loss = self._l2_penalty(theta_prev_for_penalty)
+                    raw_loss = ce_loss + (cfg.l2_lambda / 2.0) * l2_loss
 
                 if not torch.isfinite(raw_loss):
                     logger.warning(
@@ -1133,16 +1266,37 @@ class SelfImprovementLoop:
     # ------------------------------------------------------------------ #
 
     def _snapshot_weights(self) -> List[torch.Tensor]:
-        """Return a deepcopy of all model parameter tensors (CPU, always fp32).
+        """Return a deepcopy of model parameters for the L2 anchor / restore.
 
         fp32 regardless of model dtype so ``_l2_penalty`` can sum squared
         differences over billions of parameters without fp16 overflow.
+
+        v2 Fix 8 — LoRA path: snapshots ONLY the trainable adapter tensors
+        (``requires_grad=True``). Skips the frozen base, which would
+        otherwise eat ~6 GB of CPU RAM per cycle for a 3B-parameter
+        backbone that the SIL loop never touches anyway. ``_restore_weights``
+        is updated in lockstep to only restore the same trainable subset.
         """
+        if getattr(self, "_lora_active", False):
+            return [
+                p.detach().cpu().float().clone()
+                for p in self.model.parameters()
+                if p.requires_grad
+            ]
         return [p.detach().cpu().float().clone() for p in self.model.parameters()]
 
     def _restore_weights(self, theta_prev: List[torch.Tensor]) -> None:
-        """Restore model parameters to theta_prev in-place."""
-        model_params = list(self.model.parameters())
+        """Restore model parameters to theta_prev in-place.
+
+        v2 Fix 8 — LoRA path: restores ONLY the trainable adapter tensors,
+        matching the subset that ``_snapshot_weights`` captured. The
+        frozen base is never touched on the LoRA path so it does not need
+        restoring.
+        """
+        if getattr(self, "_lora_active", False):
+            model_params = [p for p in self.model.parameters() if p.requires_grad]
+        else:
+            model_params = list(self.model.parameters())
         if len(theta_prev) != len(model_params):
             raise RuntimeError(
                 f"theta_prev has {len(theta_prev)} tensors but model has "
@@ -1152,7 +1306,11 @@ class SelfImprovementLoop:
         with torch.no_grad():
             for p, p0 in zip(model_params, theta_prev):
                 p.copy_(p0.to(self.device))
-        logger.info("Model weights restored to pre-cycle state.")
+        logger.info(
+            "Model weights restored to pre-cycle state (%s).",
+            "LoRA adapter only" if getattr(self, "_lora_active", False)
+            else "full backbone",
+        )
 
     # ------------------------------------------------------------------ #
     # Checkpointing                                                        #
@@ -1194,15 +1352,59 @@ class SelfImprovementLoop:
         ckpt_dir = self.output_dir / f"cycle_{cycle_num}"
         ckpt_dir.mkdir(parents=True, exist_ok=True)
 
+        # v2 Fix 8 — adapter-only checkpoint on the LoRA path.
+        # peft's save_pretrained writes ``adapter_config.json`` +
+        # ``adapter_model.safetensors`` (~120 MB for r=32 on a 3B base)
+        # to ckpt_dir/adapter/. Falls through to legacy full state_dict
+        # if peft is unavailable or the save fails. The Tier-1
+        # rolling-N retention below targets ``model.pt`` only — adapter
+        # files are kept for every cycle (small enough that 10×120 MB
+        # fits trivially).
         weights_path = ckpt_dir / "model.pt"
-        try:
-            torch.save(self.model.state_dict(), weights_path)
-        except Exception as exc:
-            logger.error(
-                "Cycle %d: failed to save model weights to %s: %s",
-                cycle_num, weights_path, exc,
-            )
-            raise
+        adapter_dir = ckpt_dir / "adapter"
+        if getattr(self, "_lora_active", False):
+            try:
+                # peft.PeftModel exposes save_pretrained
+                if hasattr(self.model, "save_pretrained"):
+                    self.model.save_pretrained(str(adapter_dir))
+                    logger.info(
+                        "Cycle %d: LoRA adapter saved to %s/", cycle_num, adapter_dir,
+                    )
+                else:
+                    # Fallback: manually pickle the trainable subset.
+                    adapter_dir.mkdir(parents=True, exist_ok=True)
+                    state = {
+                        n: p.detach().cpu()
+                        for n, p in self.model.named_parameters()
+                        if p.requires_grad
+                    }
+                    torch.save(state, adapter_dir / "adapter_model.pt")
+                    logger.info(
+                        "Cycle %d: LoRA adapter (manual fallback) saved to %s/",
+                        cycle_num, adapter_dir,
+                    )
+            except Exception as exc:
+                logger.error(
+                    "Cycle %d: LoRA adapter save failed (%s); falling back "
+                    "to full state_dict at %s.", cycle_num, exc, weights_path,
+                )
+                try:
+                    torch.save(self.model.state_dict(), weights_path)
+                except Exception as exc2:
+                    logger.error(
+                        "Cycle %d: full state_dict fallback also failed: %s",
+                        cycle_num, exc2,
+                    )
+                    raise
+        else:
+            try:
+                torch.save(self.model.state_dict(), weights_path)
+            except Exception as exc:
+                logger.error(
+                    "Cycle %d: failed to save model weights to %s: %s",
+                    cycle_num, weights_path, exc,
+                )
+                raise
 
         meta = {
             "cycle_num": cycle_num,
