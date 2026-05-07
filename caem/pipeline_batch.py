@@ -417,19 +417,31 @@ class BatchPipeline:
         # the escalation and run a fresh verify on the Tier 3 output.
         verify_indices: List[int] = []
         verify_inputs: List[tuple] = []
+        # v2 Fix 2 keystone — per-sample source_benchmark must be carried
+        # alongside the (query, answer) tuple so batch_verify can dispatch
+        # the per-bench composite + per-bench conformal gate. Without this
+        # list, every batched-eval sample silently falls back to the
+        # pooled global path even though source_benchmark is on the
+        # BatchSample.
+        verify_source_benchmarks: List[Optional[str]] = []
         for i in tier2_indices:
             ans = precomputed_tier2.get(i, "")
             if ans:  # non-empty -> verify the Tier 2 answer
                 verify_indices.append(i)
                 verify_inputs.append((samples[i].query, ans))
+                verify_source_benchmarks.append(samples[i].source_benchmark)
         for i in tier3_indices:
             ans = precomputed_tier3.get(i, "")
             verify_indices.append(i)
             verify_inputs.append((samples[i].query, ans))
+            verify_source_benchmarks.append(samples[i].source_benchmark)
 
         precomputed_vouts: dict = {}
         if verify_inputs:
-            vout_list = self.batch_verify(verify_inputs)
+            vout_list = self.batch_verify(
+                verify_inputs,
+                source_benchmarks=verify_source_benchmarks,
+            )
             for idx, vout in zip(verify_indices, vout_list):
                 precomputed_vouts[idx] = vout
 
