@@ -422,109 +422,106 @@ step_19_2_slice() {
 }
 
 # ============================================================================
-# HF snapshot — upload all pre-Step-7 artefacts so a fresh instance can
+# gdrive snapshot — upload all pre-Step-7 artefacts so a fresh instance can
 # resume from Step 7 directly if the current instance dies before Step 7
-# finishes (or even starts).
+# finishes (or even starts). Uses the same gdrive: rclone remote that the
+# per-cycle CAEM_GDRIVE_OFFLOAD path already writes to.
+# Target: gdrive:caem-phase1a/pre_main_snapshot/<git-commit>/
 # ============================================================================
-step_hf_upload_pre_main() {
-    local marker="outputs/.hf_pre_main_uploaded"
+step_gdrive_upload_pre_main() {
+    local marker="outputs/.gdrive_pre_main_uploaded"
     if [[ -f "$marker" ]]; then
-        log "HF pre-main snapshot: already uploaded (marker $marker) — skipping"
+        log "gdrive pre-main snapshot: already uploaded (marker $marker) — skipping"
         return 0
     fi
-    band "HF snapshot — uploading pre-Step-7 artefacts to aksaN000/caem-passage-index-21m:pre_main_snapshot/"
-    python - <<'PY'
-import os, sys, json
-from pathlib import Path
-from huggingface_hub import HfApi, whoami
+    if ! command -v rclone >/dev/null; then
+        log "gdrive snapshot: rclone not on PATH — skipping (non-fatal)"
+        return 0
+    fi
+    if ! rclone listremotes 2>/dev/null | grep -q '^gdrive:'; then
+        log "gdrive snapshot: 'gdrive:' remote not configured — skipping (non-fatal)"
+        return 0
+    fi
+    local commit
+    commit=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+    local remote="gdrive:caem-phase1a/pre_main_snapshot/${commit}"
+    band "gdrive snapshot — uploading pre-Step-7 artefacts to ${remote}"
 
-api  = HfApi()
-repo = "aksaN000/caem-passage-index-21m"
-user = whoami()["name"]
-print(f"  HF user: {user}    target repo: {repo}    subfolder: pre_main_snapshot/")
+    # Stage all pre-Step-7 artefacts into a single flat layout under
+    # outputs/.snapshot_staging/ so rclone can push them with one call.
+    local stage="outputs/.snapshot_staging"
+    rm -rf "$stage"; mkdir -p "$stage"
+    copy() {
+        local src="$1" rel_dst="$2"
+        if [[ ! -e "$src" ]]; then
+            echo "  [skip] $src (not present)"
+            return
+        fi
+        local dst="$stage/$rel_dst"
+        mkdir -p "$(dirname "$dst")"
+        cp -r "$src" "$dst"
+        echo "  [add ] $src -> $rel_dst"
+    }
 
-# Stage all pre-Step-7 artefacts into a single flat layout under outputs/.snapshot_staging/
-# so upload_folder() can push them in one call. The staging dir gets mirrored to
-# pre_main_snapshot/ on HF.
-stage = Path("outputs/.snapshot_staging")
-if stage.exists():
-    import shutil; shutil.rmtree(stage)
-stage.mkdir(parents=True)
+    # Step 6 cold-start memory
+    copy outputs/cold_start_memory                            cold_start_memory
+    # Step 7.0 Cycle-0 eval + calibrated thresholds + cycle-0 memory/deferred snapshot
+    copy outputs/cycle_0/eval                                 cycle_0/eval
+    copy outputs/cycle_0/eval_rescored                        cycle_0/eval_rescored
+    copy outputs/cycle_0/calibration                          cycle_0/calibration
+    copy outputs/cycle_0/calibrated_thresholds.json           cycle_0/calibrated_thresholds.json
+    copy outputs/cycle_0/composite_calibration.json           cycle_0/composite_calibration.json
+    copy outputs/cycle_0/conformal_gate.json                  cycle_0/conformal_gate.json
+    copy outputs/cycle_0/weight_validation.json               cycle_0/weight_validation.json
+    copy outputs/cycle_0/iteration_history.json               cycle_0/iteration_history.json
+    copy outputs/cycle_0/sweep                                cycle_0/sweep
+    copy outputs/cycle_0/memory_store_cycle_0.faiss           cycle_0/memory_store_cycle_0.faiss
+    copy outputs/cycle_0/memory_store_cycle_0.meta            cycle_0/memory_store_cycle_0.meta
+    copy outputs/cycle_0/deferred_buffer_cycle_0.pkl          cycle_0/deferred_buffer_cycle_0.pkl
+    copy outputs/cycle_0/dataset_splits.json                  cycle_0/dataset_splits.json
+    copy outputs/cycle_0/mmlu_baseline.json                   cycle_0/mmlu_baseline.json
+    copy outputs/cycle_0/run.log                              cycle_0/run.log
+    copy outputs/cycle_0/run_recal.log                        cycle_0/run_recal.log
+    copy outputs/cycle_0/experiment.log                       cycle_0/experiment.log
+    # Phase 4 thesis-ready artefacts (cycle-0)
+    copy outputs/phase4                                       phase4
+    # Step 5.5 v5 + pair set
+    copy outputs/calibration/minicheck_vs_roberta_v5.json     calibration/minicheck_vs_roberta_v5.json
+    copy outputs/calibration/minicheck_vs_roberta_v5.log      calibration/minicheck_vs_roberta_v5.log
+    copy data/calibration/minicheck_pairs_500.jsonl           calibration/minicheck_pairs_500.jsonl
+    # Frozen Qwen Platt ablation evidence (2026-04-26 Phase 1a decision)
+    copy outputs/calibration/qwen_judge_platt.log             calibration/qwen_judge_platt.log
+    copy outputs/calibration/qwen_judge_platt.ablation.json   calibration/qwen_judge_platt.ablation.json
+    # Step 19.2.1 retention slice
+    copy data/retention/cycle0_slice_500.jsonl                retention/cycle0_slice_500.jsonl
+    # Gates + audit logs
+    copy outputs/u_tok_drop_validation.log                    u_tok_drop_validation.log
+    copy outputs/phase1a_runner.log                           phase1a_runner.log
+    copy outputs/step6_seed.log                               step6_seed.log
 
-def copy(src, rel_dst):
-    src = Path(src)
-    if not src.exists():
-        print(f"  [skip] {src} (not present)")
-        return
-    dst = stage / rel_dst
-    dst.parent.mkdir(parents=True, exist_ok=True)
-    if src.is_dir():
-        import shutil; shutil.copytree(src, dst)
-    else:
-        import shutil; shutil.copy2(src, dst)
-    print(f"  [add ] {src} -> {rel_dst}")
-
-# Step 6 cold-start memory
-copy("outputs/cold_start_memory", "cold_start_memory")
-# Step 7.0 Cycle-0 eval + calibrated thresholds + cycle-0 memory/deferred snapshot
-copy("outputs/cycle_0/eval",                              "cycle_0/eval")
-copy("outputs/cycle_0/eval_rescored",                     "cycle_0/eval_rescored")  # 2026-04-26 added
-copy("outputs/cycle_0/calibration",                       "cycle_0/calibration")
-copy("outputs/cycle_0/calibrated_thresholds.json",        "cycle_0/calibrated_thresholds.json")
-copy("outputs/cycle_0/composite_calibration.json",        "cycle_0/composite_calibration.json")  # 2026-04-26 added (LOCKED V_a050_C0.010)
-copy("outputs/cycle_0/conformal_gate.json",               "cycle_0/conformal_gate.json")        # 2026-04-26 added
-copy("outputs/cycle_0/weight_validation.json",            "cycle_0/weight_validation.json")     # 2026-04-26 added (PASS verdict)
-copy("outputs/cycle_0/iteration_history.json",            "cycle_0/iteration_history.json")     # 2026-04-26 added (chronological pointer)
-copy("outputs/cycle_0/sweep",                             "cycle_0/sweep")                      # 2026-04-26 added (25-variant evidence)
-copy("outputs/cycle_0/memory_store_cycle_0.faiss",        "cycle_0/memory_store_cycle_0.faiss")
-copy("outputs/cycle_0/memory_store_cycle_0.meta",         "cycle_0/memory_store_cycle_0.meta")
-copy("outputs/cycle_0/deferred_buffer_cycle_0.pkl",       "cycle_0/deferred_buffer_cycle_0.pkl")
-copy("outputs/cycle_0/dataset_splits.json",               "cycle_0/dataset_splits.json")
-copy("outputs/cycle_0/mmlu_baseline.json",                "cycle_0/mmlu_baseline.json")
-copy("outputs/cycle_0/run.log",                           "cycle_0/run.log")
-copy("outputs/cycle_0/run_recal.log",                     "cycle_0/run_recal.log")              # 2026-04-26 added
-copy("outputs/cycle_0/experiment.log",                    "cycle_0/experiment.log")             # 2026-04-26 added
-# Phase 4 thesis-ready artefacts (cycle-0)
-copy("outputs/phase4",                                    "phase4")                             # 2026-04-26 added
-# Iteration archives — failed/superseded, preserved for thesis audit trail
-copy("outputs/archive/post_failed_gate_2026-04-26_T1",    "archive/post_failed_gate_2026-04-26_T1")  # 2026-04-26
-copy("outputs/archive/pre_iteration2_lock_2026-04-26",    "archive/pre_iteration2_lock_2026-04-26")  # 2026-04-26
-copy("outputs/archive/pre_step7_main_2026-04-26",         "archive/pre_step7_main_2026-04-26")       # 2026-04-26
-# Step 5.5 v5 + pair set
-copy("outputs/calibration/minicheck_vs_roberta_v5.json",  "calibration/minicheck_vs_roberta_v5.json")
-copy("outputs/calibration/minicheck_vs_roberta_v5.log",   "calibration/minicheck_vs_roberta_v5.log")
-copy("data/calibration/minicheck_pairs_500.jsonl",        "calibration/minicheck_pairs_500.jsonl")
-# Frozen Qwen Platt ablation evidence (2026-04-26 Phase 1a decision)
-copy("outputs/calibration/qwen_judge_platt.log",          "calibration/qwen_judge_platt.log")
-copy("outputs/calibration/qwen_judge_platt.ablation.json", "calibration/qwen_judge_platt.ablation.json")
-# Step 19.2.1 retention slice
-copy("data/retention/cycle0_slice_500.jsonl",             "retention/cycle0_slice_500.jsonl")
-# Gates + audit logs
-copy("outputs/u_tok_drop_validation.log",                 "u_tok_drop_validation.log")
-copy("outputs/phase1a_runner.log",                        "phase1a_runner.log")
-copy("outputs/step6_seed.log",                            "step6_seed.log")
-
+    # Manifest with recovery hint pointing at gdrive
+    python - <<PY
+import json, os
 manifest = {
-    "uploaded_at":     __import__("datetime").datetime.utcnow().isoformat() + "Z",
-    "source_host":     os.uname().nodename,
-    "git_commit":      os.popen("git rev-parse HEAD").read().strip(),
-    "purpose":         "Phase 1a pre-Step-7 snapshot for credit-burnout recovery",
-    "recovery_hint":   "hf download aksaN000/caem-passage-index-21m --include 'passages.*' 'pre_main_snapshot/*' && ./run_phase1a.sh",
+    "uploaded_at":   __import__("datetime").datetime.utcnow().isoformat() + "Z",
+    "source_host":   os.uname().nodename,
+    "git_commit":    os.popen("git rev-parse HEAD").read().strip(),
+    "purpose":       "Phase 1a pre-Step-7 snapshot for credit-burnout recovery",
+    "recovery_hint": "rclone copy ${remote}/ ./recovery/ && cp -r recovery/* outputs/ && ./run_phase1a.sh",
 }
-(stage / "MANIFEST.json").write_text(json.dumps(manifest, indent=2))
-
-print("  uploading ...")
-api.upload_folder(
-    folder_path = str(stage),
-    path_in_repo= "pre_main_snapshot",
-    repo_id     = repo,
-    repo_type   = "dataset",
-    commit_message = f"Phase 1a pre-Step-7 snapshot ({manifest['git_commit'][:8]})",
-)
-print("  OK — snapshot live at "
-      f"https://huggingface.co/datasets/{repo}/tree/main/pre_main_snapshot")
+import pathlib
+pathlib.Path("$stage/MANIFEST.json").write_text(json.dumps(manifest, indent=2))
 PY
-    touch "$marker"
+
+    log "  rclone copy $stage/ -> $remote/"
+    if rclone copy "$stage" "$remote" --transfers 8 --checkers 16 --progress 2>&1 | tee -a "$RUNNER_LOG"; then
+        log "  OK — snapshot live at $remote"
+        rm -rf "$stage"
+        touch "$marker"
+    else
+        log "  FAIL — rclone copy returned non-zero; staging dir kept at $stage for manual retry"
+        return 0   # non-fatal: thesis still produces results without the cloud snapshot
+    fi
 }
 
 # ============================================================================
@@ -965,8 +962,8 @@ main() {
     # --- Path B calibration (no-op sentinel; Frozen Qwen judge ABLATED 2026-04-26) ---
     step_platt_calibrate
 
-    # --- One-shot HF snapshot of pre-Step-7 state (credit-burnout recovery) ---
-    step_hf_upload_pre_main
+    # --- One-shot gdrive snapshot of pre-Step-7 state (credit-burnout recovery) ---
+    step_gdrive_upload_pre_main
 
     # --- Pre-Step-7 correctness gate (no-op sentinel; ABLATED 2026-05-06) ---
     step_u_tok_drop_gate
