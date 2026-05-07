@@ -20,7 +20,7 @@ Solution
 Wrap the bare entity in a declarative shell so the hypothesis carries
 testable propositional content:
 
-    "Paris"  →  "The answer to the question is: Paris."
+    "Paris"  →  "Answer: Paris."
 
 and then score the wrapped hypothesis against the retrieved passages
 via the verifier's NLI judge. The wrapping is symmetric to what the
@@ -193,7 +193,7 @@ class EntityExpansionScorer:
         if not norm_answer:
             return None
 
-        hypothesis = f"The answer to the question is: {norm_answer}."
+        hypothesis = f"Answer: {norm_answer}."
 
         scores: List[float] = []
         for p in passages:

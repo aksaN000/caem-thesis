@@ -826,10 +826,13 @@ class UnifiedVerifier:
         scoring_answer = display_answer if display_answer else answer
 
         # v2 Fix 10 — uniform canonical claim for every signal that reads
-        # the answer. MCQ letter ("C") expands to its option text; bare
-        # entity ("Paris") wraps as "The answer to the question is: Paris.";
-        # already-declarative answers (FEVER labels, yes/no, prose) pass
-        # through unchanged. Threaded into _score_p_entail, _score_atomic,
+        # the answer. MCQ letter ("C") expands to its option text wrapped
+        # as "Answer: <text>."; bare entity ("Paris") wraps as
+        # "Answer: Paris."; already-declarative answers (FEVER labels,
+        # yes/no, prose) pass through unchanged. The "Answer: <X>" form
+        # mirrors the model's own output and is shorter than verbose
+        # wrappers — saves NLI judge tokens on the per-cycle scoring
+        # path. Threaded into _score_p_entail, _score_atomic,
         # _compute_q_a_relevance, and _compute_alias_overlap so every
         # signal sees the same propositional surface regardless of
         # benchmark. The directional / multichoice / entity-expansion

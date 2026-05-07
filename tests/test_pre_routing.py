@@ -423,3 +423,134 @@ class TestEstimate:
         est.model.generate.side_effect = RuntimeError("device error")
         pc = est.estimate("test")
         assert pc.u_token == 0.0
+
+
+# =========================================================================== #
+# Per-benchmark u_pre dispatch (v2 Fix 12)                                     #
+# =========================================================================== #
+# Per-benchmark T_b temperature scaling and safety_u_pre_min_b are dispatched
+# inside CAEMConfig + PreRoutingConfidenceEstimator. The router-side dispatch
+# for safety_u_pre_min_b lives in tests/test_router.py; the calibration-side
+# fitting helpers (fit_per_benchmark_temperatures, fit_per_benchmark_safety_
+# floors) live in tests/test_calibration_batch_equivalence.py.
+
+class TestPerBenchmarkUPre:
+    def test_config_defaults_have_empty_per_bench_dicts(self):
+        from caem.config import CAEMConfig
+        cfg = CAEMConfig()
+        # Pooled fallbacks must remain
+        assert hasattr(cfg, "temperature_scalar")
+        assert hasattr(cfg, "safety_u_pre_min")
+        # New per-bench dicts must exist and start empty
+        assert hasattr(cfg, "temperature_scalar_per_benchmark")
+        assert hasattr(cfg, "safety_u_pre_min_per_benchmark")
+        assert isinstance(cfg.temperature_scalar_per_benchmark, dict)
+        assert isinstance(cfg.safety_u_pre_min_per_benchmark, dict)
+        assert len(cfg.temperature_scalar_per_benchmark) == 0
+        assert len(cfg.safety_u_pre_min_per_benchmark) == 0
+
+    def test_helper_getters_dispatch_correctly(self):
+        from caem.config import CAEMConfig
+        cfg = CAEMConfig()
+        # No per-bench data → fallback to pooled global
+        assert cfg.get_temperature_for(None) == cfg.temperature_scalar
+        assert cfg.get_temperature_for("fever") == cfg.temperature_scalar
+        assert cfg.get_safety_u_pre_min_for(None) == cfg.safety_u_pre_min
+        assert cfg.get_safety_u_pre_min_for("fever") == cfg.safety_u_pre_min
+
+        cfg.temperature_scalar_per_benchmark = {"fever": 2.5, "triviaqa": 0.7}
+        cfg.safety_u_pre_min_per_benchmark = {"fever": 0.55, "triviaqa": 0.20}
+
+        assert cfg.get_temperature_for("fever") == 2.5
+        assert cfg.get_temperature_for("triviaqa") == 0.7
+        # Unknown benchmark falls back to pooled global
+        assert cfg.get_temperature_for("hotpotqa") == cfg.temperature_scalar
+        assert cfg.get_temperature_for(None) == cfg.temperature_scalar
+
+        assert cfg.get_safety_u_pre_min_for("fever") == 0.55
+        assert cfg.get_safety_u_pre_min_for("triviaqa") == 0.20
+        assert cfg.get_safety_u_pre_min_for("hotpotqa") == cfg.safety_u_pre_min
+        assert cfg.get_safety_u_pre_min_for(None) == cfg.safety_u_pre_min
+
+    def test_apply_temperature_scaling_dispatches_per_benchmark(self):
+        """The _apply_temperature_scaling helper must read T_b from
+        temperature_scalar_per_benchmark when source_benchmark is supplied."""
+        from caem.config import CAEMConfig
+        from caem.confidence.pre_routing import PreRoutingConfidenceEstimator
+
+        cfg = CAEMConfig()
+        cfg.temperature_scalar = 1.0  # pooled = identity
+        cfg.temperature_scalar_per_benchmark = {
+            "fever": 2.0,    # T > 1 squashes confidence toward 0.5
+            "triviaqa": 0.5,  # T < 1 sharpens confidence away from 0.5
+        }
+
+        # Build estimator without instantiating a model
+        est = PreRoutingConfidenceEstimator.__new__(PreRoutingConfidenceEstimator)
+        est.config = cfg
+
+        raw = 0.80
+        p_pooled = est._apply_temperature_scaling(raw, source_benchmark=None)
+        p_fever = est._apply_temperature_scaling(raw, source_benchmark="fever")
+        p_tqa = est._apply_temperature_scaling(raw, source_benchmark="triviaqa")
+        p_unknown = est._apply_temperature_scaling(raw, source_benchmark="not_a_real_bench")
+
+        assert abs(p_pooled - raw) < 1e-9
+        assert abs(p_unknown - raw) < 1e-9  # unknown → pooled
+        assert p_fever < raw and p_fever > 0.5  # T=2 pulls down toward 0.5
+        assert p_tqa > raw  # T=0.5 sharpens up
+        # Three distinct values prove dispatch is live
+        assert len({round(p_pooled, 6), round(p_fever, 6), round(p_tqa, 6)}) == 3
+
+    def test_back_compat_unchanged_when_dicts_empty(self):
+        """Old code paths (no source_benchmark, no per-bench dicts) must
+        behave identically to the v1 single-T pipeline."""
+        from caem.config import CAEMConfig
+        from caem.confidence.pre_routing import PreRoutingConfidenceEstimator
+
+        cfg = CAEMConfig()
+        cfg.temperature_scalar = 1.7
+        # empty per-bench dict (default)
+
+        est = PreRoutingConfidenceEstimator.__new__(PreRoutingConfidenceEstimator)
+        est.config = cfg
+
+        raw = 0.82
+        p_no_tag = est._apply_temperature_scaling(raw, source_benchmark=None)
+        p_fever = est._apply_temperature_scaling(raw, source_benchmark="fever")
+        assert abs(p_no_tag - p_fever) < 1e-9  # any tag → pooled when dict empty
+
+    def test_pipeline_threads_source_benchmark_to_estimate_and_route(self):
+        """Smoke check: pipeline.answer threads source_benchmark to both
+        pre_estimator.estimate() and router.route()."""
+        import inspect
+        from caem.pipeline import CAEMPipeline
+        from caem.confidence.pre_routing import PreRoutingConfidenceEstimator
+        from caem.routing.router import AdaptiveRouter
+
+        sig = inspect.signature(PreRoutingConfidenceEstimator.estimate)
+        assert "source_benchmark" in sig.parameters
+        sig = inspect.signature(AdaptiveRouter.route)
+        assert "source_benchmark" in sig.parameters
+
+        src = inspect.getsource(CAEMPipeline.answer)
+        assert "self.pre_estimator.estimate(" in src
+        assert "source_benchmark=source_benchmark" in src
+        assert "self.router.route(" in src
+
+    def test_temperature_scaling_math_invariants(self):
+        """T → 1 collapses to identity; T → ∞ collapses to 0.5."""
+        from caem.config import CAEMConfig
+        from caem.confidence.pre_routing import PreRoutingConfidenceEstimator
+
+        cfg = CAEMConfig()
+        est = PreRoutingConfidenceEstimator.__new__(PreRoutingConfidenceEstimator)
+        est.config = cfg
+
+        cfg.temperature_scalar = 1.0
+        assert abs(est._apply_temperature_scaling(0.30, None) - 0.30) < 1e-9
+        assert abs(est._apply_temperature_scaling(0.78, None) - 0.78) < 1e-9
+
+        cfg.temperature_scalar = 1000.0
+        p_big = est._apply_temperature_scaling(0.95, None)
+        assert abs(p_big - 0.5) < 1e-2

@@ -1,26 +1,26 @@
 """
-tests/test_fix6_alias_overlap.py
-==================================
-Smoke test for v2 Fix 6 — alias_overlap signal (Wikidata-style alias
-coverage between answer entities and retrieved-passage entities).
+tests/test_alias_overlap.py
+=============================
+Unit tests for caem.verification.alias_overlap (alias_overlap signal —
+Wikidata-style alias coverage between answer entities and
+retrieved-passage entities).
 
-Verifies:
-  1. AliasResolver protocol contract (resolve(entity) -> Set[str])
-  2. InMemoryAliasResolver bidirectional + case-insensitive lookup
-  3. Default entity extractor catches multi-word title-case spans
-  4. compute_alias_overlap returns 1.0 when answer surface forms ARE
-     aliases of passage surface forms (e.g.
-     "William Jefferson Clinton" ↔ "Bill Clinton")
-  5. compute_alias_overlap returns 0.0 when no answer entity overlaps
-     any passage alias
-  6. Returns 0.5 (neutral) when resolver is None / answer/passages
-     produce no entities
-  7. UnifiedVerifierOutput exposes alias_overlap with default 0.5
-  8. COMPOSITE_SIGNALS includes alias_overlap (so the cal_prob
-     composite trains a per-signal isotonic for it)
-  9. eval/harness._derive_verifier_fields() picks up alias_overlap
-     automatically (no manual schema-update needed)
- 10. WikidataAliasResolver gracefully handles a missing alias file
+Coverage
+--------
+  * AliasResolver protocol — resolve(entity) -> Set[str]
+  * InMemoryAliasResolver: bidirectional + case-insensitive lookup
+  * Default entity extractor: multi-word title-case spans
+  * compute_alias_overlap:
+      - 1.0 when answer surfaces ARE aliases of passage entities
+        (e.g. "William Jefferson Clinton" ↔ "Bill Clinton")
+      - 0.0 on disjoint entity sets
+      - 0.5 (neutral) when resolver is None or no entities extracted
+  * UnifiedVerifierOutput.alias_overlap default = 0.5
+  * COMPOSITE_SIGNALS includes alias_overlap
+  * eval/harness.VERIFIER_FIELDS auto-derives alias_overlap
+  * WikidataAliasResolver: lazy load + missing-file graceful fallback
+  * UnifiedVerifier.__init__ accepts alias_resolver kwarg
+  * Output is always in [0, 1]
 """
 from __future__ import annotations
 

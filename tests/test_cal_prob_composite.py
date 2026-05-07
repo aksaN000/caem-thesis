@@ -1,19 +1,24 @@
 """
-tests/test_fix2b_per_benchmark_composite.py
-=============================================
-Smoke test for v2 Fix 2 Commit B — per-benchmark CalProbComposite + nested
-JSON schema + dispatching predict() routing on source_benchmark.
+tests/test_cal_prob_composite.py
+==================================
+Unit tests for caem.verification.cal_prob_composite.CalProbComposite,
+including the per-benchmark dispatch surface and v1/v2 schema
+back-compat.
 
-Verifies:
-  1. fit_per_benchmark() trains per-bench composites + a global pooled fallback
-  2. predict(source_benchmark="X") dispatches to per_benchmark["X"]
-  3. predict(source_benchmark=None) uses the pooled global fallback
-  4. predict(source_benchmark="unknown") falls back to global
-  5. save() emits v2 nested schema when per_benchmark is populated
-  6. load() round-trips both v2 nested AND v1 flat (back-compat)
-  7. SCHEMA_VERSION_V2 is the active default
-  8. Per-bench composites give DIFFERENT predictions for the same signal
-     vector (proves dispatch actually does work, not silently identical)
+Coverage
+--------
+  * SCHEMA_VERSION default = V2 ("branchC.2026-05-06")
+  * fit_per_benchmark(): pooled-global + per-bench children
+  * predict() dispatch:
+      - source_benchmark="X" → per_benchmark["X"]
+      - source_benchmark=None → pooled global fallback
+      - source_benchmark="unknown" → pooled fallback
+  * Per-bench composites yield DIFFERENT predictions for the same
+    signal vector when their training data has inverted relationships
+    (proves dispatch is not silently identical)
+  * save() emits v2 nested schema when per_benchmark is non-empty
+  * load() auto-detects v1 flat vs v2 nested (back-compat)
+  * Real cycle-0 v1 artifact loads cleanly via the back-compat path
 """
 from __future__ import annotations
 

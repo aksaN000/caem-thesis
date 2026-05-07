@@ -397,3 +397,57 @@ class TestBatchRouting:
         assert tiers == [3, 1, 2, 3]
         assert results[0].safety_override is True
         assert results[1].safety_override is False
+
+
+# =========================================================================== #
+# Per-benchmark safety_u_pre_min_b dispatch (v2 Fix 12)                        #
+# =========================================================================== #
+# The companion estimator-side tests live in tests/test_pre_routing.py
+# (TestPerBenchmarkUPre); the calibration-side fitting helpers live in
+# tests/test_calibration_batch_equivalence.py.
+
+class TestPerBenchmarkSafetyFloor:
+    def test_router_dispatches_safety_floor_by_benchmark(self):
+        """The router's OR-condition must use safety_u_pre_min_per_benchmark
+        when a known source_benchmark is supplied."""
+        from caem.config import CAEMConfig
+        from caem.routing.router import AdaptiveRouter
+        from caem.memory.entry import PreRoutingConfidence
+
+        cfg = CAEMConfig()
+        cfg.safety_u_pre_min = 0.38  # pooled global
+        cfg.safety_u_pre_min_per_benchmark = {
+            "fever":    0.55,   # stricter — more queries forced to Tier 3
+            "triviaqa": 0.20,   # looser — fewer queries forced to Tier 3
+        }
+        router = AdaptiveRouter(cfg)
+        pc = PreRoutingConfidence(u_token=0.5, c_conv=0.0, u_pre=0.40)
+
+        d_pooled = router.route(pc, [], source_benchmark=None)
+        d_fever = router.route(pc, [], source_benchmark="fever")
+        d_tqa = router.route(pc, [], source_benchmark="triviaqa")
+        d_unknown = router.route(pc, [], source_benchmark="not_a_real_bench")
+
+        # u_pre=0.40 vs pooled 0.38 → safe; vs fever 0.55 → unsafe;
+        # vs triviaqa 0.20 → safe; unknown → falls back to pooled
+        assert d_pooled.safety_override is False
+        assert d_fever.safety_override is True
+        assert d_tqa.safety_override is False
+        assert d_unknown.safety_override == d_pooled.safety_override
+        assert d_fever.tier == 3  # override forces Tier 3
+
+    def test_router_back_compat_when_per_bench_dict_empty(self):
+        """Empty per_bench dict + any source_benchmark → pooled behaviour."""
+        from caem.config import CAEMConfig
+        from caem.routing.router import AdaptiveRouter
+        from caem.memory.entry import PreRoutingConfidence
+
+        cfg = CAEMConfig()
+        cfg.safety_u_pre_min = 0.45
+        # empty per-bench dict (default)
+        router = AdaptiveRouter(cfg)
+        pc = PreRoutingConfidence(u_token=0.5, c_conv=0.0, u_pre=0.40)
+
+        d_no_tag = router.route(pc, [], source_benchmark=None)
+        d_fever = router.route(pc, [], source_benchmark="fever")
+        assert d_no_tag.safety_override == d_fever.safety_override
