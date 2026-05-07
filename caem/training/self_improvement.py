@@ -149,6 +149,23 @@ class CycleResult:
     # cycle is aborted or when cfg.enable_consolidation is False.
     n_consolidated_clusters: int = 0
     n_consolidated_removed:  int = 0
+    # v2 Fix 4 — multi-modal retention probe results.
+    # ``probe_retentions`` is the per-probe ratio current/pristine
+    # (NaN when a probe failed to load or pristine ≤ 1e-6).
+    # ``probe_post`` is the raw post-cycle accuracy per probe.
+    # The legacy ``mmlu_retention`` / ``mmlu_retention_ratio`` fields
+    # above are preserved for back-compat with downstream report
+    # generators; they shadow the "mmlu" entry of these dicts when
+    # the MMLU probe is in the active probe set.
+    probe_retentions: Dict[str, float] = None  # type: ignore[assignment]
+    probe_post:       Dict[str, float] = None  # type: ignore[assignment]
+
+    def __post_init__(self) -> None:
+        # Default-mutable workaround
+        if self.probe_retentions is None:
+            self.probe_retentions = {}
+        if self.probe_post is None:
+            self.probe_post = {}
 
 
 # -----------------------------------------------------------------------------
@@ -281,6 +298,12 @@ class SelfImprovementLoop:
         # the first run_cycle() and reused so retention_ratio always compares
         # against the unmodified cycle-0 baseline. See reset_pristine_mmlu().
         self._pristine_mmlu: Optional[float] = None
+        # v2 Fix 4 — multi-modal retention probe pristine baseline.
+        # Populated at the same lazy moment as ``_pristine_mmlu``; one
+        # entry per probe in ``cfg.retention_probes``. NaN entries
+        # indicate a probe's dataset failed to load (guard inactive
+        # for that probe; the rest still gate normally).
+        self._pristine_probes: Optional[Dict[str, float]] = None
 
         # v2 Fix 8 — wrap the model with LoRA adapters when configured.
         # Keep the resolved flag on self so other methods (optimizer
@@ -295,12 +318,14 @@ class SelfImprovementLoop:
     # ------------------------------------------------------------------ #
 
     def reset_pristine_mmlu(self) -> None:
-        """Clear the cached pristine MMLU anchor so the next ``run_cycle``
-        re-measures it. Use between independent SIL runs (e.g. variants in
+        """Clear the cached pristine MMLU anchor AND the v2 multi-probe
+        pristine dict so the next ``run_cycle`` re-measures both. Use
+        between independent SIL runs (e.g. variants in
         ``run_cyclic_ablation.py`` that share a constructed
-        SelfImprovementLoop instance, or multi-seed sweeps where each seed
-        must re-establish its own cycle-0 baseline)."""
+        SelfImprovementLoop instance, or multi-seed sweeps where each
+        seed must re-establish its own cycle-0 baseline)."""
         self._pristine_mmlu = None
+        self._pristine_probes = None
 
     # ------------------------------------------------------------------ #
     # v2 Fix 8 — LoRA wrapping                                            #
@@ -484,70 +509,78 @@ class SelfImprovementLoop:
 
         theta_prev = self._snapshot_weights()
 
-        pre_cycle_mmlu = self._mmlu_score(n=200)
-        if self._pristine_mmlu is None:
-            self._pristine_mmlu = pre_cycle_mmlu
+        # v2 Fix 4 — multi-modal retention probe.
+        # Replaces the v1 single-MMLU pre/post check. Probes are run
+        # ONCE pre-cycle (the pristine baseline) on the very first
+        # run_cycle invocation, then ONCE post-cycle every cycle.
+        # The abort criterion is "ANY probe drops below
+        # forgetting_tolerance from pristine".
+        from caem.training.retention_probe import (
+            run_retention_probes,
+            retention_ratios,
+            any_probe_below_tolerance,
+            worst_probe,
+        )
+        probe_names = list(getattr(cfg, "retention_probes", ("mmlu",)))
+        n_per_probe = int(getattr(cfg, "retention_probe_n", 200))
+
+        if self._pristine_probes is None:
+            self._pristine_probes = run_retention_probes(
+                self.model, self.tokenizer,
+                probes=probe_names, n_per_probe=n_per_probe,
+            )
+            # Mirror MMLU into the legacy field so back-compat callers
+            # that read self._pristine_mmlu keep working.
+            self._pristine_mmlu = self._pristine_probes.get("mmlu", float("nan"))
             logger.info(
-                "Cycle %d: anchoring pristine MMLU baseline = %.4f "
-                "(forgetting guard will compare all future cycles against this value).",
-                cycle_num,
-                pre_cycle_mmlu if not math.isnan(pre_cycle_mmlu) else float("nan"),
+                "Cycle %d: anchored pristine retention probes = %s",
+                cycle_num, {k: round(v, 4) for k, v in self._pristine_probes.items()},
             )
         else:
             logger.info(
-                "Cycle %d: pristine MMLU anchor = %.4f | pre-cycle MMLU = %.4f "
-                "(pre-cycle delta from pristine = %+.4f)",
+                "Cycle %d: pristine retention anchor = %s",
                 cycle_num,
-                self._pristine_mmlu,
-                pre_cycle_mmlu if not math.isnan(pre_cycle_mmlu) else float("nan"),
-                (pre_cycle_mmlu - self._pristine_mmlu)
-                    if (not math.isnan(pre_cycle_mmlu)
-                        and not math.isnan(self._pristine_mmlu))
-                    else float("nan"),
-            )
-
-        if math.isnan(self._pristine_mmlu):
-            logger.warning(
-                "Cycle %d: pristine MMLU is NaN -- forgetting guard DISABLED; "
-                "cycle will complete without abort check.", cycle_num,
+                {k: round(v, 4) for k, v in self._pristine_probes.items()},
             )
 
         epochs_done, final_loss = self._finetune(train_pairs, theta_prev)
 
-        post_mmlu = self._mmlu_score(n=200)
-        pristine = self._pristine_mmlu
-        if math.isnan(post_mmlu) \
-                or pristine is None \
-                or math.isnan(pristine) \
-                or pristine <= 1e-6:
-            retention_ratio = 1.0
-            guard_active = False
-        else:
-            retention_ratio = post_mmlu / pristine
-            guard_active = True
+        post_probes = run_retention_probes(
+            self.model, self.tokenizer,
+            probes=probe_names, n_per_probe=n_per_probe,
+        )
+        ratios = retention_ratios(self._pristine_probes or {}, post_probes)
+        guard_active = any(
+            (r is not None and not math.isnan(float(r)))
+            for r in ratios.values()
+        )
 
-        if guard_active:
-            logger.info(
-                "Cycle %d: post-training MMLU = %.4f | retention ratio vs. pristine "
-                "= %.4f (threshold = %.4f)",
-                cycle_num, post_mmlu, retention_ratio, cfg.forgetting_tolerance,
-            )
-        else:
-            logger.info(
-                "Cycle %d: post-training MMLU = %s (forgetting guard inactive)",
-                cycle_num,
-                ("%.4f" % post_mmlu) if not math.isnan(post_mmlu) else "N/A",
-            )
+        # MMLU back-compat scalars for the existing CycleResult /
+        # report-generator schema.
+        post_mmlu = post_probes.get("mmlu", float("nan"))
+        retention_ratio = ratios.get("mmlu", 1.0 if not guard_active else float("nan"))
+        if math.isnan(retention_ratio):
+            retention_ratio = 1.0  # legacy field expected to be non-NaN
+
+        logger.info(
+            "Cycle %d: post-training probes = %s | ratios = %s | tol=%.3f",
+            cycle_num,
+            {k: round(v, 4) for k, v in post_probes.items()},
+            {k: (round(v, 4) if not math.isnan(v) else "NaN") for k, v in ratios.items()},
+            cfg.forgetting_tolerance,
+        )
 
         mmlu_retention_ratio = retention_ratio
         mmlu_retention = post_mmlu
 
         aborted = False
-        if guard_active and retention_ratio < cfg.forgetting_tolerance:
+        if guard_active and any_probe_below_tolerance(ratios, cfg.forgetting_tolerance):
+            worst = worst_probe(ratios) or "?"
+            worst_r = ratios.get(worst, float("nan"))
             logger.warning(
-                "Cycle %d: MMLU forgetting check FAILED (retention %.4f < %.4f) "
-                "-- restoring theta_prev.",
-                cycle_num, retention_ratio, cfg.forgetting_tolerance,
+                "Cycle %d: forgetting check FAILED — worst probe '%s' ratio "
+                "%.4f < %.4f. Restoring theta_prev.",
+                cycle_num, worst, worst_r, cfg.forgetting_tolerance,
             )
             self._restore_weights(theta_prev)
             aborted = True
@@ -703,6 +736,8 @@ class SelfImprovementLoop:
             reconsider_fired=reconsider_fired,
             n_consolidated_clusters=n_consolidated_clusters,
             n_consolidated_removed=n_consolidated_removed,
+            probe_retentions=dict(ratios),  # v2 Fix 4
+            probe_post=dict(post_probes),    # v2 Fix 4
         )
 
     def load_checkpoint(self, cycle_num: int) -> dict:
