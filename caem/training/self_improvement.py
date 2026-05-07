@@ -108,9 +108,18 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class QAPair:
-    """A single (question, answer) training example."""
+    """A single (question, answer) training example.
+
+    v2 Fix 3: ``source_benchmark`` is set when the pair originates from a
+    verified episode tagged with a benchmark. Untagged pairs (legacy /
+    unit-test default) are treated as benchmark-agnostic by the
+    pool-reweighting layer. Cold-start pairs synthesised from gold
+    labels carry the benchmark name they were drawn from so the
+    coverage diagnostic (Fix 5) can attribute them correctly.
+    """
     question: str
     answer:   str
+    source_benchmark: Optional[str] = None
 
 
 @dataclass
@@ -397,6 +406,7 @@ class SelfImprovementLoop:
         verify_fn: Optional[Callable[[Any], Any]] = None,
         deferred_buffer: Optional[Any] = None,
         reconsider_fn: Optional[Callable[[Any], Any]] = None,
+        cold_start_loader: Optional[Callable[[str, int], List["QAPair"]]] = None,
     ) -> CycleResult:
         """Run one self-improvement cycle. See module docstring for the flow."""
         cfg = self.config
@@ -446,8 +456,26 @@ class SelfImprovementLoop:
         # passing the per-benchmark conformal gate, with loss reweighting
         # (Fix 3) providing benchmark balance. Anti-forgetting is provided
         # by LoRA's small parameter budget + multi-modal retention probe.
-        train_pairs = list(episode_pairs)
-        random.shuffle(train_pairs)
+
+        # v2 Fix 3: pool reweighting. Rebalances per-benchmark counts via
+        # temperature-mixed softmax + bounded upsampling + DoReMi floor +
+        # cold-start fallback for zero-count benchmarks. When the flag
+        # is False, fall back to the flat shuffled pool that v1 used.
+        if bool(getattr(cfg, "pool_reweighting_enabled", False)):
+            from caem.training.pool_reweighting import reweight_pool
+            train_pairs = reweight_pool(
+                list(episode_pairs),
+                benchmarks=list(TRAINING_BENCHMARKS),
+                temperature=float(cfg.pool_reweighting_temperature),
+                upsample_cap=float(cfg.pool_reweighting_upsample_cap),
+                doremi_floor=int(cfg.pool_reweighting_doremi_floor),
+                cold_start_n=int(cfg.pool_reweighting_cold_start_n),
+                cold_start_loader=cold_start_loader,
+                seed=seed,
+            )
+        else:
+            train_pairs = list(episode_pairs)
+            random.shuffle(train_pairs)
         n_general_used = 0
         logger.info(
             "Cycle %d: training on %d pairs (%d episodes; general-mix REMOVED in v2).",
@@ -752,7 +780,14 @@ class SelfImprovementLoop:
                 n_loop_filtered += 1
                 chain = (entry.answer or "").strip()
 
-            pairs.append(QAPair(question=entry.question, answer=chain))
+            # v2 Fix 3: carry source_benchmark on every pair so the
+            # pool-reweighting layer can compute per-benchmark counts
+            # and apply temperature-mixed upsampling.
+            pairs.append(QAPair(
+                question=entry.question,
+                answer=chain,
+                source_benchmark=entry.source_benchmark,
+            ))
             preview_texts.append(chain.replace("\n", " ").strip()[:120])
 
         previews = random.sample(preview_texts, min(3, len(preview_texts))) if preview_texts else []
