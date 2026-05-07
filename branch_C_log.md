@@ -4237,3 +4237,153 @@ commit log without changing test coverage.
 
 - `feedback_uniform_verifier_input.md` — verifier-input invariant.
 
+
+---
+
+## 2026-05-07 (later) — Phase 1a launch-ready: 4 audit rounds + 4 commits
+
+After the architecture-fix delivery summarised above, four more
+audit rounds caught additional integration gaps that would have
+left v2 machinery silently inactive on Phase 1a. All fixed.
+
+### Round 2 — first integration audit (`173afcc`)
+
+* `BatchPipeline.batch_verify` dropped `source_benchmark` → batched
+  eval/cal-fold path silently fell back to pooled global. Fixed.
+* `_composite()` weighted_sum legacy branch dropped `alias_overlap`
+  + `entity_head_consistency` → cal_prob JSON failure mode silently
+  dropped both new signals. Fixed via `getattr(cfg, ..., 0.0)`
+  + new `u_stored_weight_alias_overlap` /
+  `u_stored_weight_entity_head_consistency` config defaults.
+* Pristine probe lazy-init at `cycle_num > 0` now logs a warning so
+  resumed runs don't silently anchor against the wrong baseline.
+* Six scripts hardcoded the v1 panel: `run_calibration.py`,
+  `run_purity_validation.py`, `run_simple_ft.py`,
+  `run_experiment.py:1016`, `run_cyclic_ablation.py`,
+  `conditional_conformal_ablation.py` → all read
+  `caem.config.TRAINING_BENCHMARKS` / `TRANSFER_BENCHMARKS`.
+
+### Round 3 — production-runbook + tests update (`7fa96e7`, `4b12ec9`)
+
+* `PRODUCTION_RUNBOOK.md` §11 added: adapter directory replaces
+  `model.pt`; v2 nested JSON schema; new `coverage_diagnostic.json`
+  artefact; multi-probe forgetting guard; v2 config-flags table.
+* `test_benchmark_splits::TestPanelDefinition` and
+  `test_model_loader::test_config_defaults_branch_c` updated to
+  assert v2 invariants (panel sizes 4+3 not 3+4; LoRA primary path
+  with r=32/α=64).
+
+### Round 4 — exhaustive scripts + data-leakage audit (`d061546`)
+
+* `SelfImprovementLoop.load_checkpoint` silently skipped weight
+  loading when v2 wrote to `cycle_<N>/adapter/` instead of
+  `model.pt`. A mid-trajectory halt + resume would have replayed
+  SIL from pristine on every restart. Fixed: detect adapter dir
+  first via `PeftModel`; fall back to `model.pt` for v1 cycles.
+* `caem_demo_server.py` did `torch.load(model.pt)` with no adapter
+  detection. Production server would crash on any v2 cycle-N
+  checkpoint. Fixed with three-way dispatcher.
+* Nine more scripts hardcoded v1 panel (the previous audit only
+  caught six): `baseline_sig_tests.py`, `build_calibration_pairs.py`,
+  `seed_cold_start.py` (highest-risk — cycle-0 cold-start would have
+  skipped HotpotQA + CSQA entirely), `run_ablation.py`,
+  `rescore_baselines_through_verifier.py`, `phase4_artifacts.py`,
+  + four defense-in-depth fallback tuples.
+* Both `run_calibration.py` and `run_purity_validation.py` MCQ
+  scoring missed the `commonsense_qa → n_choices=5` branch. Fixed.
+
+### Round 5 — orchestrator + cycle-0 fit wiring (`6397650`)
+
+The bigger silent-no-op gap: every per-benchmark dispatch surface
+shipped, but the orchestrator never invoked the per-benchmark fit
+paths nor passed the per-benchmark inputs at cycle boundaries. Four
+CRITICAL bugs:
+
+* `sil.run_cycle()` was called WITHOUT `cold_start_loader=...` →
+  Fix-3 cold-start fallback was a no-op for zero-count benchmarks.
+  Fixed: closure pulls from
+  `build_benchmark_pools(benchmark, n_cycles).seed` gold pairs.
+* `cycle_<N>/coverage_diagnostic.json` was never written → Fix-5
+  halt-trigger evaluator ran blind. Fixed: post-cycle hook calls
+  `build_coverage_diagnostic` and writes the JSON.
+* `fit_composite_calibration.py` called `.fit()` not
+  `.fit_per_benchmark()` → cycle-0 composite JSON would have been
+  v1 pooled-only. Fixed: `--fit_per_benchmark` flag (default ON).
+* `fit_conformal_gate.py` same problem. Fixed with the same flag
+  + new `--alpha_store_overrides` / `--alpha_defer_overrides`
+  args for per-bench α relaxation (FEVER strict, TQA relaxed).
+* `fit_per_benchmark_safety_floors()` defined but never called →
+  Fix-12 per-bench safety dicts would have stayed empty. Fixed:
+  `calibrate_pipeline` reads `calibration_fold_samples.json`
+  post-T-fit, calls both helpers, updates both
+  `cfg.*_per_benchmark` dicts AND persists in
+  `calibrated_config.json`.
+
+### Net commit count + verification
+
+21 commits on `feat/qwen-3b-goal2` since the architecture-lock
+entry on 2026-05-06: 13 architecture-fix commits + 1 gdrive layout
++ 1 test consolidation + 1 plan/log + 4 integration-audit rounds +
+1 launch-readiness entry. 773 unit + smoke + regression tests pass
+cleanly; 8 pre-existing mock-seed `test_self_improvement.py`
+failures unchanged on baseline.
+
+### Phase 1a launch protocol (this is the launch authorisation)
+
+The sequence below is what an operator runs on the Vast 5090
+instance to launch the v2 trajectory. The instance is assumed to
+have peft 0.19+, bitsandbytes, sentence-transformers 4.1.0,
+transformers 4.x with torch.compile support, and the
+HuggingFace cache pre-populated with Qwen2.5-3B-Instruct +
+MiniCheck + bge-reranker-v2-m3.
+
+```bash
+cd /workspace/caem
+git fetch origin
+git checkout feat/qwen-3b-goal2
+git pull --ff-only origin feat/qwen-3b-goal2  # confirms commit 6397650+
+
+source /venv/main/bin/activate
+export PYTHONPATH=$PWD
+
+# Pre-launch sanity (CPU-only, fast):
+python -m pytest tests/test_pool_reweighting.py tests/test_retention_probe.py \
+    tests/test_coverage_diagnostic.py tests/test_lora_sil.py \
+    tests/test_alias_overlap.py tests/test_entity_head.py \
+    tests/test_answer_canonicalizer.py tests/test_conformal_gate.py \
+    tests/test_cal_prob_composite.py tests/test_pre_routing.py \
+    tests/test_router.py -q
+
+# v2 launch:
+tmux new-session -d -s plan_a -x 220 -y 60 \
+    './run_phase1a.sh 2>&1 | tee -a outputs/phase1a_runner.log'
+```
+
+Expected first-30-min indicators (grep on the run.log):
+* `Per-benchmark composite fit: N benchmarks (...)` confirms
+  `fit_composite_calibration.py --fit_per_benchmark` fired.
+* `Per-benchmark conformal-gate fit: N benchmarks (...)` confirms
+  `fit_conformal_gate.py --fit_per_benchmark` fired.
+* `Per-benchmark T_b fitted: {...}` confirms Fix-12 wiring.
+* `Per-benchmark safety_u_pre_min_b fitted: {...}` confirms
+  Fix-12 safety floor wiring.
+
+Expected first-cycle-close indicators:
+* `cycle_1/adapter/adapter_config.json` exists — confirms
+  Fix-8 LoRA adapter checkpoint write.
+* `cycle_1/coverage_diagnostic.json` exists — confirms
+  Fix-5 orchestrator wiring.
+* `cycle_1/composite_calibration.json` schema_version
+  `branchC.2026-05-06` with non-empty `per_benchmark` block.
+
+Halt signals:
+* Any retention probe ratio < 0.93 → SIL aborts cycle, restores
+  pre-cycle adapter weights, runner continues.
+* Adapter SV-collapse score ≥ 0.95 (single cycle) → coverage
+  diagnostic recommends halt; operator decides.
+* Per-benchmark admission rate = 0 for two consecutive cycles
+  → coverage diagnostic recommends auto-relax of that
+  benchmark's α_store; operator edits
+  `outputs/full_run/cycle_<N>/conformal_gate.json`
+  per-benchmark α and resumes from cycle N+1.
+
