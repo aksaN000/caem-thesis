@@ -700,6 +700,33 @@ class CAEMConfig:
     forgetting_tolerance: float = 0.93
 
     # ------------------------------------------------------------------ #
+    # SIL pool reweighting — v2 Fix 3 (2026-05-07)                        #
+    # ------------------------------------------------------------------ #
+    # Replaces the v1 flat training pool. After ``_collect_episodes``
+    # builds the verified-episode list, ``pool_reweighting.reweight_pool``
+    # rebalances per-benchmark counts via temperature-mixed softmax,
+    # bounded upsampling, DoReMi-style minimum floor, and cold-start
+    # gold-labelled fallback for zero-count benchmarks.
+    pool_reweighting_enabled: bool = True
+    # Softmax temperature for per-benchmark proportions. T=1 = empirical
+    # (no smoothing); T → ∞ = uniform. T=2 collapses a 10× count gap to
+    # a ~3× weight gap. (Du et al. 2022 / DoReMi 2023 §3.2.)
+    pool_reweighting_temperature: float = 2.0
+    # Each individual sample is replicated AT MOST this many times when
+    # upsampling a low-count benchmark to its target. Caps the
+    # "duplicate the same sample 100×" pathology that destroyed
+    # cycle-1 storage diversity in v1.
+    pool_reweighting_upsample_cap: float = 3.0
+    # DoReMi floor: minimum samples per benchmark in the final pool,
+    # even if temperature smoothing rounds the share down. Hard
+    # guarantee that every training benchmark sees gradient signal.
+    pool_reweighting_doremi_floor: int = 50
+    # Cold-start fallback: when a benchmark has zero verified episodes,
+    # seed with this many gold-labelled samples (drawn via the loader
+    # passed to SelfImprovementLoop.run_cycle as ``cold_start_loader``).
+    pool_reweighting_cold_start_n: int = 100
+
+    # ------------------------------------------------------------------ #
     # SIL-pool loop filter (Branch C Goal 4 -- memory hygiene)             #
     # ------------------------------------------------------------------ #
     # Two-signal repetitive-loop detector applied inside
