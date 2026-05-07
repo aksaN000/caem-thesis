@@ -449,13 +449,14 @@ def run_cyclic_ablation(ns: argparse.Namespace) -> None:
     # --- Load datasets ------------------------------------------------------- #
     if ns.smoke_test:
         from eval.benchmarks import make_synthetic_samples
+        # v2 Fix 9b: read training panel from caem.config (was hardcoded
+        # to v1 panel {fever, triviaqa, natural_questions}).
+        from caem.config import TRAINING_BENCHMARKS as _CFG_TRAINING_BENCHMARKS
+        _train_set = set(_CFG_TRAINING_BENCHMARKS)
         requested = [bm.strip().lower() for bm in ns.benchmarks]
-        sil_benchmarks = [
-            bm for bm in requested
-            if bm in {"fever", "triviaqa", "natural_questions"}
-        ]
+        sil_benchmarks = [bm for bm in requested if bm in _train_set]
         if not sil_benchmarks:
-            sil_benchmarks = ["fever", "triviaqa", "natural_questions"]
+            sil_benchmarks = list(_CFG_TRAINING_BENCHMARKS)
         # Honour the ablation profile's n_sil_per_cycle / n_eval_per_benchmark
         # instead of a hardcoded 10. This lets the smoke profile stay tiny
         # (n=4) while medium/full profiles still exercise realistic batch

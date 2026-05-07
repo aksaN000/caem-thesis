@@ -105,13 +105,17 @@ from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Tuple
 logger = logging.getLogger(__name__)
 
 
-PURITY_BENCHMARK_DEFAULTS = ["fever", "triviaqa", "natural_questions"]
+# v2 Fix 9b: read the benchmark roster from caem.config so the purity
+# validation tracks the live training panel.
+from caem.config import TRAINING_BENCHMARKS as _CFG_TRAINING_BENCHMARKS
+
+PURITY_BENCHMARK_DEFAULTS = list(_CFG_TRAINING_BENCHMARKS)
+# Purity/calibration sets are carved from the SIL training pool. Training
+# benchmarks always use the "train" split; transfer benchmarks fall through
+# to their canonical eval splits when explicitly named.
 PURITY_BENCHMARK_SPLITS = {
-    # Purity/calibration sets are carved from the SIL training pool.
-    "fever": "train",
-    "triviaqa": "train",
-    "natural_questions": "train",
-    # Transfer-only benchmarks are optional here and usually do not have purity_ids.
+    **{bm: "train" for bm in _CFG_TRAINING_BENCHMARKS},
+    "natural_questions": "validation",
     "truthfulqa": "validation",
     "strategyqa": "test",
     "arc_challenge": "test",

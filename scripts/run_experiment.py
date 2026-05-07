@@ -1012,10 +1012,15 @@ def run_experiment(ns: argparse.Namespace) -> None:
     if ns.smoke_test:
         logger.info("SMOKE TEST MODE -- using synthetic samples (n=10)")
         from eval.benchmarks import make_synthetic_samples
+        # v2 Fix 9b: read training panel from caem.config so the smoke
+        # path tracks the live roster (was hardcoded to v1 panel
+        # {fever, triviaqa, natural_questions}).
+        from caem.config import TRAINING_BENCHMARKS as _CFG_TRAINING_BENCHMARKS
+        _train_set = set(_CFG_TRAINING_BENCHMARKS)
         requested = [bm.strip().lower() for bm in ns.benchmarks]
-        sil_benchmarks = [bm for bm in requested if bm in {"fever", "triviaqa", "natural_questions"}]
+        sil_benchmarks = [bm for bm in requested if bm in _train_set]
         if not sil_benchmarks:
-            sil_benchmarks = ["fever", "triviaqa", "natural_questions"]
+            sil_benchmarks = list(_CFG_TRAINING_BENCHMARKS)
         sil_pool = {bm: make_synthetic_samples(bm, n=10) for bm in sil_benchmarks}
         eval_samples = {bm: make_synthetic_samples(bm, n=10) for bm in requested}
 

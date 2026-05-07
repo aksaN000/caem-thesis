@@ -95,14 +95,19 @@ def _parse_args() -> argparse.Namespace:
         help="Root directory for baseline eval JSONs. "
              "Results are written to <output_dir>/<baseline>/<bench>_cycle0.json.",
     )
+    # v2 Fix 9b: read benchmark roster from caem.config so the baseline
+    # eval panel tracks v2 splits (was hardcoded to v1 6-bench panel
+    # including arc_challenge which v2 dropped).
+    from caem.config import (
+        TRAINING_BENCHMARKS as _CFG_TRAINING_BENCHMARKS,
+        TRANSFER_BENCHMARKS as _CFG_TRANSFER_BENCHMARKS,
+    )
     p.add_argument(
         "--benchmarks",
         nargs="+",
-        default=[
-            "fever", "triviaqa", "natural_questions",
-            "truthfulqa", "strategyqa", "arc_challenge",
-        ],
-        help="Benchmarks to evaluate on.",
+        default=list(_CFG_TRAINING_BENCHMARKS) + list(_CFG_TRANSFER_BENCHMARKS),
+        help="Benchmarks to evaluate on. v2 default = TRAINING_BENCHMARKS "
+             "+ TRANSFER_BENCHMARKS from caem.config.",
     )
     p.add_argument(
         "--n_questions",
