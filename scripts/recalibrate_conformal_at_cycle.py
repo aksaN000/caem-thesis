@@ -59,7 +59,7 @@ import json
 import logging
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 logging.basicConfig(
     level=logging.INFO,
@@ -141,72 +141,148 @@ def main() -> int:
     from caem.verification.cal_prob_composite import CalProbComposite
     from caem.verification.conformal_gate import ConformalStorageGate
 
-    # ============== Step A: refit CalProbComposite (no EMA) ==============
-    logger.info("Step A — refit CalProbComposite (fresh isotonic, no EMA)")
-    composite = CalProbComposite().fit(samples, fit_boost=args.cherian_boost, boost_C=args.boost_C)
+    # ============== Step A: refit CalProbComposite per-bench (no EMA) ==============
+    # 2026-05-07 FIX: prior pooled fit() silently dropped per_benchmark
+    # children, killing per-bench composite dispatch after cycle 1. Now
+    # uses fit_per_benchmark so per-bench isotonic curves survive the
+    # per-cycle EMA chain end-to-end.
+    composite_samples_by_benchmark: Dict[str, List[Dict[str, Any]]] = {}
+    for s in samples:
+        bm = s.get("source_benchmark") or "_untagged"
+        composite_samples_by_benchmark.setdefault(bm, []).append(s)
+    logger.info(
+        "Step A — refit CalProbComposite per-bench (fresh isotonic, no EMA; "
+        "cal-fold sizes: %s)",
+        {b: len(v) for b, v in composite_samples_by_benchmark.items()},
+    )
+    composite = CalProbComposite().fit_per_benchmark(
+        composite_samples_by_benchmark,
+        fit_boost=args.cherian_boost, boost_C=args.boost_C,
+    )
     composite.save(args.output_composite)
-    logger.info("saved %s", args.output_composite)
+    logger.info(
+        "saved %s (%d per-bench children + pooled fallback)",
+        args.output_composite, len(composite.per_benchmark),
+    )
 
     # Score the calibration fold under the new composite for gate fit
     for s in samples:
         s["u_stored"] = composite.predict(s)
 
-    # ============== Step B: refit ConformalStorageGate ==============
-    logger.info("Step B — fresh-fit ConformalStorageGate on the rescored fold")
-    fresh_gate = ConformalStorageGate.fit(
-        samples,
-        score_key="u_stored",
-        em_key="em",
-        alpha_store=args.alpha_store,
-        alpha_defer=args.alpha_defer,
-    )
-    logger.info("fresh tau_store=%.4f  tau_defer=%.4f",
-                fresh_gate.tau_store, fresh_gate.tau_defer)
-
-    # ============== Step C: EMA-smooth tau against previous cycle ==============
-    smoothed_gate = fresh_gate
+    # ============== Step B: load previous gate FIRST (per-bench α inheritance) ==============
+    # 2026-05-07 FIX: previous behaviour called fit() (pooled-only) which
+    # silently dropped per_benchmark children, killing per-bench α dispatch
+    # after cycle 1. We now load the prev gate first, harvest its per-bench
+    # alphas, and refit via fit_per_benchmark so the per-bench dispatch
+    # survives the per-cycle EMA chain end-to-end.
     prev_gate: Optional[ConformalStorageGate] = None
+    prev_alphas_per_benchmark: Dict[str, Tuple[float, float]] = {}
     if args.previous_gate and args.previous_gate.exists():
         try:
             prev_gate = ConformalStorageGate.load(args.previous_gate)
-            tau_store_smooth = (
-                args.ema_alpha * prev_gate.tau_store
-                + (1.0 - args.ema_alpha) * fresh_gate.tau_store
-            )
-            tau_defer_smooth = (
-                args.ema_alpha * prev_gate.tau_defer
-                + (1.0 - args.ema_alpha) * fresh_gate.tau_defer
-            )
-            # Build a smoothed gate object (reusing all the diagnostic fields
-            # from the fresh fit so the JSON is well-formed; only the τ values
-            # are smoothed).
-            smoothed_gate = ConformalStorageGate(
-                tau_store=tau_store_smooth,
-                tau_defer=tau_defer_smooth,
-                alpha_store=fresh_gate.alpha_store,
-                alpha_defer=fresh_gate.alpha_defer,
-                cal_n=fresh_gate.cal_n,
-                store_n=fresh_gate.store_n,
-                store_precision=fresh_gate.store_precision,
-                defer_n=fresh_gate.defer_n,
-                defer_precision=fresh_gate.defer_precision,
-            )
+            for bm, child in prev_gate.per_benchmark.items():
+                prev_alphas_per_benchmark[bm] = (
+                    float(child.alpha_store), float(child.alpha_defer),
+                )
             logger.info(
-                "EMA-smoothed (alpha=%.2f):  tau_store=%.4f (was %.4f, fresh %.4f)  "
-                "tau_defer=%.4f (was %.4f, fresh %.4f)",
-                args.ema_alpha,
-                smoothed_gate.tau_store, prev_gate.tau_store, fresh_gate.tau_store,
-                smoothed_gate.tau_defer, prev_gate.tau_defer, fresh_gate.tau_defer,
+                "previous gate loaded: global τ_store=%.4f, per-bench α: %s",
+                prev_gate.tau_store,
+                {b: a[0] for b, a in prev_alphas_per_benchmark.items()},
             )
         except Exception as exc:
             logger.warning(
-                "failed to load previous gate (%s); using fresh fit (no EMA)",
+                "failed to load previous gate (%s); per-bench α inheritance disabled",
                 exc,
             )
+            prev_gate = None
     else:
         logger.info(
-            "no previous gate at %s; using fresh fit (no EMA — same as Cycle-0 baseline)",
+            "no previous gate at %s; using fresh fit (no EMA, no per-bench α inheritance)",
             args.previous_gate,
+        )
+
+    # ============== Step C: refit ConformalStorageGate per-bench ==============
+    # Group samples by source_benchmark for fit_per_benchmark.
+    samples_by_benchmark: Dict[str, List[Dict[str, Any]]] = {}
+    for s in samples:
+        bm = s.get("source_benchmark") or "_untagged"
+        samples_by_benchmark.setdefault(bm, []).append(s)
+    logger.info(
+        "Step C — fresh-fit ConformalStorageGate per-bench (default α_store=%.2f, "
+        "%d per-bench overrides inherited; cal-fold sizes: %s)",
+        args.alpha_store, len(prev_alphas_per_benchmark),
+        {b: len(v) for b, v in samples_by_benchmark.items()},
+    )
+    fresh_gate = ConformalStorageGate.fit_per_benchmark(
+        samples_by_benchmark,
+        alphas_per_benchmark=prev_alphas_per_benchmark,
+        score_key="u_stored",
+        em_key="em",
+        default_alpha_store=args.alpha_store,
+        default_alpha_defer=args.alpha_defer,
+    )
+    logger.info(
+        "fresh global τ_store=%.4f τ_defer=%.4f; per-bench fitted: %s",
+        fresh_gate.tau_store, fresh_gate.tau_defer,
+        {b: f"τ_s={c.tau_store:.3f}" for b, c in fresh_gate.per_benchmark.items()},
+    )
+
+    # ============== Step D: EMA-smooth tau against previous cycle ==============
+    # Smooth BOTH the global pooled tau AND every per-benchmark child's tau.
+    smoothed_gate = fresh_gate
+    if prev_gate is not None:
+        tau_store_smooth = (
+            args.ema_alpha * prev_gate.tau_store
+            + (1.0 - args.ema_alpha) * fresh_gate.tau_store
+        )
+        tau_defer_smooth = (
+            args.ema_alpha * prev_gate.tau_defer
+            + (1.0 - args.ema_alpha) * fresh_gate.tau_defer
+        )
+        smoothed_gate = ConformalStorageGate(
+            tau_store=tau_store_smooth,
+            tau_defer=tau_defer_smooth,
+            alpha_store=fresh_gate.alpha_store,
+            alpha_defer=fresh_gate.alpha_defer,
+            cal_n=fresh_gate.cal_n,
+            store_n=fresh_gate.store_n,
+            store_precision=fresh_gate.store_precision,
+            defer_n=fresh_gate.defer_n,
+            defer_precision=fresh_gate.defer_precision,
+        )
+        # Smooth each per-benchmark child against its prev counterpart
+        for bm, fresh_child in fresh_gate.per_benchmark.items():
+            prev_child = prev_gate.per_benchmark.get(bm)
+            if prev_child is not None:
+                child_tau_store_smooth = (
+                    args.ema_alpha * prev_child.tau_store
+                    + (1.0 - args.ema_alpha) * fresh_child.tau_store
+                )
+                child_tau_defer_smooth = (
+                    args.ema_alpha * prev_child.tau_defer
+                    + (1.0 - args.ema_alpha) * fresh_child.tau_defer
+                )
+                smoothed_child = ConformalStorageGate(
+                    tau_store=child_tau_store_smooth,
+                    tau_defer=child_tau_defer_smooth,
+                    alpha_store=fresh_child.alpha_store,
+                    alpha_defer=fresh_child.alpha_defer,
+                    cal_n=fresh_child.cal_n,
+                    store_n=fresh_child.store_n,
+                    store_precision=fresh_child.store_precision,
+                    defer_n=fresh_child.defer_n,
+                    defer_precision=fresh_child.defer_precision,
+                )
+                smoothed_gate.per_benchmark[bm] = smoothed_child
+            else:
+                # New per-bench child — no prev to smooth against, keep fresh
+                smoothed_gate.per_benchmark[bm] = fresh_child
+        logger.info(
+            "EMA-smoothed (alpha=%.2f):  global τ_store=%.4f (was %.4f, fresh %.4f); "
+            "%d per-bench children smoothed",
+            args.ema_alpha,
+            smoothed_gate.tau_store, prev_gate.tau_store, fresh_gate.tau_store,
+            len(smoothed_gate.per_benchmark),
         )
 
     smoothed_gate.save(args.output_gate)
