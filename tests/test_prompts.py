@@ -160,3 +160,119 @@ def test_chatml_tier2_all_four_benchmarks_answer_format():
         assert expected_format in prompt, (
             f"Expected answer format {expected_format!r} not found for query {q!r}"
         )
+
+
+# =========================================================================== #
+# v2 Fix 10 — per-benchmark prompts (CommonsenseQA + HotpotQA)                  #
+# =========================================================================== #
+# CSQA = 5-choice MCQ (extends ARC at the regex level). HotpotQA = open
+# factoid that requires the multi-step prompt template; queries are
+# surface-identical to TriviaQA / NQ so the harness pins the task via
+# detect_query_task(query, task_hint=source_benchmark).
+
+def test_detect_query_task_auto_csqa_vs_arc():
+    from caem.prompts import detect_query_task
+    csqa_query = (
+        "Question: Where does someone usually wear a watch? "
+        "Choices: (A) ankle (B) shelf (C) wrist (D) ceiling (E) refrigerator\n"
+        "Answer with just the multiple choice letter."
+    )
+    arc_query = (
+        "Question: What process allows plants to make food? "
+        "Choices: (A) digestion (B) photosynthesis (C) respiration (D) fermentation\n"
+        "Answer with just the multiple choice letter."
+    )
+    assert detect_query_task(csqa_query) == "csqa"
+    assert detect_query_task(arc_query) == "arc"
+
+
+def test_detect_query_task_hint_pins_hotpotqa():
+    from caem.prompts import detect_query_task
+    raw = "Which actor played the lead role in the 2010 film Inception?"
+    assert detect_query_task(raw) == "open"
+    assert detect_query_task(raw, task_hint="hotpotqa") == "hotpotqa"
+    assert detect_query_task(raw, task_hint="triviaqa") == "open"
+    assert detect_query_task(raw, task_hint="commonsense_qa") == "csqa"
+    # Unknown hint falls back to auto-detect
+    assert detect_query_task(raw, task_hint="not_a_real_benchmark") == "open"
+
+
+def test_task_spec_csqa_advertises_5_choice():
+    from caem.prompts import _task_spec
+    q = (
+        "Question: ...? Choices: (A) ... (B) ... (C) ... (D) ... (E) ...\n"
+        "Answer with just the multiple choice letter."
+    )
+    line, fmt = _task_spec("csqa", q, with_passages=False)
+    assert fmt == "A | B | C | D | E"
+
+
+def test_task_spec_hotpotqa_includes_multi_step_instruction():
+    from caem.prompts import _task_spec
+    line, fmt = _task_spec("hotpotqa", "Some multi-hop question", with_passages=True)
+    assert (
+        "combining information" in line.lower()
+        or "reason through the steps" in line.lower()
+    )
+    assert "short factual answer" in fmt.lower()
+
+
+def test_few_shot_parts_csqa_5_choice_example():
+    from caem.prompts import _few_shot_parts
+    _, ex_user, ex_asst = _few_shot_parts("csqa", with_passages=False)
+    for label in ("(A)", "(B)", "(C)", "(D)", "(E)"):
+        assert label in ex_user
+    assert any(f"Answer: {L}" in ex_asst for L in "ABCDE")
+
+
+def test_few_shot_parts_hotpotqa_multi_step_example():
+    from caem.prompts import _few_shot_parts
+    _, ex_user, ex_asst = _few_shot_parts("hotpotqa", with_passages=False)
+    assert "Reasoning:" in ex_asst and "Answer:" in ex_asst
+    reasoning_part = ex_asst.split("Answer:")[0]
+    sentence_count = sum(1 for c in reasoning_part if c == ".")
+    assert sentence_count >= 2  # multi-step chain
+
+
+def test_build_tier2_prompt_threads_source_benchmark():
+    from caem.prompts import build_tier2_prompt
+
+    class _Tok:
+        def apply_chat_template(self, messages, tokenize=False, add_generation_prompt=True):
+            parts = []
+            for m in messages:
+                parts.append(f"<|im_start|>{m['role']}\n{m['content']}<|im_end|>")
+            if add_generation_prompt:
+                parts.append("<|im_start|>assistant\n")
+            return "\n".join(parts)
+
+    raw = "Which river runs through Cairo?"
+    tok = _Tok()
+    plain, _ = build_tier2_prompt(raw, tok)
+    hotpot, _ = build_tier2_prompt(raw, tok, source_benchmark="hotpotqa")
+    # Different prompts because hotpotqa branch emits a multi-hop instruction.
+    assert plain != hotpot
+
+
+def test_build_tier3_prompt_threads_source_benchmark():
+    from caem.prompts import build_tier3_prompt
+
+    class _Tok:
+        def apply_chat_template(self, messages, tokenize=False, add_generation_prompt=True):
+            parts = []
+            for m in messages:
+                parts.append(f"<|im_start|>{m['role']}\n{m['content']}<|im_end|>")
+            if add_generation_prompt:
+                parts.append("<|im_start|>assistant\n")
+            return "\n".join(parts)
+
+    raw = (
+        "Question: ...? Choices: (A) a (B) b (C) c (D) d (E) e\n"
+        "Answer with just the multiple choice letter."
+    )
+    tok = _Tok()
+    plain, _ = build_tier3_prompt(raw, [], tok)
+    csqa, _ = build_tier3_prompt(raw, [], tok, source_benchmark="commonsense_qa")
+    # Auto-detect already returns csqa for this query; task_hint should
+    # not change the result.
+    assert plain == csqa

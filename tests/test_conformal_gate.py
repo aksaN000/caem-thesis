@@ -1,19 +1,21 @@
 """
-tests/test_fix1_per_benchmark_gate.py
-=======================================
-Smoke test for v2 Fix 1 — per-benchmark conformal storage gate.
+tests/test_conformal_gate.py
+==============================
+Unit tests for caem.verification.conformal_gate.ConformalStorageGate.
 
-Verifies:
-  1. fit_per_benchmark() trains per-bench gates + a pooled global fallback
-  2. decide(source_benchmark="X") dispatches to per_benchmark["X"] thresholds
-  3. decide(source_benchmark=None) uses the pooled global thresholds
-  4. decide(source_benchmark="unknown") falls back to global
-  5. save() emits v2 nested schema when per_benchmark is populated
-  6. load() round-trips both v2 nested AND v1 flat (back-compat)
-  7. Per-bench α relaxation produces lower tau_store than the strict α=0.05
-     pooled gate (proves alpha override actually does work)
-  8. The actual existing outputs/full_run/cycle_4/conformal_gate.json
-     (v1 artifact) loads cleanly via the back-compat path
+Coverage
+--------
+  * SCHEMA_VERSION default = V2 ("branchC.2026-05-06")
+  * fit_per_benchmark(): pooled-global + per-bench children
+  * decide() dispatch:
+      - source_benchmark="X" → per_benchmark["X"] thresholds
+      - source_benchmark=None → pooled thresholds
+      - source_benchmark="unknown" → pooled fallback
+  * save() emits v2 nested layout when per_benchmark is non-empty
+  * load() round-trips v2 nested AND v1 flat (back-compat)
+  * Per-bench α relaxation lowers tau_store vs strict α=0.05
+  * Real cycle-4 v1 artifact (outputs/full_run/cycle_4/conformal_gate.json)
+    loads cleanly via the back-compat path
 """
 from __future__ import annotations
 

@@ -353,3 +353,97 @@ def test_collect_calibration_data_zero_or_negative_batch_size_clamps_to_one(tmp_
     assert len(u_pre) == 4
     assert len(labels) == 4
     assert len(signals) == 4
+
+
+# =========================================================================== #
+# Per-benchmark calibration fitting helpers (v2 Fix 12)                        #
+# =========================================================================== #
+# Tests for fit_per_benchmark_temperatures + fit_per_benchmark_safety_floors,
+# the post-collect_calibration_data helpers that turn per-sample records
+# into the per-bench T_b and safety_u_pre_min_b dicts CAEMConfig consumes.
+# Companion dispatch tests live in tests/test_pre_routing.py and
+# tests/test_router.py.
+
+
+def _make_synthetic_calib_records(n_per_bench: int, em_rate: float, seed: int = 0):
+    """Build calibration-fold records used by the fit helpers. Higher u_pre
+    correlates with em=1."""
+    import random
+    rng = random.Random(seed)
+    records = []
+    for i in range(n_per_bench):
+        em = 1 if rng.random() < em_rate else 0
+        if em == 1:
+            u = rng.uniform(0.55, 0.95)
+        else:
+            u = rng.uniform(0.05, 0.50)
+        records.append({"benchmark": "x", "u_pre": u, "em": em})
+    return records
+
+
+def test_fit_per_benchmark_temperatures():
+    from scripts.run_calibration import fit_per_benchmark_temperatures
+    recs_a = _make_synthetic_calib_records(120, em_rate=0.55, seed=1)
+    recs_b = _make_synthetic_calib_records(120, em_rate=0.40, seed=2)
+    for r in recs_a:
+        r["benchmark"] = "fever"
+    for r in recs_b:
+        r["benchmark"] = "triviaqa"
+    records = recs_a + recs_b
+
+    fit = fit_per_benchmark_temperatures(records, pooled_T=1.0)
+    assert set(fit.keys()) == {"fever", "triviaqa"}
+    # fit_temperature_scalar bounds T to [exp(-3), exp(3)] = [0.0498, 20.09]
+    for bm, T_b in fit.items():
+        assert 0.04 <= T_b <= 20.1, f"T_b for {bm} out of bounds: {T_b}"
+
+
+def test_fit_per_benchmark_safety_floors():
+    from scripts.run_calibration import fit_per_benchmark_safety_floors
+    import random
+    rng = random.Random(7)
+    records = []
+    for _ in range(200):
+        em = rng.randint(0, 1)
+        u = rng.uniform(0.6, 0.95) if em == 1 else rng.uniform(0.05, 0.4)
+        records.append({"benchmark": "fever", "u_pre": u, "em": em})
+
+    floors = fit_per_benchmark_safety_floors(
+        records, pooled_floor=0.38, target_precision=0.95,
+    )
+    assert "fever" in floors
+    assert floors["fever"] >= 0.30, (
+        f"floor unexpectedly low for cleanly-separated bands at "
+        f"target_precision=0.95: {floors['fever']}"
+    )
+
+    floors_loose = fit_per_benchmark_safety_floors(
+        records, pooled_floor=0.38, target_precision=0.80,
+    )
+    assert floors_loose["fever"] > 0.0
+
+
+def test_fit_per_benchmark_falls_back_for_thin_data():
+    from scripts.run_calibration import (
+        fit_per_benchmark_temperatures,
+        fit_per_benchmark_safety_floors,
+    )
+    import random
+    rng = random.Random(11)
+    recs = []
+    for _ in range(120):
+        em = rng.randint(0, 1)
+        u = rng.uniform(0.4, 0.9) if em == 1 else rng.uniform(0.0, 0.5)
+        recs.append({"benchmark": "fever", "u_pre": u, "em": em})
+    for _ in range(5):
+        recs.append({"benchmark": "triviaqa", "u_pre": 0.5, "em": 1})
+
+    pooled_T = 1.7
+    pooled_floor = 0.42
+    Ts = fit_per_benchmark_temperatures(recs, pooled_T=pooled_T)
+    floors = fit_per_benchmark_safety_floors(recs, pooled_floor=pooled_floor)
+    # Thin benchmark → pooled fallback
+    assert Ts["triviaqa"] == pooled_T
+    assert floors["triviaqa"] == pooled_floor
+    # Healthy benchmark → real fit
+    assert 0.05 <= Ts["fever"] <= 20.1

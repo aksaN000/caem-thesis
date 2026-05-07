@@ -22,12 +22,20 @@ benchmark. Three transformation classes:
 1. **MCQ letter** (CommonsenseQA, ARC-Challenge, OpenBookQA, MMLU):
    Detect "Answer: X" with X ∈ {A..E} AND a Choices: block in the
    query. Look up the option text matching X. Emit
-   "The answer to the question is: <option_text>."
+   "Answer: <option_text>."
 
 2. **Bare entity** (TriviaQA, NaturalQuestions, HotpotQA):
    Detect short non-declarative answer (≤ 5 tokens, no verb token,
    not a refusal sentinel). Emit
-   "The answer to the question is: <entity>."
+   "Answer: <entity>."
+
+The "Answer: <X>" wrapper is intentionally short — it matches the
+shape of the model's own output ("Reasoning: ...\nAnswer: ...") so
+NLI judges see a familiar surface, and the wrapper costs ~3-4 tokens
+versus the longer "The answer to the question is" alternative
+(~7-8 tokens). Across the per-cycle NLI traffic (M chains × N
+passages × M_atoms ≈ 10⁵ NLI calls per cycle), the shorter form
+saves materially on judge-side wall-clock.
 
 3. **Already declarative** (FEVER labels "supports/refutes/not enough
    info", StrategyQA "yes/no", longer prose answers):
@@ -186,12 +194,22 @@ def canonicalize_answer(query: str, answer: str) -> str:
     if not raw:
         return raw
 
+    # Branch 0: already canonical → idempotent passthrough.
+    # Inputs starting with "Answer: " (case-insensitive) are already in
+    # canonical claim form (either from a previous canonicalize_answer
+    # call or from a model output that emits the wrapper directly).
+    # Without this guard the bare-entity branch would re-wrap
+    # "Answer: Paris." into "Answer: Answer: Paris." since "Answer:" is
+    # not a verb token.
+    if raw.lower().startswith("answer:"):
+        return raw
+
     # Branch 1: MCQ letter substitution
     letter = _try_extract_mcq_letter(raw)
     if letter is not None:
         opt = _option_text_for(query or "", letter)
         if opt is not None:
-            return f"The answer to the question is: {opt.strip().rstrip('.')}."
+            return f"Answer: {opt.strip().rstrip('.')}."
         # Letter detected but no choices block parseable — fall through
         # rather than emitting a bare letter wrapped in declarative
         # syntax (would be misleading).
@@ -200,7 +218,7 @@ def canonicalize_answer(query: str, answer: str) -> str:
     if _looks_like_bare_entity(raw):
         ent = _normalised(raw)
         if ent:
-            return f"The answer to the question is: {ent}."
+            return f"Answer: {ent}."
 
     # Branch 3: pass-through for already-declarative content
     return raw

@@ -1212,3 +1212,23 @@ class TestUngroundedAssertionRate:
         assert ungrounded_assertion_rate(
             grounds, us, g_thresh=0.35, u_thresh=0.70
         ) == pytest.approx(0.25)
+
+
+# =========================================================================== #
+# v2 Fix 10 — extract_arc_label 5-choice support (CommonsenseQA)               #
+# =========================================================================== #
+
+def test_extract_arc_label_5_choice():
+    from eval.metrics import extract_arc_label
+    # n_choices=4 default rejects E (preserves ARC behaviour)
+    assert extract_arc_label("Reasoning: ... Answer: E", n_choices=4) != "E"
+    # n_choices=5 accepts E
+    assert extract_arc_label("Reasoning: ... Answer: E", n_choices=5) == "E"
+    # Lowercase normalised to upper
+    assert extract_arc_label("Answer: e", n_choices=5) == "E"
+    # Digit fallback for 5
+    assert extract_arc_label("the answer is 5", n_choices=5) == "E"
+    # n_choices=4 still works for A-D
+    assert extract_arc_label("Answer: B", n_choices=4) == "B"
+    # Default n_choices=4 still works
+    assert extract_arc_label("Answer: B") == "B"

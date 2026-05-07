@@ -1,23 +1,25 @@
 """
-tests/test_fix7_entity_head_consistency.py
-=============================================
-Smoke test for v2 Fix 7 — entity_head_consistency signal.
+tests/test_entity_head.py
+===========================
+Unit tests for caem.verification.entity_head (entity_head_consistency
+signal — pairwise head-noun agreement across the M=3 self-consistency
+chains).
 
-Verifies:
-  1. extract_head_noun handles MCQ labels, title-case runs, year
-     numerics, and falls back to first alphanumeric token
-  2. score_entity_head_consistency = 1.0 when all chains agree on
-     the same head noun
-  3. score_entity_head_consistency = 0.0 when no chain pair agrees
-  4. score_entity_head_consistency = 0.5 (neutral) when fewer than
-     two chains produce extractable head nouns (missing-signal
-     fallback matches q_a_relevance / alias_overlap convention)
-  5. score_entity_head_consistency monotonically increasing in
-     fraction-of-agreeing-pairs across the M chains
-  6. UnifiedVerifierOutput exposes entity_head_consistency = 0.5
-     by default
-  7. COMPOSITE_SIGNALS includes entity_head_consistency
-  8. eval/harness.VERIFIER_FIELDS auto-picks-up the new field
+Coverage
+--------
+  * extract_head_noun: MCQ labels (A-E + lowercase), title-case multi-
+    word runs, 4-digit years, alphanumeric fallback, empty input
+  * score_entity_head_consistency:
+      - 1.0 when all chains agree
+      - 0.0 when no pair agrees
+      - 1/3 when 2 of 3 chains agree (one agreeing pair / three total)
+      - 0.5 (neutral) when fewer than two chains produce extractable
+        heads
+      - monotonically increasing in fraction-of-agreeing-pairs
+  * UnifiedVerifierOutput.entity_head_consistency default = 0.5
+  * COMPOSITE_SIGNALS includes entity_head_consistency
+  * eval/harness.VERIFIER_FIELDS auto-derives the field
+  * Output always in [0, 1]
 """
 from __future__ import annotations
 
