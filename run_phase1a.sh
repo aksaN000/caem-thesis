@@ -111,7 +111,10 @@ step_5_9_prompt_smoke() {
     #   - evasive patterns (regex-detectable, n=10 sufficient)
     local eval_src=""
     local archived_eval
-    archived_eval=$(ls -d outputs/archive/*/cycle_0/eval 2>/dev/null | tail -1)
+    # `|| true` is critical here: with `set -e + pipefail`, `ls -d` failing on
+    # an empty glob would silently abort the runner via command-substitution
+    # propagation (the ERR trap does not fire on this path).
+    archived_eval=$(ls -d outputs/archive/*/cycle_0/eval 2>/dev/null | tail -1 || true)
     if [[ -n "$archived_eval" ]]; then
         eval_src="--eval_source_dir $archived_eval"
         log "  using real questions from $archived_eval (real passages)"
@@ -735,7 +738,7 @@ step_19_purity() {
 step_19_2_eval() {
     local last_cycle
     last_cycle=$(ls -d outputs/full_run/cycle_*/model 2>/dev/null \
-        | sed 's#.*/cycle_\([0-9]\+\)/model#\1#' | sort -n | tail -1)
+        | sed 's#.*/cycle_\([0-9]\+\)/model#\1#' | sort -n | tail -1 || true)
     if [[ -z "${last_cycle:-}" ]]; then
         log "Step 19.2.2: no outputs/full_run/cycle_*/model checkpoint found — skipping"
         return 0
@@ -926,7 +929,7 @@ step_25_t1_robustness() {
     # step_19_2_eval pattern used for retention diagnostic).
     local last_cycle
     last_cycle=$(ls -d outputs/full_run/cycle_*/memory_store 2>/dev/null \
-        | sed 's#.*/cycle_\([0-9]\+\)/memory_store#\1#' | sort -n | tail -1)
+        | sed 's#.*/cycle_\([0-9]\+\)/memory_store#\1#' | sort -n | tail -1 || true)
     if [[ -z "${last_cycle:-}" ]]; then
         log "Step 25: no outputs/full_run/cycle_*/memory_store found — skipping"
         return 0
