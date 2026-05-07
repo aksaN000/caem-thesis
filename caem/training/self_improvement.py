@@ -85,7 +85,7 @@ import os
 import pickle
 import random
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
@@ -157,15 +157,14 @@ class CycleResult:
     # above are preserved for back-compat with downstream report
     # generators; they shadow the "mmlu" entry of these dicts when
     # the MMLU probe is in the active probe set.
-    probe_retentions: Dict[str, float] = None  # type: ignore[assignment]
-    probe_post:       Dict[str, float] = None  # type: ignore[assignment]
-
-    def __post_init__(self) -> None:
-        # Default-mutable workaround
-        if self.probe_retentions is None:
-            self.probe_retentions = {}
-        if self.probe_post is None:
-            self.probe_post = {}
+    #
+    # Use ``field(default_factory=dict)`` rather than ``None`` plus a
+    # ``__post_init__`` rebind so each CycleResult instance gets its
+    # own dict by default — the previous None+rebind pattern allowed
+    # external callers that override these fields via kwarg=None to
+    # silently propagate None into downstream code.
+    probe_retentions: Dict[str, float] = field(default_factory=dict)
+    probe_post:       Dict[str, float] = field(default_factory=dict)
 
 
 # -----------------------------------------------------------------------------

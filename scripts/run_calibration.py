@@ -265,8 +265,12 @@ def fit_per_benchmark_temperatures(
         em_arr = [e for _, e in pairs]
         # If a benchmark is fully correct or fully wrong, T-fitting is
         # ill-posed (NLL is unbounded in the bound-direction); fall back.
+        # Logged at WARN because degenerate labels indicate a calibration
+        # data issue (e.g., the cal-fold size / sampling for this bench
+        # produced an all-correct or all-wrong slice) — the pooled-T
+        # fallback masks the issue, so the operator should know.
         if sum(em_arr) == 0 or sum(em_arr) == len(em_arr):
-            logger.info(
+            logger.warning(
                 "fit_per_benchmark_temperatures: bench=%s has degenerate labels "
                 "(sum=%d/%d) — falling back to pooled T=%.4f",
                 bm, sum(em_arr), len(em_arr), pooled_T,
@@ -809,6 +813,51 @@ def calibrate_pipeline(
     # -- Update config in-place --------------------------------------------- #
     config.temperature_scalar = T       # the only calibrated runtime surface
 
+    # -- v2 Fix 12 — per-benchmark T_b + safety_u_pre_min_b ---------------- #
+    # Read the per-sample records we just wrote out via
+    # collect_calibration_data → record_jsonl_path; group by benchmark
+    # and call the fitting helpers. Both helpers fall back to the
+    # pooled value for benchmarks with thin or label-degenerate data.
+    per_bench_T: Dict[str, float] = {}
+    per_bench_safety: Dict[str, float] = {}
+    try:
+        records_path = output_dir / "calibration_fold_samples.json"
+        if records_path.exists():
+            with open(records_path, "r", encoding="utf-8") as f:
+                records_payload = json.load(f)
+            records_list = records_payload.get("samples", [])
+            per_bench_T = fit_per_benchmark_temperatures(
+                records_list, pooled_T=T,
+            )
+            per_bench_safety = fit_per_benchmark_safety_floors(
+                records_list,
+                pooled_floor=float(getattr(config, "safety_u_pre_min", 0.38)),
+                target_precision=0.85,
+            )
+            # Update CAEMConfig in-place so the live runtime picks them
+            # up immediately.
+            config.temperature_scalar_per_benchmark = dict(per_bench_T)
+            config.safety_u_pre_min_per_benchmark = dict(per_bench_safety)
+            logger.info(
+                "Per-benchmark T_b fitted: %s",
+                {k: round(v, 4) for k, v in per_bench_T.items()},
+            )
+            logger.info(
+                "Per-benchmark safety_u_pre_min_b fitted: %s",
+                {k: round(v, 4) for k, v in per_bench_safety.items()},
+            )
+        else:
+            logger.warning(
+                "Per-benchmark calibration helpers skipped: "
+                "calibration_fold_samples.json missing at %s.",
+                records_path,
+            )
+    except Exception as exc:
+        logger.warning(
+            "Per-benchmark calibration helpers failed (%s); "
+            "falling back to pooled T + pooled safety_u_pre_min.", exc,
+        )
+
     # -- Save results ------------------------------------------------------- #
     calib_result = {
         "temperature_scalar": T,
@@ -816,6 +865,11 @@ def calibrate_pipeline(
         "ece_after":  ece_after,
         "n_samples":  len(u_pre_logits),
         "protocol":   "temperature_scaling_only",
+        # v2 Fix 12: persist per-bench dicts so the cycle-N runtime
+        # can rehydrate them when the orchestrator reloads
+        # calibrated_config.json.
+        "temperature_scalar_per_benchmark": dict(per_bench_T),
+        "safety_u_pre_min_per_benchmark":   dict(per_bench_safety),
     }
 
     out_path = output_dir / "calibrated_config.json"

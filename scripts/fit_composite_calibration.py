@@ -93,6 +93,19 @@ def main() -> int:
              "Default 1.0 matches sklearn default; 0.01 used in production "
              "(see branch_C_log.md 2026-04-26 entry + outputs/cycle_0/sweep/).",
     )
+    # v2 Fix 2B: per-benchmark composite calibration. Default ON in v2
+    # so the cycle-0 fit produces the nested {global, per_benchmark}
+    # JSON the runtime verifier dispatches against. Pass
+    # --no-fit_per_benchmark to fall back to the v1 pooled-only fit
+    # (used by the back-compat ablation sweep).
+    p.add_argument(
+        "--fit_per_benchmark",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="v2 default: fit a per-benchmark CalProbComposite (pooled "
+             "global + per-bench children). --no-fit_per_benchmark "
+             "reverts to the v1 pooled-only fit.",
+    )
     args = p.parse_args()
 
     paths: List[Path] = []
@@ -137,9 +150,38 @@ def main() -> int:
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
     from caem.verification.cal_prob_composite import CalProbComposite
 
-    calib = CalProbComposite().fit(
-        samples, fit_boost=args.cherian_boost, boost_C=args.boost_C,
-    )
+    if args.fit_per_benchmark:
+        # Group samples by their benchmark tag. Samples without a
+        # benchmark tag (legacy / unit-test paths) feed into the
+        # pooled global only.
+        samples_by_bench: Dict[str, List[Dict[str, Any]]] = {}
+        for s in samples:
+            bm = s.get("benchmark") or "_untagged"
+            samples_by_bench.setdefault(bm, []).append(s)
+        # Drop the untagged bucket from per-bench fitting; it still
+        # contributes to the pooled global via fit_per_benchmark's
+        # internal flat-fit on the union of all samples.
+        per_bench_input = {
+            bm: rows for bm, rows in samples_by_bench.items()
+            if bm != "_untagged"
+        }
+        logger.info(
+            "per-benchmark composite fit: %d benchmarks (%s); "
+            "untagged samples = %d.",
+            len(per_bench_input),
+            sorted(per_bench_input.keys()),
+            len(samples_by_bench.get("_untagged", [])),
+        )
+        calib = CalProbComposite()
+        calib.fit_per_benchmark(
+            per_bench_input,
+            fit_boost=args.cherian_boost,
+            boost_C=args.boost_C,
+        )
+    else:
+        calib = CalProbComposite().fit(
+            samples, fit_boost=args.cherian_boost, boost_C=args.boost_C,
+        )
     calib.save(args.output_json)
     logger.info("saved %s", args.output_json)
     print(calib.summary())

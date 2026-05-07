@@ -1555,12 +1555,54 @@ def run_experiment(ns: argparse.Namespace) -> None:
             )
 
         logger.info("  Step 1: SelfImprovementLoop.run_cycle(%d) ...", cycle_num)
+        # v2 Fix 3: cold_start_loader. When a training benchmark has
+        # zero verified episodes for the upcoming cycle, the loader
+        # produces gold-labelled QAPair samples from that benchmark's
+        # train split via build_benchmark_pools. Without this, a
+        # zero-count benchmark gets zero gradient signal forever and
+        # the trajectory drifts toward the surviving benchmarks.
+        def _cold_start_loader(benchmark: str, n: int):
+            """Load up to n gold-labelled QAPair instances for ``benchmark``.
+
+            Sources from build_benchmark_pools(...).seed (the same
+            disjoint allocation used by the cycle-0 cold-start seeding
+            pass), so cold-start fallback samples never overlap with
+            the cal/purity/eval/test pools.
+            """
+            from caem.benchmark_splits import build_benchmark_pools
+            from caem.training.self_improvement import QAPair as _QAPair
+            try:
+                pools = build_benchmark_pools(
+                    benchmark, n_cycles=getattr(config, "num_cycles", 10),
+                )
+            except Exception as exc:
+                logger.warning(
+                    "cold_start_loader: build_benchmark_pools(%s) failed (%s); "
+                    "returning empty list.", benchmark, exc,
+                )
+                return []
+            seed_samples = list(pools.seed or [])
+            if n > 0 and len(seed_samples) > n:
+                # Truncate deterministically (seed pool is already a
+                # deterministic shuffle from build_benchmark_pools).
+                seed_samples = seed_samples[:n]
+            out = []
+            for s in seed_samples:
+                q = str(s.get("question", "")).strip()
+                a = (s.get("answers") or [None])[0]
+                if not q or not a:
+                    continue
+                out.append(_QAPair(question=q, answer=str(a),
+                                   source_benchmark=benchmark))
+            return out
+
         cycle_result = sil.run_cycle(
             cycle_num=cycle_num,
             memory_store=pipeline.memory_store,
             verify_fn=None,
             deferred_buffer=pipeline.deferred_buffer,
             reconsider_fn=_reconsider_fn,
+            cold_start_loader=_cold_start_loader,
         )
 
         # v2 Fix 11 LAYER 3 — Post-cycle log assertion. The reconsideration
@@ -1973,6 +2015,80 @@ def run_experiment(ns: argparse.Namespace) -> None:
             except Exception as exc:
                 logger.warning(
                     "equilibrium hook: failed to persist artefact (%s)", exc,
+                )
+
+            # v2 Fix 5 — coverage_diagnostic.json. Per-cycle JSON
+            # bundle with per-bench admission rates, SIL pool entropy,
+            # adapter SVD spectra + collapse score, and per-bench EM.
+            # Drives the auto-relax_alpha / halt triggers in
+            # caem.diagnostic.coverage.evaluate_halt_triggers and the
+            # cross-cycle Phase-4 reports. Failures here are
+            # non-fatal — the trajectory continues even if the
+            # diagnostic write fails (preserves the pre-v2 contract).
+            try:
+                from caem.diagnostic.coverage import build_coverage_diagnostic
+                from caem.training.pool_reweighting import per_benchmark_counts
+
+                # Pool counts after Fix-3 reweighting are the
+                # train_pairs the SIL just consumed; reconstructible
+                # from cycle_result if SIL chose to expose them, else
+                # we fall back to {} (counts unavailable).
+                _pool_counts: Dict[str, int] = (
+                    getattr(cycle_result, "pool_counts", None) or {}
+                )
+
+                # Candidate counts = pre-gate sample tally per
+                # benchmark (the cycle's stream); admitted counts =
+                # post-gate verified episodes per benchmark.
+                _candidate_counts: Dict[str, int] = {}
+                _admitted_counts: Dict[str, int] = {}
+                _per_bench_em: Dict[str, float] = {}
+                try:
+                    _bench_summary = locals().get("eval_summary") or {}
+                    if isinstance(_bench_summary, dict):
+                        for _bm, _row in _bench_summary.items():
+                            if not isinstance(_row, dict):
+                                continue
+                            if "n_evaluated" in _row:
+                                _candidate_counts[str(_bm)] = int(_row["n_evaluated"])
+                            if "n_stored" in _row:
+                                _admitted_counts[str(_bm)] = int(_row["n_stored"])
+                            if "em" in _row:
+                                try:
+                                    _per_bench_em[str(_bm)] = float(_row["em"])
+                                except (TypeError, ValueError):
+                                    pass
+                except Exception:
+                    # eval_summary may not exist in all execution paths;
+                    # the diagnostic still writes with empty dicts.
+                    pass
+
+                _diag = build_coverage_diagnostic(
+                    cycle_num=cycle_num,
+                    candidate_counts=_candidate_counts,
+                    admitted_counts=_admitted_counts,
+                    pool_counts=_pool_counts,
+                    per_bench_em=_per_bench_em,
+                    model=getattr(sil, "model", None),
+                    sv_top_k=8,
+                )
+                with open(
+                    output_dir / f"cycle_{cycle_num}" / "coverage_diagnostic.json",
+                    "w", encoding="utf-8",
+                ) as _cov_f:
+                    json.dump(_diag, _cov_f, indent=2, default=str)
+                logger.info(
+                    "Cycle %d: coverage_diagnostic.json written "
+                    "(admission_rates=%s, sv_collapse=%.3f).",
+                    cycle_num,
+                    {k: round(v, 4) for k, v in _diag.get("admission_rates", {}).items()
+                     if isinstance(v, (int, float))},
+                    _diag.get("adapter_sv_collapse", float("nan")),
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Cycle %d: coverage_diagnostic.json write failed (%s); "
+                    "trajectory continues.", cycle_num, exc,
                 )
 
             logger.info(
