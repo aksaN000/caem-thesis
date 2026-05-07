@@ -697,7 +697,30 @@ class CAEMConfig:
     general_data_ratio: float = 0.0  # was 0.10; v2 zeroes this
     general_data_size: int = 0  # was 1000; v2 zeroes this
     # [DES] Abort fine-tuning if general capability drops below this retention.
+    # v2 Fix 4: tightened from 0.93 → 0.93 (unchanged numerically) but the
+    # guard now fires if ANY probe in ``retention_probes`` drops below this
+    # ratio — not just MMLU. The multi-probe AND-of-OK is strictly more
+    # conservative than v1's single-probe gate.
     forgetting_tolerance: float = 0.93
+
+    # ------------------------------------------------------------------ #
+    # Multi-modal retention probe — v2 Fix 4 (2026-05-07)                 #
+    # ------------------------------------------------------------------ #
+    # v1 used a single MMLU validation probe (n=200) to gate the SIL
+    # forgetting check. The probe was blind to two failure modes:
+    #   * MCQ-letter accuracy stays high while open-text generation
+    #     degrades silently (TriviaQA / NQ / HotpotQA).
+    #   * Multi-hop composition collapses without affecting single-hop
+    #     accuracy.
+    # The v2 probe set spans all three regimes; the abort criterion
+    # is "ANY probe drops below forgetting_tolerance from pristine".
+    # See caem/training/retention_probe.py for the orchestration.
+    retention_probes: Tuple[str, ...] = (
+        "mmlu",            # 4-choice MCQ retention (back-compat with v1)
+        "triviaqa_test",   # open-text factoid retention
+        "hotpotqa_test",   # multi-hop composition retention
+    )
+    retention_probe_n: int = 200  # samples per probe (matches v1 MMLU n)
 
     # ------------------------------------------------------------------ #
     # SIL pool reweighting — v2 Fix 3 (2026-05-07)                        #
