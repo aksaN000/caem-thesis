@@ -4091,3 +4091,149 @@ Today's GPU burn (2026-05-06): ~$3 (model downloads + cycle 5 SIL + reconsiderat
 - `outputs/research/agent_research_2026-05-06.md` — literature audit (Biderman 2024, Schulman 2025, Farquhar 2024, Si 2021, Lambert/Ivison 2024, etc.)
 - `outputs/full_run/cycle_{2,3,4}/conditional_conformal_ablation.json` — per-benchmark conformal ablation receipts
 - `outputs/full_run/eval/*_cycle{0,1,2,3,4}.json` — v1 eval JSONs (failure-mode evidence)
+
+---
+
+## 2026-05-07 — v2 architecture-fix delivery: all 13 fixes merged
+
+All thirteen architecture fixes registered on 2026-05-06 are now landed
+on `feat/qwen-3b-goal2`. The Phase-0 estimate of 12-13 code-days
+collapsed to one active day once the keystone (Fix 2) was in place,
+because the per-benchmark dispatch surface threads through every
+downstream fix. Remaining v2 work is integration glue + downstream-
+script audit, not architectural lifts.
+
+### Commit sequence
+
+Earlier this turn-pair (post session compaction):
+
+| Order | Fix | Commit |
+|------:|-----|--------|
+| 1 | 9 — Training panel update + new benchmark loaders | `fc665f9` |
+| 2 | 13 — Remove general-domain mix from SIL pool | `82da905` |
+| 3 | gdrive layout: configurable bucket + v1 archive | `25ea0cf` |
+| 4 | 11 (layers 1-3) — deferred-reconsideration guard | `8f59d85` |
+| 5 | 2A — KEYSTONE — `source_benchmark` threading | `f6960d6` |
+| 6 | 2B — per-bench composite + nested JSON schema | `86382c8` |
+| 7 | 1 — per-bench conformal storage gate | `5002c23` |
+| 8 | 12 — per-bench u_pre T_b + safety_u_pre_min_b | `f930d61` |
+| 9 | 6 — alias_overlap signal (Wikidata) | `225fec3` |
+| 10 | 7 — entity_head_consistency signal | `803a667` |
+| 11 | 10 — per-bench prompts + canonical_answer | `d470066` |
+| 12 | tests-consolidation cleanup | `337229d` |
+| 13 | 8 — LoRA SIL primitive (CRITICAL) | `65f3102` |
+| 14 | 3 — loss-reweighted SIL training pool | `d0504b6` |
+| 15 | 4 — multi-modal retention probe | `30b46fb` |
+| 16 | 5 — coverage diagnostic + halt triggers | `3be0ece` |
+
+Smoke + regression: 377 tests across 15 v2-fix suites pass cleanly. 8
+pre-existing `test_self_improvement.py` failures unchanged on baseline
+(mock-seed test-fixture bugs orthogonal to v2).
+
+### Headline architectural outcomes
+
+- **12-signal verifier composite.** Two signals added on top of v1's
+  ten: `alias_overlap` (Wikidata-style alias coverage between answer
+  entities and retrieved-passage entities) and `entity_head_consistency`
+  (pairwise head-noun agreement across the M=3 self-consistency chains
+  the verifier already generates — zero extra compute). Both auto-derive
+  into the eval-harness JSON schema via
+  `_derive_verifier_fields(UnifiedVerifierOutput)`.
+
+- **Per-benchmark dispatch wired end-to-end.** A single `source_benchmark`
+  token routes through pipeline → verifier (`_composite`, `_decide`) →
+  conformal gate → CalProbComposite → estimator (T_b) → router
+  (`safety_u_pre_min_b`). Every dispatch surface ships with v1 back-compat:
+  empty per-bench dicts fall back to the pooled global, and v1 calibration
+  JSONs load through the schema-version detection path.
+
+- **Uniform verifier-input canonicalisation (Fix 10).** The user
+  identified that v1's per-signal patches (`multichoice_scorer` for
+  `p_ground` only, `EntityExpansionScorer` for bare entities only) left
+  `p_entail` / `p_ground_atomic` / `q_a_relevance` / `alias_overlap`
+  reading the bare letter or bare entity — noise floor. v2 introduces a
+  single `canonicalize_answer(query, answer)` at the top of `verify()`
+  that emits `Answer: <X>.` for both MCQ-letter and bare-entity samples,
+  passes through declarative answers, and is idempotent. Every signal
+  that consumes the answer string now sees the same propositional
+  surface regardless of benchmark. Persisted as durable feedback memory
+  `feedback_uniform_verifier_input.md`.
+
+- **LoRA r=32 α=64 all-linear** is the SIL primary path. Adapter-only
+  checkpoints land at `cycle_<N>/adapter/` (~120 MB) instead of full
+  `model.pt` (~6.2 GB) — 50× disk reduction across the 10-cycle run.
+  L2 anchor removed on the LoRA path (frozen base + bounded adapter
+  budget IS the implicit anchor). Graceful fall-through to full FT
+  when peft is unavailable or the model is a mock — preserves
+  unit-test compatibility.
+
+- **Multi-probe forgetting guard.** Replaces v1's single MMLU
+  validation probe with three: MMLU (MCQ retention) + TriviaQA test
+  (open-text factoid retention) + HotpotQA validation (multi-hop
+  composition retention). Abort fires iff ANY probe drops below
+  `forgetting_tolerance` (0.93) from its pristine cycle-0 baseline.
+  Strictly more conservative than v1 — catches the open-text and
+  multi-hop degradation modes that v1's MCQ-only probe was blind to.
+
+- **Coverage diagnostic + halt triggers.** New `caem/diagnostic/coverage.py`
+  module: per-bench admission rates, pool composition entropy,
+  adapter SVD spectra, and an SV-collapse score. The halt evaluator
+  takes a sliding window of recent diagnostics and decides between
+  `continue` / `relax_alpha` (zero-admission for 2 consecutive cycles
+  on a benchmark) / `halt` (adapter rank-collapse on the most recent
+  cycle). Pure-data API; orchestrator wires the inputs at Phase-1a
+  time.
+
+- **Loss-reweighted SIL pool builder (Fix 3).** Replaces v1's flat
+  shuffled pool with temperature-mixed softmax (T=2 default;
+  smooths a 10× count gap to ~3× weight gap) + 3× upsample cap
+  (prevents single-sample replication abuse) + DoReMi minimum floor
+  (≥50 samples per benchmark guaranteed) + cold-start gold fallback
+  (zero-count benchmarks seeded with 100 gold pairs via an injected
+  `cold_start_loader` callback).
+
+### What's NOT yet wired
+
+- `scripts/run_experiment.py` post-cycle hook for
+  `caem.diagnostic.coverage.build_coverage_diagnostic` (the
+  diagnostic module is feature-complete; the orchestrator integration
+  is a Phase-1a-time follow-up).
+- `cold_start_loader` callback wiring — without this, the Fix-3
+  cold-start fallback is a no-op (zero-count benchmarks stay at zero).
+- Loader-side support for `cycle_<N>/adapter/` resume in
+  `caem/model_loader.py` (`PeftModel.from_pretrained(base, adapter_dir)`).
+  Until this lands, restart-from-cycle-N requires re-loading the
+  pristine base + replaying SIL.
+- Downstream-script panel updates (Fix 9b, ~17 scripts hardcode v1
+  benchmark names) and production-runbook + demo-server updates
+  (Fix 14). These are the post-architecture wrap-up tasks.
+
+### Test-file consolidation
+
+User feedback flagged that v2-fix smoke tests landed as new
+`test_fix*_*.py` files instead of extending existing module test
+files. Resolved in commit `337229d`:
+
+- 4 single-module tests renamed (drop `fix*_` prefix):
+  `test_fix1_per_benchmark_gate` → `test_conformal_gate`,
+  `test_fix2b_per_benchmark_composite` → `test_cal_prob_composite`,
+  `test_fix6_alias_overlap` → `test_alias_overlap`,
+  `test_fix7_entity_head_consistency` → `test_entity_head`.
+- 2 cross-cutting smoke files (`test_fix10_per_benchmark_prompts`,
+  `test_fix12_per_benchmark_u_pre`) split into existing test homes
+  (`test_pre_routing.py`, `test_router.py`,
+  `test_calibration_batch_equivalence.py`, `test_prompts.py`,
+  `test_eval.py`) plus two new module tests
+  (`test_answer_canonicalizer.py`, `test_entity_expansion_scorer.py`)
+  for the new canonicaliser + ablation-research scorer modules.
+
+Older `test_fix2_verifier_api.py`, `test_fix9_training_panel_update.py`,
+`test_fix11_deferred_guard.py`, `test_fix13_remove_general_mix.py`
+remain for historical traceability — they were already committed
+before the consolidation and refactoring them would muddy the v2
+commit log without changing test coverage.
+
+### Memory updates persisted across sessions
+
+- `feedback_uniform_verifier_input.md` — verifier-input invariant.
+
