@@ -949,10 +949,13 @@ def main() -> None:
         if not hasattr(main, "_eval_pools_cache") or not main._eval_pools_cache:  # type: ignore[attr-defined]
             from caem.benchmark_splits import build_all_benchmark_pools as _bap, ALL_BENCHMARKS as _ALL
             panel = [b for b in _ALL if b in ns.eval_benchmarks]
+            # 2026-05-07 audit fix: drop the n_train_per_bench-derived
+            # train_chunk_size for the same CSQA-9741-vs-32000 reason as
+            # the upstream call site at line 240. Eval-pool builder also
+            # consults PER_BENCHMARK_TRAIN_CHUNK_SIZE per benchmark.
             main._eval_pools_cache = _bap(  # type: ignore[attr-defined]
                 benchmarks=panel,
                 n_cycles=int(ns.num_cycles),
-                train_chunk_size=max(1, int(ns.n_train_per_bench) // int(ns.num_cycles)),
                 eval_size=int(ns.n_eval_per_bench),
                 rng_seed=int(ns.seed),
             )
