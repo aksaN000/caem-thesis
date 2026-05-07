@@ -227,20 +227,27 @@ def _load_train_pool(
             f"Must include at least one of {TRAINING_BENCHMARKS}."
         )
 
-    # n_train_per_bench maps to n_cycles * train_chunk_size in pool builder terms.
-    # The user's --n_train_per_bench was historically the TOTAL pool size; under
-    # stream mode we keep n_cycles * chunk = n_train_per_bench so the total pool
-    # footprint is unchanged but now split into disjoint per-cycle chunks.
-    n_total_per_bench = int(ns.n_train_per_bench)
-    chunk_size = max(1, n_total_per_bench // int(ns.num_cycles))
+    # 2026-05-07 audit fix: drop the n_train_per_bench-derived chunk_size
+    # override so build_benchmark_pools consults PER_BENCHMARK_TRAIN_CHUNK_SIZE
+    # per benchmark. With chunk_size=n_train_per_bench/n_cycles=3000 explicit,
+    # CSQA failed with InsufficientBenchmarkDataError because 1000+500+500+
+    # 10×3000 = 32000 needed vs 9741 available.
+    #
+    # The matched-scale invariant (B6/B7 train on the same chunks as CAEM
+    # step_7_main) is now PRESERVED automatically because both go through
+    # the same build_benchmark_pools per-bench dispatch (FEVER/TQA/HotpotQA
+    # at 1000-chunk × 10 cycles = 10000; CSQA at 700-chunk × 10 = 7000).
+    # The --n_train_per_bench CLI flag is retained for back-compat with
+    # older runners but its value is now informational only when the bench
+    # has a per-bench override registered.
     logger.info(
-        "Building benchmark pools for B6/B7 training: %s (n_cycles=%d, chunk=%d)",
-        train_capable, ns.num_cycles, chunk_size,
+        "Building benchmark pools for B6/B7 training: %s (n_cycles=%d, "
+        "per-bench chunk_size from PER_BENCHMARK_TRAIN_CHUNK_SIZE)",
+        train_capable, ns.num_cycles,
     )
     benchmark_pools = build_all_benchmark_pools(
         benchmarks=train_capable,
         n_cycles=int(ns.num_cycles),
-        train_chunk_size=chunk_size,
         eval_size=500,  # not used here; eval loop uses benchmark_pools[bm].eval
         rng_seed=int(ns.seed),
     )
