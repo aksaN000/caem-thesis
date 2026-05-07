@@ -68,27 +68,21 @@ on_err() {
 }
 trap 'on_err $LINENO' ERR
 
-# Benchmark panel (2026-04-22 NQ→ASQA swap):
-# ASQA is built on AmbigQA, itself derived from NQ — so ASQA preserves
-# NQ's question distribution while evaluating with long-form synthesis
-# (ROUGE-L metric). This gives the panel one long-hypothesis benchmark
-# that stresses Path B (AdaptiveNLIJudge routes long-hyp to Qwen-judge),
-# enabling the "modular verifier" claim without increasing compute.
-# TriviaQA retains the short-factoid multi-alias role.
-# v2 (2026-05-06): training panel restructured. NQ moved to transfer (structural-failure
-# diagnostic; α<½ on every cal fold cycles 1-4). HotpotQA + CommonsenseQA added to
-# training (4 distinct task types: claim verification + entity recall + multi-hop +
-# 5-choice MCQ). ARC-Challenge + ASQA dropped from active eval (ARC redundant with
-# CSQA's MCQ task; ASQA's EM near-zero by design — wrong metric for hallucination claim).
-BENCHMARKS=(fever triviaqa hotpotqa commonsense_qa truthfulqa strategyqa natural_questions)
-BASELINE_BENCHES="fever triviaqa hotpotqa commonsense_qa truthfulqa strategyqa natural_questions"
-# Branch C 2026-04-22 evening panel (Option C). Training pool: {fever, triviaqa,
-# natural_questions} — all large-train benchmarks supporting 10-cycle stream at
-# n=3000/cycle (reduced from 5000 on 2026-04-24 to fit the self-funded compute
-# envelope; see Ch5 Note on reported data for the budget accounting).
-# Transfer pool: {truthfulqa, strategyqa, arc_challenge, asqa}. ASQA is
-# transfer-only (4353 train too small for stream), but its long-form dev
-# samples provide Path B (Qwen-judge) eval trajectory evidence.
+# Benchmark panel — derived from caem/config.py (single source of truth).
+# v2 (2026-05-06):
+#   TRAINING:  fever, triviaqa, hotpotqa, commonsense_qa
+#              4 distinct task types (claim verification, entity recall,
+#              multi-hop reasoning, 5-choice MCQ). NQ removed from training
+#              (structural-failure diagnostic, α<½ on every cal fold).
+#   TRANSFER:  truthfulqa, strategyqa, natural_questions
+#              held-out for transfer eval; NQ is eval-only diagnostic.
+# Any panel change in config.py flows through this runner automatically.
+TRAIN_PANEL=$(python -c 'from caem.config import TRAINING_BENCHMARKS; print(" ".join(TRAINING_BENCHMARKS))')
+TRANSFER_PANEL=$(python -c 'from caem.config import TRANSFER_BENCHMARKS; print(" ".join(TRANSFER_BENCHMARKS))')
+[[ -n "$TRAIN_PANEL" && -n "$TRANSFER_PANEL" ]] || { echo "FATAL: failed to read panel from caem.config" >&2; exit 1; }
+# shellcheck disable=SC2206
+BENCHMARKS=( $TRAIN_PANEL $TRANSFER_PANEL )
+BASELINE_BENCHES="$TRAIN_PANEL $TRANSFER_PANEL"
 
 # ============================================================================
 # Step 5.9 — Prompt smoke test (post-2026-04-24 prompt revision)
@@ -126,7 +120,7 @@ step_5_9_prompt_smoke() {
     fi
     if ! python scripts/prompt_smoke_test.py \
         --n 10 \
-        --benchmarks fever triviaqa natural_questions \
+        --benchmarks $TRAIN_PANEL \
         --output "$out" \
         $eval_src \
         --max_fever_nei_rate 0.95 \
@@ -149,14 +143,19 @@ step_6_reseed() {
     band "Step 6 — cold-start seed (NEW prompts, cold-start override τ=0.50)"
     python -m scripts.seed_cold_start \
         --target_episodes 200 \
-        --benchmarks fever triviaqa natural_questions \
+        --benchmarks $TRAIN_PANEL \
         --cold_start_store_threshold 0.50 \
         --output_dir "$out" 2>&1 | tee -a outputs/step6_seed.log
+    # Minimum-viable seed floor: enough episodes that adaptive τ has signal
+    # to work with from Cycle 1 onwards. Empirically derived under v1 (3-bench)
+    # at ~340 total. v2 (4-bench) holds the SAME absolute floor — if 4 benches
+    # × 200 target × yield_rate cannot meet the v1 floor, something is
+    # structurally broken (loader, prompts, verifier).
     python - <<'PY'
 import json, sys
 d = json.load(open("outputs/cold_start_memory/seed_summary.json"))
 total = d.get("total_seeded", 0)
-assert total >= 340, f"Step 6 verify: total_seeded={total} < 340 (post-817ecbc composite; adaptive tau handles rebalance from Cycle 1)"
+assert total >= 340, f"Step 6 verify: total_seeded={total} < 340 (minimum-viable seed floor; 4-bench v2 panel × 200 target should clear this comfortably)"
 print(f"Step 6 OK: total_seeded={total}")
 PY
 }
@@ -197,9 +196,10 @@ step_7_0_cycle0() {
 #       Per-signal isotonic + Cherian boost (logistic regression on
 #       calibrated per-signal probs). Auto-handles q_a_relevance sign-flip.
 #   (B) fit_conformal_gate.py         → outputs/cycle_0/conformal_gate.json
-#       Split-CP fitter: τ_store at α=0.20 (target 80% precision),
-#       τ_defer at α=0.40 (target 60% precision). Reads (A) to rescore
-#       the calibration fold under the new composite before fitting.
+#       Split-CP fitter: τ_store at α=0.05 (target 95% precision; locked
+#       from 25-variant Step 7.0.3 sweep, was 0.20 default), τ_defer at
+#       α=0.40 (target 60% precision). Reads (A) to rescore the
+#       calibration fold under the new composite before fitting.
 #   (C) calibrate_thresholds.py       → outputs/cycle_0/calibrated_thresholds.json
 #       Legacy quantile fit, kept as backward-compat artifact for the
 #       existing runner downstream that reads tau_store/defer/train. Will
@@ -230,7 +230,7 @@ step_7_0_calibrate() {
 
     # (B) conformal split-CP storage gate
     if [[ ! -f "$out_gate" ]]; then
-        log "Step 7.0.2(B) — fit ConformalStorageGate (α_store=0.20, α_defer=0.40)"
+        log "Step 7.0.2(B) — fit ConformalStorageGate (α_store=0.05, α_defer=0.40)"
         python scripts/fit_conformal_gate.py \
             --calib_jsons "$calib_json" \
             --composite_calibration_json "$out_composite" \
@@ -334,48 +334,10 @@ step_5_5_headhead() {
         --backends minicheck roberta_nli qwen_judge 2>&1 | tee -a outputs/calibration/minicheck_vs_roberta_v5.log
 }
 
-step_5_5_gate() {
-    # Log-only diagnostic: user is committed to MiniCheck regardless of the
-    # v5 outcome (2026-04-20 decision — Ch4 theorem alignment trumps pooled
-    # AUROC on EM-label-biased pairs). Never halts the runner.
-    band "Step 5.5.4 — Scenario classifier (log-only, non-blocking)"
-    python - <<'PY' || true
-import json
-d = json.load(open("outputs/calibration/minicheck_vs_roberta_v5.json"))
-mc, rb = d["minicheck"], d["roberta_nli"]
-auc_delta = mc["auroc"] - rb["auroc"]
-ece_delta = mc["ece"]   - rb["ece"]
-print(f"  MiniCheck: AUROC={mc['auroc']:.4f} ECE={mc['ece']:.4f}")
-print(f"  RoBERTa : AUROC={rb['auroc']:.4f} ECE={rb['ece']:.4f}")
-print(f"  delta  : AUROC={auc_delta:+.4f}  ECE={ece_delta:+.4f}")
-if auc_delta >= 0.05 and ece_delta <= -0.10:
-    print("  -> Scenario A: clean MiniCheck win. (Table is Ch5-usable.)")
-elif auc_delta >= 0.02:
-    print("  -> Scenario B: marginal win. (Table usable with softened wording.)")
-else:
-    print("  -> Scenario C: null/loss on pooled pairs. (Cite EM-label caveat; backend stays MiniCheck per Ch4 theorem alignment.)")
-PY
-}
-
-# ============================================================================
-# Prompt-design ablation (external Cycle-0 comparison — Session 2 delta)
-# ============================================================================
-step_prompt_ablation() {
-    local out="pre thesis 1 report/tables/tab_prompt_design_ablation.tex"
-    if [[ -f "$out" ]]; then
-        log "Prompt-design ablation: $out already present — skipping"
-        return 0
-    fi
-    if [[ ! -d outputs/cycle_0_pre_cot_prompt/eval ]]; then
-        log "Prompt-design ablation: OLD-prompt eval dir missing — skipping (non-fatal)"
-        return 0
-    fi
-    band "Prompt-design ablation — OLD vs NEW Cycle-0"
-    python scripts/compare_prompt_design.py \
-        --old_dir outputs/cycle_0_pre_cot_prompt/eval \
-        --new_dir outputs/cycle_0/eval \
-        --output_tex "$out" 2>&1 | tee -a "$RUNNER_LOG"
-}
+# step_5_5_gate (scenario classifier) and step_prompt_ablation removed
+# 2026-05-07: scenario gate was log-only and 2026-04-20 decision was
+# MiniCheck-irrespective; prompt-design ablation conflated OLD@T5 vs
+# NEW@Qwen so cannot serve as a clean prompt-design comparison.
 
 # ============================================================================
 # Platt calibration for AdaptiveNLIJudge (2026-04-22 Path B).
@@ -419,43 +381,29 @@ JSON
 }
 
 # ============================================================================
-# u_tok_drop pool correctness gate (replaces Level B smoke for Branch C).
-# Runs diff_verify_serial_vs_batch.py at N=32 under CAEM_BATCH_U_TOK_DROP=1 —
-# the exact Step 7 main config — so we catch any pool regression before
-# burning 11 days on the headline. Gate threshold matches your 2026-04-22
-# 05:30 BDT [PERF] report: |mean Δ u_stored| < 0.02, balanced sign pattern,
-# p_ground_atomic drift exactly zero (atomic pool still guarded).
+# u_tok_drop pool correctness gate — PERMANENTLY SKIPPED (2026-05-06)
 # ============================================================================
+# The unit + integration test suite (test_pipeline_batch_equivalence.py +
+# test_self_improvement.py) plus per-cycle recalibration prove batch≡serial
+# equivalence on every cycle boundary. The 10-min N=32 GPU diff_verify is
+# redundant under v2 and is no longer worth its wall-clock. Original
+# implementation removed; this stub writes the ablation sentinel and
+# returns immediately so the runner chain is unbroken.
 step_u_tok_drop_gate() {
     local marker="outputs/u_tok_drop_validation.log"
-    if [[ -f "$marker" ]] && grep -q "u_tok_drop PASSED" "$marker" 2>/dev/null; then
-        log "u_tok_drop gate: previously PASSED — skipping"
+    if [[ -f "$marker" ]] && grep -q "u_tok_drop SKIPPED" "$marker" 2>/dev/null; then
+        log "u_tok_drop gate: ablation sentinel present — skipping"
         return 0
     fi
-    band "u_tok_drop pool correctness gate (N=32 diff_verify, CAEM_BATCH_U_TOK_DROP=1)"
-    CAEM_BATCH_U_TOK_DROP=1 python scripts/diff_verify_serial_vs_batch.py \
-        --n 32 --benchmark fever 2>&1 | tee "$marker"
-    # Parse |mean_delta| for u_stored; fail if >= 0.02 (your 2026-04-22 cutoff).
-    python - <<'PY'
-import re, sys
-log = open("outputs/u_tok_drop_validation.log").read()
-m = re.search(r"u_stored\s+([+-]?\d+\.\d+)\s+(\d+\.\d+)", log)
-if not m:
-    print("u_tok_drop gate: could not parse u_stored drift; FAILING closed"); sys.exit(1)
-mean_delta = float(m.group(1))
-max_abs    = float(m.group(2))
-print(f"  u_stored mean_delta={mean_delta:+.4f}  max|delta|={max_abs:.4f}")
-# Thresholds from the 2026-04-22 v4 shipped N=32 gate:
-#   |mean delta| < 0.02  (your report's accepted max was 0.016)
-#   p_ground_atomic guard still holds (checked separately below)
-if abs(mean_delta) >= 0.02:
-    print(f"  u_tok_drop gate FAILED: |mean_delta|={abs(mean_delta):.4f} >= 0.02"); sys.exit(1)
-# Confirm atomic-pool guard didn't fire (p_ground_atomic should be bit-zero).
-if not re.search(r"p_ground_atomic\s+\+0\.0000\s+0\.0000", log):
-    print("  u_tok_drop gate FAILED: atomic pool shows drift — guard broke"); sys.exit(1)
-print("  u_tok_drop PASSED")
-PY
-    echo "u_tok_drop PASSED" >> "$marker"
+    band "u_tok_drop pool correctness gate — ABLATED (test suite + recal cover this)"
+    mkdir -p outputs
+    cat > "$marker" <<'TXT'
+u_tok_drop SKIPPED
+Reason: redundant with test_pipeline_batch_equivalence.py + test_self_improvement.py
+        + per-cycle recalibration which together prove batch≡serial on every
+        cycle boundary. Decision: 2026-05-06.
+TXT
+    log "u_tok_drop ablation sentinel written to $marker"
 }
 
 # ============================================================================
@@ -552,7 +500,7 @@ copy("outputs/calibration/qwen_judge_platt.ablation.json", "calibration/qwen_jud
 # Step 19.2.1 retention slice
 copy("data/retention/cycle0_slice_500.jsonl",             "retention/cycle0_slice_500.jsonl")
 # Gates + audit logs
-copy("outputs/level_b_smoke.log",                         "level_b_smoke.log")
+copy("outputs/u_tok_drop_validation.log",                 "u_tok_drop_validation.log")
 copy("outputs/phase1a_runner.log",                        "phase1a_runner.log")
 copy("outputs/step6_seed.log",                            "step6_seed.log")
 
@@ -661,36 +609,11 @@ print(f"Step 7 OK: {n_data} cycle rows (cycles 0..{last_cycle}); "
 PY
 }
 
-# ============================================================================
-# Step 8 — FLARE smoke (mandatory before B5)
-# ============================================================================
-step_8_flare_smoke() {
-    if ls outputs/baselines_smoke/flare/*.json &>/dev/null; then
-        log "Step 8: FLARE smoke output already present — skipping"
-        return 0
-    fi
-    band "Step 8 — FLARE decoder-slice smoke (5 FEVER samples)"
-    python -m scripts.run_baseline \
-        --baseline flare \
-        --benchmarks fever \
-        --n_questions 5 \
-        --passage_index data/passage_index \
-        --flare_theta 0.4 \
-        --flare_look_ahead 64 \
-        --output_dir outputs/baselines_smoke 2>&1 | tee outputs/baselines_smoke/B5_flare_smoke.log
-    python - <<'PY'
-import json, glob, sys
-ok = False
-for f in sorted(glob.glob("outputs/baselines_smoke/flare/*.json")):
-    d = json.load(open(f)); s = d.get("samples", [])
-    empty = sum(1 for x in s if not x.get("answer", "").strip())
-    esc   = sum(1 for x in s if x.get("escalated"))
-    print(f"  {f} n={len(s)} empty={empty} escalated={esc}")
-    if empty == 0 and esc >= 1: ok = True
-if not ok:
-    print("FLARE smoke FAILED: need empty_answer=0 AND escalated>=1"); sys.exit(1)
-PY
-}
+# step_8_flare_smoke and step_13_b5 (FLARE) removed 2026-05-07: FLARE is
+# inference-only and cannot batch (iterative look-ahead per sentence), so
+# at 30k serial queries it would cost ~25-125 GPU-h for a baseline that
+# doesn't defend any of the 5 headline claims. Removal rationale:
+# branch_C_log.md 2026-04-22.
 
 # ============================================================================
 # Steps 9-15 — B1..B7 baselines (n=3000 per benchmark; matched-scale to CAEM
@@ -723,8 +646,6 @@ step_10_b2() { _run_inference_baseline "B2" "cot"           "cot"; }
 step_11_5_b5() { _run_inference_baseline "B5" "fiveshot_cot" "fiveshot_cot"; }
 step_11_b3() { _run_inference_baseline "B3" "rag"           "rag"       --passage_index data/passage_index; }
 step_12_b4() { _run_inference_baseline "B4" "cot_rag"       "cot_rag"   --passage_index data/passage_index; }
-step_13_b5() { _run_inference_baseline "B5" "flare"         "flare"     --passage_index data/passage_index --flare_theta 0.4 --flare_look_ahead 64; }
-
 step_14_b6_vanilla_ft() {
     local outdir="outputs/baselines/vanilla_ft"
     if [[ -s "$outdir/training_log.jsonl" ]]; then
@@ -1039,40 +960,21 @@ main() {
     step_7_0_3_validate_weights   # 2026-04-24 audit: validate composite weights before Step 7 main
     step_5_5_pairs
     step_5_5_headhead
-    # step_5_5_gate: REMOVED (scenario classifier, 2026-04-20 decision is
-    #   MiniCheck irrespective; wording guidance only).
-    # step_prompt_ablation: REMOVED (OLD-prompt eval dir is Flan-T5 era;
-    #   comparing OLD@T5 vs NEW@Qwen conflates two variables and isn't
-    #   defensible as a prompt-design ablation).
     step_19_2_slice               # must precede Step 7
 
-    # --- Path B calibration (must run before HF snapshot so the upload
-    #     includes qwen_judge_platt.json) ---
-    # Fits Platt scaling to align Qwen-judge P(yes) with MiniCheck P(supported).
-    # Required for Step 7 main's AdaptiveNLIJudge to produce comparable
-    # p_entail values on long-hypothesis samples (ASQA benchmark).
+    # --- Path B calibration (no-op sentinel; Frozen Qwen judge ABLATED 2026-04-26) ---
     step_platt_calibrate
 
     # --- One-shot HF snapshot of pre-Step-7 state (credit-burnout recovery) ---
     step_hf_upload_pre_main
 
-    # --- Pre-Step-7 correctness gate (replaces Level B smoke) ---
-    # Validates CAEM_BATCH_U_TOK_DROP=1 pool config right before Step 7 main
-    # burns 11 days of GPU. Fails the runner if |mean Δ u_stored| >= 0.02
-    # or if the atomic-pool guard broke.
+    # --- Pre-Step-7 correctness gate (no-op sentinel; ABLATED 2026-05-06) ---
     step_u_tok_drop_gate
 
-    # --- Headline (~335 h / ~14 days) ---
+    # --- Headline (~7-8 days under v2 batched cal) ---
     step_7_main
 
     # --- External baselines (~8 h batched + ~55 h FT) ---
-    # B5 FLARE and its pre-gate removed from the chain: FLARE is inference-
-    # only and cannot be batched (iterative look-ahead per sentence), so at
-    # 30k serial queries it would cost ~25-125 GPU-h for a baseline that
-    # doesn't defend any of the 5 headline claims. CAEM's training + memory
-    # design makes any FLARE comparison structurally asymmetric (see
-    # branch_C_log.md 2026-04-22 removal rationale). step_8_flare_smoke and
-    # step_13_b5 function bodies remain in-file for potential Phase 2 reuse.
     step_9_b1
     step_10_b2
     step_11_5_b5                  # 5-shot CoT (Wei 2022) — reclaimed B5 slot

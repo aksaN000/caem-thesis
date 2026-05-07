@@ -53,10 +53,11 @@ FEVER_LABEL_RX = re.compile(r"Answer\s*:\s*(supports|refutes|not\s+enough\s+info
 
 
 def _parse_args() -> argparse.Namespace:
+    from caem.config import TRAINING_BENCHMARKS as _TRAINING_BENCHMARKS
     p = argparse.ArgumentParser(description=__doc__.split("\n", 1)[0])
     p.add_argument("--n", type=int, default=10)
     p.add_argument("--benchmarks", nargs="+",
-                   default=["fever", "triviaqa", "natural_questions"])
+                   default=list(_TRAINING_BENCHMARKS))
     p.add_argument("--output", type=Path, required=True)
     p.add_argument("--passage_index", type=Path, default=Path("data/passage_index"))
     # NEW 2026-04-24: load REAL questions from a previous eval JSON dir
