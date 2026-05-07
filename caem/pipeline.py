@@ -908,6 +908,30 @@ class CAEMPipeline:
         if vout is None:
             return None, False
 
+        # B2 transfer-storage block (2026-05-07). Memory is by design a
+        # log of TRAINING-panel experiences; transfer-panel benchmarks
+        # are HELD OUT for downstream generalisation evaluation. The
+        # runtime architecture already prevents transfer entries from
+        # entering memory (cold-start uses the training panel only;
+        # cycle_stream_chunks for transfer benchmarks are empty by
+        # construction in caem/benchmark_splits.py; per-cycle eval calls
+        # pass store_to_memory=False). This explicit guard codifies the
+        # invariant so future code paths cannot silently re-introduce
+        # cross-cycle transfer-eval contamination via Tier 1 cache hits.
+        # The DEFERRED branch below also short-circuits on transfer.
+        if source_benchmark is not None:
+            try:
+                from caem.config import TRANSFER_BENCHMARKS as _TRANSFER
+                if source_benchmark in _TRANSFER:
+                    logger.debug(
+                        "Not storing: source_benchmark=%s is in TRANSFER_BENCHMARKS "
+                        "(memory is training-panel only by design).",
+                        source_benchmark,
+                    )
+                    return None, False
+            except ImportError:
+                pass  # config not loadable in some test paths
+
         # DEFERRED -> buffer it (do not write to main memory yet).
         if vout.decision == "DEFERRED":
             try:
