@@ -73,139 +73,106 @@ Three small ambiguities resolved (2026-05-06):
 
 ---
 
-## Phase 0 — Implementation prep (~12-13 days, ALL CPU-only, no GPU spend)
+## Phase 0 — Implementation prep (CODE-COMPLETE 2026-05-07)
 
-The 13 fixes in dependency-respecting order. Detailed file:line targets in `CAEM_FIX_AUDIT.md`.
+All 13 architecture fixes have landed on `feat/qwen-3b-goal2`. The
+itemised file:line targets that previously occupied this section are
+preserved in `CAEM_FIX_AUDIT.md` for archival reference.
 
-### Day 1-2 — independent + mechanical fixes
+### Architecture-fix status
 
-- [ ] **Fix 9** Training panel update + new benchmark loaders
-  - Update `caem/config.py` `TRAINING_BENCHMARKS` and `TRANSFER_BENCHMARKS` constants
-  - Update `caem/benchmark_splits.py` `_EVAL_SPLIT_MAP` for HotpotQA + CommonsenseQA
-  - Add per-benchmark stream-chunk override (CSQA=700, others=1000)
-  - Add `load_hotpotqa()` and `load_commonsense_qa()` loaders to `eval/benchmarks.py`
-  - Add metric-scoring branches for new benchmarks (extract_csqa_label 5-choice; HotpotQA span extraction)
-  - Update `run_phase1a.sh:78` BENCHMARKS array
-  - Fix hardcoded benchmark check at `scripts/seed_cold_start.py:161` (read from TRAINING_BENCHMARKS)
-  - ~200 lines
+| Fix | Subject | Commit | Smoke tests |
+|-----|---------|--------|-------------|
+| 9   | Training panel update + new benchmark loaders         | `fc665f9` | 10/10 |
+| 13  | Remove general-domain mix from SIL pool               | `82da905` | 6/6   |
+| 11  | Deferred-reconsideration five-layer guard             | `8f59d85` | 7/7   |
+| 2A  | KEYSTONE — `source_benchmark` threaded end-to-end     | `f6960d6` | 10/10 |
+| 2B  | Per-benchmark composite weights + nested JSON schema  | `86382c8` | 7/7   |
+| 1   | Per-benchmark conformal storage gate                  | `5002c23` | 8/8   |
+| 12  | Per-benchmark u_pre T_b + safety_u_pre_min_b          | `f930d61` | 10/10 |
+| 6   | alias_overlap signal (Wikidata)                       | `225fec3` | 11/11 |
+| 7   | entity_head_consistency signal (M-chain heads)        | `803a667` | 14/14 |
+| 10  | Per-bench prompts + uniform verifier-input canonicalisation | `d470066` | 18/18 |
+| 8   | LoRA SIL primitive (CRITICAL — full FT replaced)      | `65f3102` | 13/13 |
+| 3   | Loss-reweighted SIL training pool builder             | `d0504b6` | 14/14 |
+| 4   | Multi-modal retention probe (MMLU + TQA + HotpotQA)   | `30b46fb` | 14/14 |
+| 5   | Coverage feedback diagnostic + halt triggers          | `3be0ece` | 20/20 |
 
-- [ ] **Fix 13** Remove general-domain mix from SIL pool
-  - Delete `load_general_data()` (`scripts/run_experiment.py:305-365`)
-  - Remove `general_data` kwarg from `sil.run_cycle()` invocation
-  - Simplify `_mix()` (`caem/training/self_improvement.py:696-710`) or remove entirely
-  - ~30 lines
+Plus tests-consolidation cleanup (`337229d`) and gdrive bucket layout
+(`25ea0cf`). 377 v2-fix smoke + regression tests pass cleanly. Eight
+pre-existing `test_self_improvement.py` failures are mock-seed test-
+fixture bugs; same count fails on baseline pre-Fix-9 → not introduced
+by this work.
 
-- [ ] **Fix 11 (layers 1-3)** Deferred-reconsideration hard-fail guard
-  - Layer 1: Orchestrator-level `assert pipeline.deferred_buffer is not None` at `run_experiment.py:1591`
-  - Layer 2: Promote SIL `WARNING` to `RuntimeError` (`self_improvement.py:449-462`) with `--allow_skip_deferred` opt-out
-  - Layer 3: Post-cycle log assertion (regex `Deferred reconsideration: sweeping \d+ entries`)
-  - ~120 lines + commits
+### Headline deliverables
 
-### Day 3-5 — keystone per-benchmark cascade
+* **12-signal verifier composite** — `+ alias_overlap, + entity_head_consistency`
+  on top of v1's ten signals. Both auto-derive into eval-harness
+  schema via `_derive_verifier_fields(UnifiedVerifierOutput)`.
+* **Per-benchmark dispatch wired end-to-end** — gate, composite,
+  prompts, T_b, safety floor all consume the same `source_benchmark`
+  token; v1 calibration JSONs load via the back-compat path.
+* **Uniform verifier-input canonicalisation** — every signal that
+  reads the answer (`p_entail`, `p_ground_*`, `atomic`, `q_a_relevance`,
+  `alias_overlap`) sees the same `Answer: <X>.` claim form regardless
+  of benchmark; MCQ letters expand against the Choices block, bare
+  entities wrap, declarative answers pass through.
+* **LoRA r=32 α=64 all-linear** SIL primary path — adapter-only
+  checkpoints (~120 MB vs 6.2 GB), L2 anchor removed (frozen base
+  IS the implicit anchor), graceful fall-through to full FT when peft
+  is missing or the model is a mock.
+* **Multi-probe forgetting guard** — MMLU + TriviaQA test + HotpotQA
+  validation; abort fires if ANY probe drops below
+  `forgetting_tolerance` (0.93) from the pristine baseline.
+* **Coverage diagnostic + halt triggers** — per-cycle JSON with
+  admission rates, pool composition entropy, adapter SV spectra,
+  and the SV-collapse score; auto-relax α_b on zero-admission for
+  2 consecutive cycles; hard halt on adapter rank-collapse.
 
-- [ ] **Fix 2** Per-benchmark composite weights (KEYSTONE — every per-bench fix flows from this)
-  - `CalProbComposite` accepts per-benchmark calibrations dict
-  - JSON schema bumped to `branchC.2026-05-06` with nested `{benchmark: {signal_calibrations}}`
-  - Per-benchmark fit in `scripts/fit_composite_calibration.py` (groupby benchmark)
-  - **Add `source_benchmark` parameter to `verify()` and `verify_batch()`** — every callsite must update
-  - Pass `source_benchmark` to `_composite()` for per-bench lookup
-  - Update every verifier call site: pipeline (line 1350), retroverify closure, deferred reconsider closure, run_calibration cache loader
-  - ~200 lines
+### Integration / verification status — pending (Day 13 work)
 
-- [ ] **Fix 1** Per-benchmark conformal gate
-  - Promote `scripts/conditional_conformal_ablation.py:81-120` `fit_per_benchmark_gate()` to deployment
-  - Wrap `ConformalStorageGate` for per-benchmark dict-of-gates
-  - Add per-benchmark fit loop to `scripts/fit_conformal_gate.py`
-  - Add per-benchmark EMA blending at `scripts/recalibrate_conformal_at_cycle.py`
-  - Pipeline routes by `source_benchmark` to gate at storage decision (`pipeline.py:907-930`)
-  - ~80 lines (pattern already exists)
+The architecture fixes pass their unit tests but the orchestrator
+glue and downstream-script audit have not yet been done. The Day-13
+checklist below replaces the previous Day-11/12 smoke list:
 
-- [ ] **Fix 12** Per-benchmark u_pre T_b + safety_u_pre_min_b
-  - `config.temperature_scalar` → `config.temperature_scalars: Dict[str, float]` (with `_global_fallback` key)
-  - `config.safety_u_pre_min` → `config.safety_u_pre_mins: Dict[str, float]`
-  - `_apply_temperature_scaling()` accepts `source_benchmark` and dict-lookup T_b (`pre_routing.py:344-359`)
-  - `AdaptiveRouter.route()` looks up `safety_u_pre_min_b` by benchmark
-  - `run_calibration.py:refit_temperature_only()` fits per-benchmark T_b on per-benchmark cal slices
-  - NEW: `safety_u_pre_min_b` data-driven fit at cycle 0 (precision floor 0.85 AND coverage floor 0.40 dual contract)
-  - Pipeline threads `source_benchmark` to `pre_routing.estimate()` and `router.route()`
-  - ~110 lines
+- [ ] **Integration audit** — read every line of every modified file
+  end-to-end. Check Fix-to-Fix consistency (e.g. retention-probe
+  uses canonical_answer through verifier; pool-reweight reads
+  source_benchmark on QAPair; coverage diagnostic reads adapter
+  weights through the LoRA wrap).
+- [ ] **Downstream-script audit (Fix 9b)** — ~17 scripts hardcode v1
+  benchmark names (`fever / triviaqa / natural_questions / arc_challenge`).
+  Switch them to read `caem.config.TRAINING_BENCHMARKS` /
+  `TRANSFER_BENCHMARKS`. Fix the per-script EM extractors that need
+  CSQA-5 / HotpotQA-multihop awareness.
+- [ ] **Baseline-script audit** — B1-B7 baselines (`scripts/run_baseline_*.py`,
+  `caem/ablation/`) must construct CAEMPipeline with the v2 verifier
+  and write per-bench CSV columns. Confirm `extract_arc_label`
+  receives `n_choices=5` on CSQA samples.
+- [ ] **Production-code audit (Fix 14)** — `docs/PRODUCTION_RUNBOOK.md`,
+  `caem/production/server.py`, `scripts/expose_demo_remote.sh`. The
+  production swap-schema needs to load LoRA adapters via
+  `PeftModel.from_pretrained` and the per-bench JSONs via the v2
+  back-compat path. Demo-day questions still valid; cycle-3 → cycle-10
+  v2 anchor swap on Phase 1b close.
+- [ ] **Orchestrator wiring** in `scripts/run_experiment.py`
+  post-cycle hook: feed
+  `(candidate_counts, admitted_counts, pool_counts, per_bench_em, model)`
+  to `caem.diagnostic.coverage.build_coverage_diagnostic`, write the
+  result to `cycle_<N>/coverage_diagnostic.json`, append to a sliding
+  window, call `evaluate_halt_triggers`, honour the `HaltDecision`.
+- [ ] **Cold-start loader wiring** — orchestrator must construct a
+  `cold_start_loader: Callable[[str, int], List[QAPair]]` reading
+  gold pairs from `caem.config.TRAINING_BENCHMARKS` via the existing
+  benchmark loaders, and pass it to `sil.run_cycle(...,
+  cold_start_loader=loader)`. Without this wiring the cold-start
+  fallback in Fix 3 is a no-op.
 
-- [ ] **Fix 11 (layer 4)** Unit test scaffolding
-  - New file `tests/test_orchestrator_wiring.py`
-  - Tests: orchestrator passes deferred_buffer + reconsider_fn; SIL raises RuntimeError without; end-to-end synthetic deferred entry promotion
-  - ~80 lines
+After integration sign-off:
 
-### Day 6-7 — verifier signals + dispatch
-
-- [ ] **Fix 6** alias_overlap signal (Wikidata lookup)
-  - New file `caem/verification/alias_overlap.py`
-  - Local 150 MB Wikidata alias file download (one-time setup)
-  - Integrate as 10th signal in `verifier.verify()` and `verify_batch()`
-  - Add to `UnifiedVerifierOutput` schema (`verifier.py:166-207`)
-  - Update `_derive_verifier_fields()` in eval harness
-  - Add to `COMPOSITE_SIGNALS` tuple in `cal_prob_composite.py`
-  - ~220 lines
-
-- [ ] **Fix 7** entity_head_consistency signal (M=3 chain head agreement)
-  - Head-noun extractor (regex + spaCy fallback) in `caem/verification/`
-  - Pairwise agreement scoring derived from existing M=3 chains in `verify_batch` (zero extra compute)
-  - Add to `UnifiedVerifierOutput` and `COMPOSITE_SIGNALS`
-  - ~80 lines
-
-- [ ] **Fix 10** Per-benchmark prompts + verifier dispatch
-  - Add `commonsense_qa` and `hotpotqa` branches to `detect_query_task()` (`prompts.py:73-85`)
-  - Add `_task_spec()` branches: CSQA 5-choice instruction; HotpotQA multi-hop instruction
-  - Add `_few_shot_parts()` examples for CSQA + HotpotQA
-  - Verify `multichoice_scorer.py` regex handles 5-choice (already supports A-E per audit)
-  - NEW file `caem/verification/entity_expansion_scorer.py` for bare-entity NLI grounding (TriviaQA + HotpotQA)
-  - Insert into `_p_ground_with_direction()` dispatcher (`verifier.py:699-726`)
-  - Update `extract_arc_label` (4-choice) to handle 5-choice for CSQA in `eval/metrics.py`
-  - ~500 lines
-
-### Day 8-10 — training-side + diagnostics
-
-- [ ] **Fix 8** LoRA SIL primitive (CRITICAL — biggest single change)
-  - Wrap base model with `get_peft_model(model, LoraConfig(r=32, α=64, all-linear))` post-construction (`model_loader.py:446-470`)
-  - Verify `torch.compile` compatibility with PeftModel wrapper (fullgraph=False already set)
-  - Gate L2 anchor: `if cfg.use_lora_training: skip _l2_penalty()` (`self_improvement.py:893-894, 971-996`)
-  - Conditional checkpoint save: adapter-only via `model.save_pretrained()` (`self_improvement.py:1183`)
-  - Conditional checkpoint load: `PeftModel.from_pretrained(base, adapter_path)` (`self_improvement.py:559`)
-  - LoRA-specific LR (2e-4) with cycle decay `LR_c = 2e-4 / (1 + 0.15·c)`
-  - Per-cycle adapter SVD logging (Biderman 2024 contribution gap)
-  - Update rolling-N retention deletion (smaller adapter files; keep all 11 instead of rolling)
-  - Update `--resume_from_cycle` path for adapter-only restore
-  - ~280 lines
-
-- [ ] **Fix 3** Loss-reweighted SIL pool builder
-  - Insert per-task weight computation between `_collect_episodes` and `_mix` (`self_improvement.py:301-317`)
-  - Implement bounded upsampling 3× cap + DoReMi floor (≥1e-3) + temperature mixing T=2
-  - Cold-start gold-labelled fallback: new method `_load_gold_fallback(task, n)` for zero-count benchmarks
-  - Add config fields: `loss_temperature=2.0`, `max_task_upsample_ratio=3.0`, `min_task_weight=1e-3`, `cold_start_fallback_per_task=100`
-  - ~150 lines
-
-- [ ] **Fix 4** Multi-modal retention probe
-  - Replace single `_mmlu_score(n=200)` with `_measure_all_retention_probes()` returning dict (`self_improvement.py:1010-1113`)
-  - New methods `_triviaqa_open_score(n=200)` (F1) and `_hotpotqa_multihop_score(n=200)` (EM)
-  - Halt-and-rollback gate fires on ANY probe drop > 7%
-  - Pristine baseline measurement at cycle 0 includes all 3 probes
-  - Add config fields: retention probe sizes + drop threshold
-  - ~100 lines
-
-- [ ] **Fix 5** Coverage feedback diagnostic + halt triggers
-  - New module `caem/diagnostic/coverage.py`
-  - Per-cycle JSON: per-benchmark admission rate + pool composition entropy + per-bench EM + adapter SV
-  - Halt triggers: zero-admission-for-2-cycles → auto-relax α_b; SV collapse alarm
-  - Orchestrator integration in `run_experiment.py` post-cycle
-  - ~150 lines
-
-### Day 11-12 — smoke test + bug fixes
-
-- [ ] **Smoke test 1**: PEFT wrapping smoke (10 samples through cycle 0 SIL with LoRA)
-- [ ] **Smoke test 2**: Per-benchmark composite end-to-end (verify routes by source_benchmark)
-- [ ] **Smoke test 3**: Multi-modal retention probe (all 3 probes return non-NaN)
-- [ ] **Smoke test 4**: Deferred reconsideration five-layer guard fires when expected
-- [ ] **Fix 11 (layer 5)** Pre-launch dry-run with synthetic 5-entry deferred buffer in `run_phase1a.sh` before step_7_main
-- [ ] Fix any bugs surfaced; commit + push to `feat/qwen-3b-goal2` branch (NEW BRANCH for v2 architecture)
+- [ ] Pre-launch dry-run with synthetic 5-entry deferred buffer in
+  `run_phase1a.sh` before step_7_main (Fix 11 layer 5)
+- [ ] Final commit + push to `feat/qwen-3b-goal2`
 
 ### Day 13 — cycle 0 cold-start rebuild + calibration
 
@@ -374,6 +341,9 @@ grep "Cohen's d on benchmark.*passes 0.20" outputs/full_run/run.log
 - 2026-05-06 — Three ambiguities resolved: full removal of general-domain mix; local Wikidata file; keep all 11 LoRA adapters.
 - 2026-05-06 — Cycle-5 partial trajectory on broken architecture halted; ~$3 burned today; ~$95 remaining.
 - 2026-05-06 — `feat/qwen-3b-goal2` will be the v2 branch (parallel to v1's `feat/qwen-3b-goal1` which records the failure-mode trajectory).
+- 2026-05-07 — All 13 architecture fixes merged on `feat/qwen-3b-goal2`. 377 smoke + regression tests pass. Code work compressed from the 12-13-day estimate to 1 active day after the keystone (Fix 2) landed; remaining work is integration audit + orchestrator glue rather than architectural lifts.
+- 2026-05-07 — Verifier-input canonicalisation uses the short `Answer: <X>.` form (saves ~6-7 tokens/NLI call vs the longer alternative). Persisted as `feedback_uniform_verifier_input.md` memory entry.
+- 2026-05-07 — Test-file consolidation: 6 fix-prefix smoke files renamed/merged into existing test homes (`test_conformal_gate.py`, `test_cal_prob_composite.py`, `test_alias_overlap.py`, `test_entity_head.py`, `test_answer_canonicalizer.py`, `test_entity_expansion_scorer.py`); cross-cutting `test_fix12` and `test_fix10` contents moved into `test_pre_routing.py` / `test_router.py` / `test_calibration_batch_equivalence.py` / `test_prompts.py` / `test_eval.py`. Old fix-prefix files for Fix 2, 9, 11, 13 still present as historical (pre-this-turn) commits.
 
 ---
 
