@@ -246,7 +246,7 @@ def build_benchmark_pools(
     seed_size: int = DEFAULT_SEED_SIZE,
     purity_size: int = DEFAULT_PURITY_SIZE,
     calibration_size: int = DEFAULT_CALIBRATION_SIZE,
-    train_chunk_size: int = DEFAULT_TRAIN_CHUNK_SIZE,
+    train_chunk_size: Optional[int] = None,
     n_cycles: int = DEFAULT_N_CYCLES,
     eval_size: int = DEFAULT_EVAL_SIZE,
     test_size: int = DEFAULT_TEST_SIZE,
@@ -277,6 +277,19 @@ def build_benchmark_pools(
     resolved_eval_split = (
         eval_split if eval_split is not None else _EVAL_SPLIT_MAP.get(benchmark, "dev")
     )
+
+    # 2026-05-07 audit fix: when train_chunk_size is not explicitly passed
+    # (default None), consult PER_BENCHMARK_TRAIN_CHUNK_SIZE so benchmarks
+    # with small train splits (CSQA at 9.7k) get the right chunk size
+    # automatically. Without this, callers using module defaults — including
+    # scripts/seed_cold_start.py and the cold_start_loader closure in
+    # run_experiment.py — silently raised InsufficientBenchmarkDataError on
+    # CSQA because the default train_chunk_size=1000 implied a 12k allocation
+    # vs 9741 available samples.
+    if train_chunk_size is None:
+        train_chunk_size = PER_BENCHMARK_TRAIN_CHUNK_SIZE.get(
+            benchmark, DEFAULT_TRAIN_CHUNK_SIZE,
+        )
 
     # -------- Training benchmarks: train-split pools -------- #
     seed_pool: Tuple[dict, ...] = ()

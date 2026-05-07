@@ -563,7 +563,51 @@ def main(args: argparse.Namespace) -> None:
 
     summary_stats: Dict[str, dict] = {}
 
+    # 2026-05-07 audit fix: per-benchmark checkpointing. Without this, a
+    # crash mid-step_6 (e.g., a benchmark loader raising on a malformed
+    # sample, or a build_benchmark_pools failure on a small-train-split
+    # benchmark) loses ALL prior benchmarks' seeded episodes — they live
+    # only in the in-process EpisodicMemoryStore. Now we checkpoint after
+    # each benchmark + persist a partial summary, AND skip benchmarks that
+    # are already represented in a previously-loaded checkpoint.
+    output_dir_pp = Path(args.output_dir)
+    output_dir_pp.mkdir(parents=True, exist_ok=True)
+    store_path_pp = output_dir_pp / "memory_store"
+    summary_path_pp = output_dir_pp / "seed_summary.json"
+    partial_path_pp = output_dir_pp / "seed_summary_partial.json"
+
+    # Resume: load any prior partial summary so already-completed benchmarks
+    # are skipped on restart. The memory store itself is also reloaded if
+    # the .faiss + .meta pair exists at the partial-checkpoint path.
+    completed_benchmarks: set = set()
+    if partial_path_pp.exists() and (output_dir_pp / "memory_store.faiss").exists():
+        try:
+            from caem.memory.store import EpisodicMemoryStore as _EMS
+            with open(partial_path_pp, "r", encoding="utf-8") as _f:
+                _partial = json.load(_f)
+            completed_benchmarks = set(_partial.get("benchmarks", {}).keys())
+            summary_stats.update(_partial.get("benchmarks", {}))
+            _resumed_store = _EMS.load(str(store_path_pp))
+            # Replace the freshly-built empty store with the loaded one.
+            pipeline.memory_store = _resumed_store
+            logger.info(
+                "RESUME: loaded partial seed checkpoint with %d completed "
+                "benchmark(s) (%s) and %d episodes already in memory.",
+                len(completed_benchmarks), sorted(completed_benchmarks),
+                pipeline.memory_store.size,
+            )
+        except Exception as _resume_exc:
+            logger.warning(
+                "Partial checkpoint load failed (%s); starting fresh.",
+                _resume_exc,
+            )
+            completed_benchmarks = set()
+            summary_stats = {}
+
     for bm in benchmarks:
+        if bm in completed_benchmarks:
+            logger.info("Skipping %s (already completed in partial checkpoint).", bm)
+            continue
         logger.info("-" * 50)
         logger.info("Seeding %s ...", bm)
         train_samples = load_train_samples(bm, n=max_q, seed=args.seed)
@@ -572,6 +616,30 @@ def main(args: argparse.Namespace) -> None:
             batch_pipeline=batch_pipeline, batch_size=batch_size,
         )
         summary_stats[bm] = stats
+
+        # Per-benchmark checkpoint: persist memory store + partial summary
+        # so a future crash retains the work done so far.
+        try:
+            pipeline.memory_store.save(str(store_path_pp))
+            partial_payload = {
+                "target_per_benchmark": target,
+                "total_seeded_so_far":  pipeline.memory_store.size,
+                "memory_store_path":    str(store_path_pp) + ".faiss  (+ .meta)",
+                "benchmarks":           summary_stats,
+                "_partial_checkpoint":  True,
+            }
+            partial_path_pp.write_text(json.dumps(partial_payload, indent=2))
+            logger.info(
+                "Per-benchmark checkpoint after %s: store size %d, partial "
+                "summary -> %s",
+                bm, pipeline.memory_store.size, partial_path_pp,
+            )
+        except Exception as _ckpt_exc:
+            logger.warning(
+                "Per-benchmark checkpoint after %s failed (%s); continuing "
+                "but a future crash will lose this benchmark's seeds.",
+                bm, _ckpt_exc,
+            )
 
     # -- Save memory store ----------------------------------------------------
     # store_path is a FILE base path (not a directory) — .save() appends
