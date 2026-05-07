@@ -124,14 +124,18 @@ def _parse_args() -> argparse.Namespace:
                         "below --forgetting_tolerance after a cycle.")
     p.add_argument("--forgetting_tolerance", type=float, default=0.93)
     p.add_argument("--mmlu_n", type=int, default=200)
+    # v2 Fix 9b: read defaults from caem.config so the v1 ↔ v2 panel
+    # change does not silently leave the B6/B7 baselines training on the
+    # old roster.
+    from caem.config import (
+        TRAINING_BENCHMARKS as _CFG_TRAINING_BENCHMARKS,
+        TRANSFER_BENCHMARKS as _CFG_TRANSFER_BENCHMARKS,
+    )
     p.add_argument("--train_benchmarks", nargs="+",
-                   default=["fever", "triviaqa", "natural_questions"],
+                   default=list(_CFG_TRAINING_BENCHMARKS),
                    help="Benchmarks whose train splits supply fine-tuning data.")
     p.add_argument("--eval_benchmarks", nargs="+",
-                   default=[
-                       "fever", "triviaqa", "natural_questions",
-                       "truthfulqa", "strategyqa", "arc_challenge", "asqa",
-                   ])
+                   default=list(_CFG_TRAINING_BENCHMARKS) + list(_CFG_TRANSFER_BENCHMARKS))
     p.add_argument("--n_train_per_bench", type=int, default=2000)
     p.add_argument("--n_eval_per_bench", type=int, default=500)
     p.add_argument(

@@ -2688,6 +2688,15 @@ class UnifiedVerifier:
         # against pre-2026-04-24 CAEMConfig (zero weight → signal silenced,
         # matches prior numerics exactly).
         w_pgmax = getattr(cfg, "u_stored_weight_pground_max", 0.0)
+        # v2 Fix 6 + Fix 7: alias_overlap and entity_head_consistency.
+        # Defaulted to zero weight in CAEMConfig so weighted_sum behaviour
+        # on pre-v2 calibrated_config_*.json files is unchanged. The
+        # cal_prob path (the v2 default) trains an isotonic for both
+        # signals and is unaffected by these weights — they only matter
+        # when the cal_prob JSON fails to load and the legacy
+        # weighted_sum branch fires as the fallback.
+        w_alias = getattr(cfg, "u_stored_weight_alias_overlap", 0.0)
+        w_ehc = getattr(cfg, "u_stored_weight_entity_head_consistency", 0.0)
 
         u = (
             w_pg_mean * p_ground_mean
@@ -2698,6 +2707,8 @@ class UnifiedVerifier:
             + w_pent * p_entail
             + w_qarel * q_a_relevance
             + w_pgmax * p_ground_max
+            + w_alias * alias_overlap
+            + w_ehc * entity_head_consistency
         )
         return float(np.clip(u, 0.0, 1.0))
 

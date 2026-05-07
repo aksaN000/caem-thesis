@@ -125,6 +125,11 @@ def _apply_pipeline_flags(
             original_verify = pipeline.verifier.verify
 
             def _verify_stub(question, answer, *a, **kw):
+                # v2 Fix 6 + Fix 7: alias_overlap and entity_head_consistency
+                # carry the neutral 0.5 prior on the skip-verifier ablation
+                # path so the composite numerics match an "all signals at
+                # neutral prior" run rather than silently dropping the new
+                # signals.
                 return UnifiedVerifierOutput(
                     u_token=0.5, u_dropout=0.5, u_internal=0.5,
                     s_avg=1.0, h_norm=0.0,
@@ -134,6 +139,9 @@ def _apply_pipeline_flags(
                     decision="STORE",
                     early_exit_triggered=False,
                     abstained=False,
+                    q_a_relevance=0.5,
+                    alias_overlap=0.5,
+                    entity_head_consistency=0.5,
                 )
 
             backups.append(("verifier", "verify", original_verify))

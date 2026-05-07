@@ -278,6 +278,7 @@ class BatchPipeline:
     def batch_verify(
         self,
         inputs: List[tuple],
+        source_benchmarks: Optional[List[Optional[str]]] = None,
     ) -> list:
         """Run the UnifiedVerifier over N (query, answer) pairs in one call.
 
@@ -294,6 +295,13 @@ class BatchPipeline:
             One entry per sample that needs verification. The caller
             typically filters out Tier 1 samples (which do not run
             Stage 5 in the serial pipeline) before calling this.
+        source_benchmarks : list of (str or None) or None, default None
+            v2 Fix 2 — per-sample benchmark tag, same length as
+            ``inputs``. Forwarded to ``verifier.verify_batch`` so each
+            per-sample ``verify()`` call sees the correct
+            ``source_benchmark`` for per-benchmark composite + per-bench
+            gate dispatch. When None (legacy callers), every sample
+            falls back to the pooled global path.
 
         Returns
         -------
@@ -301,7 +309,9 @@ class BatchPipeline:
         """
         if not inputs:
             return []
-        return self.p.verifier.verify_batch(inputs)
+        return self.p.verifier.verify_batch(
+            inputs, source_benchmarks=source_benchmarks,
+        )
 
     def batch_tier3_generate(self, queries: Sequence[str]) -> List[str]:
         """Generate N Tier-3 RAG answers in one batched T5 forward pass.

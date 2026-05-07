@@ -219,6 +219,12 @@ _VERIFIER_FIELDS: Tuple[str, ...] = (
     "p_ground_max", "p_ground_mean", "p_ground_atomic", "p_contra",
     "u_stored", "decision", "early_exit_triggered", "abstained",
     "q_a_relevance",
+    # v2 Fix 6 + Fix 7: alias_overlap and entity_head_consistency.
+    # UnifiedVerifierOutput defaults both to 0.5 when missing, so
+    # baseline rows produced before these fields existed still
+    # serialise cleanly with the neutral prior.
+    "alias_overlap",
+    "entity_head_consistency",
 )
 
 

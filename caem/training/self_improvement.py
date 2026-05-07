@@ -525,6 +525,19 @@ class SelfImprovementLoop:
         n_per_probe = int(getattr(cfg, "retention_probe_n", 200))
 
         if self._pristine_probes is None:
+            if cycle_num > 0:
+                logger.warning(
+                    "Cycle %d: anchoring pristine retention baseline NOW — "
+                    "this is fine for resumed runs that re-instantiated the "
+                    "SelfImprovementLoop, but FALSELY anchors against the "
+                    "post-cycle-(N-1) model when the same instance is "
+                    "reused without reset_pristine_mmlu(). If you intend "
+                    "the pristine to be cycle-0 base, ensure the "
+                    "orchestrator either reuses the same SelfImprovementLoop "
+                    "instance from cycle 0 OR explicitly seeds "
+                    "_pristine_probes from cycle_0/coverage_diagnostic.json.",
+                    cycle_num,
+                )
             self._pristine_probes = run_retention_probes(
                 self.model, self.tokenizer,
                 probes=probe_names, n_per_probe=n_per_probe,

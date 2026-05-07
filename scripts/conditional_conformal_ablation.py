@@ -60,7 +60,10 @@ from caem.verification.conformal_gate import ConformalStorageGate  # noqa: E402
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("conditional_conformal_ablation")
 
-TRAINING_BENCHMARKS = ("fever", "triviaqa", "natural_questions")
+# v2 Fix 9b: read benchmark roster from caem.config so the ablation
+# tracks the live training panel (was hardcoded to v1 panel
+# {fever, triviaqa, natural_questions}).
+from caem.config import TRAINING_BENCHMARKS  # noqa: F401,E402  (re-export)
 
 
 def load_calfold_samples(cal_dir: Path, bench: str, cycle: int) -> List[Dict[str, Any]]:

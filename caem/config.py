@@ -349,6 +349,16 @@ class CAEMConfig:
     u_stored_weight_sc: float = 0.10               # s_avg, was 0.14
     u_stored_weight_uinternal: float = 0.08        # was 0.10
     u_stored_weight_se: float = 0.02               # (1 - h_norm), was 0.04
+    # v2 Fix 6 + Fix 7 — alias_overlap and entity_head_consistency.
+    # The cal_prob branch (the v2 default once the calibration JSON loads)
+    # trains an isotonic for both signals and ignores these weights. The
+    # weighted_sum legacy fallback consumes them when the JSON fails to
+    # load. Keeping them at zero by default preserves the v1
+    # weighted_sum numerics on pre-v2 calibrated_config_*.json files;
+    # ablation runs that want to test the new signals via weighted_sum
+    # can override the weights without touching cal_prob behaviour.
+    u_stored_weight_alias_overlap: float = 0.0      # v2 Fix 6 — placeholder
+    u_stored_weight_entity_head_consistency: float = 0.0  # v2 Fix 7 — placeholder
 
     # ------------------------------------------------------------------ #
     # Composite mode — Branch C 2026-04-25 (Phase 2.1)                    #

@@ -54,13 +54,22 @@ from typing import Any, Dict, List, Optional, Tuple
 logger = logging.getLogger(__name__)
 
 
-CALIB_BENCHMARK_DEFAULTS = ["fever", "triviaqa", "natural_questions"]
+# v2 Fix 9b: read the benchmark roster from caem.config so the calibration
+# fold tracks the live training panel. Hardcoded list before this fix was
+# ["fever", "triviaqa", "natural_questions"] (v1 panel); v2 trains on
+# ("fever", "triviaqa", "hotpotqa", "commonsense_qa") and uses
+# ("truthfulqa", "strategyqa", "natural_questions") for transfer eval.
+from caem.config import TRAINING_BENCHMARKS as _CFG_TRAINING_BENCHMARKS
+from caem.config import TRANSFER_BENCHMARKS as _CFG_TRANSFER_BENCHMARKS
+
+CALIB_BENCHMARK_DEFAULTS = list(_CFG_TRAINING_BENCHMARKS)
+# Calibration is carved from the SIL training pool. Training benchmarks
+# always use the "train" split; transfer benchmarks use their canonical
+# eval split. Extra entries are kept for back-compat with legacy ablation
+# scripts that still pass v1-only benchmark names.
 CALIB_BENCHMARK_SPLITS = {
-    # Calibration is carved from the SIL training pool.
-    "fever": "train",
-    "triviaqa": "train",
-    "natural_questions": "train",
-    # Optional transfer-only benchmarks.
+    **{bm: "train" for bm in _CFG_TRAINING_BENCHMARKS},
+    "natural_questions": "validation",
     "truthfulqa": "validation",
     "strategyqa": "test",
     "arc_challenge": "test",
