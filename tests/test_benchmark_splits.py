@@ -226,21 +226,30 @@ class TestPanelDefinition:
     def test_all_benchmarks_union(self):
         assert set(ALL_BENCHMARKS) == set(TRAINING_BENCHMARKS) | set(TRANSFER_BENCHMARKS)
 
-    def test_asqa_is_transfer_only(self):
-        assert "asqa" in TRANSFER_BENCHMARKS
-        assert "asqa" not in TRAINING_BENCHMARKS
+    def test_natural_questions_is_transfer_only(self):
+        # v2 (2026-05-06): NQ moved from training to transfer panel
+        # alongside the FEVER-monoculture failure-mode response. NQ is
+        # now structural-failure-only (used to measure the v1 cycle-2
+        # NQ collapse mode). See branch_C_log 2026-05-06.
+        assert "natural_questions" in TRANSFER_BENCHMARKS
+        assert "natural_questions" not in TRAINING_BENCHMARKS
 
-    def test_natural_questions_is_training(self):
-        assert "natural_questions" in TRAINING_BENCHMARKS
-        assert "natural_questions" not in TRANSFER_BENCHMARKS
+    def test_hotpotqa_and_csqa_are_training(self):
+        # v2 added HotpotQA + CommonsenseQA to the training panel to
+        # exercise multi-hop composition + 5-choice MCQ regimes that
+        # v1's 3-bench panel didn't cover.
+        assert "hotpotqa" in TRAINING_BENCHMARKS
+        assert "commonsense_qa" in TRAINING_BENCHMARKS
 
     def test_training_size(self):
-        # Branch C 2026-04-22 evening: 3 training benchmarks
-        assert len(TRAINING_BENCHMARKS) == 3
+        # v2: 4 training benchmarks {fever, triviaqa, hotpotqa, commonsense_qa}
+        # was 3 in v1.
+        assert len(TRAINING_BENCHMARKS) == 4
 
     def test_transfer_size(self):
-        # Branch C: 4 transfer benchmarks (truthfulqa, strategyqa, arc, asqa)
-        assert len(TRANSFER_BENCHMARKS) == 4
+        # v2: 3 transfer benchmarks {truthfulqa, strategyqa, natural_questions}
+        # was 4 in v1 (which included arc_challenge and asqa).
+        assert len(TRANSFER_BENCHMARKS) == 3
 
 
 # =============================================================================
