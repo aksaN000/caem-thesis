@@ -825,6 +825,30 @@ class UnifiedVerifier:
         display_answer = _extract_display_answer(answer)
         scoring_answer = display_answer if display_answer else answer
 
+        # v2 Fix 10 — uniform canonical claim for every signal that reads
+        # the answer. MCQ letter ("C") expands to its option text; bare
+        # entity ("Paris") wraps as "The answer to the question is: Paris.";
+        # already-declarative answers (FEVER labels, yes/no, prose) pass
+        # through unchanged. Threaded into _score_p_entail, _score_atomic,
+        # _compute_q_a_relevance, and _compute_alias_overlap so every
+        # signal sees the same propositional surface regardless of
+        # benchmark. The directional / multichoice / entity-expansion
+        # p_ground scorers continue to receive the raw scoring_answer
+        # because they perform their own benchmark-specific extraction
+        # (label regex, letter substitution); legacy _score_p_ground
+        # consumes the canonical form via the same path the other signals
+        # use. The raw display_answer is preserved for the eval harness
+        # EM-scoring, which lives outside verify().
+        try:
+            from caem.verification.answer_canonicalizer import canonicalize_answer
+            canonical_answer = canonicalize_answer(query, scoring_answer)
+        except Exception as exc:  # pragma: no cover -- defensive
+            logger.warning(
+                "canonicalize_answer failed (%s) -- falling back to "
+                "raw scoring_answer.", exc,
+            )
+            canonical_answer = scoring_answer
+
         # ---------- internal calibration (cheap) -------------------------- #
         _ts = _t.perf_counter()
         with section("verifier.u_token_dropout"):
@@ -842,7 +866,10 @@ class UnifiedVerifier:
                 chains = self._generate_m_chains(input_ids)
             s_avg = self._score_s_avg(chains)
             # A1 FIX: p_entail scores chain->display_answer (short hypothesis)
-            p_entail = self._score_p_entail(chains, scoring_answer)
+            # v2 Fix 10: canonical claim form (MCQ letter expanded to option
+            # text; bare entity wrapped). FEVER / yes-no answers already
+            # declarative — canonicalizer passes them through unchanged.
+            p_entail = self._score_p_entail(chains, canonical_answer)
             # v2 Fix 7 — entity_head_consistency reuses the same M chains.
             # Zero extra compute: head-noun extraction is regex-based and
             # the chains have already been generated above. Catches the
@@ -892,8 +919,13 @@ class UnifiedVerifier:
         if _dir is not None:
             p_ground_max, p_ground_mean = _dir
         else:
-            # A3 FIX: legacy p_ground path uses display_answer
-            p_ground_max, p_ground_mean = self._score_p_ground(top_passages, scoring_answer)
+            # A3 FIX: legacy p_ground path uses display_answer.
+            # v2 Fix 10: feed the canonical claim form so MCQ-letter and
+            # bare-entity samples are evaluated by the legacy NLI fallback
+            # the same way they are by the multichoice / entity-expansion
+            # scorers in _p_ground_with_direction (which short-circuited
+            # above for those task families).
+            p_ground_max, p_ground_mean = self._score_p_ground(top_passages, canonical_answer)
         _per_stage_ms["p_ground_nli"] = (_t.perf_counter() - _ts) * 1000.0
 
         _ts = _t.perf_counter()
@@ -921,7 +953,10 @@ class UnifiedVerifier:
             # reconstruct meaningful claims from short factoids/labels;
             # NO_FACTS sentinel + hardened parser handle refusal answers.
             atomic_facts, per_atom_entail, p_ground_atomic = self._score_atomic(
-                top_passages, query, scoring_answer, fallback=p_ground_mean
+                # v2 Fix 10: atomic decomposition reads the canonical
+                # claim so MCQ letters and bare entities get expanded into
+                # propositional content before the FActScore-style decomp.
+                top_passages, query, canonical_answer, fallback=p_ground_mean
             )
         _per_stage_ms["atomic"] = (_t.perf_counter() - _ts) * 1000.0
 
@@ -929,7 +964,10 @@ class UnifiedVerifier:
         _ts = _t.perf_counter()
         with section("verifier.q_a_relevance"):
             # A4 FIX: score (question, display_answer), not (question, verbose)
-            q_a_relevance = self._compute_q_a_relevance(query, scoring_answer)
+            # v2 Fix 10: canonical claim form so the cross-encoder scores
+            # (question, "The answer is: ...") instead of (question, "C") /
+            # (question, "Paris"); the latter pair returns near-zero.
+            q_a_relevance = self._compute_q_a_relevance(query, canonical_answer)
         _per_stage_ms["q_a_relevance"] = (_t.perf_counter() - _ts) * 1000.0
 
         # ---------- alias overlap (v2 Fix 6) ------------------------------ #
@@ -939,7 +977,11 @@ class UnifiedVerifier:
         # q_a_relevance. See caem/verification/alias_overlap.py.
         _ts = _t.perf_counter()
         with section("verifier.alias_overlap"):
-            alias_overlap = self._compute_alias_overlap(scoring_answer, top_passages)
+            # v2 Fix 10: entity extraction runs on the canonical claim so
+            # MCQ-letter samples (where scoring_answer = "C") yield the
+            # option's named entities instead of returning [] / 0.5
+            # neutral.
+            alias_overlap = self._compute_alias_overlap(canonical_answer, top_passages)
         _per_stage_ms["alias_overlap"] = (_t.perf_counter() - _ts) * 1000.0
 
         # Accumulate onto instance (batch-level rollup done by verify_batch).

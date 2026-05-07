@@ -366,25 +366,47 @@ def extract_strategyqa_label(text: str) -> str:
             best_label = "no"
     return best_label
 
-def extract_arc_label(text: str) -> str:
-    """Extract an ARC-Challenge answer choice (A-D or 1-4) from free-form output.
+def extract_arc_label(text: str, *, n_choices: int = 4) -> str:
+    """Extract a multi-choice answer letter (A-D or A-E) from free-form output.
 
     Letter first, digit fallback: a combined ``[A-Da-d1-4]`` regex misfires on
     numbered CoT rationales like "1. Photosynthesis ... 2. The answer is B.",
     where the regex locks onto the list bullet ``1`` before reaching ``B`` and
     silently scores the sample wrong. We therefore search for an isolated
-    letter first, then only fall back to a digit match (1-4 → A-D) when no
-    letter is present.
+    letter first, then only fall back to a digit match when no letter is
+    present.
+
+    Parameters
+    ----------
+    text : str
+        The model's free-form output (with or without "Reasoning: ..." /
+        "Answer: ..." structure; ``extract_cot_answer`` strips the prefix).
+    n_choices : int, default 4
+        v2 Fix 10 — number of choices in the multi-choice schema. The
+        default 4 preserves ARC-Challenge / OpenBookQA / MMLU behaviour;
+        pass ``n_choices=5`` for CommonsenseQA so the regex accepts E /
+        digit 5. Anything outside [2, 5] is clamped to [4, 5] because the
+        verifier-side multichoice scorer regex caps at A-E.
     """
     cot_final = extract_cot_answer(text).strip()
 
-    letter_match = re.search(r"\b([A-Da-d])\b", cot_final)
+    n_choices = max(4, min(int(n_choices), 5))
+    if n_choices == 5:
+        letter_pat = r"\b([A-Ea-e])\b"
+        digit_pat = r"\b([1-5])\b"
+        digit_to_letter = {"1": "A", "2": "B", "3": "C", "4": "D", "5": "E"}
+    else:
+        letter_pat = r"\b([A-Da-d])\b"
+        digit_pat = r"\b([1-4])\b"
+        digit_to_letter = {"1": "A", "2": "B", "3": "C", "4": "D"}
+
+    letter_match = re.search(letter_pat, cot_final)
     if letter_match:
         return letter_match.group(1).upper()
 
-    digit_match = re.search(r"\b([1-4])\b", cot_final)
+    digit_match = re.search(digit_pat, cot_final)
     if digit_match:
-        return {"1": "A", "2": "B", "3": "C", "4": "D"}[digit_match.group(1)]
+        return digit_to_letter[digit_match.group(1)]
 
     return ""
 

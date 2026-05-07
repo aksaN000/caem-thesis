@@ -30,7 +30,7 @@ envelope changes — ChatML turns + system prompt instead of flat-text.
 
 from __future__ import annotations
 
-from typing import Any, List, Tuple
+from typing import Any, List, Optional, Tuple
 
 
 FORCED_PREFIX = "Reasoning:"
@@ -70,16 +70,66 @@ SYSTEM_PROMPT = (
 # Task detection + task spec (shared across Tier 2 / Tier 3)                   #
 # -------------------------------------------------------------------------- #
 
-def detect_query_task(query: str) -> str:
+def detect_query_task(query: str, *, task_hint: Optional[str] = None) -> str:
     """Infer benchmark task style from the query's constrained prefix.
 
-    Returns one of ``"fever"``, ``"strategyqa"``, ``"arc"``, or ``"open"``.
+    Returns one of ``"fever"``, ``"strategyqa"``, ``"arc"``, ``"csqa"``,
+    ``"hotpotqa"``, or ``"open"``.
+
+    Parameters
+    ----------
+    query : str
+        The benchmark-style query.
+    task_hint : str or None, default None
+        v2 Fix 10 — when supplied, takes precedence over the regex-based
+        auto-detection. Accepts a benchmark identifier
+        (``"commonsense_qa"``, ``"hotpotqa"``, ``"fever"``, ``"strategyqa"``,
+        ``"arc_challenge"``, ``"triviaqa"``, ``"natural_questions"``,
+        ``"truthfulqa"``) and maps it to the corresponding task family.
+        Unknown values fall back to the regex path. Used by the pipeline
+        to pin task selection on benchmarks whose query surface is not
+        self-distinguishing (HotpotQA's raw open-ended question is
+        identical in shape to TriviaQA / NQ).
     """
+    if task_hint is not None:
+        # Direct map for the task families the rest of this module emits.
+        bm_to_task = {
+            "fever": "fever",
+            "strategyqa": "strategyqa",
+            "arc_challenge": "arc",
+            "arc": "arc",
+            "commonsense_qa": "csqa",
+            "csqa": "csqa",
+            "hotpotqa": "hotpotqa",
+            "hotpot_qa": "hotpotqa",
+            # Open-ended factoid families share the "open" prompt; keep the
+            # mapping explicit so callers can pass the benchmark name
+            # without thinking about whether it has a special prompt.
+            "triviaqa": "open",
+            "natural_questions": "open",
+            "truthfulqa": "open",
+            "asqa": "open",
+        }
+        mapped = bm_to_task.get(task_hint.lower())
+        if mapped is not None:
+            return mapped
+
     q = query.lower().strip()
     if q.startswith("answer with one of: supports, refutes, not enough info."):
         return "fever"
     if q.startswith("answer yes or no."):
         return "strategyqa"
+    # 5-choice MCQ → CommonsenseQA (E option present in the choices block).
+    # Ordered before the 4-choice ARC check so CSQA samples are not
+    # mis-classified as ARC. Both share the multichoice scorer at
+    # verifier time but the prompt builder selects different
+    # answer-format specs and few-shot examples.
+    if (
+        "choices:" in q
+        and "multiple choice letter" in q
+        and "(e)" in q
+    ):
+        return "csqa"
     if ("choices:" in q) and ("multiple choice letter" in q):
         return "arc"
     return "open"
@@ -127,6 +177,49 @@ def _task_spec(task: str, query: str, with_passages: bool) -> Tuple[str, str]:
             f"{query}\n"
             f"Choose the correct answer from the listed choices{basis}.",
             "A | B | C | D",
+        )
+    if task == "csqa":
+        # v2 Fix 10 — CommonsenseQA 5-choice MCQ. Same shape as ARC but
+        # five labelled options (A through E) and the answer-format spec
+        # advertises the extra letter. The instruction is also nudged
+        # toward "everyday-knowledge reasoning" since CSQA tests
+        # commonsense rather than grade-school science.
+        basis = " based on the context above" if with_passages else ""
+        return (
+            f"{query}\n"
+            f"Choose the option that best matches everyday-knowledge reasoning"
+            f"{basis}. Pick exactly one letter.",
+            "A | B | C | D | E",
+        )
+    if task == "hotpotqa":
+        # v2 Fix 10 — HotpotQA multi-hop. The answer surface form is
+        # short and factoid (typical: 1-3 tokens) but the reasoning chain
+        # must combine information from multiple supporting paragraphs,
+        # so the instruction explicitly licenses multi-step reasoning
+        # while still enforcing a short final answer. The refusal clause
+        # mirrors the open-QA fix (Phase 2.7): refusal only when context
+        # truly lacks evidence.
+        basis = " based on the context above" if with_passages else ""
+        if with_passages:
+            refusal_clause = (
+                "If — and only if — the context above contains no information "
+                "relevant to ANY of the reasoning steps, reply exactly: "
+                "I do not know. Otherwise commit to your best-effort answer."
+            )
+        else:
+            refusal_clause = (
+                "Commit to your best-effort answer based on what you know. "
+                "Reply 'I do not know' ONLY if the question is genuinely "
+                "unanswerable (e.g. asking about non-existent entities)."
+            )
+        return (
+            f"Question: {query}\n"
+            f"Answer the question{basis}. The question requires combining "
+            f"information across multiple facts; reason through the steps "
+            f"in order, then give a SHORT final answer (1-5 words preferred). "
+            f"{refusal_clause} "
+            f"Do not say 'the context does not mention' or similar evasive phrases.",
+            "short factual answer",
         )
     # Open-ended QA (TriviaQA, NQ, TruthfulQA, ASQA)
     #
@@ -275,6 +368,75 @@ def _few_shot_parts(task: str, with_passages: bool) -> Tuple[str, str, str]:
             )
         return ctx, user_inst, asst
 
+    if task == "csqa":
+        # v2 Fix 10 — 5-choice commonsense MCQ exemplar.
+        if with_passages:
+            ctx = (
+                "Context:\n"
+                "[1] People typically wear watches on their wrist as a "
+                "practical place to read the time during everyday tasks."
+            )
+            user_inst = (
+                "Question: Where does someone usually wear a watch? "
+                "Choices: (A) ankle (B) shelf (C) wrist (D) ceiling "
+                "(E) refrigerator\n"
+                "Answer with just the multiple choice letter."
+            )
+            asst = (
+                "Reasoning: Watches are worn on the body to be visible "
+                "during daily tasks. The wrist is the conventional "
+                "location for a wristwatch.\n"
+                "Answer: C"
+            )
+        else:
+            ctx = ""
+            user_inst = (
+                "Question: Where does someone usually wear a watch? "
+                "Choices: (A) ankle (B) shelf (C) wrist (D) ceiling "
+                "(E) refrigerator"
+            )
+            asst = (
+                "Reasoning: Watches are worn on the body to be visible "
+                "during daily tasks. The wrist is the conventional "
+                "location for a wristwatch.\n"
+                "Answer: C"
+            )
+        return ctx, user_inst, asst
+
+    if task == "hotpotqa":
+        # v2 Fix 10 — multi-hop exemplar showing 2-step reasoning.
+        if with_passages:
+            ctx = (
+                "Context:\n"
+                "[1] The Eiffel Tower was completed in Paris in 1889 for "
+                "the World's Fair.\n"
+                "[2] Paris is the capital city of France."
+            )
+            user_inst = (
+                "Question: In which country was the Eiffel Tower "
+                "completed in 1889?"
+            )
+            asst = (
+                "Reasoning: The Eiffel Tower was completed in Paris in "
+                "1889 according to the first passage. Paris is the "
+                "capital of France according to the second passage. "
+                "Combining these gives France.\n"
+                "Answer: France"
+            )
+        else:
+            ctx = ""
+            user_inst = (
+                "Question: In which country was the Eiffel Tower "
+                "completed in 1889?"
+            )
+            asst = (
+                "Reasoning: The Eiffel Tower was completed in Paris in "
+                "1889. Paris is in France. Therefore the Eiffel Tower "
+                "was completed in France.\n"
+                "Answer: France"
+            )
+        return ctx, user_inst, asst
+
     # Open-ended
     if with_passages:
         ctx = (
@@ -345,6 +507,8 @@ def _build_chatml(
 def build_tier2_prompt(
     query: str,
     tokenizer: Any,
+    *,
+    source_benchmark: Optional[str] = None,
 ) -> Tuple[str, str]:
     """Build a Tier 2 (no-RAG) generation prompt in ChatML format.
 
@@ -355,6 +519,11 @@ def build_tier2_prompt(
         see ``detect_query_task``).
     tokenizer
         The backbone's tokenizer; used for ``apply_chat_template``.
+    source_benchmark : str or None, default None
+        v2 Fix 10 — when supplied, pins task selection on benchmarks whose
+        query surface is not self-distinguishing (e.g. HotpotQA's raw
+        open-ended question is identical in shape to TriviaQA / NQ).
+        Forwarded to ``detect_query_task`` as ``task_hint``.
 
     Returns
     -------
@@ -364,7 +533,7 @@ def build_tier2_prompt(
     forced_prefix : str
         ``"Reasoning:"`` — caller appends as prefill.
     """
-    task = detect_query_task(query)
+    task = detect_query_task(query, task_hint=source_benchmark)
     task_line, answer_format = _task_spec(task, query, with_passages=False)
     _, ex_user, ex_asst = _few_shot_parts(task, with_passages=False)
 
@@ -387,14 +556,22 @@ def build_tier3_prompt(
     query: str,
     passages: List[Tuple[str, float]],
     tokenizer: Any,
+    *,
+    source_benchmark: Optional[str] = None,
 ) -> Tuple[str, str]:
     """Build a Tier 3 (RAG) generation prompt conditioned on retrieved passages.
 
     ``passages`` is a list of ``(passage_text, score)`` tuples as returned by
     the PassageStore; scores are kept in the signature for API compatibility
     but not used in the prompt text.
+
+    Parameters
+    ----------
+    source_benchmark : str or None, default None
+        v2 Fix 10 — same task-pinning role as in ``build_tier2_prompt``.
+        Forwarded to ``detect_query_task`` as ``task_hint``.
     """
-    task = detect_query_task(query)
+    task = detect_query_task(query, task_hint=source_benchmark)
     task_line, answer_format = _task_spec(task, query, with_passages=True)
     ex_ctx, ex_user, ex_asst = _few_shot_parts(task, with_passages=True)
 
