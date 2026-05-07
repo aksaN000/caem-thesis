@@ -135,6 +135,27 @@ step_5_9_prompt_smoke() {
 }
 
 # ============================================================================
+# Step 5.9.5 — Build alias dictionary for v2 Fix 6 (alias_overlap signal)
+# ============================================================================
+# scripts/build_alias_dict_from_benchmarks.py harvests alias-enriched
+# answers from TriviaQA/NaturalQuestions/HotpotQA train splits and
+# writes data/alias_dict.json. CAEMPipeline reads this file at init via
+# cfg.alias_dict_path and constructs InMemoryAliasResolver, which the
+# UnifiedVerifier consumes for the alias_overlap signal. Without this
+# step the resolver is None and alias_overlap returns the neutral 0.5
+# prior for every query — silently neutralising the signal.
+step_5_9_5_alias_dict() {
+    local out="data/alias_dict.json"
+    if [[ -s "$out" ]]; then
+        log "Step 5.9.5: $out already present — skipping"
+        return 0
+    fi
+    band "Step 5.9.5 — build alias dictionary (v2 Fix 6 alias_overlap)"
+    python scripts/build_alias_dict_from_benchmarks.py \
+        --output "$out" --n_per_bench 3000 2>&1 | tee -a "$RUNNER_LOG"
+}
+
+# ============================================================================
 # Step 6 — Cold-start memory seeding under NEW uniform-scaffolded prompts
 # ============================================================================
 step_6_reseed() {
@@ -999,6 +1020,7 @@ main() {
 
     # --- Pre-launch (~10 h) ---
     step_5_9_prompt_smoke   # 2026-04-24 audit: validate prompt revision before seeding
+    step_5_9_5_alias_dict   # 2026-05-07 audit: build alias dict for Fix 6 alias_overlap
     step_6_reseed
     step_7_0_cycle0
     step_7_0_calibrate
@@ -1017,6 +1039,15 @@ main() {
 
     # --- Pre-Step-7 correctness gate (no-op sentinel; ABLATED 2026-05-06) ---
     step_u_tok_drop_gate
+
+    # --- v2 Fix 11 Layer 5 — pre-launch dry-run of deferred reconsider path ---
+    band "v2 Fix 11 Layer 5 — deferred reconsider dry-run (5 synthetic entries)"
+    python scripts/test_deferred_reconsider_dryrun.py --synthetic_n 5 2>&1 \
+        | tee -a "$RUNNER_LOG" || {
+            log "FATAL: deferred-reconsider Layer 5 dry-run failed. Refuse to "
+            log "       launch step_7_main without verified guard."
+            return 2
+        }
 
     # --- Headline (~7-8 days under v2 batched cal) ---
     step_7_main

@@ -933,8 +933,16 @@ def calibrate_pipeline_temperature_only(
     # fresh pipeline re-run. Reading from the cache avoids re-generating
     # 1500 cal-fold samples (~3.5 h) per cycle. Falls back to live re-run
     # if any cached sample lacks u_pre (older runs, schema mismatch).
+    # 2026-05-07 audit fix: per-cycle T_b refit must also rebuild
+    # the calibration_fold_samples.json that fit_per_benchmark_temperatures
+    # and fit_per_benchmark_safety_floors read from. Pass record_jsonl_path
+    # so the records JSON is written for this cycle.
+    cycle_calib_dir = output_dir.parent / f"cycle_{cycle}" / "calibration"
+    cycle_calib_dir.mkdir(parents=True, exist_ok=True)
+    records_path = cycle_calib_dir / "calibration_fold_samples.json"
+
     cached = _load_u_pre_from_cycle_cache(
-        output_dir.parent / f"cycle_{cycle}" / "calibration",
+        cycle_calib_dir,
         list(calib_samples.keys()),
         cycle,
     )
@@ -947,7 +955,9 @@ def calibrate_pipeline_temperature_only(
         )
     else:
         u_pre_logits, u_pre_labels, _, _ = collect_calibration_data(
-            pipeline, calib_samples, batch_size=batch_size,
+            pipeline, calib_samples,
+            record_jsonl_path=records_path,
+            batch_size=batch_size,
         )
     if not u_pre_logits:
         logger.warning(
@@ -994,6 +1004,84 @@ def calibrate_pipeline_temperature_only(
     T_old = getattr(config, "temperature_scalar", 1.0)
     config.temperature_scalar = T_new
 
+    # 2026-05-07 audit fix — per-cycle per-benchmark T_b + safety_u_pre_min
+    # refit with EMA smoothing against the previous cycle's per-bench dicts.
+    # Without this, per-bench T_b stayed frozen at the cycle-0 fit while
+    # the pooled T was the only thing refit per-cycle — defeating the v2
+    # Fix 12 design intent that each benchmark gets its own per-cycle
+    # calibration drift correction.
+    per_bench_T_after: Dict[str, float] = {}
+    per_bench_safety_after: Dict[str, float] = {}
+    per_bench_T_before: Dict[str, float] = dict(
+        getattr(config, "temperature_scalar_per_benchmark", {}) or {}
+    )
+    per_bench_safety_before: Dict[str, float] = dict(
+        getattr(config, "safety_u_pre_min_per_benchmark", {}) or {}
+    )
+    try:
+        if records_path.exists():
+            with open(records_path, "r", encoding="utf-8") as f:
+                _records_payload = json.load(f)
+            _records_list = _records_payload.get("samples", [])
+            _per_bench_T_fresh = fit_per_benchmark_temperatures(
+                _records_list, pooled_T=T_new,
+            )
+            _per_bench_safety_fresh = fit_per_benchmark_safety_floors(
+                _records_list,
+                pooled_floor=float(getattr(config, "safety_u_pre_min", 0.38)),
+                target_precision=0.85,
+            )
+            # EMA-smooth per-bench against previous cycle's values. The
+            # smoothing keeps per-cycle drift bounded the same way the
+            # pooled T_b is smoothed elsewhere; alpha matches
+            # config.adaptive_thresholds_ema_alpha (default 0.7).
+            ema_alpha = float(getattr(config, "adaptive_thresholds_ema_alpha", 0.7))
+            for _bm, _T_fresh in _per_bench_T_fresh.items():
+                _T_prev = per_bench_T_before.get(_bm)
+                if _T_prev is not None and math.isfinite(float(_T_prev)):
+                    per_bench_T_after[_bm] = (
+                        ema_alpha * float(_T_prev)
+                        + (1.0 - ema_alpha) * float(_T_fresh)
+                    )
+                else:
+                    per_bench_T_after[_bm] = float(_T_fresh)
+            for _bm, _f_fresh in _per_bench_safety_fresh.items():
+                _f_prev = per_bench_safety_before.get(_bm)
+                if _f_prev is not None and math.isfinite(float(_f_prev)):
+                    per_bench_safety_after[_bm] = (
+                        ema_alpha * float(_f_prev)
+                        + (1.0 - ema_alpha) * float(_f_fresh)
+                    )
+                else:
+                    per_bench_safety_after[_bm] = float(_f_fresh)
+            # Update config in-place so the live runtime picks up new values.
+            config.temperature_scalar_per_benchmark = dict(per_bench_T_after)
+            config.safety_u_pre_min_per_benchmark = dict(per_bench_safety_after)
+            logger.info(
+                "Cycle %d per-bench T_b refit (EMA α=%.2f): %s -> %s",
+                cycle, ema_alpha,
+                {k: round(v, 4) for k, v in per_bench_T_before.items()},
+                {k: round(v, 4) for k, v in per_bench_T_after.items()},
+            )
+            logger.info(
+                "Cycle %d per-bench safety_u_pre_min_b refit: %s -> %s",
+                cycle,
+                {k: round(v, 4) for k, v in per_bench_safety_before.items()},
+                {k: round(v, 4) for k, v in per_bench_safety_after.items()},
+            )
+        else:
+            logger.warning(
+                "Cycle %d per-bench T_b/safety refit skipped: records JSON "
+                "%s missing. Per-bench dicts stay at previous-cycle values.",
+                cycle, records_path,
+            )
+    except Exception as exc:
+        logger.warning(
+            "Cycle %d per-bench T_b/safety refit failed (%s); "
+            "per-bench dicts stay at previous-cycle values.",
+            cycle, exc,
+        )
+
     result = {
         "cycle": cycle,
         "temperature_before": T_old,
@@ -1002,14 +1090,17 @@ def calibrate_pipeline_temperature_only(
         "ece_after": ece_after,
         "n_samples": len(u_pre_logits),
         "protocol": "conservative_temperature_only",
+        "temperature_scalar_per_benchmark": dict(per_bench_T_after),
+        "safety_u_pre_min_per_benchmark": dict(per_bench_safety_after),
     }
 
     out_path = output_dir / f"calibrated_config_cycle{cycle}.json"
     with open(out_path, "w") as f:
         json.dump(result, f, indent=2)
     logger.info(
-        "Cycle %d temperature re-fit: T %.4f -> %.4f | ECE %.6f -> %.6f",
-        cycle, T_old, T_new, ece_before, ece_after,
+        "Cycle %d temperature re-fit: T %.4f -> %.4f | ECE %.6f -> %.6f | "
+        "per-bench T_b: %d benchmarks updated",
+        cycle, T_old, T_new, ece_before, ece_after, len(per_bench_T_after),
     )
     return result
 

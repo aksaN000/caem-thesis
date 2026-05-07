@@ -360,6 +360,16 @@ class CAEMConfig:
     u_stored_weight_alias_overlap: float = 0.0      # v2 Fix 6 — placeholder
     u_stored_weight_entity_head_consistency: float = 0.0  # v2 Fix 7 — placeholder
 
+    # v2 Fix 6 (2026-05-07 audit): path to the alias dictionary JSON that
+    # InMemoryAliasResolver loads at pipeline init. The dictionary is
+    # built by ``scripts/build_alias_dict_from_benchmarks.py`` from the
+    # TriviaQA/NaturalQuestions/HotpotQA train splits, which ship
+    # alias-enriched ``answers`` lists (canonical + surface-form
+    # variants). The runner builds this file before step_6_reseed so the
+    # cold-start verifier already has the resolver at first generation.
+    # Schema: ``{canonical_str: [alias_str, ...], ...}``.
+    alias_dict_path: Optional[str] = "data/alias_dict.json"
+
     # ------------------------------------------------------------------ #
     # Composite mode — Branch C 2026-04-25 (Phase 2.1)                    #
     # ------------------------------------------------------------------ #

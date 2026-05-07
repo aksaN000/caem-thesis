@@ -386,6 +386,38 @@ class CAEMPipeline:
         # adapter closure above, which wraps the same PassageStore used by
         # Tier 3 RAG -- keeping the retriever path consistent across Tier 3
         # generation and Stage 5 grounding.
+        # v2 Fix 6 (2026-05-07 audit): construct the alias resolver if the
+        # configured alias dictionary file is present. Without this, the
+        # alias_overlap signal silently falls back to the 0.5 neutral prior
+        # for every query, neutralising the signal in the cal_prob composite.
+        _alias_resolver = None
+        _alias_path = getattr(self.config, "alias_dict_path", None)
+        if _alias_path:
+            try:
+                from pathlib import Path as _Path
+                _alias_pp = _Path(_alias_path)
+                if _alias_pp.is_file():
+                    import json as _json
+                    from caem.verification.alias_overlap import InMemoryAliasResolver
+                    _alias_table = _json.loads(_alias_pp.read_text(encoding="utf-8"))
+                    _alias_resolver = InMemoryAliasResolver(table=_alias_table)
+                    logger.info(
+                        "Loaded alias_dict from %s (%d canonical entries) — "
+                        "alias_overlap signal active.",
+                        _alias_pp, len(_alias_table),
+                    )
+                else:
+                    logger.info(
+                        "alias_dict_path=%s not present — alias_overlap signal "
+                        "stays at neutral 0.5 prior (Phase 1c future-work item).",
+                        _alias_pp,
+                    )
+            except Exception as _exc:
+                logger.warning(
+                    "alias_dict load failed (%s) — alias_overlap signal stays "
+                    "at neutral 0.5 prior.", _exc,
+                )
+
         self.verifier = UnifiedVerifier(
             model=model,
             tokenizer=tokenizer,
@@ -396,6 +428,7 @@ class CAEMPipeline:
             passage_retriever=_verifier_passage_retriever,
             reranker=cross_encoder,            # passage rerank top-20 -> top-3
             qa_relevance_scorer=cross_encoder, # Branch C Goal 2: same instance
+            alias_resolver=_alias_resolver,    # v2 Fix 6 — Wikidata-style aliases
             config=self.config,
             device=device,
         )
