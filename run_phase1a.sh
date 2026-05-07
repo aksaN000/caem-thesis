@@ -304,6 +304,32 @@ step_7_0_3_validate_weights() {
 }
 
 # ============================================================================
+# Step 7.0.4 — Per-benchmark α decision table (data-driven α selection)
+# ============================================================================
+# After Step 7.0.2 fits the conformal gate at uniform α=0.05 and Step 7.0.3
+# validates per-bench Cohen's d, this step measures eval-fold realized
+# precision and coverage at a grid of candidate α values per benchmark.
+# Output is the empirical receipt for choosing per-bench α before Step 7
+# main commits 7-8 days of GPU. Non-fatal — runner continues; operator
+# reviews the table at the natural pre-Step-7 halt boundary.
+step_7_0_4_alpha_decision_table() {
+    local out="outputs/cycle_0/per_bench_alpha_decision_table.json"
+    if [[ -f "$out" ]]; then
+        log "Step 7.0.4: per-benchmark α decision table already produced — skipping"
+        return 0
+    fi
+    band "Step 7.0.4 — per-benchmark α decision table (data-driven α selection)"
+    python scripts/per_bench_alpha_decision_table.py \
+        --cal_path outputs/cycle_0/calibration/calibration_fold_samples.json \
+        --eval_dir outputs/cycle_0/eval_rescored \
+        --output "$out" \
+        --min_coverage 0.10 \
+        2>&1 | tee -a outputs/cycle_0/run.log || {
+            log "Step 7.0.4: decision table generation returned non-zero; review stdout."
+        }
+}
+
+# ============================================================================
 # Step 5.5 — Verifier-backend calibration diagnostic (runs AFTER Step 7.0)
 # ============================================================================
 step_5_5_pairs() {
@@ -578,7 +604,7 @@ step_7_main() {
         --output_dir outputs/full_run \
         --num_cycles 10 \
         --n_questions 3000 \
-        --n_eval_questions 500 \
+        --n_eval_questions 300 \
         --benchmarks "${BENCHMARKS[@]}" \
         --passage_index data/passage_index \
         --cold_start_memory outputs/cold_start_memory/memory_store \
@@ -958,6 +984,7 @@ main() {
     step_7_0_cycle0
     step_7_0_calibrate
     step_7_0_3_validate_weights   # 2026-04-24 audit: validate composite weights before Step 7 main
+    step_7_0_4_alpha_decision_table  # 2026-05-07: per-bench α empirical receipt
     step_5_5_pairs
     step_5_5_headhead
     step_19_2_slice               # must precede Step 7
