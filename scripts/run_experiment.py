@@ -2110,27 +2110,30 @@ def run_experiment(ns: argparse.Namespace) -> None:
 
                 # Candidate counts = pre-gate sample tally per
                 # benchmark (the cycle's stream); admitted counts =
-                # post-gate verified episodes per benchmark.
+                # post-gate verified episodes per benchmark. Sourced
+                # from cycle_results[bm] which the harness produces via
+                # eval/metrics.aggregate(): each row carries n (count),
+                # storage_rate (admission fraction), em.
                 _candidate_counts: Dict[str, int] = {}
                 _admitted_counts: Dict[str, int] = {}
                 _per_bench_em: Dict[str, float] = {}
                 try:
-                    _bench_summary = locals().get("eval_summary") or {}
+                    _bench_summary = locals().get("cycle_results") or {}
                     if isinstance(_bench_summary, dict):
                         for _bm, _row in _bench_summary.items():
                             if not isinstance(_row, dict):
                                 continue
-                            if "n_evaluated" in _row:
-                                _candidate_counts[str(_bm)] = int(_row["n_evaluated"])
-                            if "n_stored" in _row:
-                                _admitted_counts[str(_bm)] = int(_row["n_stored"])
-                            if "em" in _row:
-                                try:
-                                    _per_bench_em[str(_bm)] = float(_row["em"])
-                                except (TypeError, ValueError):
-                                    pass
+                            _n = _row.get("n")
+                            if isinstance(_n, (int, float)) and _n > 0:
+                                _candidate_counts[str(_bm)] = int(_n)
+                                _sr = _row.get("storage_rate")
+                                if isinstance(_sr, (int, float)):
+                                    _admitted_counts[str(_bm)] = int(round(_sr * _n))
+                            _em = _row.get("em")
+                            if isinstance(_em, (int, float)):
+                                _per_bench_em[str(_bm)] = float(_em)
                 except Exception:
-                    # eval_summary may not exist in all execution paths;
+                    # cycle_results may not exist in all execution paths;
                     # the diagnostic still writes with empty dicts.
                     pass
 
@@ -2192,7 +2195,8 @@ def run_experiment(ns: argparse.Namespace) -> None:
                             json.dump({
                                 "action": _halt.action,
                                 "reason": _halt.reason,
-                                "affected_benchmarks": list(getattr(_halt, "affected_benchmarks", []) or []),
+                                "benchmarks_to_relax": list(getattr(_halt, "benchmarks_to_relax", []) or []),
+                                "sv_collapse_score": getattr(_halt, "sv_collapse_score", float("nan")),
                             }, _hf, indent=2)
                         if _halt.action == "halt":
                             logger.error(
