@@ -351,10 +351,14 @@ def main() -> None:
     requested_benchmarks = [bm.strip().lower() for bm in ns.benchmarks]
     panel = [bm for bm in ALL_BENCHMARKS if bm in requested_benchmarks] or requested_benchmarks
     logger.info("Building deterministic pool splits for baseline eval: %s", panel)
+    # 2026-05-07 audit fix: drop the v1-era train_chunk_size=5000 override
+    # so build_benchmark_pools consults PER_BENCHMARK_TRAIN_CHUNK_SIZE per
+    # benchmark (CSQA at 700, others at 1000). With chunk=5000 explicit,
+    # CSQA failed with InsufficientBenchmarkDataError because 1000+500+500+
+    # 10×5000 = 52000 needed vs 9741 available.
     benchmark_pools = build_all_benchmark_pools(
         benchmarks=panel,
         n_cycles=10,  # same cycles count as CAEM for chunk consistency
-        train_chunk_size=5000,
         eval_size=int(getattr(ns, "n_questions", 500) or 500),
         rng_seed=int(getattr(ns, "seed", 42)),
     )
