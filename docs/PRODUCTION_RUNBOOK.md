@@ -1,6 +1,6 @@
 # CAEM Production Deployment Runbook
 
-**Last updated:** 2026-04-27
+**Last updated:** 2026-05-07 — see §11 for v2 architecture amendments.
 **Audience:** the operator deploying CAEM after research finishes (Phase 1a + Phase 1b complete). Assumes you already have a trained model checkpoint, a populated episodic memory, a locked CalProbComposite + ConformalStorageGate, and a labeled calibration fold from research. This document explains every step of running CAEM in production and how to operate the cycle boundary in a real deployment.
 
 **Goal of this document:** an operator should be able to follow this end-to-end, in order, without rethinking any decisions. Every "do X" line below has a "why" line and a "when" line beneath it.
@@ -577,4 +577,127 @@ The following are NOT required for production operation but reduce manual toil:
 
 ---
 
-**End of runbook.** Print this, follow §3 once at deploy time, follow §5 at every production cycle boundary (whatever cadence your §3.4 policy fires), and you have a self-documenting trail that survives operator turnover.
+**End of v1 runbook.** Print this, follow §3 once at deploy time, follow §5 at every production cycle boundary (whatever cadence your §3.4 policy fires), and you have a self-documenting trail that survives operator turnover.
+
+---
+
+## 11. v2 architecture amendments (2026-05-07)
+
+The §3-§9 procedures above were written for the v1 architecture. v2
+shipped on 2026-05-07 with thirteen architecture fixes consolidated on
+`feat/qwen-3b-goal2`. The procedures still hold, but four conventions
+changed and the operator must use the v2 forms when the production
+deployment is rebuilt against a v2 cycle-N checkpoint.
+
+### 11.1 Checkpoint layout — adapter directory replaces `model.pt`
+
+v2 makes LoRA r=32 α=64 the SIL primary path (`cfg.use_lora_training`
+defaults to `True`). The per-cycle checkpoint is no longer a 6.2 GB
+`cycle_<N>/model.pt`; it is a ~120 MB `cycle_<N>/adapter/` directory
+containing `adapter_config.json` + `adapter_model.safetensors` written
+via `peft.PeftModel.save_pretrained`. v1 `model.pt` files remain
+loadable for any cycle predating v2 — the loader detects which file
+is present.
+
+Production §5.5 (model-swap) implications:
+
+* Where §5.5.A reads "copy `cycle_<N>/model.pt` to
+  `outputs/production/model.pt`", v2 substitutes "copy
+  `cycle_<N>/adapter/` to `outputs/production/adapter/` and load via
+  `PeftModel.from_pretrained(base, outputs/production/adapter/)`".
+* The total disk footprint across the 10-cycle trajectory drops from
+  ~62 GB to ~1.2 GB — production no longer needs the v1 rolling-N
+  retention policy at the model-weights level.
+* If you must serve a v1 cycle-3 snapshot during the demo
+  transition window, keep using §5.5.A; the v1 `model.pt` path is
+  unchanged.
+
+### 11.2 Calibration JSON schema — v2 nested layout
+
+v2 bumps the schema version on both `composite_calibration.json` and
+`conformal_gate.json` from `branchC.2026-04-25` (flat) to
+`branchC.2026-05-06` (nested with `global` + `per_benchmark` blocks).
+Use the class methods `CalProbComposite.load(path)` and
+`ConformalStorageGate.load(path)` — they auto-detect the schema and
+construct the right object. **Do NOT hand-parse these JSONs in the
+production swap script.** A v2 file with a global pooled fallback
+plus per-benchmark dicts looks like:
+
+```json
+{
+  "schema_version": "branchC.2026-05-06",
+  "global":     { ... pooled isotonic / pooled tau values ... },
+  "per_benchmark": {
+    "fever":          { ... },
+    "triviaqa":       { ... },
+    "hotpotqa":       { ... },
+    "commonsense_qa": { ... }
+  }
+}
+```
+
+The runtime verifier dispatches by `source_benchmark` so production
+must tag every inbound query with the benchmark family it was drawn
+from when calling `CAEMPipeline.answer(..., source_benchmark=...)`.
+For free-form production traffic that has no benchmark label, pass
+`source_benchmark=None`; the verifier falls back to the pooled
+`global` block.
+
+### 11.3 New per-cycle artefact — `coverage_diagnostic.json`
+
+The orchestrator writes one new file per cycle:
+`outputs/full_run/cycle_<N>/coverage_diagnostic.json`. The schema is
+documented inline in `caem/diagnostic/coverage.py:build_coverage_diagnostic`.
+Operators should copy this file alongside the calibration JSONs at
+§5.7 ("evidence checkpoint") so the dashboard described in §9.4 can
+plot per-benchmark admission rates and adapter-SVD trajectories.
+
+The file also drives the auto-halt triggers documented in
+`caem.diagnostic.coverage.evaluate_halt_triggers`:
+
+* `relax_alpha`: a benchmark with zero admissions for two consecutive
+  cycles → operator should lower its `alpha_store` in
+  `conformal_gate.json` and resume.
+* `halt`: adapter SV-collapse score exceeds 0.95 → terminate the
+  trajectory; the LoRA has rank-collapsed and additional cycles
+  cannot recover gradient signal.
+
+### 11.4 Multi-modal retention probe — three probes, AND-of-OK gate
+
+v2 replaces the single MMLU probe (§5.4) with three: MMLU + TriviaQA
+test split + HotpotQA validation split (200 samples per probe by
+default; configured via `cfg.retention_probes` and
+`cfg.retention_probe_n`). The forgetting guard fires **iff ANY probe
+drops below `forgetting_tolerance` from its pristine cycle-0
+baseline** — strictly more conservative than v1's MCQ-only gate.
+
+Operators who follow §5.4 verbatim will run the multi-probe path
+automatically (the same `_finetune` / `_save_checkpoint` flow now
+runs three probes instead of one), but the per-cycle JSON now
+exposes `probe_retentions` and `probe_post` dicts on `CycleResult`
+in addition to the legacy `mmlu_retention_ratio` / `mmlu_retention`
+scalars (which are mirrored from the dict's `mmlu` entry).
+
+### 11.5 Updated config-flags table for v2
+
+Append to §10:
+
+| Flag | Default in research | Default in production | What it does |
+|---|---|---|---|
+| `use_lora_training` | `True` | `True` | LoRA r=32 α=64 all-linear is the SIL primary path. Set to `False` for an ablation that wants v1 full FT. |
+| `lora_r` | `32` | `32` | Adapter rank. Biderman 2024 §4.2 sweet spot for the 3B base + sparse cycle-pool regime. |
+| `lora_alpha` | `64` | `64` | Standard 2× rank scaling. |
+| `lora_learning_rate` | `2e-4` | `2e-4` | 10× the backbone LR; LoRA budget tolerates the higher step size. |
+| `pool_reweighting_enabled` | `True` | `True` | Loss reweighting (T=2 + 3× cap + DoReMi floor + cold-start) for the SIL pool. |
+| `pool_reweighting_temperature` | `2.0` | `2.0` | Smoothing T for per-bench softmax. |
+| `pool_reweighting_upsample_cap` | `3.0` | `3.0` | Maximum per-sample replication during upsampling. |
+| `pool_reweighting_doremi_floor` | `50` | `50` | Minimum samples per benchmark guaranteed in the pool. |
+| `pool_reweighting_cold_start_n` | `100` | `100` | Gold-labelled fallback count when a benchmark has zero verified episodes. |
+| `retention_probes` | `("mmlu", "triviaqa_test", "hotpotqa_test")` | same | Multi-probe forgetting-guard panel. |
+| `retention_probe_n` | `200` | `200` | Samples per probe. |
+| `temperature_scalar_per_benchmark` | `{}` | `{}` | Empty → pooled T fallback. Cycle-0 calibration writes per-bench T_b values. |
+| `safety_u_pre_min_per_benchmark` | `{}` | `{}` | Empty → pooled `safety_u_pre_min` fallback. Cycle-0 calibration writes per-bench safety floors. |
+
+End of v2 amendments. The §1-§9 narrative still applies; the four
+mechanical changes above (adapter path, JSON schema, new diagnostic,
+multi-probe guard) are the only operator-facing v2 deltas.
