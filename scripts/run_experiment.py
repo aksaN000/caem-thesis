@@ -1295,6 +1295,44 @@ def run_experiment(ns: argparse.Namespace) -> None:
         except Exception as exc:
             logger.warning("Failed to persist mmlu_baseline.json (%s)", exc)
 
+        # v2 Fix 4 (2026-05-07 audit): persist the multi-modal pristine
+        # retention baseline (MMLU + TQA-test + HotpotQA-test) to disk so
+        # mid-trajectory restarts can reload all probes' pristine values.
+        # Without this, only MMLU survives via mmlu_baseline.json above and
+        # the TQA-test / HotpotQA-test pristine anchors are silently
+        # re-anchored against the post-cycle-(N-1) model on resume — which
+        # makes the retention guard fail open for those two probes.
+        try:
+            from caem.training.retention_probe import run_retention_probes
+            _probe_names = list(getattr(config, "retention_probes", ("mmlu",)))
+            _n_per_probe = int(getattr(config, "retention_probe_n", 200))
+            logger.info(
+                "Measuring multi-modal pristine retention baseline (%s × n=%d) ...",
+                _probe_names, _n_per_probe,
+            )
+            _pristine_probes = run_retention_probes(
+                sil.model, sil.tokenizer,
+                probes=_probe_names, n_per_probe=_n_per_probe,
+            )
+            # Cache in the SIL instance so the first run_cycle skips
+            # re-measurement; persist to disk for resume contract.
+            sil._pristine_probes = dict(_pristine_probes)
+            with open(output_dir / "retention_baseline.json", "w", encoding="utf-8") as f:
+                json.dump(
+                    {"pristine_probes": {k: float(v) for k, v in _pristine_probes.items()}},
+                    f, indent=2,
+                )
+            logger.info(
+                "Pristine retention baseline saved: %s",
+                {k: round(v, 4) for k, v in _pristine_probes.items()},
+            )
+        except Exception as exc:
+            logger.warning(
+                "Failed to persist multi-modal retention_baseline.json (%s); "
+                "first run_cycle will re-anchor (mid-trajectory restart will lose "
+                "non-MMLU probe baselines).", exc,
+            )
+
         all_cycle_results = [cycle0_results]
         mmlu_per_cycle.append(float(mmlu_baseline))  # Cycle 0 = pristine baseline
 
@@ -1503,6 +1541,39 @@ def run_experiment(ns: argparse.Namespace) -> None:
                 "resumed cycle. Retention ratios from this cycle forward will "
                 "use the post-fine-tune model's MMLU as the denominator, not "
                 "the original cycle-0 pristine value.", baseline_path,
+            )
+
+        # v2 Fix 4 (2026-05-07 audit): also restore the multi-modal pristine
+        # probe baseline (TQA-test + HotpotQA-test) so resume doesn't silently
+        # re-anchor those probes against the post-cycle-(N-1) model. Without
+        # this, only MMLU survives via the legacy mmlu_baseline.json above.
+        retention_path = output_dir / "retention_baseline.json"
+        if retention_path.exists():
+            try:
+                with open(retention_path, "r", encoding="utf-8") as f:
+                    _restored = json.load(f).get("pristine_probes") or {}
+                sil._pristine_probes = {k: float(v) for k, v in _restored.items()}
+                logger.info(
+                    "Restored multi-modal pristine retention anchor: %s "
+                    "(loaded from %s).",
+                    {k: round(v, 4) for k, v in sil._pristine_probes.items()},
+                    retention_path.name,
+                )
+            except (json.JSONDecodeError, KeyError, ValueError, TypeError) as exc:
+                logger.warning(
+                    "Failed to parse %s (%s); SIL will re-anchor pristine retention "
+                    "probes on the first resumed cycle (TQA-test + HotpotQA-test "
+                    "ratios will use the post-fine-tune model's accuracy as the "
+                    "denominator, not the original cycle-0 pristine value).",
+                    retention_path, exc,
+                )
+        else:
+            logger.warning(
+                "No %s on disk (older run from before the 2026-05-07 audit?); "
+                "SIL will re-anchor multi-modal pristine retention on the first "
+                "resumed cycle. The MMLU anchor is preserved via the legacy "
+                "mmlu_baseline.json restoration above; only TQA-test and "
+                "HotpotQA-test pristine values are affected.", retention_path,
             )
 
     # -- CYCLES 1..N --------------------------------------------------------- #
@@ -2085,6 +2156,71 @@ def run_experiment(ns: argparse.Namespace) -> None:
                      if isinstance(v, (int, float))},
                     _diag.get("adapter_sv_collapse", float("nan")),
                 )
+
+                # v2 Fix 5 (2026-05-07 audit): wire evaluate_halt_triggers
+                # so the auto-relax-α / SV-collapse-halt decisions actually
+                # fire. Previously the diagnostic JSON was written but
+                # evaluate_halt_triggers was never called, leaving the
+                # zero-admission auto-relax dormant. The decision is logged
+                # and surfaced in cycle_<N>/halt_decision.json so the
+                # operator (or a future automated relax-α path) can act on
+                # it. The trajectory does not auto-mutate gate JSONs from
+                # this signal (operator intervention preserves audit
+                # provenance); a halt action exits the loop early.
+                try:
+                    from caem.diagnostic.coverage import evaluate_halt_triggers
+                    # Build the recent-diagnostics window from cycle_*/coverage_diagnostic.json
+                    _recent_diags: List[Dict[str, Any]] = []
+                    _zero_window = int(getattr(config, "halt_zero_admission_window", 2))
+                    for _c in range(max(0, cycle_num - _zero_window + 1), cycle_num + 1):
+                        _path = output_dir / f"cycle_{_c}" / "coverage_diagnostic.json"
+                        if _path.exists():
+                            try:
+                                _recent_diags.append(json.loads(_path.read_text()))
+                            except Exception:
+                                pass
+                    if _recent_diags:
+                        _halt = evaluate_halt_triggers(
+                            current_diagnostic=_diag,
+                            recent_diagnostics=_recent_diags,
+                            zero_admission_window=_zero_window,
+                        )
+                        with open(
+                            output_dir / f"cycle_{cycle_num}" / "halt_decision.json",
+                            "w", encoding="utf-8",
+                        ) as _hf:
+                            json.dump({
+                                "action": _halt.action,
+                                "reason": _halt.reason,
+                                "affected_benchmarks": list(getattr(_halt, "affected_benchmarks", []) or []),
+                            }, _hf, indent=2)
+                        if _halt.action == "halt":
+                            logger.error(
+                                "Cycle %d: HALT trigger fired — %s. The runner "
+                                "exits the cycle loop now; operator review "
+                                "required before any resume.", cycle_num, _halt.reason,
+                            )
+                            break
+                        elif _halt.action == "relax_alpha":
+                            logger.warning(
+                                "Cycle %d: AUTO-RELAX-α RECOMMENDED — %s. "
+                                "Operator should refit cycle_%d/conformal_gate.json "
+                                "with --alpha_store_overrides on the affected "
+                                "benchmarks before cycle %d. Decision JSON: "
+                                "cycle_%d/halt_decision.json.",
+                                cycle_num, _halt.reason, cycle_num,
+                                cycle_num + 1, cycle_num,
+                            )
+                        else:
+                            logger.info(
+                                "Cycle %d: halt-trigger evaluation = %s (%s).",
+                                cycle_num, _halt.action, _halt.reason or "ok",
+                            )
+                except Exception as _halt_exc:
+                    logger.warning(
+                        "Cycle %d: halt-trigger evaluation failed (%s); "
+                        "trajectory continues.", cycle_num, _halt_exc,
+                    )
             except Exception as exc:
                 logger.warning(
                     "Cycle %d: coverage_diagnostic.json write failed (%s); "
