@@ -269,6 +269,25 @@ PY
 }
 
 # ============================================================================
+# Step 7.0.2.5 — Rescore Cycle-0 eval through the fitted gate
+# ============================================================================
+# scripts/rescore_eval_with_fitted_gate.py applies the freshly-fit
+# composite + conformal gate to every cycle-0 eval sample, writing a
+# parallel directory of rescored eval JSONs that step_7_0_3 + step_7_0_4
+# both read. v1 runs populated this directory via a manual command;
+# the runner missed wiring it as a step. Adding it explicitly so the
+# pre-Step-7 chain produces all artefacts the downstream gates expect.
+step_7_0_2_5_rescore_eval() {
+    local out_dir="outputs/cycle_0/eval_rescored"
+    if compgen -G "$out_dir/*_cycle0.json" > /dev/null; then
+        log "Step 7.0.2.5: eval_rescored already populated — skipping"
+        return 0
+    fi
+    band "Step 7.0.2.5 — rescore cycle-0 eval through fitted composite + gate"
+    python -m scripts.rescore_eval_with_fitted_gate 2>&1 | tee -a outputs/cycle_0/run.log
+}
+
+# ============================================================================
 # Step 7.0.3 — Weight validation checkpoint (post-audit 2026-04-24)
 # ============================================================================
 # Analyzes Cycle-0 eval JSONs for composite discrimination power.
@@ -983,6 +1002,7 @@ main() {
     step_6_reseed
     step_7_0_cycle0
     step_7_0_calibrate
+    step_7_0_2_5_rescore_eval     # produces outputs/cycle_0/eval_rescored for downstream gates
     step_7_0_3_validate_weights   # 2026-04-24 audit: validate composite weights before Step 7 main
     step_7_0_4_alpha_decision_table  # 2026-05-07: per-bench α empirical receipt
     step_5_5_pairs
