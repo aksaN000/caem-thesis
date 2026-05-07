@@ -428,10 +428,15 @@ def _parse_args() -> argparse.Namespace:
                             "fiveshot_cot", "vanilla_ft", "ewc_ft"],
                    help="Baseline names matching subdirectories of "
                         "<baselines_dir>.")
+    # v2 Fix 9b: argparse default tracks caem.config so the rescoring
+    # CSV columns line up with the live v2 panel
+    # (was hardcoded to v1 7-bench list including arc_challenge + asqa).
+    from caem.config import (
+        TRAINING_BENCHMARKS as _CFG_TRAINING_BENCHMARKS,
+        TRANSFER_BENCHMARKS as _CFG_TRANSFER_BENCHMARKS,
+    )
     p.add_argument("--benchmarks", nargs="+",
-                   default=["fever", "triviaqa", "natural_questions",
-                            "truthfulqa", "strategyqa", "arc_challenge",
-                            "asqa"])
+                   default=list(_CFG_TRAINING_BENCHMARKS) + list(_CFG_TRANSFER_BENCHMARKS))
     p.add_argument("--baselines_dir", type=Path,
                    default=Path("outputs/baselines"),
                    help="Root directory holding <baseline>/<bench>_cycle0.json.")

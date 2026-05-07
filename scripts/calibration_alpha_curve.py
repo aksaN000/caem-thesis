@@ -214,7 +214,9 @@ def main() -> None:
     try:
         from caem.benchmark_splits import TRAINING_BENCHMARKS as _TRAIN_BENCHES
     except ImportError:
-        _TRAIN_BENCHES = ("fever", "triviaqa", "natural_questions")
+        # v2 Fix 9b: defense-in-depth fallback matches the v2 training panel
+        # if the import path breaks. Was the v1 panel pre-2026-05-06.
+        _TRAIN_BENCHES = ("fever", "triviaqa", "hotpotqa", "commonsense_qa")
 
     for cycle in available_cycles:
         bench_map = cycles_data[cycle]

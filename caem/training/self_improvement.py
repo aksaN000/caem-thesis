@@ -754,17 +754,84 @@ class SelfImprovementLoop:
         )
 
     def load_checkpoint(self, cycle_num: int) -> dict:
-        """Load cycle metadata from a saved checkpoint directory."""
+        """Load cycle metadata + weights from a saved checkpoint directory.
+
+        v2 Fix 8: detect cycle_<N>/adapter/ (peft save_pretrained format)
+        first; fall back to cycle_<N>/model.pt (v1 full state_dict) when
+        adapter/ is absent. This makes resume-from-cycle work correctly
+        for both v1 and v2 trajectories. Without this, a v2 mid-run halt
+        + resume would silently load no weights and SIL would restart
+        from the pristine base on every restart.
+        """
         ckpt_dir = self.output_dir / f"cycle_{cycle_num}"
         meta_path = ckpt_dir / "meta.pkl"
         if not meta_path.exists():
             raise FileNotFoundError(f"No checkpoint found at {ckpt_dir}")
         with open(meta_path, "rb") as f:
             meta = pickle.load(f)
+
+        adapter_dir = ckpt_dir / "adapter"
         weights_path = ckpt_dir / "model.pt"
+
+        if adapter_dir.exists() and adapter_dir.is_dir():
+            # v2 LoRA path. Two cases:
+            #   (a) self.model is already a PeftModel (live adapter from
+            #       _apply_lora_if_enabled at __init__) — call
+            #       load_adapter to overwrite the trainable params with
+            #       the saved cycle's adapter state.
+            #   (b) self.model is a bare base model (mock test paths or
+            #       loader-cascade order placed adapter wrapping after
+            #       checkpoint load) — wrap via PeftModel.from_pretrained.
+            try:
+                from peft import PeftModel  # type: ignore
+            except ImportError:
+                logger.error(
+                    "Cycle %d: adapter directory present at %s but peft "
+                    "is not installed; cannot restore. Install peft.",
+                    cycle_num, adapter_dir,
+                )
+                return meta
+            try:
+                if isinstance(self.model, PeftModel):
+                    # In-place reload of the adapter under the existing
+                    # PeftModel wrapper.
+                    self.model.load_adapter(str(adapter_dir), adapter_name="default")
+                    logger.info(
+                        "Cycle %d: restored LoRA adapter from %s (in-place).",
+                        cycle_num, adapter_dir,
+                    )
+                else:
+                    self.model = PeftModel.from_pretrained(self.model, str(adapter_dir))
+                    self._lora_active = True
+                    logger.info(
+                        "Cycle %d: restored LoRA adapter from %s "
+                        "(PeftModel wrap created on load).",
+                        cycle_num, adapter_dir,
+                    )
+            except Exception as exc:
+                logger.error(
+                    "Cycle %d: LoRA adapter restore failed (%s). Falling "
+                    "back to model.pt if present.",
+                    cycle_num, exc,
+                )
+                if weights_path.exists():
+                    self.model.load_state_dict(
+                        torch.load(weights_path, map_location=self.device)
+                    )
+                    logger.info("Cycle %d: legacy model.pt restored as "
+                                "fallback.", cycle_num)
+            return meta
+
+        # Legacy v1 path: full state_dict.
         if weights_path.exists():
             self.model.load_state_dict(torch.load(weights_path, map_location=self.device))
             logger.info("Restored model weights from %s", weights_path)
+        else:
+            logger.warning(
+                "Cycle %d: neither cycle_%d/adapter/ nor cycle_%d/model.pt "
+                "present at %s. Returning meta only; live model is unchanged.",
+                cycle_num, cycle_num, cycle_num, ckpt_dir,
+            )
         return meta
 
     # ------------------------------------------------------------------ #

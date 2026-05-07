@@ -176,7 +176,8 @@ def main() -> int:
     try:
         from caem.benchmark_splits import TRAINING_BENCHMARKS as _TRAIN
     except ImportError:
-        _TRAIN = ("fever", "triviaqa", "natural_questions")
+        # v2 Fix 9b fallback (was the v1 3-bench panel).
+        _TRAIN = ("fever", "triviaqa", "hotpotqa", "commonsense_qa")
     id_n = id_store = id_correct = 0
     tr_n = tr_store = tr_correct = 0
     for bench, st in summary.items():
