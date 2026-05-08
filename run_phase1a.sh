@@ -174,15 +174,55 @@ step_6_reseed() {
         --output_dir "$out" 2>&1 | tee -a outputs/step6_seed.log
     # Minimum-viable seed floor: enough episodes that adaptive τ has signal
     # to work with from Cycle 1 onwards. Empirically derived under v1 (3-bench)
-    # at ~340 total. v2 (4-bench) holds the SAME absolute floor — if 4 benches
-    # × 200 target × yield_rate cannot meet the v1 floor, something is
-    # structurally broken (loader, prompts, verifier).
+    # at ~340 total. v2.1 (3-bench post-pruning) holds the SAME absolute
+    # floor — if 3 benches × 200 target × yield_rate cannot meet the v1
+    # floor, something is structurally broken (loader, prompts, verifier).
     python - <<'PY'
 import json, sys
 d = json.load(open("outputs/cold_start_memory/seed_summary.json"))
 total = d.get("total_seeded", 0)
-assert total >= 340, f"Step 6 verify: total_seeded={total} < 340 (minimum-viable seed floor; 4-bench v2 panel × 200 target should clear this comfortably)"
+assert total >= 340, f"Step 6 verify: total_seeded={total} < 340 (minimum-viable seed floor; 3-bench v2.1 panel × 200 target should clear this comfortably)"
 print(f"Step 6 OK: total_seeded={total}")
+PY
+}
+
+# ============================================================================
+# Step 6.5 — EM-prune cold-start memory (drop confidently-wrong episodes)
+# ============================================================================
+# v2.1 (2026-05-08): cold-start storage gate at u_stored ≥ 0.50 admits
+# episodes the verifier accepts but doesn't see gold for (production-mode
+# parity). Empirically that lets ~25-30% confidently-wrong episodes
+# through. Without an em-prune pass before step_7_main, Tier 1 retrieval
+# can return known-wrong stored answers and the SIL pool can train on
+# wrong reasoning chains.
+#
+# This step looks up gold answers from the canonical training-split
+# loader, computes any-match EM against entry.answer with the canonical
+# normaliser, drops em=0 entries, keeps em=1 and em-unverified.
+#
+# Idempotent: skips if em_pruning_report.json already exists.
+# Safety: writes outputs/cold_start_memory/memory_store.pre_em_prune.{faiss,meta}.bak
+# before rebuilding the store.
+step_6_5_em_prune() {
+    local report="outputs/cold_start_memory/em_pruning_report.json"
+    if [[ -f "$report" ]]; then
+        log "Step 6.5: em_pruning_report.json present — em-prune already done, skipping"
+        return 0
+    fi
+    band "Step 6.5 — EM-prune cold-start memory (drop confidently-wrong episodes)"
+    python scripts/prune_cold_memory_em.py 2>&1 | tee -a "$RUNNER_LOG"
+    # Sanity check: report should exist and reflect at least 50% retention.
+    python - <<'PY'
+import json
+r = json.load(open("outputs/cold_start_memory/em_pruning_report.json"))
+total_before = int(r["n_total_before"])
+kept = int(r["n_kept"])
+ratio = kept / max(1, total_before)
+assert ratio >= 0.50, (
+    f"Step 6.5 verify: em-prune kept {kept}/{total_before} = {ratio:.1%} "
+    f"(below 50% — verifier discrimination on cold-start is broken)"
+)
+print(f"Step 6.5 OK: em-prune kept {kept}/{total_before} ({ratio:.1%})")
 PY
 }
 
@@ -1030,6 +1070,7 @@ main() {
     step_5_9_prompt_smoke   # 2026-04-24 audit: validate prompt revision before seeding
     step_5_9_5_alias_dict   # 2026-05-07 audit: build alias dict for Fix 6 alias_overlap
     step_6_reseed
+    step_6_5_em_prune       # v2.1 2026-05-08: drop confidently-wrong cold-start episodes
     step_7_0_cycle0
     step_7_0_calibrate
     step_7_0_2_5_rescore_eval     # produces outputs/cycle_0/eval_rescored for downstream gates
