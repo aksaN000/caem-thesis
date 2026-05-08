@@ -1038,10 +1038,17 @@ def run_experiment(ns: argparse.Namespace) -> None:
         requested_benchmarks = [bm.strip().lower() for bm in ns.benchmarks]
         panel = [bm for bm in ALL_BENCHMARKS if bm in requested_benchmarks] or list(ALL_BENCHMARKS)
         logger.info("Building benchmark pools for panel: %s", panel)
+        # v2.1 (2026-05-08): pass train_chunk_size=None so build_benchmark_pools
+        # dispatches per-benchmark via PER_BENCHMARK_TRAIN_CHUNK_SIZE. The CLI
+        # `--n_questions` becomes a hint that's only consumed for benches NOT
+        # in PER_BENCHMARK_TRAIN_CHUNK_SIZE (defense in depth). Pre-v2.1 this
+        # passed ns.n_questions=3000 directly which crashed CSQA (train pool
+        # 9741 vs needed 31800 at 10×3000 chunks). The per-bench dispatch
+        # gives FEVER+TriviaQA 2000/cycle and CSQA 700/cycle automatically.
         benchmark_pools = build_all_benchmark_pools(
             benchmarks=panel,
             n_cycles=int(config.num_cycles),
-            train_chunk_size=int(ns.n_questions),
+            train_chunk_size=None,  # v2.1: use per-bench dispatch
             eval_size=int(getattr(ns, "n_eval_questions", None) or 500),
             rng_seed=int(getattr(ns, "seed", 42)),
         )
