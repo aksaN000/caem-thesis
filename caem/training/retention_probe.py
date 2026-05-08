@@ -18,12 +18,19 @@ showed up empirically in cycles 0-4:
     HotpotQA tests, so a model that loses its multi-step composition
     ability still passes the v1 guard.
 
-v2 replaces the single-probe gate with three per-probe accuracy
-measurements:
+v2.1 (2026-05-08) replaces the single-probe gate with three per-probe
+accuracy measurements aligned to the v2.1 training panel
+(FEVER + TriviaQA + CommonsenseQA):
 
   * MMLU (4-choice MCQ retention; same as v1)
   * TriviaQA test split (open-text factoid retention)
-  * HotpotQA test split (multi-hop composition retention)
+  * CommonsenseQA validation split (5-choice MCQ commonsense retention)
+
+The HotpotQA probe from v2 was retired alongside HotpotQA's removal from
+the training panel (precondition violation, see branch_C_log 2026-05-08).
+Its registration is kept (just no longer in DEFAULT_PROBES) for
+back-compat with legacy ablations + as observability if a future
+trajectory re-introduces multi-hop training.
 
 The forgetting guard is now: **abort iff ANY probe drops by more
 than (1 − tolerance) from its pristine cycle-0 value**. Any one
@@ -254,17 +261,90 @@ def _hotpotqa_test_probe(model: Any, tokenizer: Any, n: int) -> float:
     return correct / total
 
 
+def _commonsense_qa_test_probe(model: Any, tokenizer: Any, n: int) -> float:
+    """5-choice MCQ retention via CommonsenseQA validation split. Returns
+    NaN on dataset load failure. Scoring: extract first letter A-E from the
+    generation and compare to the gold answer key.
+
+    v2.1 (2026-05-08): added when CSQA replaced HotpotQA's slot in the
+    retention probe panel after HotpotQA was removed from training.
+    """
+    try:
+        from datasets import load_dataset
+        import re
+        import torch
+    except ImportError as exc:
+        logger.warning("commonsense_qa_probe: imports unavailable (%s) → NaN.", exc)
+        return float("nan")
+    try:
+        ds = load_dataset("tau/commonsense_qa", split="validation")
+        ds = ds.shuffle(seed=42).select(range(min(n, len(ds))))
+    except Exception as exc:
+        logger.warning("commonsense_qa_probe: load failed (%s) → NaN.", exc)
+        return float("nan")
+
+    correct = 0
+    total = 0
+    model.eval()
+    _ans_re = re.compile(r"\b([A-E])\b")
+    with torch.no_grad():
+        for item in ds:
+            item_d: dict = item  # type: ignore[assignment]
+            question = str(item_d.get("question", ""))
+            choices = item_d.get("choices") or {}
+            labels = list(choices.get("label", [])) if isinstance(choices, dict) else []
+            texts = list(choices.get("text", [])) if isinstance(choices, dict) else []
+            gold_key = str(item_d.get("answerKey", "")).strip().upper()
+            if not question or not gold_key or len(labels) != len(texts) or not labels:
+                continue
+            options_block = "\n".join(f"({lbl}) {txt}" for lbl, txt in zip(labels, texts))
+            prompt_text = (
+                f"<|im_start|>user\n"
+                f"Pick the best answer letter (A-E) for the question.\n"
+                f"Question: {question}\n"
+                f"{options_block}\n"
+                f"Reply with just the single letter.\n"
+                f"<|im_end|>\n<|im_start|>assistant\n"
+            )
+            try:
+                enc = tokenizer(prompt_text, return_tensors="pt").to(
+                    next(model.parameters()).device
+                )
+                out = model.generate(
+                    **enc, max_new_tokens=8, do_sample=False,
+                    pad_token_id=tokenizer.pad_token_id or 0,
+                )
+                gen = tokenizer.decode(
+                    out[0][enc["input_ids"].shape[1]:],
+                    skip_special_tokens=True,
+                ).strip().upper()
+            except Exception:
+                continue
+            total += 1
+            m = _ans_re.search(gen)
+            if m and m.group(1) == gold_key:
+                correct += 1
+    if total == 0:
+        return float("nan")
+    return correct / total
+
+
 # Register the built-in probes at import time.
 register_probe("mmlu", _mmlu_probe)
 register_probe("triviaqa_test", _triviaqa_test_probe)
-register_probe("hotpotqa_test", _hotpotqa_test_probe)
+register_probe("hotpotqa_test", _hotpotqa_test_probe)  # kept for back-compat / observability
+register_probe("commonsense_qa_test", _commonsense_qa_test_probe)
 
 
 # ---------------------------------------------------------------------------- #
 # Orchestration                                                                  #
 # ---------------------------------------------------------------------------- #
 
-DEFAULT_PROBES: List[str] = ["mmlu", "triviaqa_test", "hotpotqa_test"]
+# v2.1 (2026-05-08): default panel aligned with v2.1 training panel
+# (FEVER + TriviaQA + CSQA). HotpotQA probe still registered above but
+# excluded from defaults — re-add to retention_probes config if the
+# trajectory ever re-introduces multi-hop training.
+DEFAULT_PROBES: List[str] = ["mmlu", "triviaqa_test", "commonsense_qa_test"]
 
 
 def run_retention_probes(

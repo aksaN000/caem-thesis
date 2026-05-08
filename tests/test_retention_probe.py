@@ -170,13 +170,31 @@ def test_worst_probe_returns_lowest_finite():
 # ---------------------------------------------------------------------- #
 
 def test_config_retention_probe_defaults():
+    """v2.1 (2026-05-08): default panel = mmlu + triviaqa_test + commonsense_qa_test
+    (CSQA replaces HotpotQA after HotpotQA was dropped from training)."""
     from caem.config import CAEMConfig
     cfg = CAEMConfig()
     assert "mmlu" in cfg.retention_probes
     assert "triviaqa_test" in cfg.retention_probes
-    assert "hotpotqa_test" in cfg.retention_probes
+    assert "commonsense_qa_test" in cfg.retention_probes, (
+        "v2.1 expects commonsense_qa_test in retention_probes (replaces "
+        "hotpotqa_test after HotpotQA was dropped from training panel)"
+    )
+    assert "hotpotqa_test" not in cfg.retention_probes, (
+        "v2.1: hotpotqa_test must NOT be in retention_probes (HotpotQA "
+        "is no longer trained; probe still registered for back-compat)"
+    )
     assert cfg.retention_probe_n == 200
     assert cfg.forgetting_tolerance == 0.93
+
+
+def test_commonsense_qa_test_probe_registered():
+    """v2.1: commonsense_qa_test probe runner must be in PROBE_REGISTRY."""
+    from caem.training.retention_probe import PROBE_REGISTRY
+    assert "commonsense_qa_test" in PROBE_REGISTRY, (
+        "commonsense_qa_test probe runner not registered (v2.1 retention panel)"
+    )
+    assert callable(PROBE_REGISTRY["commonsense_qa_test"])
 
 
 # ---------------------------------------------------------------------- #

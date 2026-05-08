@@ -212,8 +212,9 @@ def main() -> int:
     try:
         from caem.benchmark_splits import TRAINING_BENCHMARKS as _TRAIN_BENCHES
     except ImportError:
-        # v2 Fix 9b fallback (was the v1 3-bench panel).
-        _TRAIN_BENCHES = ("fever", "triviaqa", "hotpotqa", "commonsense_qa")
+        # v2.1 fallback (HotpotQA + NQ dropped 2026-05-08; the import path
+        # above is the canonical source — this is only defense-in-depth).
+        _TRAIN_BENCHES = ("fever", "triviaqa", "commonsense_qa")
     id_samples = [s for s in samples if s.get("_bench") in _TRAIN_BENCHES]
     transfer_samples = [s for s in samples if s.get("_bench") not in _TRAIN_BENCHES]
     print(f"[info]   training (ID, gate-decisive):     n={len(id_samples)}")

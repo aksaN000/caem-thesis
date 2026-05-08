@@ -21,19 +21,19 @@ import sys
 
 
 def test_training_benchmarks_v2_panel():
-    """TRAINING_BENCHMARKS == v2 four-task panel."""
+    """TRAINING_BENCHMARKS == v2.1 three-task panel (HotpotQA dropped 2026-05-08)."""
     from caem.config import TRAINING_BENCHMARKS
-    assert TRAINING_BENCHMARKS == ("fever", "triviaqa", "hotpotqa", "commonsense_qa"), (
-        f"v2 TRAINING_BENCHMARKS expected (fever, triviaqa, hotpotqa, commonsense_qa); "
+    assert TRAINING_BENCHMARKS == ("fever", "triviaqa", "commonsense_qa"), (
+        f"v2.1 TRAINING_BENCHMARKS expected (fever, triviaqa, commonsense_qa); "
         f"got {TRAINING_BENCHMARKS}"
     )
 
 
 def test_transfer_benchmarks_v2_panel():
-    """TRANSFER_BENCHMARKS == v2 three-benchmark transfer panel."""
+    """TRANSFER_BENCHMARKS == v2.1 two-benchmark transfer panel (NQ dropped 2026-05-08)."""
     from caem.config import TRANSFER_BENCHMARKS
-    assert TRANSFER_BENCHMARKS == ("truthfulqa", "strategyqa", "natural_questions"), (
-        f"v2 TRANSFER_BENCHMARKS expected (truthfulqa, strategyqa, natural_questions); "
+    assert TRANSFER_BENCHMARKS == ("truthfulqa", "strategyqa"), (
+        f"v2.1 TRANSFER_BENCHMARKS expected (truthfulqa, strategyqa); "
         f"got {TRANSFER_BENCHMARKS}"
     )
 
@@ -66,17 +66,35 @@ def test_eval_split_map_has_new_benchmarks():
 
 
 def test_per_benchmark_train_chunk_override():
-    """PER_BENCHMARK_TRAIN_CHUNK_SIZE: CSQA at 700, others at 1000."""
-    from caem.benchmark_splits import PER_BENCHMARK_TRAIN_CHUNK_SIZE, DEFAULT_TRAIN_CHUNK_SIZE
-    assert PER_BENCHMARK_TRAIN_CHUNK_SIZE["fever"] == 1000
-    assert PER_BENCHMARK_TRAIN_CHUNK_SIZE["triviaqa"] == 1000
-    assert PER_BENCHMARK_TRAIN_CHUNK_SIZE["hotpotqa"] == 1000
+    """PER_BENCHMARK_TRAIN_CHUNK_SIZE: v2.1 — FEVER+TQA at 2000, CSQA at 700, no HotpotQA."""
+    from caem.benchmark_splits import (
+        PER_BENCHMARK_TRAIN_CHUNK_SIZE,
+        DEFAULT_TRAIN_CHUNK_SIZE,
+        DEFAULT_CALIBRATION_SIZE,
+    )
+    assert PER_BENCHMARK_TRAIN_CHUNK_SIZE["fever"] == 2000, (
+        f"v2.1 FEVER chunk should be 2000 (doubled from 1000); "
+        f"got {PER_BENCHMARK_TRAIN_CHUNK_SIZE['fever']}"
+    )
+    assert PER_BENCHMARK_TRAIN_CHUNK_SIZE["triviaqa"] == 2000, (
+        f"v2.1 TriviaQA chunk should be 2000 (doubled from 1000); "
+        f"got {PER_BENCHMARK_TRAIN_CHUNK_SIZE['triviaqa']}"
+    )
+    assert "hotpotqa" not in PER_BENCHMARK_TRAIN_CHUNK_SIZE, (
+        "v2.1: HotpotQA must be removed from PER_BENCHMARK_TRAIN_CHUNK_SIZE "
+        "(precondition violation, dropped 2026-05-08)."
+    )
     assert PER_BENCHMARK_TRAIN_CHUNK_SIZE["commonsense_qa"] == 700, (
         f"CSQA stream chunk should be 700 (small training pool); "
         f"got {PER_BENCHMARK_TRAIN_CHUNK_SIZE['commonsense_qa']}"
     )
     assert DEFAULT_TRAIN_CHUNK_SIZE == 1000, (
-        f"v2 default should be 1000 (was 5000 in v1); got {DEFAULT_TRAIN_CHUNK_SIZE}"
+        f"v2 default should be 1000 (fallback for non-listed benches); "
+        f"got {DEFAULT_TRAIN_CHUNK_SIZE}"
+    )
+    assert DEFAULT_CALIBRATION_SIZE == 300, (
+        f"v2.1 cal-fold per bench should be 300 (was 500); "
+        f"got {DEFAULT_CALIBRATION_SIZE}"
     )
 
 

@@ -69,13 +69,15 @@ on_err() {
 trap 'on_err $LINENO' ERR
 
 # Benchmark panel — derived from caem/config.py (single source of truth).
-# v2 (2026-05-06):
-#   TRAINING:  fever, triviaqa, hotpotqa, commonsense_qa
-#              4 distinct task types (claim verification, entity recall,
-#              multi-hop reasoning, 5-choice MCQ). NQ removed from training
-#              (structural-failure diagnostic, α<½ on every cal fold).
-#   TRANSFER:  truthfulqa, strategyqa, natural_questions
-#              held-out for transfer eval; NQ is eval-only diagnostic.
+# v2.1 (2026-05-08): training panel pruned to 3 benches after cycle-0 eval
+# revealed two precondition-violators (HotpotQA p_+=0.090, NQ p_+~0.16) where
+# the Bayesian-floor inequality at α=0.05 is mathematically unreachable.
+#   TRAINING:  fever, triviaqa, commonsense_qa
+#              3 task types (claim verification, entity recall, 5-choice MCQ).
+#              Stream chunk: FEVER+TQA at 2000/cycle, CSQA at 700/cycle.
+#   TRANSFER:  truthfulqa, strategyqa
+#              held-out for transfer eval. NQ removed (verifier α<½ structural).
+# HotpotQA + NQ kept as registered exclusion evidence at outputs/cycle_0/eval/.
 # Any panel change in config.py flows through this runner automatically.
 TRAIN_PANEL=$(python -c 'from caem.config import TRAINING_BENCHMARKS; print(" ".join(TRAINING_BENCHMARKS))')
 TRANSFER_PANEL=$(python -c 'from caem.config import TRANSFER_BENCHMARKS; print(" ".join(TRANSFER_BENCHMARKS))')
@@ -189,15 +191,21 @@ PY
 # ============================================================================
 step_7_0_cycle0() {
     local evaldir="outputs/cycle_0/eval"
+    local cal_json="outputs/cycle_0/calibration/calibration_fold_samples.json"
     local all_present=1
     for b in "${BENCHMARKS[@]}"; do
         [[ -f "$evaldir/${b}_cycle0.json" ]] || all_present=0
     done
-    if [[ $all_present -eq 1 ]]; then
-        log "Step 7.0: Cycle-0 eval JSONs already present — skipping"
+    # v2.1 (2026-05-08): Step 7.0 produces BOTH cycle-0 eval JSONs AND the
+    # calibration fold (calibration_fold_samples.json) in a single pass via
+    # run_experiment.py's run_calibration_step. The skip-check must require
+    # BOTH to be present, otherwise step_7_0_calibrate downstream will fail
+    # with "no calibration JSONs found".
+    if [[ $all_present -eq 1 && -f "$cal_json" ]]; then
+        log "Step 7.0: Cycle-0 eval JSONs + cal-fold both present — skipping"
         return 0
     fi
-    band "Step 7.0 — Cycle-0 baseline (500/bench, NEW prompts, bs=32)"
+    band "Step 7.0 — Cycle-0 baseline (500/bench, NEW prompts, bs=32) + cal-fold scoring"
     python -m scripts.run_experiment \
         --output_dir outputs/cycle_0 \
         --num_cycles 0 \
@@ -723,11 +731,11 @@ step_14_b6_vanilla_ft() {
         fi
     fi
     band "Step 14 — B6 vanilla FT (10 cycles, no L2 anchor, no MMLU guard, eval bs=32, gdrive offload ON)"
-    # Branch C 2026-04-22 evening + budget downsize to 3k/bench/cycle:
-    # n_train_per_bench = n_cycles × chunk_size = 10 × 3000 = 30000 matches
-    # CAEM's Step 7 main sil_train_chunks[cycle-1] byte-identically at the
-    # reduced per-cycle chunk. Previous values (5000 chunk → 50000 total, or
-    # 4000 chunk → 40000 total) are obsolete under the 3k-per-cycle schedule.
+    # v2.1 2026-05-08: panel pruned to 3 training benches; FEVER+TQA chunks
+    # doubled to 2000, CSQA stays at 700. Per-bench allocation budget
+    # n_train_per_bench=30000 is an upper bound (FEVER/TQA need 10×2000=20000;
+    # CSQA needs 10×700=7000); build_benchmark_pools clips to per-bench chunk.
+    # Baseline must train on the same effective per-cycle chunk as CAEM main.
     CAEM_GDRIVE_OFFLOAD=1 python -m scripts.run_simple_ft \
         --baseline_name vanilla_ft \
         --num_cycles 10 \
@@ -749,9 +757,9 @@ step_15_b7_ewc_only() {
         fi
     fi
     band "Step 15 — B7 EWC-only FT (10 cycles, L2 anchor + MMLU guard on, eval bs=32, gdrive offload ON)"
-    # Branch C 2026-04-22 evening + budget downsize to 3k/bench/cycle:
-    # n_train_per_bench = 30000 so chunk_size = 30000/10 = 3000, byte-identical
-    # to CAEM's per-cycle chunks under the reduced schedule.
+    # v2.1 2026-05-08: panel pruned to 3 training benches; FEVER+TQA chunks
+    # doubled to 2000, CSQA stays at 700. n_train_per_bench=30000 is an
+    # upper bound; per-bench chunk override clips inside build_benchmark_pools.
     CAEM_GDRIVE_OFFLOAD=1 python -m scripts.run_simple_ft \
         --baseline_name ewc_only_ft \
         --use_l2_anchor \
