@@ -73,6 +73,8 @@ CALIB_BENCHMARK_SPLITS = {
     "truthfulqa": "validation",
     "strategyqa": "test",
     "arc_challenge": "test",
+    "hotpotqa": "train",
+    "commonsense_qa": "train",
 }
 
 
@@ -1179,7 +1181,9 @@ if __name__ == "__main__":
 
     from eval.benchmarks import (
         load_arc_challenge,
+        load_commonsense_qa,
         load_fever,
+        load_hotpotqa,
         load_natural_questions,
         load_strategyqa,
         load_triviaqa,
@@ -1197,6 +1201,9 @@ if __name__ == "__main__":
         "truthfulqa": lambda: load_truthfulqa(),
         "strategyqa": lambda: load_strategyqa(split=CALIB_BENCHMARK_SPLITS["strategyqa"]),
         "arc_challenge": lambda: load_arc_challenge(split=CALIB_BENCHMARK_SPLITS["arc_challenge"]),
+        # v2 (2026-05-06): added for new training panel — CSQA + HotpotQA loaders.
+        "commonsense_qa": lambda: load_commonsense_qa(split=CALIB_BENCHMARK_SPLITS.get("commonsense_qa", "train")),
+        "hotpotqa": lambda: load_hotpotqa(split=CALIB_BENCHMARK_SPLITS.get("hotpotqa", "train")),
     }
 
     unknown_benchmarks = [bm for bm in requested_benchmarks if bm not in loader_by_benchmark]

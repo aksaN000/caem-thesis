@@ -39,36 +39,40 @@ from typing import Dict, Optional, Tuple
 TRAINING_BENCHMARKS: Tuple[str, ...] = (
     "fever",
     "triviaqa",
-    "hotpotqa",
     "commonsense_qa",
 )
-# v2 architecture (2026-05-06): training panel restructured to 4 task types.
+# v2.1 architecture (2026-05-08): training panel pruned from 4 to 3 benches
+# after cycle-0 eval revealed two precondition-violation benchmarks where the
+# Bayesian-floor inequality on verifier discrimination was mathematically
+# unreachable at α=0.05.
+#
+# Active panel (3 benches):
 #   - FEVER          (claim verification, ~145k train) -- bounded label space
 #   - TriviaQA       (single-hop entity recall, ~87k train) -- bare-entity QA
-#   - HotpotQA       (multi-hop QA, ~90k train) -- multi-passage reasoning  [NEW]
-#   - CommonsenseQA  (5-choice MCQ commonsense, ~9.7k train) -- bounded label  [NEW]
-# Natural Questions DROPPED from training: empirical α<½ on every cal fold
-# (cycles 1-4, see branch_C_log 2026-05-06) -- structural-failure benchmark
-# under the verifier; kept ONLY in the transfer eval panel as a diagnostic.
-# ASQA dropped (long-form, EM near-zero by design — wrong metric).
-# ARC-Challenge dropped (4-choice MCQ — redundant with CSQA's 5-choice).
-# Stream chunk: 1000/cycle on FEVER/TriviaQA/HotpotQA, 700/cycle on CSQA
-# (CSQA's 9.7k train = 1000+500+500+700×10+500+500 = 9700, no repetition).
+#   - CommonsenseQA  (5-choice MCQ commonsense, ~9.7k train) -- bounded label
+#
+# Removed at cycle-0 close (kept as registered exclusion evidence in
+# outputs/cycle_0/eval/{hotpotqa,natural_questions}_cycle0.json):
+#   - HotpotQA       p_+=0.090, required TPR/FPR ≥192 at α=0.05 (verifier
+#                    achievable: 5-15). Mathematically unstoreable.
+#   - Natural Qs     p_+=0.156-0.172 (v1 + v2 readings), verifier α<½ on every
+#                    v1 cal fold (cycles 1-4); structural-failure benchmark.
+# ASQA dropped earlier (long-form, EM near-zero by design — wrong metric).
+# ARC-Challenge dropped earlier (4-choice MCQ — redundant with CSQA's 5-choice).
+# Stream chunk (v2.1): 2000/cycle on FEVER/TriviaQA, 700/cycle on CSQA.
 # See caem/benchmark_splits.py for authoritative panel + per-benchmark sizes.
 
 TRANSFER_BENCHMARKS: Tuple[str, ...] = (
     "truthfulqa",
     "strategyqa",
-    "natural_questions",  # v2: moved from training -> transfer (structural-failure
-                          # diagnostic; verifier α<½ means Bayesian framework
-                          # doesn't apply; kept eval-only for thesis disclosure).
 )
-# v2 (2026-05-06): transfer eval panel pruned from 4 -> 3 benchmarks.
-# ARC-Challenge removed (redundant with CSQA's MCQ task type in training).
-# ASQA removed (long-form, EM near-zero -- ROUGE-L diverges from CHM).
-# Loaders for ARC/ASQA remain in eval/benchmarks.py for back-compat with
-# legacy ablations + demo server (`scripts/caem_demo_server.py`); they just
-# do NOT enter the active eval trajectory.
+# v2.1 (2026-05-08): transfer eval panel pruned from 3 to 2 benchmarks.
+# Natural Questions removed (verifier α<½ at every cycle in v1; non-discriminative
+# even as transfer; pollutes pooled fallback fits without adding signal).
+# ARC-Challenge / ASQA removed earlier per v2 (redundancy / wrong metric).
+# Loaders for ARC/ASQA/HotpotQA/NQ remain in eval/benchmarks.py for back-compat
+# with legacy ablations + demo server; they just do NOT enter the active eval
+# trajectory.
 
 
 @dataclass
@@ -724,21 +728,25 @@ class CAEMConfig:
     forgetting_tolerance: float = 0.93
 
     # ------------------------------------------------------------------ #
-    # Multi-modal retention probe — v2 Fix 4 (2026-05-07)                 #
+    # Multi-modal retention probe — v2.1 (2026-05-08)                     #
     # ------------------------------------------------------------------ #
-    # v1 used a single MMLU validation probe (n=200) to gate the SIL
-    # forgetting check. The probe was blind to two failure modes:
+    # v1 used a single MMLU validation probe (n=200). Blind spots:
     #   * MCQ-letter accuracy stays high while open-text generation
-    #     degrades silently (TriviaQA / NQ / HotpotQA).
-    #   * Multi-hop composition collapses without affecting single-hop
-    #     accuracy.
-    # The v2 probe set spans all three regimes; the abort criterion
-    # is "ANY probe drops below forgetting_tolerance from pristine".
-    # See caem/training/retention_probe.py for the orchestration.
+    #     degrades silently (TriviaQA / NQ).
+    #   * Bounded-label probes don't catch open-text capability decay.
+    #
+    # v2.1 panel (after HotpotQA removal 2026-05-08): three probes spanning
+    # the active training distribution.
+    #   * mmlu                  — 4-choice MCQ retention (general knowledge)
+    #   * triviaqa_test         — open-text factoid retention
+    #   * commonsense_qa_test   — 5-choice MCQ commonsense retention
+    # Halt criterion: ANY probe drops below forgetting_tolerance from pristine.
+    # The HotpotQA probe is still registered in retention_probe.py for
+    # back-compat / observability but no longer in this default tuple.
     retention_probes: Tuple[str, ...] = (
-        "mmlu",            # 4-choice MCQ retention (back-compat with v1)
-        "triviaqa_test",   # open-text factoid retention
-        "hotpotqa_test",   # multi-hop composition retention
+        "mmlu",                  # general knowledge MCQ retention (v1 carryover)
+        "triviaqa_test",         # open-text factoid retention
+        "commonsense_qa_test",   # commonsense MCQ retention (v2.1 NEW: replaces hotpotqa_test)
     )
     retention_probe_n: int = 200  # samples per probe (matches v1 MMLU n)
 

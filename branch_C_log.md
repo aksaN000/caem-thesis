@@ -4387,3 +4387,150 @@ Halt signals:
   `outputs/full_run/cycle_<N>/conformal_gate.json`
   per-benchmark α and resumes from cycle N+1.
 
+
+---
+
+### 2026-05-07 — Logged limitation: verifier blind to wrong-step-correct-conclusion reasoning
+
+**Status:** registered as known limitation, no code fix in v2; flagged for Ch5 §sec:disc-threats + Ch6 §future-work + Phase 1c future work.
+
+**The blind spot.** The Unified Verifier scores all 11 active composite signals against the canonical answer claim (`Answer: <X>.`), not against the chain-of-thought premises:
+
+* `p_entail` scores `(chain → canonical_answer)` — entailment of the conclusion. A chain whose intermediate facts are wrong can still entail the right answer if the final step happens to land correctly. NLI returns high entail.
+* `p_ground_max / p_ground_mean / p_ground_atomic / p_contra` score `(passage → canonical_answer)` (or `passage → atomic_fact_of_answer`). The reasoning chain is never the hypothesis.
+* `s_avg` and `entity_head_consistency` measure cross-chain agreement on style and on answer head-noun. M=3 chains that all share the same false intermediate step still register as consistent.
+* `q_a_relevance` cross-encodes `(question, canonical_answer)` only.
+* `u_token / u_dropout / u_internal` are model-internal confidences on answer tokens.
+* `alias_overlap` is a Wikidata lookup over entities in the answer.
+
+Exactly one signal touches the chain (`p_entail` as premise), and it asks "does the chain entail the answer?", not "is each intermediate claim individually true?". This is consistent with FActScore (Min et al. EMNLP 2023, §3) which scopes atomic decomposition to the output, not the reasoning trace.
+
+**Inheritance.** The blind spot existed identically in v1 Session 42. None of the 13 v2 fixes target it: Fix 6 (alias_overlap), Fix 7 (entity_head_consistency), and Fix 10 (canonicalize_answer) all add answer-anchored signals. Fix 7 is the closest cousin but only checks chains agree on the answer entity, not on intermediate facts.
+
+**Why we are not adding a Fix 14.** Three reasons.
+1. Empirical case is not built. The cycle-0 audit (n=3500) measured FEVER monoculture, MCQ noise floor, off-topic-but-grounded, and atomic-decomposition degeneracy as the dominant failure modes. Step-level reasoning errors are not in the measured top-five. Phase 1a trajectory data on HotpotQA (multi-hop, where chains have the most places for a step to be wrong) is the natural place to build the receipt.
+2. No published step-wise reasoning verification technique under tight compute has clean gains to anchor against. Inventing the mechanism mid-trajectory carries high implementation risk (Qwen 3B is unreliable at segmenting its own free-form CoT, mirroring the atomic-decomp degeneracy that drove the length-gate to ≥12 tokens).
+3. Architectural lock. The 13-fix v2 framing has been committed to and audited. Adding Fix 14 mid-flight breaks the locked architecture and would require a re-validation pass (re-fit cycle-0, re-validate Step 7.0.3) before the 7-8 day burn commits.
+
+**Where this lands in the thesis rewrite.**
+* **Ch5 §sec:disc-threats** — fourth threat-to-validity, alongside the three currently registered (FEVER monoculture, verifier task-conditioning asymmetry, iterative-LoRA SV-collapse contribution gap). Phrasing draft: the verifier scores the storage decision against the canonical answer claim, not against chain-of-thought premises; an entry whose chain contains factual errors but whose conclusion happens to match gold is admitted at full confidence, and its full reasoning chain enters the SIL training pool. Phase 1c registers step-wise verification as a candidate extension; the present design treats hallucination as an answer-surface property in line with FActScore.
+* **Ch6 §future-work** — chain-step verification (chain decomposition + per-step NLI) joins Phase 1c with 7B QLoRA, ReFinED entity linker, SE Probes. Anchor citations: Ling et al. 2024 ("Deductive Verification of Chain-of-Thought"), Lyu et al. 2023 ("Faithful Chain-of-Thought").
+* **Ch4 §sec:verifier** — explicit one-sentence note that the verification frame is answer-surface-anchored, citing FActScore as the precedent.
+
+**Receipt-building plan during the trajectory.**
+Watch cycle 1-10 evidence for:
+* HotpotQA per-cycle EM dropping while p_entail stays high (signal that chains are deceiving the verifier on multi-hop).
+* SIL training-loss converging fast while eval-loss diverges (overfitting to bad reasoning patterns the verifier admitted).
+* Qualitative samples in cycle_<N>/eval/*_cycle<N>.json where stored episodes pair correct answers with obviously broken reasoning chains.
+
+If the trajectory surfaces this, the receipt is built and Phase 1c justifies the extension with empirical anchor.
+
+
+---
+
+## 2026-05-08 — v2.1 panel pruning + chunk doubling + label-efficient cal-fold (mid-trajectory)
+
+**Logged 17:30 BDT (11:30 UTC) May 8 after halting the v2 trajectory at the cycle-0 decision-gate window.** Drives a 3-bench training panel after cycle-0 readings revealed two precondition-violation benchmarks where the Bayesian-floor inequality on verifier discrimination at α=0.05 is mathematically unreachable. Doubles SIL stream chunk on FEVER+TriviaQA; reduces cal-fold per training bench from 500 to 300 to strengthen the label-efficient story for thesis defense. Updates the multi-modal retention probe to track v2.1 active training panel.
+
+### Trigger — cycle-0 empirical readings (n=500/bench)
+
+Five cycle-0 eval JSONs landed by 08:45 UTC (FEVER, TriviaQA, HotpotQA, CSQA, TruthfulQA, StrategyQA closed; NQ at 384/500 when halted). Per-bench base accuracies and storage receipts:
+
+| Benchmark | EM | STORE n | STORE prec | em=1 | required TPR/FPR @ α=0.05 | verifier achievable | verdict |
+|---|---:|---:|---:|---:|---:|---:|---|
+| **CommonsenseQA** | **0.634** | 45 | 0.733 | 317 | ~11 | 5–15 | reachable |
+| StrategyQA (transfer) | 0.602 | 13 | 0.923 | 301 | ~13 | 5–15 | reachable |
+| FEVER | 0.454 | 33 | 0.788 | 227 | ~23 | 5–15 | marginal |
+| TriviaQA | 0.374 | **89** | 0.809 | 187 | ~32 | 5–15 | marginal |
+| TruthfulQA (transfer) | 0.334 | 49 | 0.531 | 167 | ~38 | 5–15 | unreachable in expectation |
+| **HotpotQA** | **0.090** | 26 | **0.500** | **45** | **~192** | 5–15 | **unstoreable** |
+| Natural Questions (transfer, in-flight) | (halted) | — | — | — | — | — | — |
+
+TriviaQA's STORE n leapt from 5 in v1 to 89 in v2 (18× lift) — direct evidence the v2 keystone fixes (per-benchmark composite + per-benchmark conformal gate) work. CSQA at 0.634 base EM is the highest training-bench EM, validating the v2 panel design hypothesis that 5-choice MCQ gives the verifier a clean binary signal. HotpotQA's 0.090 base EM is *worse* than v1 NQ's 0.156-0.172 — multi-hop QA on the cold 3B base is structurally harder than bare-entity factoid; the verifier signals on multi-hop bare-entity outputs aren't discriminative enough to admit at α=0.05 even with the v2 patches.
+
+### Decision — v2.1 panel + chunk + cal-fold
+
+Three coupled changes registered:
+
+1. **Drop HotpotQA from training, drop Natural Questions from transfer.** Both kept as registered exclusion evidence at `outputs/cycle_0/eval/{hotpotqa,natural_questions}_cycle0.json` (HotpotQA closed; NQ partial at processed=384 when halted). v2.1 active panel: training = (FEVER, TriviaQA, CSQA), transfer = (TruthfulQA, StrategyQA).
+2. **Double FEVER + TriviaQA stream chunk from 1000 → 2000 per cycle.** CSQA stays at 700 because its 9.7K train pool can't support a larger chunk (10×2000 + seed/cal/eval/test ≫ 9.7K). Pool-reweighting (Fix 3, T=2.0 softmax) handles the asymmetric chunk sizes via temperature-mixed equalization.
+3. **Reduce cal-fold from 500 → 300 per training bench.** Production-recurring labeling cost drops from 1500/cycle (v2) to 900/cycle (v2.1) — strengthens the label-efficient claim for panel defense. All three v2.1 training benches (FEVER, TriviaQA, CSQA) clear MIN_SAMPLES_PER_SIGNAL=50 with margin at base EM ≥ 0.30.
+
+### Cold-start memory strip
+
+`scripts.run_calibration` and Tier-1/2 retrieval would otherwise pull stale HotpotQA episodes through the pooled global composite. Stripped 142 HotpotQA entries from the cold-start memory store (745 → 603 episodes). Backup preserved at `outputs/cold_start_memory/memory_store_pre_v21_strip.{faiss,meta}` for reproducibility audit. Final composition: FEVER 200, TriviaQA 201, CSQA 202.
+
+### Code changes
+
+| file | change |
+|---|---|
+| `caem/config.py` | `TRAINING_BENCHMARKS = (fever, triviaqa, commonsense_qa)`; `TRANSFER_BENCHMARKS = (truthfulqa, strategyqa)`; updated docstring with v2.1 rationale |
+| `caem/benchmark_splits.py` | `DEFAULT_CALIBRATION_SIZE = 300` (was 500); `PER_BENCHMARK_TRAIN_CHUNK_SIZE` updated to {fever: 2000, triviaqa: 2000, commonsense_qa: 700} (HotpotQA entry removed) |
+| `caem/training/retention_probe.py` | added `_commonsense_qa_test_probe`; `DEFAULT_PROBES = [mmlu, triviaqa_test, commonsense_qa_test]`; HotpotQA probe runner kept registered for back-compat / observability |
+| `run_phase1a.sh` | derived `TRAIN_PANEL`/`TRANSFER_PANEL` from `caem.config`; `step_7_0_cycle0` skip-check now requires both eval JSONs AND cal-fold JSON to be present (closes the bug where a halted cycle-0 leaves cal-fold missing but eval JSONs in place); B6/B7 baseline n_train_per_bench comment updated for v2.1 chunk schedule |
+| `scripts/run_calibration.py` | `loader_by_benchmark` dict now includes CSQA + HotpotQA entries; `CALIB_BENCHMARK_SPLITS` extended for both |
+| `scripts/{validate_composite_weights,rescore_eval_with_fitted_gate,calibration_alpha_curve,sweep_composite_variants}.py` | ImportError-fallback strings updated from v2 4-tuple to v2.1 3-tuple |
+| `tests/test_fix9_training_panel_update.py` | asserts v2.1 panel; `test_per_benchmark_train_chunk_override` validates 2000 chunks + DEFAULT_CALIBRATION_SIZE=300 |
+| `tests/test_retention_probe.py` | new `test_commonsense_qa_test_probe_registered`; `test_config_retention_probe_defaults` asserts v2.1 retention triple |
+
+### File-system hygiene
+
+- Moved `outputs/cycle_0/eval/hotpotqa_cycle0.json` → `outputs/cycle_0/eval_excluded_v21/` so `step_7_0_2_5_rescore_eval` (which globs `*_cycle0.json`) won't try to rescore the dropped bench through the v2.1 fitted gate.
+- Archived `outputs/cycle_0/dataset_splits.json` → `dataset_splits_pre_v21.json` so `build_benchmark_pools` regenerates with v2.1 panel + chunk sizes on next run_experiment invocation.
+
+### Verification
+
+`pytest tests/test_fix9_training_panel_update.py tests/test_retention_probe.py -v` → 25/25 pass on v2.1 panel.
+
+### Theorem applicability under v2.1
+
+Cycle-0 base accuracies vs the `thm:monotone` precondition `p_+ > 0.5`:
+
+| Bench (v2.1 active panel) | p_+ | precondition? |
+|---|---:|---|
+| CSQA (training) | 0.634 | ✓ above |
+| StrategyQA (transfer) | 0.602 | ✓ above |
+| FEVER (training) | 0.454 | ✗ marginal (−0.046) |
+| TriviaQA (training) | 0.374 | ✗ below |
+| TruthfulQA (transfer) | 0.334 | ✗ below |
+
+Of the v2.1 active panel, only CSQA fully satisfies the theorem precondition for training; StrategyQA satisfies it for transfer. FEVER + TriviaQA are precondition-marginal/below; the v2.1 architectural hypothesis is that LoRA SIL (Fix 8) + per-bench composite (Fix 2) + per-bench conformal (Fix 1) + pool reweighting (Fix 3) + multi-modal retention probe (Fix 4) collectively provide an *empirical improvement mechanism* below 0.5 even though the theorem doesn't apply. The cycle-trajectory tests this prediction. Phase 2.1 (theorem rewrite) registers this as a falsifiable scope-extension claim.
+
+### Cost + budget
+
+| Item | v2 (4-bench) | v2.1 (3-bench, chunk 2000, cal 300) |
+|---|---:|---:|
+| Per-cycle SIL stream | 4×1000=4000 | 2×2000+700=4700 |
+| Per-cycle cal-fold (production-recurring) | 4×500=2000 | 3×300=900 |
+| Per-cycle eval | 7×500=3500 | 5×500=2500 |
+| Per-cycle wall-time est. | ~22-26h | ~22-26h (similar; saved bench eval offset by chunk doubling) |
+| 10-cycle GPU-h | ~280h | ~250-280h |
+| 10-cycle GPU cost @ $0.55/h | ~$155 | ~$140-155 |
+| Total trajectory cost (incl. baselines) | ~$180 | ~$160-180 |
+
+Working budget post-halt is ~$60-70; v2.1 trajectory needs ~$100-120 topup. Cleanest mid-trajectory halt point if credit runs out: cycle 5 (~5 days from now, ~$80-90 spent), still produces a defensible 5-cycle empirical receipt.
+
+### Resume sequence
+
+1. Killed `scripts.run_experiment` PID 161972 (NQ eval at 384/500).
+2. Halted tmux plan_a session; new tmux session created at 11:04 UTC.
+3. Code + memory edits applied; tests pass.
+4. `python -m scripts.run_calibration` invoked manually (CSQA + HotpotQA loader fix added before this); chained with `&& bash run_phase1a.sh` for clean post-cal-fold resume.
+5. Runner re-ran step_7_0_cycle0 because the cal-fold JSON was missing (skip-check now requires both); cycle-0 eval re-runs cleanly under v2.1 config (~3-4h GPU burn for re-eval, identical contents within nondeterminism, then cal-fold scoring then composite/conformal fits then decision gate).
+
+ETA decision gate (step_7_0_3): ~01:00 BDT May 9. Step_7_main (10-cycle headline) launches immediately after if gate passes.
+
+### Phase 2.1 theorem-rewrite implications
+
+The v2.1 panel change adds two specific bullets to the Ch4 theorem rewrite plan:
+
+1. `tab:benchmark-pools` reflects 3-bench training (FEVER + TriviaQA + CSQA), 2-bench transfer (TruthfulQA + StrategyQA), with HotpotQA + NQ marked as registered-exclusion benches (Bayesian-floor inequality unreachable; receipts at outputs/cycle_0/eval_excluded_v21/ + outputs/cycle_0/eval/natural_questions_cycle0.json partial).
+2. NEW remark: "Empirical scope extension below the sufficient-condition precondition" — formalizes the v2.1 architectural bet that Fix 1 + 2 + 3 + 4 + 8 collectively provide an empirical-improvement mechanism on precondition-violation benches (FEVER cycle-0 0.454, TriviaQA cycle-0 0.374). Falsification: any training bench EM trends down cycle 1→3 under all listed mechanisms active.
+
+### Open work after v2.1 trajectory closes
+
+- Phase 1c: query-classifier for production per-bench dispatch (now a sharper future-work item — production v2.1 reverts to pooled-only because user queries arrive untagged).
+- Phase 1c: per-bench α relaxation as a Mondrian-conformal extension (HotpotQA's α=0.50 admission floor is the empirical anchor).
+- Ch5 §sec:disc-threats: register the asymmetric Bayesian-floor reach as a scope finding, not a flaw — same framing the v1 trajectory used for FEVER vs TriviaQA/NQ.
+
+

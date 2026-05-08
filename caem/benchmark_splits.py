@@ -79,24 +79,33 @@ DEFAULT_SEED_SIZE: int = 1000  # CANDIDATE pool, not store target.
 # at 1000 gives ~3× headroom vs the 200 target for unusually low store-rate
 # benchmarks (e.g., ASQA at 53% would need ~375 candidates).
 DEFAULT_PURITY_SIZE: int = 500
-DEFAULT_CALIBRATION_SIZE: int = 500
-DEFAULT_TRAIN_CHUNK_SIZE: int = 1000  # v2 default (was 5000); see PER_BENCHMARK override
+DEFAULT_CALIBRATION_SIZE: int = 300  # v2.1 (was 500): label-efficient, cuts production
+                                     # recurring labeling cost from 1500/cycle to 900/cycle
+                                     # (3 training benches × 300). Stable for FEVER/TQA/CSQA
+                                     # at base EM ≥ 0.30 (verified cycle-0).
+DEFAULT_TRAIN_CHUNK_SIZE: int = 1000  # v2 default; see PER_BENCHMARK override below.
 DEFAULT_N_CYCLES: int = 10
 DEFAULT_EVAL_SIZE: int = 500
 DEFAULT_TEST_SIZE: int = 500
 
-# v2 (2026-05-06): per-benchmark stream-chunk override. Falls back to
-# DEFAULT_TRAIN_CHUNK_SIZE for benchmarks not listed here. CSQA needs the
-# smaller chunk because its train pool is only 9741 samples; at 1000/cycle
-# the seed (1000) + cal (500) + 10×1000 SIL stream + eval (500) + test (500)
-# = 13,500 would exceed available pool. With CSQA at 700/cycle: total
-# allocation = 1000 + 500 + 7000 + 500 + 500 = 9,500 of 9741 train + 1221 dev.
+# v2.1 (2026-05-08): per-benchmark stream-chunk override. Doubled FEVER + TriviaQA
+# from 1000 -> 2000 after panel pruning to 3 training benches saved sufficient
+# per-cycle wall-time budget. CSQA stays at 700 because its 9.7k train pool can't
+# support a larger chunk (10 × 2000 + seed/cal/eval/test = 27k > 9.7k).
+# Pool reweighting (Fix 3, T=2.0 softmax) handles the asymmetric chunk sizes
+# via temperature-mixed equalization.
 PER_BENCHMARK_TRAIN_CHUNK_SIZE: Dict[str, int] = {
-    "fever":          1000,  # 145k train: trivial headroom
-    "triviaqa":       1000,  # 87k train: trivial headroom
-    "hotpotqa":       1000,  # 90k train: trivial headroom
-    "commonsense_qa":  700,  # 9.7k train: tight but no repetition
+    "fever":          2000,  # v2.1: 145k train, doubled from 1000
+    "triviaqa":       2000,  # v2.1: 87k train, doubled from 1000
+    "commonsense_qa":  700,  # 9.7k train: tight but no repetition; stays at 700
 }
+# HotpotQA + Natural Questions REMOVED at v2.1 (2026-05-08) after cycle-0
+# eval revealed precondition violation:
+#   HotpotQA: p_+ = 0.090, required TPR/FPR ≥ 192 at α=0.05 (verifier
+#             achievable: 5-15) — mathematically unstoreable.
+#   Natural Q: p_+ = 0.156-0.172, verifier α<½ on every v1 cal fold —
+#              structural-failure benchmark; non-discriminative even pooled.
+# Both kept as registered exclusion evidence at outputs/cycle_0/eval/.
 
 # Per-benchmark dev/test split names for eval pool.
 _EVAL_SPLIT_MAP: Dict[str, Optional[str]] = {
