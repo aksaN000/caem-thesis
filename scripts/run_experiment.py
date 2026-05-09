@@ -403,18 +403,24 @@ def run_per_cycle_composite_refit(
     )
     try:
         subprocess.run(cmd, check=True)
-        # Also update the canonical path the verifier reads on init, so the
-        # next cycle's pipeline construction picks up the new composite. We
-        # copy rather than symlink so a partial failure doesn't leave a
-        # dangling pointer.
+        # Atomically publish the cycle-N composite to the canonical path so
+        # the next cycle's pipeline construction (or a resume) picks it up.
+        # Phase 1c (Audit Pass 3 fix 2026-05-09): use os.replace via a
+        # tempfile in the same directory rather than shutil.copy — copy is
+        # NOT atomic and a crash mid-copy could leave the canonical JSON
+        # truncated, silently degrading every downstream verifier load.
+        # os.replace is POSIX-atomic on the same filesystem.
         canonical_composite = _Path(getattr(
             config, "composite_calibration_path",
             "outputs/cycle_0/composite_calibration.json",
         ))
-        import shutil
-        shutil.copy(out_composite, canonical_composite)
+        canonical_composite.parent.mkdir(parents=True, exist_ok=True)
+        import os as _os, shutil as _shutil
+        tmp_path = canonical_composite.with_suffix(canonical_composite.suffix + ".tmp")
+        _shutil.copy(out_composite, tmp_path)
+        _os.replace(tmp_path, canonical_composite)
         logger.info(
-            "Cycle %d: published cycle composite to canonical path "
+            "Cycle %d: published cycle composite to canonical path atomically "
             "(verifier will reload on next pipeline init).",
             cycle,
         )
@@ -1471,6 +1477,38 @@ def run_experiment(ns: argparse.Namespace) -> None:
 
     # -- CYCLES 1..N --------------------------------------------------------- #
     start_cycle = max(1, ns.resume_from_cycle)
+
+    # Phase 1c (Audit Pass 3 defensive fix 2026-05-09): on resume, the
+    # canonical composite path on disk reflects the most recently completed
+    # cycle's refit (run_per_cycle_composite_refit publishes via os.replace).
+    # The verifier loaded its composite at process start (line ~273-284),
+    # which reads the canonical path. So in principle the in-memory composite
+    # already reflects the correct cycle-(start_cycle-1) state.
+    #
+    # However, we explicitly call reload_calibration here as a defensive
+    # measure: if the canonical path was updated between process start and
+    # this point (e.g., another tool ran), or if a future refactor re-orders
+    # init steps, this guarantees the resumed cycle starts with the freshest
+    # available composite. No-op if the path hasn't changed.
+    if ns.resume_from_cycle > 0:
+        try:
+            _canonical = getattr(
+                config, "composite_calibration_path",
+                "outputs/cycle_0/composite_calibration.json",
+            )
+            if _Path(_canonical).is_file():
+                pipeline.verifier.reload_calibration(str(_canonical))
+                logger.info(
+                    "Resume: defensive composite reload from canonical path %s",
+                    _canonical,
+                )
+        except Exception as _exc:
+            logger.warning(
+                "Resume: defensive composite reload failed (%s); cycle %d will "
+                "still attempt to refit + reload at Step 2.4 — proceeding.",
+                _exc, start_cycle,
+            )
+
     for cycle_num in range(start_cycle, config.num_cycles + 1):
         logger.info("-" * 60)
         logger.info("CYCLE %d -- Fine-tuning + evaluation", cycle_num)
