@@ -435,7 +435,14 @@ class CAEMConfig:
     # per-cycle conformal refit inherits this from prev_gate JSON, but this
     # config default is the belt-and-suspenders fallback if the inheritance
     # path ever fails to read the previous gate.
-    conformal_alpha_store: float = 0.05
+    conformal_alpha_store: float = 0.20  # v2.1 2026-05-09: relaxed from 0.05.
+    # Cycle-0 fit at α=0.05 produced near-degenerate output on the v2.1
+    # 3-bench training panel (cal Cohen's d 0.605 but eval STORE precision
+    # 57-62%). Decision gate FAILED on FEVER STORE-DISCARD gap=−0.004 and
+    # poisoning 35-43%. At α=0.20 (80% precision target) the Bayes-floor
+    # inequality is reachable by the locked verifier on all three training
+    # benches. Per-cycle recalibrate_conformal_at_cycle.py already defaults
+    # to α=0.20, so the runtime fallback now matches the per-cycle refit.
     conformal_alpha_defer: float = 0.40
 
     # ------------------------------------------------------------------ #
