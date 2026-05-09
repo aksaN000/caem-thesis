@@ -82,6 +82,31 @@ COMPOSITE_SIGNALS: Tuple[str, ...] = (
     "entity_head_consistency",  # v2 Fix 7 — M-chain head-noun agreement
 )
 
+# Per-benchmark signal exclusion mask — v2.1 (2026-05-09).
+# Some signals are structurally vestigial on bounded-label benchmarks
+# (where the model output is one of a fixed small set of labels rather
+# than free-form text). On those benches the signal value is essentially
+# constant or noise across all samples, but per-bench isotonic fitting
+# at small cal-fold can still pick up spurious correlations that don't
+# replicate on the eval-fold. Excluding those signals from the per-bench
+# composite for that bench specifically gives the fit cleaner data.
+#
+# FEVER: 3-way claim verification (supports/refutes/not enough info).
+#   Answers are LABELS, not entities — so:
+#     - alias_overlap is ~0 for every sample (no entities in answer text)
+#     - entity_head_consistency is ~flat across M=3 chains (chains land
+#       on the same label-word; head-noun extraction returns the label
+#       itself which trivially agrees)
+#   Both signals contribute zero discriminative information on FEVER but
+#   per-bench isotonic fits noise patterns at small cal-fold. Empirically
+#   under v2.1 cycle-0 these signals drove the FEVER STORE-DISCARD gap
+#   inversion observed at cal-fold 300/bench (gap=−0.114). Mask them.
+#
+# CSQA, TriviaQA, HotpotQA, NQ: open-text or entity-target — keep all 12.
+BENCHMARK_SIGNAL_MASKS: Dict[str, Tuple[str, ...]] = {
+    "fever": ("alias_overlap", "entity_head_consistency"),
+}
+
 # Minimum samples per signal to fit calibration; below this, signal is skipped.
 MIN_SAMPLES_PER_SIGNAL: int = 50
 
@@ -394,19 +419,31 @@ class CalProbComposite:
             )
             self.metadata["pooled_n"] = len(pooled)
 
-        # 2. Per-benchmark fits
+        # 2. Per-benchmark fits (with optional per-bench signal masking).
         for bm, bm_samples in samples_by_benchmark.items():
+            # v2.1 (2026-05-09): apply per-benchmark signal mask. Excluded
+            # signals are vestigial on this bench's distribution (e.g.,
+            # alias_overlap on FEVER's bounded labels) and including them
+            # in the per-bench isotonic fit picks up spurious noise patterns
+            # at small cal-fold. See BENCHMARK_SIGNAL_MASKS docstring.
+            mask = set(BENCHMARK_SIGNAL_MASKS.get(bm, ()))
+            bench_signals = tuple(s for s in signals if s not in mask)
             child = CalProbComposite()
             child.fit(
-                bm_samples, signals=signals,
+                bm_samples, signals=bench_signals,
                 fit_boost=fit_boost, boost_C=boost_C,
             )
             child.metadata["benchmark"] = bm
+            child.metadata["masked_signals"] = sorted(mask)
             self.per_benchmark[bm] = child
+            mask_note = (
+                f" (masked={sorted(mask)})" if mask else ""
+            )
             logger.info(
-                "cal_prob_composite.fit_per_benchmark: %s n=%d signals=%d boost=%s",
+                "cal_prob_composite.fit_per_benchmark: %s n=%d signals=%d boost=%s%s",
                 bm, len(bm_samples), len(child.calibrations),
                 "fit" if child.boost_weights is not None else "identity",
+                mask_note,
             )
 
         self.metadata["per_benchmark_count"] = len(self.per_benchmark)
