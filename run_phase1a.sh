@@ -601,7 +601,7 @@ step_7_main() {
             return 0
         fi
     fi
-    band "Step 7 — main 10-cycle CAEM run (n=3000/bench, budget early-stop at Cycle 5-6) [u_tok_drop pools ON, gdrive offload ON]"
+    band "Step 7 — main 10-cycle CAEM run (per-bench chunks: FEVER=2000, TriviaQA=2000, CSQA=700; budget early-stop at Cycle 5-6) [u_tok_drop pools ON, gdrive offload ON]"
     # Enable u_tok_drop verifier pools + gdrive checkpoint offload for this
     # python child only. Scoped via leading assignments on the python call
     # so subsequent runner stages see defaults.

@@ -63,20 +63,22 @@ logger = logging.getLogger(__name__)
 # Configuration: which signals enter the composite                             #
 # ============================================================================ #
 
-# Phase 1c (2026-05-09): the composite consumes 10 signals — 9 base verifier
-# signals plus the q_a_relevance surface heuristic. Two signals (alias_overlap,
-# entity_head_consistency) were dropped from the composite after the v2.1
-# cycle-0 AUROC diagnostic showed pooled AUROC 0.518 / 0.598 — essentially
-# random discrimination on the 5-benchmark panel. They are still computed by
-# UnifiedVerifier and recorded in eval JSONs for log-keeping; they simply do
-# not contribute to u_stored. Dead signals among the kept 10 (e.g. u_token on
-# benches where it saturates) are auto-handled by flat isotonic curves.
+# Phase 1d (2026-05-09 21:30 UTC): the composite consumes 9 signals after
+# h_norm was retired alongside the earlier removal of alias_overlap and
+# entity_head_consistency. The retirement evidence is the cycle-0 calibration
+# fit on the (now restored) 1500-sample fold, in which h_norm registered
+# Pearson 0.000 with em on every per-benchmark slice and a boost weight
+# within ±0.0001 of zero on every fit. The signal had been runtime-disabled
+# via cfg.disable_h_norm since 2026-04-27, so the column the composite was
+# fitting was a constant 0.5 sentinel — this commit completes the removal at
+# the composite level so the signal does not appear in the registered
+# architecture. UnifiedVerifier still records the sentinel in its output
+# schema for back-compat with existing eval JSONs.
 COMPOSITE_SIGNALS: Tuple[str, ...] = (
     "u_token",
     "u_dropout",
     "u_internal",
     "s_avg",
-    "h_norm",
     "p_entail",
     "p_ground_max",
     "p_ground_mean",
