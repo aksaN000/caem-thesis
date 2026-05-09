@@ -593,7 +593,15 @@ def collect_calibration_data(
             # downstream consumers that read u_stored directly).
             "u_stored": float(getattr(vout_for_dump, "u_stored", 0.0))
                 if vout_for_dump is not None else None,
-            # All 10 verifier primary signals.
+            # All 12 verifier primary signals (v2.1 — was 10 pre-Fix 6+7).
+            # alias_overlap + entity_head_consistency added by Fix 6 + Fix 7
+            # in 2026-05-06; the cal-fold writer was missed in that pass and
+            # silently produced 10-signal cal-folds, leaving the per-bench
+            # composite fitting on 10 signals instead of the architectural
+            # 12. Restored here on 2026-05-09 after the cycle-0 calibration
+            # gate failed twice with identical numbers (proof the data was
+            # identical → the FEVER signal-mask was moot because the masked
+            # signals weren't being read anyway).
             "u_token":         float(getattr(vout_for_dump, "u_token", 0.0))         if vout_for_dump is not None else None,
             "u_dropout":       float(getattr(vout_for_dump, "u_dropout", 0.0))       if vout_for_dump is not None else None,
             "u_internal":      float(getattr(vout_for_dump, "u_internal", 0.0))      if vout_for_dump is not None else None,
@@ -604,6 +612,8 @@ def collect_calibration_data(
             "p_ground_mean":   float(getattr(vout_for_dump, "p_ground_mean", 0.0))   if vout_for_dump is not None else None,
             "p_ground_atomic": float(getattr(vout_for_dump, "p_ground_atomic", 0.0)) if vout_for_dump is not None else None,
             "q_a_relevance":   float(getattr(vout_for_dump, "q_a_relevance", 0.0))   if vout_for_dump is not None else None,
+            "alias_overlap":   float(getattr(vout_for_dump, "alias_overlap", 0.0))   if vout_for_dump is not None else None,
+            "entity_head_consistency": float(getattr(vout_for_dump, "entity_head_consistency", 0.0)) if vout_for_dump is not None else None,
         })
 
         # Signal matrix -- sourced from UnifiedVerifierOutput (Stage 5).
