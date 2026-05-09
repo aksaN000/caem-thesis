@@ -36,11 +36,15 @@ Per (baseline, benchmark): outputs/baselines/<baseline>/<benchmark>_cycle0.json
 
 Locked cycle-10 calibration:
   --composite_calibration  outputs/production/composite_calibration.json
-  --conformal_gate         outputs/production/conformal_gate.json
   --checkpoint             outputs/production/cycle_0/model.pt
                            (the SIL-fine-tuned generator at cycle-10 is
                             staged at the production-cycle-0 path per the
                             Phase B swap convention)
+
+Phase 1c (2026-05-09): the conformal storage gate was replaced by a fixed
+threshold on u_stored from CAEMConfig (store_threshold, defer_threshold).
+No --conformal_gate argument is needed; the verifier reads the thresholds
+from the config defaults.
 
 Outputs
 -------
@@ -65,7 +69,6 @@ GPU run (post-cycle-10 close, after baselines complete):
         --baselines_dir outputs/baselines \\
         --output_dir outputs/baselines \\
         --composite_calibration outputs/production/composite_calibration.json \\
-        --conformal_gate outputs/production/conformal_gate.json \\
         --checkpoint outputs/production/cycle_0/model.pt \\
         --device cuda \\
         --caem_eval_dir outputs/full_run/eval \\
@@ -120,7 +123,6 @@ logger = logging.getLogger("rescore_baselines")
 
 def _build_verifier(
     composite_calibration: Path,
-    conformal_gate: Path,
     checkpoint: Optional[Path],
     passage_index: Path,
     device: str,
@@ -131,6 +133,11 @@ def _build_verifier(
     tokenize queries. Mirrors the construction in
     ``scripts/caem_demo_server.py:_build_pipeline`` so the rescored
     instrument matches the deployed verifier exactly.
+
+    Phase 1c (2026-05-09): the conformal storage gate was removed; the
+    verifier reads tau_store, tau_defer, abstain_pground_ceiling from
+    CAEMConfig directly. Only the composite calibration JSON path is
+    overridden here.
     """
     import torch
 
@@ -142,9 +149,7 @@ def _build_verifier(
 
     config = CAEMConfig()
     config.composite_calibration_path = str(composite_calibration)
-    config.conformal_gate_path = str(conformal_gate)
     logger.info("Composite calibration: %s", composite_calibration)
-    logger.info("Conformal gate: %s", conformal_gate)
 
     t0 = time.perf_counter()
     gen_model, tokenizer = load_base_generator(
@@ -446,8 +451,6 @@ def _parse_args() -> argparse.Namespace:
                         "<output_dir>/<baseline>/<bench>_cycle0_with_chm.json.")
     p.add_argument("--composite_calibration", type=Path,
                    default=Path("outputs/production/composite_calibration.json"))
-    p.add_argument("--conformal_gate", type=Path,
-                   default=Path("outputs/production/conformal_gate.json"))
     p.add_argument("--checkpoint", type=Path,
                    default=Path("outputs/production/cycle_0/model.pt"),
                    help="SIL fine-tuned model checkpoint (cycle-10 weights "
@@ -474,17 +477,15 @@ def main() -> int:
         return _dry_run(ns.dry_run_eval)
 
     # GPU path: rescore every (baseline, benchmark) pair.
-    for path in (ns.composite_calibration, ns.conformal_gate):
-        if not path.exists():
-            logger.error("Required calibration artefact not found: %s", path)
-            return 1
+    if not ns.composite_calibration.exists():
+        logger.error("Required calibration artefact not found: %s", ns.composite_calibration)
+        return 1
     if not ns.passage_index.exists() and not ns.passage_index.with_suffix(".faiss").exists():
         logger.error("Passage index not found at %s", ns.passage_index)
         return 1
 
     verifier, _ = _build_verifier(
         composite_calibration=ns.composite_calibration,
-        conformal_gate=ns.conformal_gate,
         checkpoint=ns.checkpoint,
         passage_index=ns.passage_index,
         device=ns.device,

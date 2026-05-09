@@ -525,10 +525,11 @@ step_gdrive_upload_pre_main() {
     copy outputs/cycle_0/calibration                          cycle_0/calibration
     copy outputs/cycle_0/calibrated_thresholds.json           cycle_0/calibrated_thresholds.json
     copy outputs/cycle_0/composite_calibration.json           cycle_0/composite_calibration.json
-    copy outputs/cycle_0/conformal_gate.json                  cycle_0/conformal_gate.json
+    # Phase 1c (2026-05-09): conformal_gate.json removed (replaced by
+    # fixed CAEMConfig thresholds). conformal_gate.json no longer exists;
+    # alpha_sweep + sweep dirs were archived to gdrive:caem-phase1a/archive_phase1c_2026-05-09/
     copy outputs/cycle_0/weight_validation.json               cycle_0/weight_validation.json
     copy outputs/cycle_0/iteration_history.json               cycle_0/iteration_history.json
-    copy outputs/cycle_0/sweep                                cycle_0/sweep
     copy outputs/cycle_0/memory_store_cycle_0.faiss           cycle_0/memory_store_cycle_0.faiss
     copy outputs/cycle_0/memory_store_cycle_0.meta            cycle_0/memory_store_cycle_0.meta
     copy outputs/cycle_0/deferred_buffer_cycle_0.pkl          cycle_0/deferred_buffer_cycle_0.pkl
@@ -618,11 +619,28 @@ step_7_main() {
 
     local resume_args=()
     if [[ -d outputs/full_run ]]; then
-        local last
-        last=$(ls -d outputs/full_run/cycle_* 2>/dev/null | sed 's#.*cycle_##' | sort -n | tail -1 || true)
+        # Phase 1c (2026-05-09): detect last *complete* cycle by the presence
+        # of memory_store_cycle_N.faiss + .meta + deferred_buffer_cycle_N.pkl
+        # at the top level of outputs/full_run/. These three files are written
+        # AT cycle close (after retroverify, deferred-reconsider, composite
+        # refit, LoRA SIL, retention probe). A mid-cycle crash leaves the
+        # cycle_N/ dir partially populated but does NOT write the top-level
+        # memory_store_cycle_N artefact, so we can distinguish complete-N
+        # from in-progress-N reliably.
+        local last=""
+        for n in 9 8 7 6 5 4 3 2 1 0; do
+            if [[ -f "outputs/full_run/memory_store_cycle_${n}.faiss" \
+               && -f "outputs/full_run/memory_store_cycle_${n}.meta" \
+               && -f "outputs/full_run/deferred_buffer_cycle_${n}.pkl" ]]; then
+                last="$n"
+                break
+            fi
+        done
         if [[ -n "${last:-}" && "$last" -ge 0 && "$last" -lt 10 ]]; then
             resume_args=(--resume_from_cycle "$((last + 1))")
-            log "  detected completed cycle $last — resuming from $((last + 1))"
+            log "  detected completed cycle $last (memory + deferred written) — resuming from $((last + 1))"
+        else
+            log "  no completed cycle artefacts found — starting from cycle 0"
         fi
     fi
 

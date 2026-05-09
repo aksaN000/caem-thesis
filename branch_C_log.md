@@ -4590,3 +4590,81 @@ Cycle-0 failed-experiment artifacts + alpha sweep + eval_rescored backup + pre-P
 * Theorem C7 in Ch4 §11 rephrases from "marginal-coverage 1−α" to "as cal-fold size grows, expected stored-set precision E[em | u_stored ≥ τ] = τ" (calibration consistency). Empirical-precision audit becomes the per-cycle compliance check (was conformal recalibration).
 * Ch4 §6 + §7 + §11 + Ch5 §5.4 ablation table need light edits when the trajectory closes; deferred to Phase 2.1 rewrite.
 
+
+## 2026-05-09 ~19:55 UTC — Resume runbook + script-cleanup pass for Phase 1c
+
+### Resume contract (any cycle)
+
+Phase 1c trajectories can be resumed from any completed cycle without manual
+state surgery. The contract:
+
+**At each cycle close (Stage 8 in `caem/training/self_improvement.py` +
+`scripts/run_experiment.py`)**, three top-level artefacts are written to
+`outputs/full_run/` *after* retroverify, deferred-reconsider, composite refit,
+LoRA SIL fine-tune, and the retention probe pass:
+
+* `memory_store_cycle_N.faiss` + `memory_store_cycle_N.meta` — committed memory
+* `deferred_buffer_cycle_N.pkl` — deferred entries for next cycle's reconsideration
+* `cycle_N/composite_calibration.json` — refit composite (also copied to the
+  canonical `outputs/cycle_0/composite_calibration.json` for the verifier
+  to pick up on next pipeline init)
+
+**Resume detection** in `run_phase1a.sh::step_7_main` walks cycles 9 → 0
+looking for the first N where ALL THREE top-level artefacts exist. That N is
+treated as the last *complete* cycle; the runner passes
+`--resume_from_cycle (N+1)` to `scripts/run_experiment.py`. A mid-cycle
+crash leaves the per-cycle dir partially populated but does NOT write
+the top-level memory/deferred files, so the detection skips it and
+re-runs cycle N from the start (correct behaviour — partial work is
+discarded, nothing is half-applied to the model).
+
+**Fallback if a cycle dir is corrupt** (rare — partial write during
+cycle-close I/O): `git reset --hard pre-phase1c-2026-05-09` to restore
+pre-Phase-1c code, manually delete the corrupt cycle dir, and resume.
+Memory + deferred buffer are checkpoint-style snapshots; a corrupt one
+is replaced by the previous cycle's snapshot.
+
+**Verifier state on resume** — a constructed `UnifiedVerifier` reads
+`config.composite_calibration_path` (default `outputs/cycle_0/...`) at
+init. After cycle N closes, that path holds cycle N's composite (copied
+by `run_per_cycle_composite_refit`). On resume, the new pipeline picks
+up cycle N's composite directly. The fixed gate threshold lives in
+CAEMConfig (read every invocation), so τ=0.60 / τ_defer=0.45 stay
+consistent across resumes.
+
+**Trajectory configuration on resume** — same code, same config, same
+threshold. The Phase 1c commits past tag `pre-phase1c-2026-05-09` are
+on `origin/feat/qwen-3b-goal2`; resuming from a different machine just
+needs `git pull` then `bash run_phase1a.sh`.
+
+### Script consistency pass
+
+Stale references to removed Phase 1c artefacts (`conformal_gate.json`,
+`fit_conformal_gate.py`, `recalibrate_conformal_at_cycle.py`,
+`per_bench_alpha_decision_table.py`, `sweep_alpha_v21.py`,
+`calibrate_thresholds.py`, `recalibrate_thresholds_at_cycle.py`,
+`conditional_conformal_ablation.py`, `sweep_composite_variants.py`)
+were swept across the script directory. Files updated:
+
+* `scripts/rescore_baselines_through_verifier.py` — drop `--conformal_gate`
+  CLI arg, remove `config.conformal_gate_path` setter, update docstring.
+* `scripts/phase4_artifacts.py` — replace conformal_gate.json existence
+  print with the active fixed-threshold gate config.
+* `scripts/rescore_eval_with_fitted_gate.py` — comment update from
+  "12 signals" to "10 signals" (Phase 1c P1 dropped two).
+* `run_phase1a.sh` — drop `cycle_0/conformal_gate.json` from gdrive
+  offload manifest; add comment pointing to archive_phase1c bundle.
+* `run_phase1a.sh::step_7_main` resume detection — see Resume contract above.
+
+Some comment-only references to deleted scripts remain in
+`caem/config.py` (lines 168, 301), `scripts/run_calibration.py`,
+`scripts/run_experiment.py` (CLI help text), `scripts/fit_composite_calibration.py`,
+`scripts/watchdog_cycles_3plus.sh`, and `scripts/halt_and_resume_with_deferred_fix.sh`.
+These are caught in the Phase 1c audit pass, not blocking trajectory
+correctness.
+
+### Commits
+
+* `333a020` — Phase 1c log entry (this file's previous entry)
+* (this entry) — Resume runbook + script-cleanup pass
+

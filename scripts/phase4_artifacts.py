@@ -596,7 +596,14 @@ def main() -> int:
     print(f"\n=== Phase 4 artifact generation ===")
     print(f"Eval JSONs present: {manifest['phase3_eval_jsons_present']}")
     print(f"composite_calibration.json: {(CYCLE0_DIR / 'composite_calibration.json').exists()}")
-    print(f"conformal_gate.json: {(CYCLE0_DIR / 'conformal_gate.json').exists()}\n")
+    # Phase 1c (2026-05-09): conformal_gate.json no longer exists; the
+    # storage gate is a fixed threshold from CAEMConfig (store_threshold,
+    # defer_threshold). Phase 4 reports the active gate config instead.
+    from caem.config import CAEMConfig as _Cfg
+    _cfg = _Cfg()
+    print(f"gate (fixed-threshold): tau_store={_cfg.store_threshold:.3f} "
+          f"tau_defer={_cfg.defer_threshold:.3f} "
+          f"abstain_pg={_cfg.abstain_pground_ceiling:.3f}\n")
 
     out_p, ok = emit_cohen_d_table()
     manifest["artifacts"]["cohen_d_table"] = {"path": str(out_p), "filled": ok}
