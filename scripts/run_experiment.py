@@ -20,8 +20,8 @@ From the repo root (requires A100 GPU, ~15-19 GB VRAM):
     python -m scripts.run_experiment \\
         --output_dir outputs \\
         --num_cycles 10 \\
-        --n_questions 5000 \\
-        --benchmarks fever triviaqa natural_questions truthfulqa strategyqa arc_challenge
+        --n_questions 3000 \\
+        --benchmarks fever triviaqa commonsense_qa truthfulqa strategyqa
 
 For a smoke-test (CPU, tiny N):
     python -m scripts.run_experiment --smoke_test

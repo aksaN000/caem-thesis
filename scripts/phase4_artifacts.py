@@ -57,12 +57,19 @@ from caem.config import (
 )
 BENCHES = list(_CFG_TRAINING_BENCHMARKS) + list(_CFG_TRANSFER_BENCHMARKS)
 BENCH_DISPLAY = {
-    "fever": "FEVER", "triviaqa": "TriviaQA", "natural_questions": "NQ",
-    "truthfulqa": "TruthfulQA", "strategyqa": "StrategyQA",
-    "arc_challenge": "ARC-C", "asqa": "ASQA",
-    # v2 additions
-    "hotpotqa": "HotpotQA",
+    # v2.1 panel (live): three training, two transfer.
+    "fever": "FEVER",
+    "triviaqa": "TriviaQA",
     "commonsense_qa": "CSQA",
+    "truthfulqa": "TruthfulQA",
+    "strategyqa": "StrategyQA",
+    # Registered exclusions (kept here so historical artefact bundles can
+    # still be re-rendered with display labels; not in the live BENCHES
+    # list above, which dispatches off caem.config TRAINING+TRANSFER).
+    "natural_questions": "NQ",
+    "arc_challenge": "ARC-C",
+    "asqa": "ASQA",
+    "hotpotqa": "HotpotQA",
 }
 TRAIN_BENCHES = set(_CFG_TRAINING_BENCHMARKS)
 TRANSFER_BENCHES = set(_CFG_TRANSFER_BENCHMARKS)

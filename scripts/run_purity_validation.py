@@ -87,7 +87,7 @@ Usage
       --checkpoints_dir outputs \\
       --output_dir outputs/purity_validation \\
             --num_cycles 10 \\
-            --benchmarks fever triviaqa natural_questions
+            --benchmarks fever triviaqa commonsense_qa
 
   # Smoke test:
   python -m scripts.run_purity_validation --smoke_test

@@ -19,8 +19,7 @@ the cycle-N memory store and fine-tuned weights. Then::
         --cycle 7 \
         --memory_store outputs/memory_store_cycle_7 \
         --model_checkpoint outputs/cycle_7/model \
-        --benchmarks fever triviaqa natural_questions truthfulqa \
-                     strategyqa arc_challenge \
+        --benchmarks fever triviaqa commonsense_qa truthfulqa strategyqa \
         --n_questions 500 \
         --output_dir outputs/ablation
 
