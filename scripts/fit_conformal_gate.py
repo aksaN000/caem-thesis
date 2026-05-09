@@ -38,7 +38,7 @@ import json
 import logging
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Sequence
+from typing import Any, Dict, List, Sequence, Tuple
 
 logging.basicConfig(
     level=logging.INFO,
@@ -167,12 +167,20 @@ def main() -> int:
             sorted(per_bench_input.keys()),
             len(samples_by_bench.get("_untagged", [])),
         )
+        # Combine the two flat override dicts into the tuple-dict format
+        # ConformalStorageGate.fit_per_benchmark expects:
+        #   alphas_per_benchmark = {bench: (alpha_store, alpha_defer), ...}
+        # Benches absent from either dict inherit the default α from the CLI.
+        combined_alphas: Dict[str, Tuple[float, float]] = {}
+        for bm in set(alpha_store_overrides) | set(alpha_defer_overrides):
+            a_s = alpha_store_overrides.get(bm, args.alpha_store)
+            a_d = alpha_defer_overrides.get(bm, args.alpha_defer)
+            combined_alphas[bm] = (a_s, a_d)
         gate = ConformalStorageGate.fit_per_benchmark(
             per_bench_input,
+            alphas_per_benchmark=combined_alphas if combined_alphas else None,
             default_alpha_store=args.alpha_store,
             default_alpha_defer=args.alpha_defer,
-            alpha_store_overrides=alpha_store_overrides,
-            alpha_defer_overrides=alpha_defer_overrides,
         )
     else:
         gate = ConformalStorageGate.fit(
