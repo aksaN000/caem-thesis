@@ -292,23 +292,24 @@ def test_collect_calibration_data_batch_equivalence(batched_size, tmp_path):
                 f"serial={s_us} batch={b_us}"
             )
 
-    # ---- Schema check: all 10 COMPOSITE_SIGNALS must be present -------- #
+    # ---- Schema check: all 9 COMPOSITE_SIGNALS must be present --------- #
     # Regression guard: scripts/fit_composite_calibration.py reads exactly
     # these keys from the JSONL to fit one isotonic regression per signal.
     # Dropping any key (as happened pre-fix on 2026-04-25 06:14 UTC) makes
-    # the composite degenerate to a 2-feature logistic regression. (Historical
-    # symptom under the v2 conformal architecture: the downstream conformal
-    # gate then produced tau_store=1.0 / store_n=0; Phase 1c replaced that
-    # gate with a fixed threshold on the calibrated probability, so today the
-    # symptom would surface as the composite probability collapsing instead.)
-    # Keep this list in sync with
-    # caem.verification.cal_prob_composite.COMPOSITE_SIGNALS.
+    # the composite degenerate to a low-feature logistic regression.
+    # (Historical symptom under the v2 conformal architecture: the
+    # downstream conformal gate then produced tau_store=1.0 / store_n=0;
+    # Phase 1c replaced that gate with a fixed threshold, so today the
+    # symptom would surface as the composite probability collapsing
+    # instead.) Phase 1d (2026-05-09) dropped h_norm from the composite —
+    # it remained in the per-sample JSONL schema for back-compat with
+    # archived eval readers but is not consumed by the fit. Keep this
+    # list in sync with caem.verification.cal_prob_composite.COMPOSITE_SIGNALS.
     REQUIRED_SIGNAL_KEYS = (
         "u_token",
         "u_dropout",
         "u_internal",
         "s_avg",
-        "h_norm",
         "p_entail",
         "p_ground_max",
         "p_ground_mean",

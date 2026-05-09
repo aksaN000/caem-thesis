@@ -199,7 +199,18 @@ class CAEMConfig:
     # below any decision threshold. Phase 1c (2026-05-09): the conformal
     # gate was replaced by a fixed-threshold gate; the calibration-stays-
     # valid contract is now satisfied by per-cycle composite refit.
+    # Phase 1d (2026-05-09): h_norm dropped from COMPOSITE_SIGNALS so the
+    # 9-signal composite no longer ingests the sentinel column.
     disable_h_norm: bool = True
+
+    # Phase 1d (2026-05-09 21:30 UTC): p_contra is structurally 0.0 under
+    # MiniCheck (the default backend) and has no decision-tree consumer
+    # since the contradiction-veto branch was removed 2026-04-22. The
+    # signal stays on UnifiedVerifierOutput as a schema field for
+    # back-compat, but the verifier short-circuits the _score_p_contra
+    # call when this flag is True. Set to False to restore the legacy
+    # roberta-nli ensemble path for an ablation reading.
+    disable_p_contra: bool = True
 
     # NOTE (2026-04 refactor): the legacy u_hat post-generation escalation
     # gate (4 learnable weights + accept threshold) was removed when the

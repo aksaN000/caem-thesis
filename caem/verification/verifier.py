@@ -905,9 +905,16 @@ class UnifiedVerifier:
         _per_stage_ms["p_ground_nli"] = (_t.perf_counter() - _ts) * 1000.0
 
         _ts = _t.perf_counter()
-        # p_contra kept on full answer — contradiction detection is more
-        # sensitive to context and rarely fires under MiniCheck anyway.
-        p_contra = self._score_p_contra(top_passages, answer)
+        # Phase 1d (2026-05-09): p_contra retired. MiniCheck (the default
+        # backend) returns 0.0 by construction and the contradiction-veto
+        # branch was removed 2026-04-22, so the signal had no consumer
+        # under the shipped configuration. The schema field is preserved
+        # at 0.0 for back-compat. cfg.disable_p_contra=False restores the
+        # legacy roberta-nli ensemble path for an ablation reading.
+        if getattr(self.config, "disable_p_contra", True):
+            p_contra = 0.0
+        else:
+            p_contra = self._score_p_contra(top_passages, answer)
         _per_stage_ms["p_contra"] = (_t.perf_counter() - _ts) * 1000.0
 
         _ts = _t.perf_counter()
