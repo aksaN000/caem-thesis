@@ -150,10 +150,12 @@ def test_unified_verifier_output_carries_alias_overlap():
     assert vout2.alias_overlap == 0.83
 
 
-def test_composite_signals_includes_alias_overlap():
+def test_composite_signals_excludes_alias_overlap():
+    """Phase 1c (2026-05-09): alias_overlap is computed and logged but NOT
+    fed to the composite. Pooled AUROC 0.518 on v2.1 cycle-0 — random."""
     from caem.verification.cal_prob_composite import COMPOSITE_SIGNALS
-    assert "alias_overlap" in COMPOSITE_SIGNALS, (
-        f"COMPOSITE_SIGNALS missing alias_overlap; got {COMPOSITE_SIGNALS}"
+    assert "alias_overlap" not in COMPOSITE_SIGNALS, (
+        f"COMPOSITE_SIGNALS unexpectedly contains alias_overlap; got {COMPOSITE_SIGNALS}"
     )
 
 

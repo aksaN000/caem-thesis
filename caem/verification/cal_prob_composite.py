@@ -63,10 +63,14 @@ logger = logging.getLogger(__name__)
 # Configuration: which signals enter the composite                             #
 # ============================================================================ #
 
-# 9 verifier signals plus q_a_relevance, all candidates for calibrated
-# composite. Dead signals (u_token, u_dropout) auto-handled via flat
-# isotonic curves; we include them so the composite is uniform across
-# signal sources and the fitter has full information.
+# Phase 1c (2026-05-09): the composite consumes 10 signals — 9 base verifier
+# signals plus the q_a_relevance surface heuristic. Two signals (alias_overlap,
+# entity_head_consistency) were dropped from the composite after the v2.1
+# cycle-0 AUROC diagnostic showed pooled AUROC 0.518 / 0.598 — essentially
+# random discrimination on the 5-benchmark panel. They are still computed by
+# UnifiedVerifier and recorded in eval JSONs for log-keeping; they simply do
+# not contribute to u_stored. Dead signals among the kept 10 (e.g. u_token on
+# benches where it saturates) are auto-handled by flat isotonic curves.
 COMPOSITE_SIGNALS: Tuple[str, ...] = (
     "u_token",
     "u_dropout",
@@ -78,34 +82,15 @@ COMPOSITE_SIGNALS: Tuple[str, ...] = (
     "p_ground_mean",
     "p_ground_atomic",
     "q_a_relevance",
-    "alias_overlap",  # v2 Fix 6 — Wikidata alias coverage of answer entities
-    "entity_head_consistency",  # v2 Fix 7 — M-chain head-noun agreement
 )
 
-# Per-benchmark signal exclusion mask — v2.1 (2026-05-09).
-# Some signals are structurally vestigial on bounded-label benchmarks
-# (where the model output is one of a fixed small set of labels rather
-# than free-form text). On those benches the signal value is essentially
-# constant or noise across all samples, but per-bench isotonic fitting
-# at small cal-fold can still pick up spurious correlations that don't
-# replicate on the eval-fold. Excluding those signals from the per-bench
-# composite for that bench specifically gives the fit cleaner data.
-#
-# FEVER: 3-way claim verification (supports/refutes/not enough info).
-#   Answers are LABELS, not entities — so:
-#     - alias_overlap is ~0 for every sample (no entities in answer text)
-#     - entity_head_consistency is ~flat across M=3 chains (chains land
-#       on the same label-word; head-noun extraction returns the label
-#       itself which trivially agrees)
-#   Both signals contribute zero discriminative information on FEVER but
-#   per-bench isotonic fits noise patterns at small cal-fold. Empirically
-#   under v2.1 cycle-0 these signals drove the FEVER STORE-DISCARD gap
-#   inversion observed at cal-fold 300/bench (gap=−0.114). Mask them.
-#
-# CSQA, TriviaQA, HotpotQA, NQ: open-text or entity-target — keep all 12.
-BENCHMARK_SIGNAL_MASKS: Dict[str, Tuple[str, ...]] = {
-    "fever": ("alias_overlap", "entity_head_consistency"),
-}
+# Per-benchmark signal exclusion mask. The FEVER mask in v2.1 existed only to
+# exclude alias_overlap and entity_head_consistency from the FEVER per-bench
+# composite (those signals were vestigial on bounded-label tasks). Phase 1c
+# drops both signals from the composite entirely, so no per-bench mask is
+# needed; the dict is preserved as a forward-extensibility hook for any future
+# bench-specific exclusion.
+BENCHMARK_SIGNAL_MASKS: Dict[str, Tuple[str, ...]] = {}
 
 # Minimum samples per signal to fit calibration; below this, signal is skipped.
 MIN_SAMPLES_PER_SIGNAL: int = 50
