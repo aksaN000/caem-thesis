@@ -318,7 +318,10 @@ class _NLIEnsemble:
         ).to(self.device)
         with torch.no_grad():
             logits = model(**enc).logits
-        return F.softmax(logits, dim=-1).detach().cpu().numpy()
+        # v2.1 (2026-05-09): cast to float32 before numpy(). bfloat16 tensors
+        # don't have a numpy dtype mapping → TypeError. RoBERTa-MNLI loaded in
+        # bf16 under the default CAEM precision config crashed step_5_5_headhead.
+        return F.softmax(logits, dim=-1).detach().float().cpu().numpy()
 
     def batch_entail_prob(
         self, pairs: Sequence[Tuple[str, str]],
