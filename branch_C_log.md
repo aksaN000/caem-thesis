@@ -4777,3 +4777,87 @@ exercised on the happy path).
 | `ad62525` | code | Pass 3 — atomic composite copy + defensive resume reload |
 | `4f71217` | doc | Pass 4 — stale 0.65 threshold values in docstrings |
 
+
+| `b84209a` | log | 4-pass audit summary entry |
+| `4075a0b` | code | min_u_stored_for_training 0.75 → 0.70 |
+
+
+## 2026-05-09 ~21:24 UTC — Phase 1d (drop h_norm + p_contra; 9-signal composite)
+
+### What shipped
+
+After the user-questioned-h_norm diagnostic at 21:09 UTC showed the cycle-0
+calibration-fold Pearson(h_norm, em) = 0.000 and boost_weight ≈ ±0.0001 on
+every per-benchmark slice (the signal had been runtime-disabled via
+cfg.disable_h_norm since 2026-04-27 and was therefore fitting a constant 0.5
+sentinel column), the user authorised retiring h_norm at the composite
+level and short-circuiting p_contra (structurally 0.0 under MiniCheck since
+2026-04-22) for cleanliness.
+
+* `caem/verification/cal_prob_composite.py`: COMPOSITE_SIGNALS 10 → 9 (drop
+  "h_norm").
+* `caem/config.py`: add `disable_p_contra: bool = True` default.
+* `caem/verification/verifier.py`: short-circuit `_score_p_contra` under the
+  new flag (write 0.0 to schema for back-compat).
+* `tests/test_calibration_batch_equivalence.py`: REQUIRED_SIGNAL_KEYS 10 → 9.
+* `run_phase1a.sh`: stale "n=3000/bench" banner → "FEVER 2000, TriviaQA 2000,
+  CSQA 700" (chunk sizes were already correct via train_chunk_size=None
+  override at scripts/run_experiment.py:916; only the cosmetic banner was
+  wrong).
+
+### Cycle-0 measurement under Phase 1d
+
+The 9-signal composite refit on the same cycle-0 cal-fold (n=1500) produced
+boost weights essentially identical to the pre-Phase-1d 10-signal fit, with
+only the always-zero h_norm row gone:
+
+| Signal | Phase 1c (10-sig) | Phase 1d (9-sig) |
+|---|---:|---:|
+| q_a_relevance | +0.5673 | +0.5672 |
+| u_internal    | +0.3550 | +0.3550 |
+| p_ground_max  | +0.2501 | +0.2501 |
+| p_ground_mean | +0.2251 | +0.2251 |
+| p_ground_atomic | +0.2251 | +0.2251 |
+| u_dropout | +0.1505 | +0.1504 |
+| s_avg | +0.1217 | +0.1218 |
+| p_entail | +0.1188 | +0.1189 |
+| u_token | +0.1143 | +0.1142 |
+| h_norm | −0.0000 | (retired) |
+
+Per-benchmark fits: FEVER, TriviaQA, CommonsenseQA each report 9 signals
+with no h_norm. Shrinkage prior α=0.6 unchanged.
+
+### Cost / wall-clock
+
+Halt → fix → resume cost: ~25 min of cycle-0 baseline FEVER eval lost from
+the 20:54 UTC restart. Composite refit + eval_rescored regen + audit took
+~6 seconds. Trajectory restarted at 21:24 UTC under PID 288487; cycle-0
+baseline FEVER eval running at trajectory speed (no GPU savings from
+removing h_norm because the K-sample pool was already short-circuited at
+runtime via disable_h_norm sentinel).
+
+### Code surface delta vs Phase 1c
+
+* Diff: ~43 insertions, ~22 deletions across 5 files (commit `ed27236`).
+* Trajectory state: tmux plan_a, restart at 21:24:02 UTC, healthy at 22:25
+  UTC at 1h02m elapsed under the 9-signal composite, producing valid
+  Pipeline decisions in u_stored ranges 0.35–0.43 typical for Tier-3
+  ABSTAIN at cycle-0 cold-start.
+
+### Thesis methodology (Chapter 4) follow-up
+
+Three commits land the methodology updates that align Chapter 4 with the
+shipped Phase 1c+1d code:
+* `cab11de` — drop h_norm row from tab:verifier-signals; rewrite the
+  retirement paragraph; align cor:tier1-floor and thm:purity with the
+  calibration-consistent (not conformal) framing.
+* `58fff85` — composite per-bench + shrinkage section; SIL with LoRA +
+  multi-probe + pool reweighting; decision tree fixed cut-points.
+* `cac2447` — router safety floor 0.60 → 0.38 alignment.
+
+### Commits past tag `pre-phase1c-2026-05-09`
+
+| `ed27236` | code | Phase 1d: drop h_norm + p_contra; 9-signal composite |
+| `cab11de` | doc  | Ch4 verifier table + theorem alignment |
+| `58fff85` | doc  | Ch4 composite per-bench + SIL LoRA + decision tree |
+| `cac2447` | doc  | Ch4 router safety floor 0.60 → 0.38 |
