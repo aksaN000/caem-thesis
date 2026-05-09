@@ -4668,3 +4668,112 @@ correctness.
 * `333a020` — Phase 1c log entry (this file's previous entry)
 * (this entry) — Resume runbook + script-cleanup pass
 
+
+## 2026-05-09 ~20:15 UTC — Phase 1c 4-pass audit complete
+
+Per user directive: read every line of every .py + .sh + relevant doc, four
+times, looking for inconsistencies and incorrectness. Trajectory continued
+running in tmux plan_a throughout the audit (no halt; doc-only and
+defensive-fix edits don't affect the live process).
+
+### Pass 1 — Phase 1c integration verification (delegated to Explore)
+Read every .py and .sh file. For each of the seven Phase 1c changes (P1, P2,
+P3a, P0', P3b, Option 4, resume contract), verified the implementation site
++ every wiring/call-site. **Result: ✅ all integrations correct, no missing
+applications.** Minor stale-comment refs flagged for Pass 2.
+
+### Pass 2 — stale references catalogue (delegated to Explore)
+Found **zero active-code stale references** (no remaining imports, calls, or
+config-field reads of removed code). Catalogued **33 docstring/comment sites**
+that misleadingly described removed artefacts as if active. Bulk-cleanup
+pass rewrote 29 sites across 15 files (commit `390395d`):
+
+* `caem/config.py` (4), `pipeline_batch.py` (1), `diagnostic/coverage.py` (1),
+  `benchmark_splits.py` (1), `verifier.py` (1)
+* `training/self_improvement.py` (1), `training/pool_reweighting.py` (1)
+* `scripts/run_experiment.py` (5 — including 3 CLI help-text strings)
+* `scripts/run_calibration.py` (3), `fit_composite_calibration.py` (1),
+  `theorem_receipts.py` (1), `phase4_artifacts.py` (1)
+* `tests/test_calibration_batch_equivalence.py` (1)
+* `README.md` (2 — Phase 1c update notice + Stage 6 fix),
+  `RESUME_GUIDE.md` (5 — Phase 1c resume-contract section)
+
+**Deferred to post-trajectory thesis rewrite**: Chapter 5 §5.X conformal-gate
+description (lines ~195–205) — flagged for the Phase 2.1 rewrite once the
+trajectory closes. Pre-trajectory edits would corrupt thesis-result
+reproducibility.
+
+### Pass 3 — runtime behaviour trace (delegated to Explore)
+Traced five end-to-end paths (per-query pipeline, cycle close, resume from
+any cycle, multi-cycle drift, pool reweighting cross-flow). Found **zero**
+bugs in the happy path. Two defensive issues identified and fixed in commit
+`ad62525`:
+
+1. **Atomic canonical composite copy**.
+   `run_per_cycle_composite_refit` was using `shutil.copy(out_composite,
+   canonical_composite)`, which is NOT atomic. A crash mid-copy could leave
+   the canonical JSON truncated, silently degrading every downstream
+   verifier load (mode falls back to weighted_sum on parse failure).
+   Switched to `shutil.copy → os.replace(tmp, canonical)` — POSIX-atomic on
+   the same filesystem.
+
+2. **Defensive composite reload at resume**.
+   The resume init path (line ~1212–1476) restored memory + deferred buffer
+   + temperature + retention probes, but did NOT explicitly reload the
+   composite. In the current code this is safe because Step 2.4 of the
+   resumed cycle reloads before retroverify. But a future refactor that
+   inserted composite-reading code between resume completion and Step 2.4
+   would silently read through a stale composite. Added explicit
+   `pipeline.verifier.reload_calibration(canonical_path)` at the end of
+   resume init, guarded by `ns.resume_from_cycle > 0`. No-op on fresh run;
+   defensive on resume.
+
+### Pass 4 — final sweep with fresh eyes (delegated to Explore)
+Looked for patterns the prior three passes missed because they were
+focused. Found **two stale-value bugs** in user-facing docstrings (commit
+`4f71217`):
+
+1. `caem/verification/verifier.py:61–71` — module docstring "Decision tree
+   outcomes" table still claimed `STORE: û_stored ≥ 0.65` and
+   `DEFERRED: 0.45 ≤ û_stored < 0.65`. Updated to `0.60` and added a Phase
+   1c Option 4 note explaining the cliff.
+2. `caem/config.py:894–898` — deferred-buffer comment block claimed
+   promotion at `u_stored >= 0.65`. Updated to `0.60`.
+
+Pass 4 also flagged a soft test-coverage gap: `tests/test_verifier.py::TestDecide`
+fixture hardcodes `store_threshold=0.65` to test boundary behaviour; this is
+intentional (fixture-local override testing the threshold mechanism), but
+won't catch future config-default drift. Acceptable for now; flagged for the
+Phase 1c future-test pass when the trajectory closes.
+
+### Final confidence assessment
+
+| Dimension | Confidence | Why |
+|---|---:|---|
+| Phase 1c integration is complete | **97%** | All six changes wired everywhere; zero active-code stale refs; two doc fixes from Pass 4 close residual drift |
+| Cycle-boundary atomicity | **97%** | Atomic composite copy verified (Pass 3 fix); memory+deferred each saved as separate top-level files (resume detection requires all three) |
+| Resume from any cycle | **95%** | Resume detection conservative (3-artefact check); defensive reload at resume init (Pass 3 fix); Pass 4 confirms no edge case in cycle-0 bootstrap |
+| Documentation accuracy | **93%** | Stale 0.65 docstrings now fixed; remaining historical refs in branch_C_log.md and Chapter 5 are explicitly historical/deferred |
+| Test coverage of Phase 1c | **80%** | Core P1/P2/P3a/P3b paths covered; integration test for end-to-end Phase 1c defaults is missing (soft gap, not blocking) |
+
+**Overall**: Phase 1c is integrated, consistent, and runtime-correct. The
+trajectory in tmux plan_a is unaffected by any audit-pass edit (all edits
+were either docstring/comment-only or defensive guards on paths that aren't
+exercised on the happy path).
+
+### Audit chain commits (past tag `pre-phase1c-2026-05-09`)
+
+| Commit | Pass | Scope |
+|---|---|---|
+| `09c4ad5` | code | P1 + P2 (drop dead signals + FEVER NEI fix) |
+| `302545d` | code | P3a (shrinkage prior) |
+| `aa8d8f6` | code | P0' core (replace conformal with fixed gate) |
+| `818c6c5` | code | P0' deletes (9 obsolete scripts + test_conformal_gate) |
+| `8eb1048` | code | P3b + Option 4 (share cap + τ=0.60) |
+| `14398c7` | code | runbook fix (drop legacy threshold read) |
+| `333a020` | log | Phase 1c launch entry |
+| `f45984a` | code | resume contract + script consistency |
+| `390395d` | doc | Pass 2 — 29 stale-comment edits |
+| `ad62525` | code | Pass 3 — atomic composite copy + defensive resume reload |
+| `4f71217` | doc | Pass 4 — stale 0.65 threshold values in docstrings |
+
