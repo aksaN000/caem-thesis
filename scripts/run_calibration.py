@@ -536,8 +536,10 @@ def collect_calibration_data(
 
     # Per-sample record accumulator for threshold-fitter consumption.
     # calibrate_pipeline() passes this list back to the caller, which writes
-    # it out as JSONL so scripts/calibrate_thresholds.py can read u_stored
-    # values from the calibration fold (disjoint from the eval fold).
+    # it out as JSONL. (Historical: scripts/calibrate_thresholds.py read
+    # u_stored values from this JSONL; Phase 1c replaced that path with the
+    # fixed-threshold gate sourced from CAEMConfig.) The JSONL is still the
+    # input artefact for scripts/fit_composite_calibration.py.
     per_sample_records: List[Dict[str, Any]] = []
 
     # Wrap the serial pipeline once for the whole collection. BatchPipeline
@@ -571,7 +573,9 @@ def collect_calibration_data(
         # disjointness guarantee requires they never mix with eval.
         vout_for_dump = getattr(result, "verifier_output", None)
         # Dump ALL 10 verifier primary signals required by
-        # scripts/fit_composite_calibration.py + fit_conformal_gate.py.
+        # scripts/fit_composite_calibration.py. (Historical: an additional
+        # fit_conformal_gate.py also consumed these dumps; Phase 1c replaced
+        # the conformal gate with a fixed threshold from CAEMConfig.)
         # cal_prob_composite.COMPOSITE_SIGNALS lists exactly:
         #   u_token, u_dropout, u_internal, s_avg, h_norm, p_entail,
         #   p_ground_max, p_ground_mean, p_ground_atomic, q_a_relevance.
@@ -708,9 +712,12 @@ def collect_calibration_data(
         f"{len(signal_matrix)} vs {len(signal_labels)}"
     )
 
-    # Emit per-sample records to JSONL for the threshold-fitting script to
-    # consume. Structured as a dict compatible with the eval-harness format
-    # (meta + samples) so scripts/calibrate_thresholds.py reads one shape.
+    # Emit per-sample records to JSONL for downstream calibration scripts
+    # (scripts/fit_composite_calibration.py) to consume. Structured as a
+    # dict compatible with the eval-harness format (meta + samples).
+    # (Historical: scripts/calibrate_thresholds.py read this same shape;
+    # Phase 1c replaced fitted thresholds with the fixed gate from
+    # CAEMConfig.)
     if record_jsonl_path is not None:
         payload = {
             "meta": {

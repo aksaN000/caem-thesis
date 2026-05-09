@@ -23,8 +23,8 @@ because it leaks eval-fold data into the calibration):
 Phase 1a research mode: invoked once at Step 7.0.2 immediately after the
 Cycle-0 calibration fold is written. The fitted JSON then drives the
 verifier composite for the entire Step 7 main self-improvement loop;
-``recalibrate_thresholds_at_cycle.py`` may re-fit at each cycle boundary
-on the cycle's own labeled fold.
+``run_per_cycle_composite_refit`` (in scripts/run_experiment.py) re-fits
+at each cycle boundary on the cycle's own labeled fold.
 """
 from __future__ import annotations
 

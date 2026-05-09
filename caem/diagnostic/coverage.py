@@ -6,10 +6,12 @@ v2 Fix 5 — per-cycle coverage feedback diagnostic + halt triggers.
 Writes a small JSON summary at the end of every SIL cycle so the
 operator (and downstream report generators) can detect:
 
-  * **Zero-admission collapse**: a training benchmark whose per-bench
-    conformal gate has been admitting zero verified episodes for 2+
-    consecutive cycles. Triggers an auto-relax of α_b (or escalates
-    to a manual halt if relaxation has already maxed out).
+  * **Zero-admission collapse**: a training benchmark whose
+    fixed-threshold gate (Phase 1c, on the calibrated composite
+    probability ``u_stored``) has been admitting zero verified
+    episodes for 2+ consecutive cycles. Triggers an auto-relax of
+    ``store_threshold`` (or escalates to a manual halt if relaxation
+    has already maxed out).
   * **Pool composition drift**: Shannon entropy over the per-bench
     proportions in the SIL training pool. Flat pool (all FEVER) →
     low entropy; uniform pool (every benchmark equal) → log(N_b).

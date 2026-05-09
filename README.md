@@ -27,6 +27,12 @@ Implementation complete. Cycle 0 calibration locked. **`step_7_main` 10-cycle ma
 
 ---
 
+## Phase 1c update (2026-05-09)
+
+The conformal split-CP storage gate was replaced by a fixed-threshold gate on the calibrated composite probability. `CAEMConfig.store_threshold` (default `0.60`), `CAEMConfig.defer_threshold`, and `CAEMConfig.min_u_stored_for_training` are the active thresholds; the per-cycle composite refit (`run_per_cycle_composite_refit` in `scripts/run_experiment.py`) keeps `u_stored` calibrated under SIL-induced drift, so a fixed threshold on the calibrated probability stays meaningful across cycles. The conformal scripts (`fit_conformal_gate.py`, `recalibrate_conformal_at_cycle.py`, `calibrate_thresholds.py`) and the `conformal_gate.json` artefact are no longer in the active runner path. Other Phase 1c changes shipped together: `alias_overlap` and `entity_head_consistency` were dropped from the composite (P1); FEVER NEI directional grounding was patched (P2); a shrinkage prior toward the pooled fit was added to the per-bench composite (P3a); a bench-agnostic pool-share cap was introduced (P3b); resume detection switched to per-cycle artefact presence. Sections of this README written before Phase 1c may still describe the conformal gate as if active; treat the bullet above as the source of truth for storage-decision behaviour.
+
+---
+
 ## What CAEM Is
 
 CAEM is an architectural hallucination-reduction system for open-domain question answering, built on **Qwen-2.5-3B-Instruct** (3.1B params, decoder-only, bf16). The architecture operates per-query through an 8-stage pipeline and per-cycle through a cycle-boundary update loop. Five components carry the value proposition:
@@ -76,7 +82,8 @@ Stage 3   three-tier dispatch
             └── Tier 3: low confidence → retrieval-augmented generation
 Stage 4   generation (Tier 2 / Tier 3 only)
 Stage 5   ten-signal verifier ensemble (parallel signal computation)
-Stage 6   calibrated-probability composite → conformal split-CP gate
+Stage 6   calibrated-probability composite → fixed-threshold gate on the
+            calibrated probability (Phase 1c; see Phase 1c update above)
             → STORE / DEFER / ABSTAIN / DISCARD
             (confabulation early-exit fires at query time only;
              retroverify uses is_query_time=False to skip it)

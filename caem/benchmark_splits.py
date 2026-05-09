@@ -85,11 +85,11 @@ DEFAULT_CALIBRATION_SIZE: int = 500  # v2.1 reverted to 500 on 2026-05-09 after 
                                      # gap inverted; poisoning 35-54%). The cal-fold
                                      # reduction tradeoff (label-efficient story) was
                                      # under-powered for stable per-bench composite +
-                                     # conformal fits. v1 used 500/bench × 3 = 1500
-                                     # pooled and held 95%+ cal precision; v2.1 keeps
-                                     # 500/bench × 3 = 1500 total (same labeling cost
-                                     # as v1) but fits per-bench. See branch_C_log.md
-                                     # 2026-05-09 entry.
+                                     # per-cycle composite refit. v1 used 500/bench × 3
+                                     # = 1500 pooled and held 95%+ cal precision; v2.1
+                                     # keeps 500/bench × 3 = 1500 total (same labeling
+                                     # cost as v1) but fits per-bench. See
+                                     # branch_C_log.md 2026-05-09 entry.
 DEFAULT_TRAIN_CHUNK_SIZE: int = 1000  # v2 default; see PER_BENCHMARK override below.
 DEFAULT_N_CYCLES: int = 10
 DEFAULT_EVAL_SIZE: int = 500
