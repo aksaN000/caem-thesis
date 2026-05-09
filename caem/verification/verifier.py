@@ -550,11 +550,17 @@ class UnifiedVerifier:
         self._composite_mode_resolved = "weighted_sum"
         self._init_cal_prob_composite()
 
-        # Branch C 2026-04-25 (Phase 2.4): conformal-calibrated storage gate.
-        # Loaded from JSON if present; else _decide() uses the legacy fixed
-        # thresholds (cfg.store_threshold, cfg.defer_threshold).
-        self._conformal_gate = None
-        self._init_conformal_gate()
+        # Phase 1c (2026-05-09): the storage gate is a fixed threshold on
+        # the calibrated composite probability. The conformal gate that was
+        # added in Phase 2.4 (split-CP, marginal coverage 1−α) was removed
+        # after the v2.1 cycle-0 diagnostic showed the cal/eval distribution
+        # shift broke its exchangeability assumption (TriviaQA τ→1 collapse,
+        # CSQA cal-fold-precision 96% → eval-fold near-random). Decisions
+        # come directly from cfg.store_threshold / cfg.defer_threshold; the
+        # cycle-boundary CalProbComposite refit (per-bench, with shrinkage
+        # prior) keeps u_stored = P(em=1 | signals) calibrated under model
+        # drift, so a fixed τ on the calibrated probability stays meaningful
+        # cycle-to-cycle.
 
     def _init_cal_prob_composite(self) -> None:
         """Resolve the composite mode and load CalProbComposite if applicable.
@@ -606,86 +612,42 @@ class UnifiedVerifier:
             self._cal_prob_composite = None
             self._composite_mode_resolved = "weighted_sum"
 
-    def _init_conformal_gate(self) -> None:
-        """Load the conformal storage gate from JSON if present.
-
-        Path is read from ``CAEMConfig.conformal_gate_path`` (default
-        ``outputs/cycle_0/conformal_gate.json``). Bootstrap: at Cycle 0
-        the JSON is absent; ``_decide()`` falls back to the legacy fixed
-        thresholds.
-        """
-        path = getattr(
-            self.config, "conformal_gate_path",
-            "outputs/cycle_0/conformal_gate.json",
-        )
-        try:
-            from caem.verification.conformal_gate import ConformalStorageGate
-            import os as _os
-            if _os.path.isfile(path):
-                self._conformal_gate = ConformalStorageGate.load(path)
-                logger.info(
-                    "_decide: conformal gate loaded from %s "
-                    "(τ_store=%.3f τ_defer=%.3f)",
-                    path,
-                    self._conformal_gate.tau_store,
-                    self._conformal_gate.tau_defer,
-                )
-            else:
-                logger.info(
-                    "_decide: conformal gate JSON absent at %s; "
-                    "using legacy fixed thresholds",
-                    path,
-                )
-        except Exception as exc:
-            logger.warning(
-                "_decide: conformal gate load failed (%s); using legacy thresholds",
-                exc,
-            )
-            self._conformal_gate = None
-
-    def reload_calibration(
-        self,
-        composite_path: str,
-        gate_path: str,
-    ) -> None:
-        """Rebind the cal-prob composite + conformal gate paths and re-init.
+    def reload_calibration(self, composite_path: str) -> None:
+        """Rebind the cal-prob composite path and re-init.
 
         Used at cycle-boundary recalibration in run_experiment.py: after
-        scripts/recalibrate_conformal_at_cycle.py writes a fresh
-        ``cycle_{N}/composite_calibration.json`` and ``cycle_{N}/conformal_gate.json``
-        from the post-SIL calibration fold, the live verifier needs to swap
-        from the Cycle-0 JSONs (loaded at process start) to the cycle-N JSONs
-        BEFORE retroactive re-verification reads through it. Without this
-        reload the retroverify pass would still score memory entries through
-        stale Cycle-0 isotonic curves and over-prune EM-correct cold-seed
-        entries -- the bug fixed on 2026-04-27.
+        the cycle's ``composite_calibration.json`` is written from the
+        post-SIL calibration fold, the live verifier needs to swap from
+        the previous cycle's JSON to the current cycle's BEFORE retroactive
+        re-verification reads through it. Without this reload the retroverify
+        pass would still score memory entries through stale isotonic curves
+        and over-prune EM-correct cold-seed entries -- the bug fixed on
+        2026-04-27.
+
+        Phase 1c (2026-05-09): the storage gate is no longer JSON-loaded —
+        it operates on cfg.store_threshold / cfg.defer_threshold directly.
+        Cycle-boundary reload only rebinds the composite, not the gate.
 
         The underlying judges (MiniCheck, BGE reranker, SBERT, base
-        generator) are NOT touched -- only the cal-prob composite and the
-        conformal gate are rebound. This keeps the reload cost bounded to
-        a single JSON read per object (~ms) and avoids the multi-second
-        cost of reconstructing the verifier-judge models.
+        generator) are NOT touched -- only the cal-prob composite is
+        rebound. This keeps the reload cost bounded to a single JSON read
+        (~ms) and avoids the multi-second cost of reconstructing the
+        verifier-judge models.
 
         Parameters
         ----------
         composite_path : str
             New CalProbComposite JSON path (e.g.,
             ``outputs/full_run/cycle_3/composite_calibration.json``).
-        gate_path : str
-            New ConformalStorageGate JSON path (matching cycle).
         """
-        # Update the config so subsequent _init_*() calls read the new paths.
+        # Update the config so subsequent _init_*() calls read the new path.
         self.config.composite_calibration_path = composite_path
-        self.config.conformal_gate_path = gate_path
-        # Drop the stale references explicitly so a JSON-load failure does
+        # Drop the stale reference explicitly so a JSON-load failure does
         # NOT leave the verifier scoring through the previous cycle's data.
         self._cal_prob_composite = None
-        self._conformal_gate = None
         self._init_cal_prob_composite()
-        self._init_conformal_gate()
         logger.info(
-            "Verifier calibration reloaded: composite=%s | gate=%s",
-            composite_path, gate_path,
+            "Verifier calibration reloaded: composite=%s", composite_path,
         )
 
     def _get_directional_scorer(self):
@@ -1066,7 +1028,6 @@ class UnifiedVerifier:
             u_stored=u_stored,
             p_contra=p_contra,
             p_ground_max=p_ground_max,
-            source_benchmark=source_benchmark,  # v2 Fix 1 — per-bench gate dispatch
         )
 
         logger.debug(
@@ -2721,7 +2682,6 @@ class UnifiedVerifier:
         u_stored: float,
         p_contra: float,
         p_ground_max: float,
-        source_benchmark: Optional[str] = None,
     ) -> Tuple[str, bool]:
         """Apply the Branch C decision tree. Returns (decision, abstained).
 
@@ -2740,22 +2700,19 @@ class UnifiedVerifier:
         cfg = self.config
         abstain_pg = cfg.abstain_pground_ceiling
 
-        # Branch C 2026-04-25 (Phase 2.4): conformal storage gate.
-        # When the gate JSON is loaded, use its calibrated thresholds.
-        # Otherwise fall back to the legacy fixed thresholds.
-        if self._conformal_gate is not None:
-            return self._conformal_gate.decide(
-                u_stored, p_ground_max, abstain_pg,
-                source_benchmark=source_benchmark,  # v2 Fix 1 — per-bench dispatch
-            )
-
-        store_thr = cfg.store_threshold
-        defer_thr = cfg.defer_threshold
-
-        if u_stored >= store_thr:
+        # Phase 1c (2026-05-09): fixed-threshold storage gate on the
+        # calibrated composite probability. cfg.store_threshold and
+        # cfg.defer_threshold are the precision targets ("store iff
+        # predicted ≥ store_threshold likely correct"); the per-cycle
+        # CalProbComposite refit absorbs SIL-induced model drift, so the
+        # threshold meaning stays stable across cycles. The conformal
+        # gate that previously could override these (Phase 2.4 split-CP)
+        # was removed after the v2.1 cycle-0 diagnostic showed cal/eval
+        # exchangeability violations broke its marginal-coverage guarantee.
+        if u_stored >= cfg.store_threshold:
             return "STORE", False
 
-        if u_stored >= defer_thr:
+        if u_stored >= cfg.defer_threshold:
             return "DEFERRED", False
 
         if p_ground_max < abstain_pg:

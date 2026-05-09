@@ -83,7 +83,6 @@ def _build_pipeline(
     device: str,
     checkpoint: Optional[Path] = None,
     composite_calibration: Optional[Path] = None,
-    conformal_gate: Optional[Path] = None,
 ):
     """Construct the full CAEM pipeline.
 
@@ -98,10 +97,13 @@ def _build_pipeline(
       (e.g. ``outputs/full_run/cycle_3/composite_calibration.json``).
       Overrides ``config.composite_calibration_path`` so the verifier reads
       this cycle's isotonic curves and boost weights instead of cycle-0's.
-    - ``conformal_gate``: per-cycle conformal_gate.json with the
-      EMA-smoothed τ_store and τ_defer.
 
-    All three should usually be passed together (same cycle). Without
+    Phase 1c (2026-05-09): the conformal storage gate was removed; the
+    storage decision now uses fixed thresholds from CAEMConfig
+    (store_threshold, defer_threshold) on the calibrated composite
+    probability. No per-cycle gate JSON to swap in.
+
+    Both should usually be passed together (same cycle). Without
     ``checkpoint`` the demo runs base Qwen on Tier 2/3 generations, which
     only demonstrates the architecture's framing layer (memory hits, tier
     routing, four-outcome decision tree) but not the SIL fine-tune
@@ -125,9 +127,6 @@ def _build_pipeline(
     if composite_calibration is not None:
         config.composite_calibration_path = str(composite_calibration)
         logger.info("Using composite calibration: %s", composite_calibration)
-    if conformal_gate is not None:
-        config.conformal_gate_path = str(conformal_gate)
-        logger.info("Using conformal gate: %s", conformal_gate)
 
     t0 = time.perf_counter()
     gen_model, tokenizer = load_base_generator(
@@ -551,10 +550,6 @@ def main() -> int:
                    help="Path to per-cycle composite_calibration.json. "
                         "Overrides config.composite_calibration_path. "
                         "Pass alongside --checkpoint for matching cycle.")
-    p.add_argument("--conformal_gate", type=Path, default=None,
-                   help="Path to per-cycle conformal_gate.json with "
-                        "EMA-smoothed τ_store / τ_defer. Pass alongside "
-                        "--checkpoint and --composite_calibration.")
     p.add_argument("--device", type=str, default="cuda")
     p.add_argument("--host", type=str, default="0.0.0.0")
     p.add_argument("--port", type=int, default=8000)
@@ -573,7 +568,6 @@ def main() -> int:
         device=ns.device,
         checkpoint=ns.checkpoint,
         composite_calibration=ns.composite_calibration,
-        conformal_gate=ns.conformal_gate,
     )
     _set_pipeline(pipeline, memory_store, ns.cadence)
 
