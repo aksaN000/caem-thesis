@@ -370,6 +370,7 @@ class CalProbComposite:
         signals: Sequence[str] = COMPOSITE_SIGNALS,
         fit_boost: bool = True,
         boost_C: float = 0.01,
+        shrinkage_alpha: float = 0.6,
     ) -> "CalProbComposite":
         """v2 Fix 2 — fit one composite per benchmark + a pooled global fallback.
 
@@ -392,6 +393,18 @@ class CalProbComposite:
         signals, fit_boost, boost_C
             Same semantics as :meth:`fit`. boost_C default 0.01 matches the
             cycle-0 sweep selection of the v1 trajectory.
+        shrinkage_alpha
+            Phase 1c (2026-05-09) — shrinkage prior toward the pooled fit.
+            After per-bench isotonic curves are fitted, each child's knot_y
+            values are blended with the pooled curve evaluated at the same
+            knot_x: ``knot_y_eff = α · knot_y_per_bench + (1-α) · pooled(knot_x)``.
+            ``α=1.0`` reproduces the v2 behaviour (pure per-bench, prone to
+            overfit on small per-bench cal-folds); ``α=0.0`` collapses to the
+            pooled fit; the default ``α=0.6`` keeps a moderate per-bench
+            adaptation while regularising toward pooled. Motivated by the
+            v2.1 cycle-0 finding that per-bench overfits on weak-signal
+            benches (TruthfulQA u_stored AUROC 0.645→0.592, StrategyQA
+            0.573→0.512). James-Stein style shrinkage.
         """
         # 1. Pooled global fallback fit
         pooled: List[Dict[str, Any]] = []
@@ -431,10 +444,54 @@ class CalProbComposite:
                 mask_note,
             )
 
+        # 3. Phase 1c shrinkage: blend per-bench knot_y with pooled curves.
+        self._apply_shrinkage(shrinkage_alpha)
+
         self.metadata["per_benchmark_count"] = len(self.per_benchmark)
         self.metadata["per_benchmark_names"] = sorted(self.per_benchmark.keys())
+        self.metadata["shrinkage_alpha"] = float(shrinkage_alpha)
         self.metadata["schema_version"] = self.SCHEMA_VERSION_V2
         return self
+
+    def _apply_shrinkage(self, alpha: float) -> None:
+        """Blend each per-bench isotonic curve with the pooled (parent) curve.
+
+        For every ``sig`` present in BOTH the parent and a child:
+            knot_y_eff[i] = α · child.knot_y[i] + (1-α) · parent.predict(child.knot_x[i])
+
+        ``α=1`` → no change. ``α=0`` → child curve replaced by pooled curve
+        sampled at the child's knot positions. ``α∈(0,1)`` → linear blend.
+
+        Signals present in only one of (parent, child) are left untouched —
+        no pooled prior to shrink toward (parent-only) or no per-bench curve
+        to keep (child-only, masked).
+        """
+        a = float(alpha)
+        if a < 0.0 or a > 1.0:
+            raise ValueError(
+                f"_apply_shrinkage: alpha={a} outside [0, 1]; refusing to apply"
+            )
+        if not self.per_benchmark or not self.calibrations:
+            return
+        if a >= 1.0 - 1e-9:
+            return  # Pure per-bench, identity to v2 behaviour.
+        for bm, child in self.per_benchmark.items():
+            for sig, child_cal in child.calibrations.items():
+                parent_cal = self.calibrations.get(sig)
+                if parent_cal is None:
+                    continue
+                blended_knot_y: List[float] = []
+                for x_pb, y_pb in zip(child_cal.knot_x, child_cal.knot_y):
+                    y_pooled = parent_cal.predict(float(x_pb))
+                    y_blend = a * float(y_pb) + (1.0 - a) * float(y_pooled)
+                    y_blend = min(1 - PROB_CLIP_EPS, max(PROB_CLIP_EPS, y_blend))
+                    blended_knot_y.append(float(y_blend))
+                child_cal.knot_y = blended_knot_y
+            child.metadata["shrinkage_alpha"] = a
+        logger.info(
+            "cal_prob_composite._apply_shrinkage: blended %d per-bench composites with pooled at α=%.2f",
+            len(self.per_benchmark), a,
+        )
 
     # ------------------------------------------------------------------ #
     # Prediction                                                           #

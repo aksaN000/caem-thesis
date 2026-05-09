@@ -106,6 +106,19 @@ def main() -> int:
              "global + per-bench children). --no-fit_per_benchmark "
              "reverts to the v1 pooled-only fit.",
     )
+    p.add_argument(
+        "--shrinkage_alpha",
+        type=float,
+        default=0.6,
+        help="Phase 1c — shrinkage prior toward pooled fit when fitting "
+             "per-benchmark composites. Each child's isotonic curve is "
+             "blended with the pooled curve evaluated at the same knots: "
+             "knot_y_eff = α·child_y + (1-α)·pooled_y. α=1 reproduces v2 "
+             "(pure per-bench, prone to overfit on n=500 cal-folds); α=0 "
+             "collapses to pooled. Default 0.6 keeps moderate per-bench "
+             "adaptation while regularising weak-signal benches "
+             "(TruthfulQA / StrategyQA / CSQA).",
+    )
     args = p.parse_args()
 
     paths: List[Path] = []
@@ -177,6 +190,7 @@ def main() -> int:
             per_bench_input,
             fit_boost=args.cherian_boost,
             boost_C=args.boost_C,
+            shrinkage_alpha=args.shrinkage_alpha,
         )
     else:
         calib = CalProbComposite().fit(

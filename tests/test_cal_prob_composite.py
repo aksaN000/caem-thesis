@@ -236,6 +236,99 @@ def test_load_actual_v1_artifact_if_present():
     assert 0.0 < p_legacy < 1.0
 
 
+def test_shrinkage_alpha_blends_per_bench_with_pooled():
+    """Phase 1c — shrinkage prior toward pooled fit.
+
+    The per-bench predict at α=0.6 must lie between α=1.0 (pure per-bench)
+    and α=0.0 (pure pooled) on a synthetic 3-bench fold where one bench's
+    signal direction differs from the pooled trend.
+    """
+    from caem.verification.cal_prob_composite import CalProbComposite
+    samples_by_bench = {
+        "benchA": _make_synthetic_samples(300, "high_p_ground_implies_correct", seed=11),
+        "benchB": _make_synthetic_samples(300, "low_p_ground_implies_correct", seed=12),
+        "benchC": _make_synthetic_samples(300, "high_p_ground_implies_correct", seed=13),
+    }
+
+    c_pure = CalProbComposite()
+    c_pure.fit_per_benchmark(samples_by_bench, fit_boost=False, shrinkage_alpha=1.0)
+
+    c_shrunk = CalProbComposite()
+    c_shrunk.fit_per_benchmark(samples_by_bench, fit_boost=False, shrinkage_alpha=0.6)
+
+    c_pooled = CalProbComposite()
+    c_pooled.fit_per_benchmark(samples_by_bench, fit_boost=False, shrinkage_alpha=0.0)
+
+    # Metadata records alpha for downstream tooling
+    assert c_pure.metadata["shrinkage_alpha"] == 1.0
+    assert c_shrunk.metadata["shrinkage_alpha"] == 0.6
+    assert c_pooled.metadata["shrinkage_alpha"] == 0.0
+
+    # Predict at a probe point on each bench; the shrunk prediction must
+    # fall (within numerical slack) between the two extremes.
+    probe = {
+        "u_token": 0.5, "u_dropout": 0.5, "u_internal": 0.5,
+        "s_avg": 0.5, "h_norm": 0.5, "p_entail": 0.5,
+        "p_ground_max": 0.7, "p_ground_mean": 0.7,
+        "p_ground_atomic": 0.7, "q_a_relevance": 0.5,
+    }
+    for bm in ("benchA", "benchB", "benchC"):
+        p_pure = c_pure.predict(probe, source_benchmark=bm)
+        p_shrunk = c_shrunk.predict(probe, source_benchmark=bm)
+        p_pooled = c_pooled.predict(probe, source_benchmark=bm)
+        lo = min(p_pure, p_pooled) - 0.02
+        hi = max(p_pure, p_pooled) + 0.02
+        assert lo <= p_shrunk <= hi, (
+            f"shrinkage out of range on {bm}: pure={p_pure:.3f} "
+            f"shrunk={p_shrunk:.3f} pooled={p_pooled:.3f}"
+        )
+
+
+def test_shrinkage_alpha_zero_collapses_to_pooled():
+    """At α=0 the per-bench composites predict (essentially) the pooled curve."""
+    from caem.verification.cal_prob_composite import CalProbComposite
+    samples_by_bench = {
+        "benchA": _make_synthetic_samples(200, "high_p_ground_implies_correct", seed=21),
+        "benchB": _make_synthetic_samples(200, "high_p_ground_implies_correct", seed=22),
+    }
+    c = CalProbComposite()
+    c.fit_per_benchmark(samples_by_bench, fit_boost=False, shrinkage_alpha=0.0)
+    probe = {
+        "u_token": 0.5, "u_dropout": 0.5, "u_internal": 0.5,
+        "s_avg": 0.5, "h_norm": 0.5, "p_entail": 0.5,
+        "p_ground_max": 0.7, "p_ground_mean": 0.7,
+        "p_ground_atomic": 0.7, "q_a_relevance": 0.5,
+    }
+    p_pooled_only = c._predict_pooled(probe)
+    p_via_A = c.predict(probe, source_benchmark="benchA")
+    p_via_B = c.predict(probe, source_benchmark="benchB")
+    # Both per-bench paths should now match the pooled prediction (within
+    # interpolation noise — the per-bench knot positions differ from the
+    # pooled knot positions, so the recomputed knot_y values give an
+    # approximation of pooled, not an exact match).
+    assert abs(p_via_A - p_pooled_only) < 0.05, (
+        f"α=0 benchA predict {p_via_A:.3f} should approximate pooled {p_pooled_only:.3f}"
+    )
+    assert abs(p_via_B - p_pooled_only) < 0.05, (
+        f"α=0 benchB predict {p_via_B:.3f} should approximate pooled {p_pooled_only:.3f}"
+    )
+
+
+def test_shrinkage_alpha_invalid_rejected():
+    """Negative or super-unity alpha must raise ValueError."""
+    from caem.verification.cal_prob_composite import CalProbComposite
+    samples_by_bench = {
+        "benchA": _make_synthetic_samples(120, "high_p_ground_implies_correct", seed=31),
+    }
+    for bad_alpha in (-0.1, 1.5):
+        c = CalProbComposite()
+        try:
+            c.fit_per_benchmark(samples_by_bench, fit_boost=False, shrinkage_alpha=bad_alpha)
+        except ValueError:
+            continue
+        raise AssertionError(f"shrinkage_alpha={bad_alpha} should have raised ValueError")
+
+
 if __name__ == "__main__":
     failures = 0
     for name, fn in list(globals().items()):
