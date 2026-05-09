@@ -11,46 +11,60 @@ forgetting.
 What a cycle looks like
 -----------------------
 1. Collect training data: filter EpisodicMemoryStore for entries where
-   û_stored >= min_u_stored_for_training (default 0.75). These are the
-   high-confidence episodes verified by Stage 5.
-2. Mix with general-domain data: add 10% general QA pairs to prevent
-   the model from drifting too far from its pre-trained capabilities.
-3. Fine-tune with L2 regularisation:
+   û_stored >= min_u_stored_for_training (Phase 1c default 0.70, lowered
+   from 0.75 on 2026-05-09). These are the high-confidence episodes
+   verified by Stage 5.
+2. Pool reweight (v2 Fix 3): pass the verified episodes through
+   caem.training.pool_reweighting.reweight_pool which applies a
+   temperature-mixed softmax (T=2) over per-benchmark counts, a
+   DoReMi-style minimum floor, a bounded upsample cap (3x), and a
+   bench-agnostic share cap (Phase 1c P3b: 0.40), with a cold-start
+   gold-labelled fallback for benchmarks at zero stored count. The v1
+   90/10 general-domain mix was REMOVED at v2 Fix 13 (2026-05-06); the
+   adapter's small trainable footprint replaces the explicit retention
+   mix.
+3. Fine-tune with L2 regularisation on the LoRA adapter:
        Loss = CE(generated, target) + (lambda/2) * ||theta - theta_prev||^2
-   theta_prev are the weights frozen at the START of this cycle (previous
-   checkpoint). The L2 term penalises large deviations from the prior.
-4. Forgetting check: after fine-tuning, run a fixed MMLU split (n=200)
-   and compare post-cycle MMLU against the PRISTINE cycle-0 MMLU anchor.
-   If (post / pristine) < forgetting_tolerance (0.93), abort and restore
-   theta_prev.
-5. Save checkpoint: model weights + cycle metadata to outputs/cycle_{n}/.
+   theta and theta_prev are the LoRA adapter parameters of the current
+   and previous cycles, NOT the full backbone. The L2 term penalises
+   large deviations from the previous cycle's adapter.
+4. Multi-modal retention probe (v2 Fix 4): run the registered probe set
+   from cfg.retention_probes (default: mmlu, triviaqa_test,
+   commonsense_qa_test, n=200 each). On the first cycle the pristine
+   baseline is anchored; on every cycle the post-cycle accuracy is
+   compared against pristine via per-probe ratio. If ANY probe ratio
+   falls below cfg.forgetting_tolerance (0.93), the cycle aborts and
+   the adapter is rolled back to the previous snapshot. The v1 single-
+   MMLU rule was replaced by this worst-probe rule because MCQ
+   accuracy can stay high while open-text generation degrades silently.
+5. Save checkpoint: LoRA adapter (peft format) + cycle metadata to
+   outputs/cycle_{n}/.
 
-Branch C training-path cascade
-------------------------------
-PRIMARY (Phase 1a — what runs in this thesis): Full fine-tune + 8-bit
-  AdamW (bitsandbytes) + L2 anchor. Verified to fit 32 GB on an RTX
-  5090 at batch=4, gradient checkpointing enabled, bf16 mixed precision
-  (~22-25 GB peak with MiniCheck co-resident). See config.use_8bit_adamw.
+Branch C training-path cascade (post-Phase 1c)
+----------------------------------------------
+PRIMARY (Phase 1c+1d shipped path): LoRA adapters injected on the seven
+  linear projections (q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj,
+  down_proj) at rank=32, alpha=64, dropout=0.05. Trainable footprint
+  ~60M / 3146M params (~1.9%). 8-bit AdamW + L2 anchor on adapter
+  parameters. Backbone weights frozen across the cycle. Verified to fit
+  32 GB on an RTX 5090 at batch=4, gradient checkpointing enabled, bf16
+  mixed precision (~22-25 GB peak with MiniCheck co-resident).
+  Configured via cfg.use_lora_training=True, cfg.lora_r,
+  cfg.lora_alpha, cfg.lora_dropout, cfg.lora_target_modules. The LoRA
+  wrap fires at SelfImprovementLoop.__init__ via _apply_lora_if_enabled.
 
-DEFERRED (Phase 2.9 design intent, implementation pending Phase 1b):
-  LoRA rank-16 on Qwen attention + MLP modules with frozen base + L2
-  anchor on adapter weights. Empirically motivated by the Phase 1
-  Cycle-0 audit (~100 SIL samples/benchmark/cycle is in LoRA's
-  sparse-pool home turf; full FT is regularisation-dominated at this
-  pool size). Wang et al. 2023 + Biderman et al. 2024 cited as
-  literature support. Audit conducted 2026-04-25 13:00 UTC confirmed
-  the LoRA training-loop wiring (peft.LoraConfig, get_peft_model,
-  adapter-only optimiser, adapter-only L2 anchor, adapter-only
-  checkpoint save/load) is NOT implemented in this file. Setting
-  ``cfg.use_lora_training=True`` is currently a silent no-op — the
-  full FT path runs regardless. Phase 1a thesis runs full FT; LoRA
-  swap is documented as Phase 1b future work.
+REJECTED (full-parameter fine-tune): kept as the back-compat fallback
+  when use_lora_training=False or peft is missing. Empirical evidence
+  (Biderman 2024, Dettmers 2023) showed LoRA on all linear layers
+  retains general capability across iterative cycles substantially
+  better than full FT at matched training budget; the Phase 1c LoRA
+  swap (2026-05-06 v2 Fix 8) made LoRA the primary path.
 
 FAILURE FALLBACK (no weight update): memory-only cycle. The SIL
   run_cycle still consolidates via the episodic memory store
   (retroverify, deferred-entry reconsideration) but does not fine-tune
-  the base generator. Reached when full FT itself fails (OOM, MMLU
-  retention < 0.93, convergence failure).
+  the adapter. Reached when fine-tuning itself fails (OOM, retention-
+  probe worst-ratio below tolerance, convergence failure).
 
 L2 vs full EWC
 --------------
