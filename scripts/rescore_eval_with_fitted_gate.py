@@ -91,7 +91,12 @@ def main() -> int:
         rescored: List[Dict[str, Any]] = []
 
         for s in rows:
-            # Pull all 10 signal values; missing → 0.5 fallback (matches CalProbComposite's design).
+            # v2.1 (2026-05-09): all 12 signals + per-bench dispatch.
+            # Pre-fix this dict was 10 signals, omitting alias_overlap
+            # and entity_head_consistency (Fix 6 + Fix 7); same v2-propagation
+            # miss the cal-fold writer had. Without source_benchmark, predict()
+            # also fell back to the pooled global composite, bypassing the
+            # per-benchmark KEYSTONE dispatch.
             sig = {
                 "u_token":         float(s.get("u_token", 0.5) or 0.5),
                 "u_dropout":       float(s.get("u_dropout", 0.5) or 0.5),
@@ -103,8 +108,10 @@ def main() -> int:
                 "p_ground_mean":   float(s.get("p_ground_mean", 0.5) or 0.5),
                 "p_ground_atomic": float(s.get("p_ground_atomic", 0.5) or 0.5),
                 "q_a_relevance":   float(s.get("q_a_relevance", 0.5) or 0.5),
+                "alias_overlap":   float(s.get("alias_overlap", 0.5) or 0.5),
+                "entity_head_consistency": float(s.get("entity_head_consistency", 0.5) or 0.5),
             }
-            new_u_stored = composite.predict(sig)
+            new_u_stored = composite.predict(sig, source_benchmark=bench)
             # Conformal gate signature: decide(u_stored, p_ground_max, abstain_pg)
             # abstain_pg is the abstention p_ground threshold used in the
             # legacy decision tree; we pass p_ground_max as a benign default
