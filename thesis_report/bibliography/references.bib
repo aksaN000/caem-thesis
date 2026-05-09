@@ -1153,3 +1153,39 @@ eprint = {https://arxiv.org/abs/2305.14975}
     url       = {https://arxiv.org/abs/1705.08500},
     note      = {Threshold-on-confidence selective-classification framing; cited as the methodological grounding for the fixed-threshold storage gate in Section~\ref{sec:conformal-gate} after the split-conformal alternative was rejected on cal-vs-eval shift evidence.},
 }
+
+@misc{biderman2024lora,
+    author    = {Biderman, Dan and Portes, Jacob and Ortiz, Jose Javier Gonzalez and Paul, Mansheej and Greengard, Philip and Jennings, Connor and King, Daniel and Havens, Sam and Chiley, Vitaliy and Frankle, Jonathan and Blakeney, Cody and Cunningham, John P.},
+    title     = {{LoRA} Learns Less and Forgets Less},
+    howpublished = {arXiv preprint arXiv:2405.09673},
+    year      = {2024},
+    url       = {https://arxiv.org/abs/2405.09673},
+    note      = {Empirical sweep on Llama-2-7B showing LoRA at all linear layers retains general capability (~0.66 on HellaSwag/ARC-C/Winogrande) while full fine-tuning regresses to ~0.62; rank trades fit for retention but the LoRA-vs-full gap dominates rank-vs-rank gaps; LoRA-optimal LR is roughly four times the full-FT LR. Cited as the empirical anchor for CAEM's choice of LoRA over full fine-tuning at the cycle-boundary SIL primitive in Section~\ref{sec:sil}.},
+}
+
+@inproceedings{dettmers2023qlora,
+    author    = {Dettmers, Tim and Pagnoni, Artidoro and Holtzman, Ari and Zettlemoyer, Luke},
+    title     = {{QLoRA}: Efficient Finetuning of Quantized {LLMs}},
+    booktitle = {Advances in Neural Information Processing Systems (NeurIPS)},
+    year      = {2023},
+    url       = {https://arxiv.org/abs/2305.14314},
+    note      = {Demonstrates that LoRA on all linear layers (rather than attention-only) is the most critical hyperparameter for matching full-FT quality; cited at Section~\ref{sec:sil} as the precedent for CAEM's all-linear-layer LoRA target list (q\_proj, k\_proj, v\_proj, o\_proj, gate\_proj, up\_proj, down\_proj).},
+}
+
+@misc{kalajdzievski2023rslora,
+    author    = {Kalajdzievski, Damjan},
+    title     = {A Rank Stabilization Scaling Factor for Fine-Tuning with {LoRA}},
+    howpublished = {arXiv preprint arXiv:2312.03732},
+    year      = {2023},
+    url       = {https://arxiv.org/abs/2312.03732},
+    note      = {Shows that the standard LoRA scaling factor $\alpha/r$ causes gradient collapse at $r \ge 64$, meaning fixed-$\alpha=16$ at $r=64$ trains no better than $r=8$; the $\alpha/\sqrt{r}$ rescaling fixes the pathology. Cited at Section~\ref{sec:sil} as the rationale for CAEM's $r=32$, $\alpha=64$ choice (the standard $\alpha=2r$ convention is safe in the rank regime CAEM targets).},
+}
+
+@misc{wang2023olora,
+    author    = {Wang, Xiao and Chen, Tianze and Ge, Qiming and Xia, Han and Bao, Rong and Zheng, Rui and Zhang, Qi and Gui, Tao and Huang, Xuanjing},
+    title     = {Orthogonal Subspace Learning for Language Model Continual Learning},
+    howpublished = {Findings of EMNLP 2023; arXiv preprint arXiv:2310.14152},
+    year      = {2023},
+    url       = {https://arxiv.org/abs/2310.14152},
+    note      = {Documents within-LoRA catastrophic forgetting under sequential fine-tuning and proposes orthogonal-subspace decomposition. Cited at Section~\ref{sec:sil} alongside the L2-anchor + retention-guard combination CAEM uses to bound iterative-LoRA drift across the ten-cycle trajectory; the orthogonal-decomposition fix is registered as future work.},
+}
