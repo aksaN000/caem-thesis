@@ -201,6 +201,7 @@ def reweight_pool(
     doremi_floor: int = 50,
     cold_start_n: int = 100,
     cold_start_loader: Optional[Callable[[str, int], List[Any]]] = None,
+    pool_max_share: float = 0.40,
     seed: int = 42,
 ) -> List[Any]:
     """Build a benchmark-balanced training pool from raw verified-episode pairs.
@@ -233,6 +234,16 @@ def reweight_pool(
         ``(benchmark: str, n: int) -> List[QAPair]`` returning gold-
         labelled pairs for the cold-start fallback. None disables the
         fallback (zero-count benchmarks stay at zero).
+    pool_max_share : float, default 0.40
+        Phase 1c (P3b) — hard ceiling on any single benchmark's share of
+        the final pool. Bench-agnostic: applies to whichever benchmark
+        ends up dominant after temperature smoothing + DoReMi floor.
+        Excess from over-cap benches is water-filled into under-cap
+        benches (proportional to their current targets, iteratively
+        until convergence). Set to 1.0 to disable. Default 0.40 means
+        no benchmark may take more than 40% of the pool — a thesis-
+        defensible upper bound that survives panel growth (e.g. adding
+        a 4th training bench that ships much more than FEVER).
     seed : int, default 42
 
     Returns
@@ -293,6 +304,44 @@ def reweight_pool(
             if counts.get(bm, 0) > 0 and targets[bm] < floor:
                 targets[bm] = floor
 
+    # Step 2b: enforce hard pool_max_share cap (P3b — bench-agnostic).
+    # Iteratively cap any benchmark exceeding pool_max_share·target_total and
+    # redistribute the excess proportionally to under-cap benches. Iterates
+    # until convergence (excess < 1 sample) or 10 rounds (defensive cap).
+    if 0.0 < pool_max_share < 1.0 and target_total > 0:
+        share_cap = max(1, int(target_total * pool_max_share))
+        for _round in range(10):
+            over = {b: t for b, t in targets.items() if t > share_cap}
+            if not over:
+                break
+            excess = sum(t - share_cap for t in over.values())
+            for b in over:
+                targets[b] = share_cap
+            # Redistribute proportionally to benches under the cap with
+            # nonzero target (DoReMi-floored benches qualify).
+            under = {
+                b: t for b, t in targets.items()
+                if b not in over and t > 0 and t < share_cap
+            }
+            under_total = sum(under.values())
+            if under_total <= 0 or not under:
+                logger.info(
+                    "reweight_pool.share_cap: no under-cap benches to absorb "
+                    "excess=%d (round=%d); pool will fall short of target_total.",
+                    excess, _round,
+                )
+                break
+            for b, t in under.items():
+                add = int(round(excess * t / under_total))
+                # Don't push the recipient above the cap.
+                targets[b] = min(share_cap, t + add)
+        else:
+            logger.warning(
+                "reweight_pool.share_cap: did not converge in 10 rounds; "
+                "final targets=%s (pool_max_share=%.2f, target_total=%d).",
+                dict(sorted(targets.items())), pool_max_share, target_total,
+            )
+
     # Step 3: resize each benchmark to its target via subsample / capped
     # upsample. The target may be unreachable when upsample_cap × n < target;
     # that's logged inside _resize_benchmark and we simply use whatever
@@ -308,9 +357,9 @@ def reweight_pool(
     # Diagnostic: log the input → output transform per benchmark.
     out_counts = per_benchmark_counts(out)
     logger.info(
-        "reweight_pool: T=%.1f cap=%.1f floor=%d cold_start_n=%d | "
+        "reweight_pool: T=%.1f cap=%.1f floor=%d max_share=%.2f cold_start_n=%d | "
         "input(%d): %s → output(%d): %s",
-        temperature, upsample_cap, doremi_floor, cold_start_n,
+        temperature, upsample_cap, doremi_floor, pool_max_share, cold_start_n,
         n_input, dict(sorted(counts.items())),
         len(out), dict(sorted(out_counts.items())),
     )

@@ -254,7 +254,7 @@ class CAEMConfig:
     # returns p_contra = 0 by construction, so the veto never fired under
     # the default backend. p_contra is kept as a diagnostic in the entry
     # schema but no decision logic reads it.)
-    store_threshold: float = 0.65
+    store_threshold: float = 0.60
     defer_threshold: float = 0.45
     abstain_pground_ceiling: float = 0.20
 
@@ -780,6 +780,14 @@ class CAEMConfig:
     # seed with this many gold-labelled samples (drawn via the loader
     # passed to SelfImprovementLoop.run_cycle as ``cold_start_loader``).
     pool_reweighting_cold_start_n: int = 100
+    # Phase 1c (P3b 2026-05-09) — hard ceiling on any single benchmark's
+    # share of the final pool. Bench-agnostic: applies to whichever
+    # benchmark ends up dominant after temperature smoothing + DoReMi
+    # floor (no hardcoded names, future-proof against panel growth).
+    # Excess from over-cap benches is water-filled into under-cap benches
+    # iteratively until convergence. Default 0.40 = no benchmark may take
+    # more than 40% of the pool. Set to 1.0 to disable the hard cap.
+    pool_reweighting_max_share: float = 0.40
 
     # ------------------------------------------------------------------ #
     # SIL-pool loop filter (Branch C Goal 4 -- memory hygiene)             #

@@ -495,6 +495,7 @@ class SelfImprovementLoop:
                 doremi_floor=int(cfg.pool_reweighting_doremi_floor),
                 cold_start_n=int(cfg.pool_reweighting_cold_start_n),
                 cold_start_loader=cold_start_loader,
+                pool_max_share=float(getattr(cfg, "pool_reweighting_max_share", 0.40)),
                 seed=seed,
             )
         else:
