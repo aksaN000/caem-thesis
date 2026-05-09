@@ -716,7 +716,17 @@ class CAEMConfig:
     epochs_per_cycle: int = 3
     warmup_steps: int = 500
     # [DES] Only include verified episodes above this quality in training data.
-    min_u_stored_for_training: float = 0.75
+    # Phase 1c (2026-05-09): lowered from 0.75 → 0.70 after the cycle-0
+    # threshold sweep on the new composite output distribution. At 0.75
+    # only 6 items pooled across 5 benches cleared the bar — verified
+    # share of the cycle-1 SIL pool would be ~2%, with cold-start gold
+    # at ~98%, drowning out the verifier signal. At 0.70 the bar admits
+    # 21 items at 80% pooled precision (FEVER 7, TriviaQA 1, CSQA 11),
+    # giving ~6% verified share and an empirically meaningful verifier
+    # contribution. The 0.70 value preserves the "train more selective
+    # than store" invariant (τ_train > τ_store=0.60) while restoring a
+    # non-empty verified-episode share comparable to v1's regime.
+    min_u_stored_for_training: float = 0.70
     # DEPRECATED in v2 (2026-05-06). The 10% general-domain mix was removed
     # along with load_general_data() in scripts/run_experiment.py. Anti-
     # forgetting is now provided by (a) LoRA SIL primitive (Fix 8) — small
