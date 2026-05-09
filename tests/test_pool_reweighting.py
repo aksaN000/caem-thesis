@@ -82,13 +82,15 @@ def test_temperature_high_collapses_toward_uniform():
 
 def test_temperature_one_preserves_empirical_proportions():
     """T=1 (no smoothing) should preserve empirical proportions modulo
-    rounding, when no other constraints (cap, floor, cold-start) bind."""
+    rounding, when no other constraints (cap, floor, cold-start, share)
+    bind."""
     from caem.training.pool_reweighting import reweight_pool, per_benchmark_counts
     pairs = _make_pairs("fever", 80) + _make_pairs("triviaqa", 20)
     out = reweight_pool(
         pairs, benchmarks=["fever", "triviaqa"],
         temperature=1.0, upsample_cap=10.0, doremi_floor=0,
-        cold_start_n=0, seed=1, target_total=100,
+        cold_start_n=0, pool_max_share=1.0,  # P3b cap disabled for this test
+        seed=1, target_total=100,
     )
     counts = per_benchmark_counts(out)
     # Within ±5 of the original 80/20 split
@@ -237,14 +239,15 @@ def test_empty_input_returns_empty():
 
 
 def test_default_target_total_preserves_size():
-    """When target_total is None and no upsampling/cold-start kicks in,
-    the output size matches the input size."""
+    """When target_total is None and no upsampling/cold-start/share-cap
+    kicks in, the output size matches the input size."""
     from caem.training.pool_reweighting import reweight_pool
     pairs = _make_pairs("fever", 60) + _make_pairs("triviaqa", 60)
     out = reweight_pool(
         pairs, benchmarks=["fever", "triviaqa"],
         temperature=1.0, upsample_cap=3.0, doremi_floor=0,
-        cold_start_n=0, seed=1,
+        cold_start_n=0, pool_max_share=1.0,  # P3b cap disabled for this test
+        seed=1,
     )
     # 120 in, 120 out (within ±2 rounding)
     assert abs(len(out) - 120) <= 2
@@ -283,6 +286,97 @@ def test_config_pool_reweighting_defaults():
     assert cfg.pool_reweighting_upsample_cap == 3.0
     assert cfg.pool_reweighting_doremi_floor == 50
     assert cfg.pool_reweighting_cold_start_n == 100
+    # Phase 1c P3b: hard share cap parameter present
+    assert hasattr(cfg, "pool_reweighting_max_share")
+    assert cfg.pool_reweighting_max_share == 0.40
+
+
+def test_pool_max_share_caps_dominant_benchmark():
+    """Phase 1c P3b — hard share cap is bench-agnostic and works on any
+    benchmark that ends up dominant. Uses a 4-bench scenario where 'webqa'
+    (a hypothetical new bench) outweighs FEVER + CSQA + StrategyQA combined."""
+    from caem.training.pool_reweighting import (
+        per_benchmark_counts, reweight_pool,
+    )
+    pairs = (
+        _make_pairs("webqa", 2000)
+        + _make_pairs("commonsense_qa", 292)
+        + _make_pairs("fever", 165)
+        + _make_pairs("strategyqa", 16)
+    )
+    out = reweight_pool(
+        pairs, target_total=2000,
+        pool_max_share=0.40,
+        doremi_floor=50,
+        seed=42,
+    )
+    counts = per_benchmark_counts(out)
+    # webqa was 81% of input; after the 40% cap it should be near or below 40%
+    # of target_total. Allow ±2pp slop from rounding + redistribution.
+    webqa_share = counts.get("webqa", 0) / 2000
+    assert webqa_share <= 0.42, (
+        f"pool_max_share=0.40 should cap webqa near 40% of target; got {webqa_share:.3f}"
+    )
+    # The cap is bench-agnostic; the algorithm doesn't know "webqa" is special
+    # — same cap would fire on FEVER if FEVER were the dominant bench.
+
+
+def test_pool_max_share_disabled_at_one():
+    """pool_max_share=1.0 disables the hard cap; dominant bench keeps its
+    smoothed share (subject only to temperature softmax + floor)."""
+    from caem.training.pool_reweighting import (
+        per_benchmark_counts, reweight_pool,
+    )
+    pairs = (
+        _make_pairs("webqa", 2000)
+        + _make_pairs("commonsense_qa", 292)
+        + _make_pairs("fever", 165)
+    )
+    out = reweight_pool(
+        pairs, target_total=2000,
+        pool_max_share=1.0,  # disabled
+        doremi_floor=50,
+        seed=42,
+    )
+    counts = per_benchmark_counts(out)
+    # Without the hard cap, the temperature-smoothed share for webqa stays
+    # above 50% (T=2 collapses 81% → ~58%).
+    webqa_share = counts.get("webqa", 0) / 2000
+    assert webqa_share >= 0.50, (
+        f"pool_max_share=1.0 (disabled) should allow webqa to keep its "
+        f"smoothed-dominant share; got {webqa_share:.3f}"
+    )
+
+
+def test_pool_max_share_redistributes_to_under_cap_benches():
+    """When a bench is over-cap, excess goes to under-cap benches; the
+    final pool composition is more balanced than without the cap."""
+    from caem.training.pool_reweighting import (
+        per_benchmark_counts, reweight_pool,
+    )
+    pairs = (
+        _make_pairs("dominant", 1500)
+        + _make_pairs("medium", 200)
+        + _make_pairs("small", 100)
+    )
+    out = reweight_pool(
+        pairs, target_total=1000,
+        pool_max_share=0.40,
+        doremi_floor=50,
+        upsample_cap=10.0,  # high enough to reach targets via upsample
+        seed=42,
+    )
+    counts = per_benchmark_counts(out)
+    dom_share = counts.get("dominant", 0) / max(1, len(out))
+    med_share = counts.get("medium", 0) / max(1, len(out))
+    small_share = counts.get("small", 0) / max(1, len(out))
+    # Dominant capped near 40%; medium + small absorb the redistribution
+    assert dom_share <= 0.45, f"dominant share {dom_share:.3f} > 0.45"
+    # Medium + small together should hold > 50% of the pool now
+    assert med_share + small_share >= 0.50, (
+        f"under-cap benches did not absorb redistribution: "
+        f"med={med_share:.3f} small={small_share:.3f}"
+    )
 
 
 if __name__ == "__main__":
