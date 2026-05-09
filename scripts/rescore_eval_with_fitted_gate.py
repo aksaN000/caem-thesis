@@ -104,9 +104,9 @@ def main() -> int:
             # miss the cal-fold writer had. Without source_benchmark, predict()
             # also fell back to the pooled global composite, bypassing the
             # per-benchmark KEYSTONE dispatch.
-            # Phase 1c: 10 signals fed to the composite (alias_overlap and
-            # entity_head_consistency dropped after AUROC-diagnostic showed
-            # they were essentially random, P1).
+            # Phase 1c (2026-05-09): 10 signals fed to the composite.
+            # alias_overlap and entity_head_consistency dropped after the
+            # AUROC diagnostic showed they were essentially random (P1).
             sig = {
                 "u_token":         float(s.get("u_token", 0.5) or 0.5),
                 "u_dropout":       float(s.get("u_dropout", 0.5) or 0.5),
