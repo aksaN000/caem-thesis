@@ -477,9 +477,10 @@ class SelfImprovementLoop:
 
         # v2 architecture (2026-05-06): general-domain mix REMOVED. The
         # SIL training pool is now built entirely from verified episodes
-        # passing the per-benchmark conformal gate, with loss reweighting
-        # (Fix 3) providing benchmark balance. Anti-forgetting is provided
-        # by LoRA's small parameter budget + multi-modal retention probe.
+        # passing the per-benchmark composite calibration, with loss
+        # reweighting (Fix 3) providing benchmark balance. Anti-forgetting
+        # is provided by LoRA's small parameter budget + multi-modal
+        # retention probe.
 
         # v2 Fix 3: pool reweighting. Rebalances per-benchmark counts via
         # temperature-mixed softmax + bounded upsampling + DoReMi floor +

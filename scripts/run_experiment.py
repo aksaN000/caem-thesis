@@ -798,10 +798,13 @@ def run_experiment(ns: argparse.Namespace) -> None:
     config.num_cycles = ns.num_cycles
     if getattr(ns, "verifier_backend", None):
         config.verifier_backend = ns.verifier_backend
-    # Threshold overrides from scripts/calibrate_thresholds.py (fit once at
-    # the Cycle-0 boundary, held fixed for cycles 1..N). Required ordering:
-    # train > store > defer. Missing override falls back to the CAEMConfig
-    # default (which is RoBERTa-era and likely wrong under MiniCheck).
+    # CLI threshold overrides (Phase 1c: ablation experiments only). The
+    # active runner reads CAEMConfig.store_threshold / defer_threshold /
+    # min_u_stored_for_training (Phase 1c default store_threshold = 0.60 on
+    # the calibrated composite probability). The historical fitted-threshold
+    # path (scripts/calibrate_thresholds.py + calibrated_thresholds.json) is
+    # no longer consumed by the runner. Required ordering: train > store >
+    # defer.
     if getattr(ns, "store_threshold", None) is not None:
         config.store_threshold = float(ns.store_threshold)
     if getattr(ns, "defer_threshold", None) is not None:
@@ -1485,8 +1488,8 @@ def run_experiment(ns: argparse.Namespace) -> None:
         # 2026-04-27 reorder: verify_fn=None disables SIL.run_cycle's
         # internal retroverify pass. Retroverify now runs externally at
         # Step 2.4 below, AFTER the cycle-boundary recalibration so it
-        # reads through the freshly-refit isotonic curves and conformal
-        # thresholds rather than through stale Cycle-0 calibration.
+        # reads through the freshly-refit isotonic curves rather than
+        # through stale Cycle-0 calibration.
         #
         # v2 Fix 11 LAYER 1 — Orchestrator-level deferred reconsideration guard.
         # The May-4 v1 orchestrator gap left the deferred reconsideration pass
@@ -1618,7 +1621,9 @@ def run_experiment(ns: argparse.Namespace) -> None:
         # the Cycle-0 isotonic fit envelope. The correct order is:
         #   2.1 Score the calibration fold under the post-SIL model
         #   2.2 Re-fit T (label-dependent, ECE-min)
-        #   2.3 Re-fit per-signal isotonic + conformal tau (label-dep.)
+        #   2.3 Re-fit per-signal isotonic only (Phase 1c removed conformal
+        #       tau refit; the fixed-threshold gate from CAEMConfig is held
+        #       constant across cycles)
         #   2.4 Reload verifier from the cycle-N calibration JSONs
         #   2.5 Run retroverify against the recalibrated verifier
         # Skipped only on aborted cycles (weights rolled back, so the
@@ -2389,11 +2394,11 @@ def _parse_args() -> argparse.Namespace:
         type=float,
         default=None,
         help=(
-            "Override CAEMConfig.store_threshold (tau_store). Set this to "
-            "the value fitted by scripts/calibrate_thresholds.py at the "
-            "Cycle 0 boundary (typically ~0.40-0.50 under MiniCheck, vs "
-            "the RoBERTa-era default 0.65). See Chapter 4 Sec Threshold "
-            "calibration. When omitted, CAEMConfig default is used."
+            "Override CAEMConfig.store_threshold (tau_store). The active "
+            "threshold comes from CAEMConfig.store_threshold (Phase 1c "
+            "default 0.60 on the calibrated composite probability); this "
+            "CLI override is for ablation experiments only. When omitted, "
+            "CAEMConfig default is used."
         ),
     )
     p.add_argument(
@@ -2401,10 +2406,10 @@ def _parse_args() -> argparse.Namespace:
         type=float,
         default=None,
         help=(
-            "Override CAEMConfig.defer_threshold (tau_defer). Set this "
-            "from scripts/calibrate_thresholds.py output (typically "
-            "~0.25-0.40 under MiniCheck). Must satisfy "
-            "defer < store < train."
+            "Override CAEMConfig.defer_threshold (tau_defer). The active "
+            "threshold comes from CAEMConfig.defer_threshold (Phase 1c); "
+            "this CLI override is for ablation experiments only. Must "
+            "satisfy defer < store < train."
         ),
     )
     p.add_argument(
@@ -2413,8 +2418,9 @@ def _parse_args() -> argparse.Namespace:
         default=None,
         help=(
             "Override CAEMConfig.min_u_stored_for_training (tau_train). "
-            "Set this from scripts/calibrate_thresholds.py output "
-            "(typically ~0.50-0.65 under MiniCheck). Must satisfy "
+            "The active threshold comes from "
+            "CAEMConfig.min_u_stored_for_training (Phase 1c); this CLI "
+            "override is for ablation experiments only. Must satisfy "
             "train > store > defer."
         ),
     )

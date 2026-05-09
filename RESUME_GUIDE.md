@@ -5,6 +5,19 @@
 
 ---
 
+## Phase 1c update (2026-05-09)
+
+The conformal split-CP storage gate was replaced by a fixed-threshold gate on the calibrated composite probability. As a result:
+
+- `outputs/cycle_*/conformal_gate.json` is no longer written or consumed by the active runner. Existing files survive on disk but are historical only.
+- The active resume contract is per-cycle artefact presence. Detection now looks for the per-cycle artefacts produced by Step 6 of the cycle-boundary block: `outputs/full_run/memory_store_cycle_N.faiss + .meta` and `outputs/full_run/deferred_buffer_cycle_N.pkl`. A cycle is considered complete when both files are present.
+- Threshold values come from `CAEMConfig.store_threshold` (Phase 1c default `0.60`), `CAEMConfig.defer_threshold`, and `CAEMConfig.min_u_stored_for_training`. The `--store_threshold` / `--defer_threshold` / `--train_threshold` CLI flags on `run_experiment.py` are for ablation experiments only.
+- `scripts/calibrate_thresholds.py` and `scripts/fit_conformal_gate.py` are no longer in the active runner path; the per-cycle composite refit (`run_per_cycle_composite_refit` in `scripts/run_experiment.py`) handles calibration drift.
+
+Sections below written before Phase 1c may still describe the conformal-gate paths as if active; treat the bullets above as the source of truth for resume behaviour and storage decisions.
+
+---
+
 ## 0. State at moment of destruction
 
 - **Repository:** `https://github.com/aksaN000/caem-thesis`
@@ -34,9 +47,9 @@ These survive the Vast destruction and are required for resume:
 - `cycle_1/model.pt` — post-cycle-1 SIL fine-tune (the one offloaded at 16:45:53 today). Optional to restore; if you skip cycle 1 and start fresh, you don't need it.
 
 ### 1.4 Local repo files (committed to git, no separate backup needed)
-- `outputs/cycle_0/composite_calibration.json` — locked 9-signal cal-prob composite (h_norm weight = −5×10⁻⁴, treated as retired)
-- `outputs/cycle_0/conformal_gate.json` — τ_store=0.6676, τ_defer=0.5207, α_store=0.05, α_defer=0.40
-- `outputs/cycle_0/calibrated_thresholds.json` — legacy quantile thresholds (used by `run_phase1a.sh` to set CLI flags)
+- `outputs/cycle_0/composite_calibration.json` — locked cal-prob composite
+- `outputs/cycle_0/conformal_gate.json` — historical (Phase 1c): the conformal gate was replaced by `CAEMConfig.store_threshold`; this file is no longer consumed by the active runner
+- `outputs/cycle_0/calibrated_thresholds.json` — historical (Phase 1c): the runner no longer reads this; thresholds come from `CAEMConfig.store_threshold` / `defer_threshold` / `min_u_stored_for_training`
 - `outputs/cycle_0/eval_rescored/*.json` — cycle-0 baseline evals (7 benchmarks)
 - `outputs/cold_start_memory/memory_store.faiss + .meta` — 137-entry seed memory
 - `outputs/cycle_0/calibration/calibration_fold_samples.json` — 1500-sample cal-fold (3 benchmarks × 500)
@@ -144,8 +157,8 @@ ls outputs/cold_start_memory/memory_store.meta
 
 # C) Cycle 0 artefacts (committed to git, verify presence)
 ls outputs/cycle_0/composite_calibration.json
-ls outputs/cycle_0/conformal_gate.json
-ls outputs/cycle_0/calibrated_thresholds.json
+# conformal_gate.json + calibrated_thresholds.json are historical (Phase 1c);
+# the active runner no longer reads them. Skip the existence checks.
 ls outputs/cycle_0/calibration/calibration_fold_samples.json
 ls outputs/cycle_0/eval_rescored/*.json | wc -l   # should be 7
 
@@ -273,7 +286,7 @@ These are sequential and idempotent — safe to interrupt and resume.
 
 4. **Vast credit runs out mid-run** — gdrive offload happens at the END of each cycle's SIL fine-tune. If credit runs out mid-cycle, you lose work back to the previous cycle's offload. Recovery: rent a new instance, restore from gdrive, force resume from the last completed cycle. Per CAEM_PHASE1_AUTONOMY: user authorized autonomous execution until done or credit exhausted.
 
-5. **Conformal gate file paths** — `cycle_0/conformal_gate.json` is the canonical baseline. `cycle_N/conformal_gate.json` (N≥1) is written by Step 2.3 conformal refit; the runner's `run_per_cycle_conformal_refit` also copies the new gate to `cycle_0/conformal_gate.json` so subsequent cycle's pipeline-init reads the latest. This is by design.
+5. **Conformal gate file paths** — historical (Phase 1c). The active runner no longer writes or reads `cycle_*/conformal_gate.json`; thresholds come from `CAEMConfig.store_threshold` (default `0.60`), and per-cycle calibration is handled by the per-cycle composite refit (`run_per_cycle_composite_refit`). Existing files on disk from pre-Phase-1c runs are inert.
 
 6. **HF download fails with "rate limited"** — pass `--max-workers 1` to `huggingface-cli download` and retry. Or use `git lfs` clone of the HF repo.
 
@@ -288,7 +301,7 @@ These are sequential and idempotent — safe to interrupt and resume.
 | Latest code | `feat/qwen-3b-goal1` on GitHub |
 | Passage index | HF `aksaN000/caem-passage-index-21m` |
 | Cold-start memory | git: `outputs/cold_start_memory/` |
-| Cycle 0 calibration | git: `outputs/cycle_0/composite_calibration.json` + `conformal_gate.json` + `calibrated_thresholds.json` |
+| Cycle 0 calibration | git: `outputs/cycle_0/composite_calibration.json` (Phase 1c: `conformal_gate.json` and `calibrated_thresholds.json` are historical only) |
 | Cycle 0 model.pt | gdrive: `caem-phase1a/full_run/cycle_0/model.pt` |
 | Cycle 1+ model.pt | gdrive: `caem-phase1a/full_run/cycle_<N>/model.pt` (after each SIL fine-tune offload) |
 | Run logs | local `outputs/full_run/run.log`, `outputs/phase1a_runner.log` |

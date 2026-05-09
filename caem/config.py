@@ -165,7 +165,8 @@ class CAEMConfig:
     # Populated empirically from the cycle-0 calibration fold by
     # scripts/run_calibration.py (per-benchmark Platt + ECE minimisation
     # under a closed-form sweep), then EMA-smoothed at every later cycle
-    # boundary (see scripts/recalibrate_thresholds_at_cycle.py). When
+    # boundary (see the per-cycle composite refit at Step 8,
+    # `run_per_cycle_composite_refit` in scripts/run_experiment.py). When
     # adaptive_thresholds_per_cycle = False these dicts are frozen at the
     # cycle-0 fit.
     #
@@ -193,9 +194,11 @@ class CAEMConfig:
     # generations were the largest verifier wall-clock contributor
     # (~4 s/sample, ~40% of cal-fold step). Disabling routes the verifier
     # to skip the K-sample pool and feed a neutral sentinel (0.5) into the
-    # composite isotonic+boost; locked composite_calibration.json + the
-    # conformal gate stay valid because the |w·iso| ≤ 5e-4 shift is two
-    # orders of magnitude below any decision threshold.
+    # composite isotonic+boost; locked composite_calibration.json stays
+    # valid because the |w·iso| ≤ 5e-4 shift is two orders of magnitude
+    # below any decision threshold. Phase 1c (2026-05-09): the conformal
+    # gate was replaced by a fixed-threshold gate; the calibration-stays-
+    # valid contract is now satisfied by per-cycle composite refit.
     disable_h_norm: bool = True
 
     # NOTE (2026-04 refactor): the legacy u_hat post-generation escalation
@@ -298,10 +301,12 @@ class CAEMConfig:
     # scale, and Claim 3 (SIL improvement) is measured on a FIXED held-out
     # eval fold so adaptive thresholds don't confound the trajectory.
     #
-    # When ON, scripts/recalibrate_thresholds_at_cycle.py runs at every
-    # cycle boundary, re-fitting (tau_store, tau_defer, tau_train) on the
-    # current cycle's calibration fold and EMA-smoothing with the previous
-    # cycle's values. This:
+    # When ON, run_per_cycle_composite_refit (in scripts/run_experiment.py)
+    # runs at every cycle boundary, re-fitting per-signal isotonic curves
+    # on the current cycle's calibration fold and EMA-smoothing with the
+    # previous cycle's values. (Phase 1c replaced the prior conformal
+    # tau_store/tau_defer/tau_train refit with a fixed-threshold gate on
+    # the calibrated composite probability.) This:
     #   - Auto-tunes to deployment user mix (no source_benchmark needed)
     #   - Maintains constant store rate as model improves cycle-over-cycle
     #   - Matches existing per-cycle T (temperature) re-fit pattern
@@ -980,8 +985,9 @@ class CAEMConfig:
         Falls back to the pooled ``temperature_scalar`` when
         ``source_benchmark`` is ``None`` or not present in
         ``temperature_scalar_per_benchmark``. Mirrors the dispatch contract
-        used by Fix 1 (per-benchmark conformal gate) and Fix 2B
-        (per-benchmark composite).
+        used by Fix 2B (per-benchmark composite). (Phase 1c removed the
+        per-benchmark conformal gate from Fix 1; the per-benchmark
+        composite is the surviving per-bench artefact.)
         """
         if source_benchmark is None:
             return float(self.temperature_scalar)

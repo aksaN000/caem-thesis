@@ -374,8 +374,12 @@ def tau_retro_sensitivity(
             f"tau_retro = {locked_tau_retro} is well-calibrated for the "
             "trajectory if 'fraction_well_calibrated' >= 0.80 (i.e., at "
             "least 8 of 10 cycles deliver pi_retro >= target). The heuristic "
-            "is defensible if this fraction is high; if not, consider "
-            "fitting tau_retro per-cycle as a third conformal threshold."
+            "is defensible if this fraction is high. (Historical note: under "
+            "the v2 conformal architecture this was framed as 'fitting "
+            "tau_retro per-cycle as a third conformal threshold'; Phase 1c "
+            "replaced the conformal layer with a fixed-threshold gate from "
+            "CAEMConfig, so the remediation is to retune the locked tau_retro "
+            "rather than refit a per-cycle conformal threshold.)"
         ),
     }
 

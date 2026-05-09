@@ -419,9 +419,9 @@ class BatchPipeline:
         verify_inputs: List[tuple] = []
         # v2 Fix 2 keystone — per-sample source_benchmark must be carried
         # alongside the (query, answer) tuple so batch_verify can dispatch
-        # the per-bench composite + per-bench conformal gate. Without this
-        # list, every batched-eval sample silently falls back to the
-        # pooled global path even though source_benchmark is on the
+        # the per-bench composite + fixed-threshold gate from CAEMConfig.
+        # Without this list, every batched-eval sample silently falls back
+        # to the pooled global path even though source_benchmark is on the
         # BatchSample.
         verify_source_benchmarks: List[Optional[str]] = []
         for i in tier2_indices:

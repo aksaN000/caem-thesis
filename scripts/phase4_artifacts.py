@@ -2,9 +2,12 @@
 """Phase 4 — empirical-evidence artifact generator.
 
 Reads whatever Phase 3 outputs are available in
-``outputs/cycle_0/eval/*_cycle0.json``, ``composite_calibration.json``,
-``conformal_gate.json``, and emits the LaTeX tables + matplotlib figures
-the thesis cites.
+``outputs/cycle_0/eval/*_cycle0.json`` and ``composite_calibration.json``,
+and emits the LaTeX tables + matplotlib figures the thesis cites.
+(Historical: an additional ``conformal_gate.json`` artefact also fed this
+generator under the v2 conformal architecture; Phase 1c replaced the
+conformal gate with a fixed threshold from CAEMConfig, so that file is no
+longer produced or consumed.)
 
 Graceful degradation: if a required file is missing, the corresponding
 artifact is written with a ``[PENDING — Phase 3 not yet complete]``

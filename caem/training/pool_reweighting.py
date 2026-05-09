@@ -40,7 +40,7 @@ empirical sampling (verified-episode counts dominate):
 
   4. **Cold-start gold fallback**: when a benchmark has zero verified
      episodes (e.g. cycle-0 with empty memory store, or a benchmark
-     whose conformal gate never admitted a sample yet), fall back to
+     whose fixed-threshold gate never admitted a sample yet), fall back to
      ``cold_start_n`` gold-labelled samples drawn via an injected
      ``cold_start_loader(benchmark, n)`` function. Without this guard,
      a never-stored benchmark gets zero gradient signal forever.

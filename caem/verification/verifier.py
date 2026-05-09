@@ -855,7 +855,8 @@ class UnifiedVerifier:
             # h_norm RETIRED 2026-04-27 — empirical boost weight ≈ −5e-4
             # on cycle-0 cal-fold (n=1500). Skip K=10 stochastic generation
             # and feed neutral sentinel into the composite isotonic+boost.
-            # Locked conformal gate stays valid (shift in u_stored ≤ 1.25e-4).
+            # Phase 1c locked composite + fixed thresholds stay valid
+            # (shift in u_stored ≤ 1.25e-4).
             if getattr(self.config, "disable_h_norm", False):
                 h_norm = 0.5
             elif se_samples is None:
