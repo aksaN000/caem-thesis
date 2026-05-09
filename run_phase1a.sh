@@ -450,11 +450,17 @@ step_5_5_headhead() {
         return 0
     fi
     band "Step 5.5.2 — v5 MiniCheck vs RoBERTa-MNLI (NEW-prompt audit-of-record)"
+    # v2.1 (2026-05-09): dropped qwen_judge backend. Qwen-3B + MiniCheck +
+    # RoBERTa-MNLI loaded simultaneously OOMs on 32 GiB GPU (Qwen alone needs
+    # ~40 GiB for the score-batch forward at this seq length). Qwen judge was
+    # ABLATED 2026-04-26 (Pearson < 0.7 vs MiniCheck) so it doesn't enter the
+    # production composite anyway. The MiniCheck vs RoBERTa head-to-head
+    # remains the audit-of-record; it's all Ch5 Appendix cites.
     python scripts/calibration_minicheck_vs_roberta.py \
         --pairs_jsonl data/calibration/minicheck_pairs_500.jsonl \
         --output_json "$out" \
         --device cuda \
-        --backends minicheck roberta_nli qwen_judge 2>&1 | tee -a outputs/calibration/minicheck_vs_roberta_v5.log
+        --backends minicheck roberta_nli 2>&1 | tee -a outputs/calibration/minicheck_vs_roberta_v5.log
 }
 
 # step_5_5_gate (scenario classifier) and step_prompt_ablation removed
