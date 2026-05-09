@@ -608,12 +608,13 @@ step_7_main() {
     # - gdrive offload sends every cycle to gdrive:caem-phase1a/full_run/
     #   cycle_<n>/ after local save; local rolling-N still active as safety.
 
-    local tau_store tau_defer tau_train backend
-    tau_store=$(python -c 'import json; print(json.load(open("outputs/cycle_0/calibrated_thresholds.json"))["thresholds"]["store"])')
-    tau_defer=$(python -c 'import json; print(json.load(open("outputs/cycle_0/calibrated_thresholds.json"))["thresholds"]["defer"])')
-    tau_train=$(python -c 'import json; print(json.load(open("outputs/cycle_0/calibrated_thresholds.json"))["thresholds"]["train"])')
-    backend=$(python -c 'import json,sys; d=json.load(open("outputs/cycle_0/calibrated_thresholds.json")); print(d.get("verifier_backend","minicheck"))')
-    log "  fitted backend=$backend store=$tau_store defer=$tau_defer train=$tau_train"
+    # Phase 1c (2026-05-09): the legacy calibrated_thresholds.json fitter
+    # (scripts/calibrate_thresholds.py) was removed alongside the conformal
+    # gate. The runner now uses the fixed thresholds from CAEMConfig directly
+    # (store_threshold=0.60, defer_threshold=0.45, train_threshold from cfg).
+    # No --store_threshold / --defer_threshold / --train_threshold CLI args
+    # passed; run_experiment.py falls back to CAEMConfig values.
+    log "  storage gate: fixed-threshold (cfg.store_threshold + cfg.defer_threshold)"
 
     local resume_args=()
     if [[ -d outputs/full_run ]]; then
@@ -633,10 +634,7 @@ step_7_main() {
         --benchmarks "${BENCHMARKS[@]}" \
         --passage_index data/passage_index \
         --cold_start_memory outputs/cold_start_memory/memory_store \
-        --verifier_backend "$backend" \
-        --store_threshold "$tau_store" \
-        --defer_threshold "$tau_defer" \
-        --train_threshold "$tau_train" \
+        --verifier_backend minicheck \
         --eval_batch_size 32 \
         --eval_prefetch \
         "${resume_args[@]}" \
