@@ -27,12 +27,12 @@ outputs/baselines/<baseline>/<benchmark>_cycle0.json
 
 Usage
 -----
-Full baseline across the six-benchmark panel (3 ID + 3 OOD; vast.ai / A100):
+Full baseline across the v2.1 five-benchmark panel (3 training + 2 transfer; vast.ai / A100):
 
     python -m scripts.run_baseline \\
         --baseline rag \\
         --output_dir outputs/baselines \\
-        --benchmarks fever triviaqa natural_questions truthfulqa strategyqa arc_challenge \\
+        --benchmarks fever triviaqa commonsense_qa truthfulqa strategyqa \\
         --n_questions 500 \\
         --passage_index data/passage_index
 

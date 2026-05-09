@@ -65,7 +65,7 @@ GPU run (post-cycle-10 close, after baselines complete):
 
     python -m scripts.rescore_baselines_through_verifier \\
         --baselines zero_shot cot rag cot_rag fiveshot_cot vanilla_ft ewc_ft \\
-        --benchmarks fever triviaqa natural_questions truthfulqa strategyqa arc_challenge asqa \\
+        --benchmarks fever triviaqa commonsense_qa truthfulqa strategyqa \\
         --baselines_dir outputs/baselines \\
         --output_dir outputs/baselines \\
         --composite_calibration outputs/production/composite_calibration.json \\

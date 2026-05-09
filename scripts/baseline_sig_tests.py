@@ -82,10 +82,11 @@ logging.basicConfig(level=logging.INFO,
 # v2 Fix 9b: read benchmark roster from caem.config so the significance
 # table tracks the live panel. v1 hardcoded roster was
 # {fever, triviaqa, natural_questions, truthfulqa, strategyqa,
-#  arc_challenge, asqa}. v2 trains on
-# {fever, triviaqa, hotpotqa, commonsense_qa} and transfer-evals on
-# {truthfulqa, strategyqa, natural_questions}; arc_challenge and asqa
-# are removed.
+#  arc_challenge, asqa}. The shipped v2.1 panel after Phase 1c trains
+# on {fever, triviaqa, commonsense_qa} and transfer-evals on
+# {truthfulqa, strategyqa}; arc_challenge, asqa, hotpotqa, and
+# natural_questions are all retired (the latter two on cycle-zero
+# verifier-balanced-accuracy precondition violation).
 from caem.config import (
     TRAINING_BENCHMARKS as _CFG_TRAINING_BENCHMARKS,
     TRANSFER_BENCHMARKS as _CFG_TRANSFER_BENCHMARKS,

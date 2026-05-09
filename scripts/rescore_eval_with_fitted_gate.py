@@ -23,7 +23,7 @@ instead of a per-cycle conformal_gate.json.
 
 Inputs
 ------
-- outputs/cycle_0/eval/*.json (original eval, with all 10 signals + bootstrap u_stored)
+- outputs/cycle_0/eval/*.json (original eval, with all verifier signals + bootstrap u_stored)
 - outputs/cycle_0/composite_calibration.json (fitted CalProbComposite)
 - CAEMConfig defaults for tau_store / tau_defer / abstain_pground_ceiling
 
@@ -98,21 +98,22 @@ def main() -> int:
         rescored: List[Dict[str, Any]] = []
 
         for s in rows:
-            # v2.1 (2026-05-09): all 12 signals + per-bench dispatch.
-            # Pre-fix this dict was 10 signals, omitting alias_overlap
-            # and entity_head_consistency (Fix 6 + Fix 7); same v2-propagation
-            # miss the cal-fold writer had. Without source_benchmark, predict()
-            # also fell back to the pooled global composite, bypassing the
-            # per-benchmark KEYSTONE dispatch.
-            # Phase 1c (2026-05-09): 10 signals fed to the composite.
-            # alias_overlap and entity_head_consistency dropped after the
-            # AUROC diagnostic showed they were essentially random (P1).
+            # Phase 1d (2026-05-09): 9 signals fed to the composite. The
+            # composite's COMPOSITE_SIGNALS tuple is the source of truth;
+            # this dict mirrors it. h_norm was retired from the composite
+            # at Phase 1d (Pearson 0.000 on every per-benchmark slice of
+            # the cycle-zero cal-fold) but is still emitted on the verifier
+            # output schema as a sentinel for back-compat with archived
+            # eval JSONs, so it is preserved as a defensive read here even
+            # though composite.predict() ignores it under the 9-signal
+            # COMPOSITE_SIGNALS. alias_overlap and entity_head_consistency
+            # were dropped earlier at Phase 1c (P1) on the same AUROC-
+            # diagnostic evidence.
             sig = {
                 "u_token":         float(s.get("u_token", 0.5) or 0.5),
                 "u_dropout":       float(s.get("u_dropout", 0.5) or 0.5),
                 "u_internal":      float(s.get("u_internal", 0.5) or 0.5),
                 "s_avg":           float(s.get("s_avg", 0.5) or 0.5),
-                "h_norm":          float(s.get("h_norm", 0.5) or 0.5),
                 "p_entail":        float(s.get("p_entail", 0.5) or 0.5),
                 "p_ground_max":    float(s.get("p_ground_max", 0.5) or 0.5),
                 "p_ground_mean":   float(s.get("p_ground_mean", 0.5) or 0.5),
