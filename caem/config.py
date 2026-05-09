@@ -892,10 +892,10 @@ class CAEMConfig:
     # Deferred-entry buffer (Stage 7b -- held for cycle-boundary          #
     # reconsideration, thesis Section 4.9)                                 #
     # ------------------------------------------------------------------ #
-    # When Stage-5 emits DEFERRED (0.45 <= u_stored < 0.65), the episode
+    # When Stage-5 emits DEFERRED (0.45 <= u_stored < 0.60), the episode
     # is written here instead of being dropped. At each cycle boundary,
     # after retroverify, the buffer is re-scored under the fine-tuned
-    # verifier; entries clearing store_threshold (u_stored >= 0.65 AND
+    # verifier; entries clearing store_threshold (u_stored >= 0.60 AND
     # decision == STORE) are promoted into main memory. TTL prevents the
     # buffer from accumulating entries the model never gains confidence
     # in; bounded capacity evicts oldest on overflow.

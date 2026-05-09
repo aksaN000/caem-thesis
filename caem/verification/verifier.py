@@ -58,10 +58,10 @@ This is the one explicit safety rule preventing the "confident-and-wrong"
 failure mode. Triggered before any composite scoring -- remaining signals
 are not consulted when this fires.
 
-Decision tree outcomes
-----------------------
-    STORE     : û_stored ≥ 0.65
-    DEFERRED  : 0.45 ≤ û_stored < 0.65
+Decision tree outcomes (Phase 1c Option 4 thresholds — 2026-05-09)
+-----------------------------------------------------------------
+    STORE     : û_stored ≥ 0.60
+    DEFERRED  : 0.45 ≤ û_stored < 0.60
                 -- held in the deferred review queue; re-checked by the
                    retroverify pass each cycle
     ABSTAIN   : û_stored < 0.45  AND  p_ground_max < 0.20
@@ -69,6 +69,13 @@ Decision tree outcomes
                    silently storing or discarding
     DISCARD   : û_stored < 0.45  AND  p_ground_max ≥ 0.20
                 -- evidence exists but composite rejects the answer
+
+Thresholds come from CAEMConfig.store_threshold (0.60) and
+CAEMConfig.defer_threshold (0.45); _decide() reads them every call so
+config edits propagate without restart. Phase 1c (2026-05-09) lowered
+store_threshold from 0.65 to 0.60 — the precision-cliff sweet spot
+identified by the cycle-0 threshold sweep (4.5× more correct memories
+at the same per-store precision as τ=0.65).
 
 Note: the earlier Session-42 contradiction veto
 (``p_contra ≥ 0.30 → DISCARD``) was removed on 2026-04-22. MiniCheck
