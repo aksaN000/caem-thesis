@@ -79,10 +79,17 @@ DEFAULT_SEED_SIZE: int = 1000  # CANDIDATE pool, not store target.
 # at 1000 gives ~3× headroom vs the 200 target for unusually low store-rate
 # benchmarks (e.g., ASQA at 53% would need ~375 candidates).
 DEFAULT_PURITY_SIZE: int = 500
-DEFAULT_CALIBRATION_SIZE: int = 300  # v2.1 (was 500): label-efficient, cuts production
-                                     # recurring labeling cost from 1500/cycle to 900/cycle
-                                     # (3 training benches × 300). Stable for FEVER/TQA/CSQA
-                                     # at base EM ≥ 0.30 (verified cycle-0).
+DEFAULT_CALIBRATION_SIZE: int = 500  # v2.1 reverted to 500 on 2026-05-09 after the
+                                     # 300/bench × per-bench fit at α=0.05 then α=0.20
+                                     # both produced near-degenerate gates (FEVER STORE
+                                     # gap inverted; poisoning 35-54%). The cal-fold
+                                     # reduction tradeoff (label-efficient story) was
+                                     # under-powered for stable per-bench composite +
+                                     # conformal fits. v1 used 500/bench × 3 = 1500
+                                     # pooled and held 95%+ cal precision; v2.1 keeps
+                                     # 500/bench × 3 = 1500 total (same labeling cost
+                                     # as v1) but fits per-bench. See branch_C_log.md
+                                     # 2026-05-09 entry.
 DEFAULT_TRAIN_CHUNK_SIZE: int = 1000  # v2 default; see PER_BENCHMARK override below.
 DEFAULT_N_CYCLES: int = 10
 DEFAULT_EVAL_SIZE: int = 500
