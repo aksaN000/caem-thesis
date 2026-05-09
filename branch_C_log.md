@@ -4534,3 +4534,59 @@ The v2.1 panel change adds two specific bullets to the Ch4 theorem rewrite plan:
 - Ch5 §sec:disc-threats: register the asymmetric Bayesian-floor reach as a scope finding, not a flaw — same framing the v1 trajectory used for FEVER vs TriviaQA/NQ.
 
 
+
+---
+
+## 2026-05-09 ~19:43 UTC — Phase 1c launch (P0' + P1 + P2 + P3a + P3b + Option 4)
+
+### What shipped
+
+After the v2.1 hybrid Option-A gate failed cycle-0 validation (33–37% poisoning vs 30% target across training panel), the AUROC + signal-level diagnostic on v1 archive (cycles 0/1/3/4) and v2.1 cycle-0 eval revealed three structural problems and one large engineering simplification opportunity:
+
+1. **alias_overlap (AUROC 0.518 pooled) and entity_head_consistency (0.598 pooled) are essentially random discriminators.** Computed cost paid every query, zero signal returned. Phase 1c P1 drops both from `COMPOSITE_SIGNALS`, retains computation for log-keeping; `BENCHMARK_SIGNAL_MASKS` empties (FEVER no longer needs masking once these signals are gone).
+2. **Directional p_ground_max for FEVER NEI samples returned `max(pos_max, neg_max)` regardless of correctness.** AUROC 0.529 on FEVER NEI (random); em=1 mean 0.578 vs em=0 mean 0.555. Phase 1c P2 patches the NEI branch to certainty-of-uncertainty (same family as p_ground_mean): `1 − decay·max(|pos_max−0.5|, |neg_max−0.5|)`.
+3. **Per-bench composite at 500 cal-fold samples overfits on weak-signal benches.** TruthfulQA u_stored AUROC regressed v1 0.645 → v2.1 0.592; StrategyQA 0.573 → 0.512. Phase 1c P3a adds a James-Stein style shrinkage prior toward pooled fit (default α=0.6), blending each per-bench knot_y with `pooled.predict(knot_x)` at fit time. New `composite_shrinkage_alpha` config field.
+4. **The conformal storage gate's marginal-coverage guarantee broke on our cal/eval distribution shift** (15–50pp empirical, TriviaQA τ→1 collapse, CSQA cal-precision 96% → eval near-random, fitted Option-A hybrid shipped *fewer* correct memories than the unfit bootstrap defaults). Phase 1c P0' replaces the conformal gate entirely with a fixed threshold on the calibrated composite probability: STORE iff `u_stored ≥ τ_store` with `τ_store=0.65` initial, then dropped to `τ_store=0.60` (Option 4) after the cycle-0 threshold sweep showed 0.60 sits on the precision cliff (4.5× more correct memories than τ=0.65 at the same per-store precision).
+
+A bench-agnostic hard share cap was also added (P3b): `pool_max_share=0.40` ensures no single benchmark exceeds 40% of the SIL training pool, future-proofing against panel growth (a hypothetical 4th training bench shipping more than FEVER would have escaped the soft temperature smoothing alone).
+
+### Cycle-0 measurement (Phase 1c, after Option 4 + P3b)
+
+| | Pre-Phase-1c (Option-A hybrid) | Phase 1c τ=0.65 | Phase 1c τ=0.60 (shipped) |
+|---|---:|---:|---:|
+| Total stores | 168 | 105 | **478** |
+| Correct stores | 107 | 70 | **306** |
+| Pooled u_stored AUROC (training) | 0.627 | 0.653 | 0.653 |
+| FEVER:other ratio (cycle 0 stored pool) | 1.8:1 | 0.57:1 | 0.53:1 |
+| Per-bench (FEVER / TQA / CSQA / TruthfulQA / StrategyQA) | 108/3/55/0/2 | 38/2/58/0/7 | **165/5/292/0/16** |
+
+The strict P4 pass criteria (pooled u_stored AUROC ≥ 0.70, gen→final gap ≤ 20pp) FAIL on Phase 1c — gen→final gap stays ~44pp, AUROC moves +0.026. The shipped trajectory accepts these as honest empirical numbers; cycle-level fixes #3 (loss-reweighted SIL pool with shrinkage), #4 (multi-modal retention probe at 0.93 halt), and #8 (LoRA SIL primitive) remain untested and are what step_7_main exercises.
+
+### Code surface
+
+* Removed (clean delete, no fallbacks): `caem/verification/conformal_gate.py`, `scripts/fit_conformal_gate.py`, `scripts/recalibrate_conformal_at_cycle.py`, `scripts/per_bench_alpha_decision_table.py`, `scripts/sweep_alpha_v21.py`, `scripts/sweep_per_bench_alpha_v21.py`, `scripts/sweep_composite_variants.py`, `scripts/conditional_conformal_ablation.py`, `scripts/calibrate_thresholds.py`, `scripts/recalibrate_thresholds_at_cycle.py`, `tests/test_conformal_gate.py`. Net deletion ≈ 2,800 lines.
+* Updated: `caem/verification/cal_prob_composite.py` (P1 + P3a), `caem/verification/directional_p_ground.py` (P2), `caem/verification/verifier.py` (P0' — drop `_init_conformal_gate`, simplify `_decide`, simplify `reload_calibration`), `caem/config.py` (drop `conformal_alpha_*`, drop `conformal_gate_path`, add `composite_shrinkage_alpha`, `pool_reweighting_max_share`; lower `store_threshold` to 0.60), `caem/training/pool_reweighting.py` (P3b iterative water-fill cap), `caem/training/self_improvement.py` (pass-through), `scripts/run_experiment.py` (replace `run_per_cycle_threshold_refit` + `run_per_cycle_conformal_refit` with `run_per_cycle_composite_refit`), `scripts/rescore_eval_with_fitted_gate.py` (drop conformal load, inline fixed gate), `scripts/caem_demo_server.py` (drop `--conformal_gate` arg), `scripts/fit_composite_calibration.py` (`--shrinkage_alpha` CLI), `tests/test_alias_overlap.py` + `tests/test_entity_head.py` (assert exclusion), `tests/test_cal_prob_composite.py` (3 shrinkage tests), `tests/test_pool_reweighting.py` (3 share-cap tests), `tests/test_calibration_batch_equivalence.py` (10-signal expectation), `run_phase1a.sh` (drop step_7_0_4_alpha_decision_table, repurpose step_7_0_3 as informational audit, drop legacy threshold CLI args from step_7_main).
+
+### Disk + archive
+
+Cycle-0 failed-experiment artifacts + alpha sweep + eval_rescored backup + pre-Phase-1c composite + obsolete conformal_gate.json + per_bench_alpha_search archived to `gdrive:caem-phase1a/archive_phase1c_2026-05-09/` (8 bundles + README). Local `outputs/` reduced from 69M to 33M; `v1_archive_diagnostic/` (32M cache of `gdrive:caem-phase1a/archive_v1/full_run/`) deleted locally.
+
+### Commits past tag `pre-phase1c-2026-05-09`
+
+* `09c4ad5` P1 + P2 (drop dead signals + FEVER NEI directional fix)
+* `302545d` P3a (shrinkage prior)
+* `aa8d8f6` P0' core (replace conformal gate with fixed threshold)
+* `818c6c5` P0' deletes (stage removed scripts/files)
+* `8eb1048` P3b + Option 4 (share cap + τ=0.60)
+* `14398c7` runbook fix (drop stale calibrated_thresholds.json read)
+
+### Trajectory launched
+
+`bash run_phase1a.sh` re-entered step_7_main at 19:43 UTC (BDT 01:43 May 10) in tmux plan_a. Wall-time estimate 7–8 days; cron job `bc79edc9` reports hourly. Fallback to v2.1 hybrid via `git reset --hard pre-phase1c-2026-05-09 && git push --force-with-lease` if the trajectory regresses.
+
+### Phase 2.1 theorem-rewrite implications
+
+* The conformal-coverage citation chain (Vovk; Bates 2021; Mohri-Hashimoto 2024; Cherian-Gibbs-Candès 2024; Angelopoulos 2024) reduces from "deployed gate" to "considered but rejected on empirical grounds (cal/eval shift broke exchangeability at our 500/bench cal-fold)". Replacement citations: Niculescu-Mizil & Caruana 2005 (isotonic calibration); Detommaso 2024 (multicalibration without coverage); Geifman & El-Yaniv 2017 (selective classification + threshold).
+* Theorem C7 in Ch4 §11 rephrases from "marginal-coverage 1−α" to "as cal-fold size grows, expected stored-set precision E[em | u_stored ≥ τ] = τ" (calibration consistency). Empirical-precision audit becomes the per-cycle compliance check (was conformal recalibration).
+* Ch4 §6 + §7 + §11 + Ch5 §5.4 ablation table need light edits when the trajectory closes; deferred to Phase 2.1 rewrite.
+
