@@ -337,121 +337,34 @@ def run_calibration_step(
         )
 
 
-def run_per_cycle_threshold_refit(
+def run_per_cycle_composite_refit(
     config,
     output_dir: Path,
     cycle: int,
 ) -> None:
-    """Optional per-cycle u_stored threshold re-fit with EMA smoothing.
+    """Per-cycle CalProbComposite re-fit (Phase 1c).
 
-    Opt-in via CAEMConfig.adaptive_thresholds_per_cycle (default False).
-    Mirrors the per-cycle T re-fit pattern, but for the storage gate
-    thresholds. Reads the cycle's calibration JSONs (same disjoint slice
-    used for T re-fit), refits via quantile cuts, EMA-smooths with the
-    previous cycle's thresholds, writes calibrated_thresholds_cycle{N}.json.
+    At each cycle boundary, refits the per-signal isotonic curves
+    (per-benchmark with shrinkage prior toward pooled, P3a) on this
+    cycle's calibration fold and writes ``cycle_{N}/composite_calibration.json``.
+    The fitted composite is then copied to the canonical path so the
+    verifier picks it up at the next pipeline init or via
+    ``UnifiedVerifier.reload_calibration`` directly.
 
-    Run loop is responsible for loading the most recent thresholds file
-    on resume / next-cycle start (mirrors the T loader at line ~1247).
-
-    No-op when adaptive_thresholds_per_cycle is False (Phase 1a default).
-    """
-    if not getattr(config, "adaptive_thresholds_per_cycle", False):
-        return  # silent no-op for Phase 1a
-
-    import subprocess
-    from pathlib import Path as _Path
-
-    calib_dir = output_dir / "calibration"
-    if cycle == 0:
-        # Cycle 0 thresholds come from Step 7.0.2 calibrate; nothing to refit
-        return
-
-    # Find this cycle's calibration JSONs (mirrors T re-fit's source pool)
-    cycle_calib = sorted((output_dir / f"cycle_{cycle}" / "calibration").glob("*.json"))
-    if not cycle_calib:
-        logger.warning(
-            "Adaptive thresholds: cycle %d calibration fold not found; skipping refit.",
-            cycle,
-        )
-        return
-
-    # Find previous cycle's thresholds for EMA smoothing
-    prev_thresholds = None
-    for prev_cycle in range(cycle - 1, -1, -1):
-        candidate = output_dir / f"cycle_{prev_cycle}" / "calibrated_thresholds.json"
-        if candidate.exists():
-            prev_thresholds = candidate
-            break
-    if prev_thresholds is None:
-        # Fall back to Step 7.0.2 baseline
-        candidate = _Path("outputs/cycle_0/calibrated_thresholds.json")
-        if candidate.exists():
-            prev_thresholds = candidate
-
-    out = output_dir / f"cycle_{cycle}" / "calibrated_thresholds.json"
-    out.parent.mkdir(parents=True, exist_ok=True)
-    cmd = [
-        "python", "scripts/recalibrate_thresholds_at_cycle.py",
-        "--calib_jsons", *[str(p) for p in cycle_calib],
-        "--output_json", str(out),
-        "--ema_alpha", str(getattr(config, "adaptive_thresholds_ema_alpha", 0.7)),
-    ]
-    if prev_thresholds is not None:
-        cmd.extend(["--previous_thresholds", str(prev_thresholds)])
-
-    logger.info("Cycle %d: per-cycle threshold re-fit (adaptive mode ON).", cycle)
-    try:
-        subprocess.run(cmd, check=True)
-        # Update in-memory config so the next cycle sees new thresholds
-        with open(out) as f:
-            d = json.load(f)
-        t = d["thresholds"]
-        config.store_threshold = t["store"]
-        config.defer_threshold = t["defer"]
-        config.train_threshold = t["train"]
-        logger.info(
-            "Adaptive thresholds applied: store=%.4f  defer=%.4f  train=%.4f",
-            t["store"], t["defer"], t["train"],
-        )
-    except subprocess.CalledProcessError as exc:
-        logger.warning(
-            "Cycle %d adaptive threshold refit failed (%s); keeping previous thresholds.",
-            cycle, exc,
-        )
-
-
-def run_per_cycle_conformal_refit(
-    config,
-    output_dir: Path,
-    cycle: int,
-) -> None:
-    """Per-cycle CalProbComposite + ConformalStorageGate re-fit (Phase 2.4/2.5).
-
-    Branch C 2026-04-25: companion to ``run_per_cycle_threshold_refit``
-    (which handles the legacy quantile thresholds). At each cycle
-    boundary, refits the per-signal isotonic + Cherian boost composite
-    on this cycle's calibration fold, then refits the conformal split-CP
-    gate at α_store=0.20 / α_defer=0.40 against the rescored fold.
-    EMA-smooths the τ_store and τ_defer values against the previous
-    cycle's gate (alpha=0.7 default) to keep the threshold trajectory
-    stable.
-
-    Verifier reads the latest ``conformal_gate.json`` +
-    ``composite_calibration.json`` at construction time per the dispatch
-    in ``UnifiedVerifier._init_cal_prob_composite`` and
-    ``UnifiedVerifier._init_conformal_gate``. Resume contract: on
-    resume, the run loop loads the most recent cycle's JSONs; if absent,
-    bootstrap-fallback to the legacy fixed-threshold path (same as
-    Cycle-0 before Step 7.0.2 fits).
+    Phase 1c (2026-05-09): the conformal storage gate that was previously
+    refit alongside the composite is no longer present — the gate is now
+    a fixed threshold on the calibrated probability (cfg.store_threshold /
+    cfg.defer_threshold), so there is nothing to refit at the gate layer.
+    The composite refit is the only cycle-boundary calibration step.
 
     No-op if either ``adaptive_thresholds_per_cycle`` is False (Phase 1a
-    legacy mode) or if the composite_calibration.json from Step 7.0.2
+    legacy mode) or if the previous cycle's composite_calibration.json
     isn't present (operator using forced weighted_sum mode).
     """
     if not getattr(config, "adaptive_thresholds_per_cycle", False):
         return  # Phase 1a legacy: no per-cycle refit at all
     if cycle == 0:
-        return  # Cycle 0 is handled by Step 7.0.2 fit_*.py scripts directly
+        return  # Cycle 0 is handled by Step 7.0.1 fit_composite_calibration.py directly
 
     import subprocess
     from pathlib import Path as _Path
@@ -459,112 +372,55 @@ def run_per_cycle_conformal_refit(
     cycle_calib = sorted((output_dir / f"cycle_{cycle}" / "calibration").glob("*.json"))
     if not cycle_calib:
         logger.warning(
-            "Per-cycle conformal refit: cycle %d calibration fold not found; "
-            "skipping (verifier will continue using previous-cycle gate).",
+            "Per-cycle composite refit: cycle %d calibration fold not found; "
+            "skipping (verifier will continue using previous-cycle composite).",
             cycle,
         )
         return
 
-    # Find previous cycle's composite + gate for EMA smoothing
-    prev_composite: Optional[_Path] = None
-    prev_gate: Optional[_Path] = None
-    for prev_cycle in range(cycle - 1, -1, -1):
-        c1 = output_dir / f"cycle_{prev_cycle}" / "composite_calibration.json"
-        c2 = output_dir / f"cycle_{prev_cycle}" / "conformal_gate.json"
-        if c1.exists() and c2.exists():
-            prev_composite = c1
-            prev_gate = c2
-            break
-    # Fall back to Step 7.0.2 baseline (Cycle-0)
-    if prev_composite is None:
-        candidate = _Path("outputs/cycle_0/composite_calibration.json")
-        if candidate.exists():
-            prev_composite = candidate
-    if prev_gate is None:
-        candidate = _Path("outputs/cycle_0/conformal_gate.json")
-        if candidate.exists():
-            prev_gate = candidate
-
-    if prev_composite is None or prev_gate is None:
-        logger.warning(
-            "Per-cycle conformal refit: no previous composite/gate found; "
-            "skipping (Step 7.0.2 must run before Cycle 1)."
-        )
-        return
-
     out_composite = output_dir / f"cycle_{cycle}" / "composite_calibration.json"
-    out_gate = output_dir / f"cycle_{cycle}" / "conformal_gate.json"
     out_composite.parent.mkdir(parents=True, exist_ok=True)
 
-    # Read alpha from the previous gate JSON, not the config default.
-    # Rationale: cycle 0's locked gate was fit at alpha_store=0.05 via the
-    # run_phase1a.sh CLI override (after the 25-variant Step 7.0.3 sweep
-    # selected 0.05 over the dataclass default 0.20). Per-cycle refits MUST
-    # inherit that choice to maintain the thesis 95% precision contract.
-    # Falling back to config default would silently drift to 80% target.
-    try:
-        with open(prev_gate, "r", encoding="utf-8") as _f:
-            _prev = json.load(_f)
-        alpha_store_inherited = float(_prev.get(
-            "alpha_store", getattr(config, "conformal_alpha_store", 0.20)
-        ))
-        alpha_defer_inherited = float(_prev.get(
-            "alpha_defer", getattr(config, "conformal_alpha_defer", 0.40)
-        ))
-    except (OSError, json.JSONDecodeError, ValueError) as _exc:
-        logger.warning(
-            "Per-cycle refit could not read alpha from previous gate (%s); "
-            "falling back to CAEMConfig defaults.", _exc,
-        )
-        alpha_store_inherited = float(getattr(config, "conformal_alpha_store", 0.20))
-        alpha_defer_inherited = float(getattr(config, "conformal_alpha_defer", 0.40))
+    shrinkage_alpha = float(getattr(config, "composite_shrinkage_alpha", 0.6))
 
     cmd = [
-        "python", "scripts/recalibrate_conformal_at_cycle.py",
+        "python", "scripts/fit_composite_calibration.py",
         "--calib_jsons", *[str(p) for p in cycle_calib],
-        "--previous_composite", str(prev_composite),
-        "--previous_gate", str(prev_gate),
-        "--output_composite", str(out_composite),
-        "--output_gate", str(out_gate),
-        "--ema_alpha", str(getattr(config, "adaptive_thresholds_ema_alpha", 0.7)),
-        "--alpha_store", str(alpha_store_inherited),
-        "--alpha_defer", str(alpha_defer_inherited),
+        "--output_json", str(out_composite),
+        "--shrinkage_alpha", str(shrinkage_alpha),
         # MUST pass --cherian_boost + --boost_C 0.01 to match the locked
-        # Step 7.0.1 baseline (composite_calibration.json was fit with both
-        # flags via run_phase1a.sh CLI). Without them the per-cycle refit
-        # produces an identity-mode composite (boost_intercept=0,
-        # boost_weights=None), silently degrading the pipeline. Locked
-        # value of 0.01 selected by 25-variant Step 7.0.3 sweep.
+        # Step 7.0.1 baseline. Without them the per-cycle refit produces
+        # an identity-mode composite (boost_intercept=0, boost_weights=None),
+        # silently degrading the pipeline. Locked value of 0.01 selected by
+        # the 25-variant Step 7.0.3 sweep.
         "--cherian_boost",
         "--boost_C", "0.01",
     ]
 
-    logger.info("Cycle %d: per-cycle CalProbComposite + ConformalGate re-fit.", cycle)
+    logger.info(
+        "Cycle %d: per-cycle CalProbComposite re-fit (shrinkage_alpha=%.2f).",
+        cycle, shrinkage_alpha,
+    )
     try:
         subprocess.run(cmd, check=True)
-        # Also update the canonical paths the verifier reads on init,
-        # so the next cycle's pipeline construction picks up the new
-        # composite + gate. We copy rather than symlink so a partial
-        # failure doesn't leave a dangling pointer.
+        # Also update the canonical path the verifier reads on init, so the
+        # next cycle's pipeline construction picks up the new composite. We
+        # copy rather than symlink so a partial failure doesn't leave a
+        # dangling pointer.
         canonical_composite = _Path(getattr(
             config, "composite_calibration_path",
             "outputs/cycle_0/composite_calibration.json",
         ))
-        canonical_gate = _Path(getattr(
-            config, "conformal_gate_path",
-            "outputs/cycle_0/conformal_gate.json",
-        ))
         import shutil
         shutil.copy(out_composite, canonical_composite)
-        shutil.copy(out_gate, canonical_gate)
         logger.info(
-            "Cycle %d: published cycle composite/gate to canonical paths "
+            "Cycle %d: published cycle composite to canonical path "
             "(verifier will reload on next pipeline init).",
             cycle,
         )
     except subprocess.CalledProcessError as exc:
         logger.warning(
-            "Cycle %d conformal refit failed (%s); keeping previous-cycle gate.",
+            "Cycle %d composite refit failed (%s); keeping previous-cycle composite.",
             cycle, exc,
         )
 
@@ -1795,31 +1651,27 @@ def run_experiment(ns: argparse.Namespace) -> None:
             run_per_cycle_recalibration(
                 pipeline, calib_samples, config, output_dir, cycle=cycle_num,
             )
-            # Step 2.3: Re-fit per-signal isotonic curves + conformal tau
-            # (label-dependent). Reads cycle_{N}/calibration/*.json that
-            # 2.1 just wrote; writes cycle_{N}/composite_calibration.json
-            # and cycle_{N}/conformal_gate.json. Companion legacy quantile
-            # threshold refit runs in parallel (label-free sanity mirror).
-            run_per_cycle_threshold_refit(config, output_dir, cycle=cycle_num)
-            run_per_cycle_conformal_refit(config, output_dir, cycle=cycle_num)
+            # Step 2.3: Re-fit per-signal isotonic curves (Phase 1c — gate
+            # is fixed threshold on calibrated probability, no separate gate
+            # refit). Reads cycle_{N}/calibration/*.json that step 2.1 just
+            # wrote; writes cycle_{N}/composite_calibration.json with the
+            # per-bench shrinkage prior applied.
+            run_per_cycle_composite_refit(config, output_dir, cycle=cycle_num)
 
-            # Step 2.4: Reload the verifier from the cycle-N JSONs so the
-            # retroverify pass below scores memory entries through the
-            # freshly-refit isotonic curves. Without this reload the
-            # verifier still holds the Cycle-0 composite + gate.
+            # Step 2.4: Reload the verifier from the cycle-N composite JSON
+            # so the retroverify pass below scores memory entries through
+            # the freshly-refit isotonic curves. Without this reload the
+            # verifier still holds the previous cycle's composite.
             new_composite = output_dir / f"cycle_{cycle_num}" / "composite_calibration.json"
-            new_gate = output_dir / f"cycle_{cycle_num}" / "conformal_gate.json"
-            if new_composite.exists() and new_gate.exists():
-                pipeline.verifier.reload_calibration(
-                    str(new_composite), str(new_gate),
-                )
+            if new_composite.exists():
+                pipeline.verifier.reload_calibration(str(new_composite))
             else:
                 logger.warning(
-                    "Cycle %d: per-cycle recalibration did not produce composite/gate JSONs "
-                    "(missing %s or %s). Verifier retains the previous cycle's calibration "
+                    "Cycle %d: per-cycle recalibration did not produce composite JSON "
+                    "(missing %s). Verifier retains the previous cycle's calibration "
                     "for retroverify; the cold-seed prune behaviour will follow the "
                     "stale-calibration path documented in Ch5 §Threats.",
-                    cycle_num, new_composite, new_gate,
+                    cycle_num, new_composite,
                 )
 
         # Step 2.5: External retroactive re-verification under the now-
@@ -2240,13 +2092,18 @@ def run_experiment(ns: argparse.Namespace) -> None:
                             )
                             break
                         elif _halt.action == "relax_alpha":
+                            # Phase 1c: the relax_alpha action was specific to
+                            # the conformal gate's α target. Under the fixed-
+                            # threshold gate this branch is informational only;
+                            # the recommended remediation is to lower
+                            # cfg.store_threshold for the affected benchmark
+                            # rather than refit a per-cycle gate JSON.
                             logger.warning(
-                                "Cycle %d: AUTO-RELAX-α RECOMMENDED — %s. "
-                                "Operator should refit cycle_%d/conformal_gate.json "
-                                "with --alpha_store_overrides on the affected "
-                                "benchmarks before cycle %d. Decision JSON: "
+                                "Cycle %d: AUTO-RELAX-THRESHOLD RECOMMENDED — %s. "
+                                "Operator should consider lowering store_threshold "
+                                "before cycle %d. Decision JSON: "
                                 "cycle_%d/halt_decision.json.",
-                                cycle_num, _halt.reason, cycle_num,
+                                cycle_num, _halt.reason,
                                 cycle_num + 1, cycle_num,
                             )
                         else:

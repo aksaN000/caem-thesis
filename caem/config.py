@@ -406,44 +406,41 @@ class CAEMConfig:
     # "cal_prob"      → forced cal-prob (errors if JSON missing)
 
     # Path to per-signal calibration JSON produced by
-    # scripts/fit_composite_calibration.py at Step 7.0.2. Read at
+    # scripts/fit_composite_calibration.py at Step 7.0.1. Read at
     # UnifiedVerifier construction time; gracefully degrades if missing.
     composite_calibration_path: str = "outputs/cycle_0/composite_calibration.json"
 
+    # Phase 1c shrinkage prior toward pooled fit when fitting per-bench
+    # composites. α=1.0 reproduces v2 behaviour (pure per-bench, prone to
+    # overfit on n=500 cal-folds); α=0.0 collapses to pooled. α=0.6 default
+    # keeps moderate per-bench adaptation while regularising weak-signal
+    # benches (TruthfulQA / StrategyQA / CSQA). Used by both the cycle-0
+    # fit_composite_calibration.py invocation and the per-cycle
+    # run_per_cycle_composite_refit() in scripts/run_experiment.py.
+    composite_shrinkage_alpha: float = 0.6
+
     # ------------------------------------------------------------------ #
-    # Conformal storage gate — Branch C 2026-04-25 (Phase 2.4)            #
+    # Storage gate thresholds — Phase 1c (2026-05-09)                     #
     # ------------------------------------------------------------------ #
-    # When the conformal gate JSON is present (fitted by
-    # scripts/fit_conformal_gate.py at Step 7.0.2), the verifier's
-    # _decide() reads τ_store and τ_defer from it instead of from the
-    # static config values below. The α targets define what precision the
-    # fitted thresholds aim to deliver on the calibration fold's em labels:
+    # The four-outcome storage decision is a fixed threshold on the
+    # calibrated composite probability `u_stored = P(em=1 | signals)`:
     #
-    #   α_store = 0.20  →  STORE precision target ≥ 0.80
-    #                       (Tier-1 + training-pool eligible band)
-    #   α_defer = 0.40  →  DEFERRED precision target ≥ 0.60
-    #                       (memory only, retroverify queue)
+    #   u_stored ≥ store_threshold       → STORE
+    #   defer_threshold ≤ u_stored < store_threshold → DEFERRED
+    #   u_stored < defer_threshold AND
+    #     p_ground_max < abstain_pground_ceiling     → ABSTAIN
+    #   else                              → DISCARD
     #
-    # Bootstrap: at Cycle 0 the JSON is absent; the verifier falls back to
-    # the legacy fixed thresholds (store_threshold, defer_threshold). Once
-    # Step 7.0.2 fits and writes the JSON, subsequent cycles use the
-    # conformal-calibrated thresholds.
-    conformal_gate_path: str = "outputs/cycle_0/conformal_gate.json"
-    # Locked at 0.05 from the 25-variant Step 7.0.3 sweep (was 0.20 default;
-    # 25-variant sweep showed alpha=0.20 only delivered ~71% pooled eval
-    # precision, alpha=0.05 selected as best-on-eval-ID-precision). The
-    # per-cycle conformal refit inherits this from prev_gate JSON, but this
-    # config default is the belt-and-suspenders fallback if the inheritance
-    # path ever fails to read the previous gate.
-    conformal_alpha_store: float = 0.20  # v2.1 2026-05-09: relaxed from 0.05.
-    # Cycle-0 fit at α=0.05 produced near-degenerate output on the v2.1
-    # 3-bench training panel (cal Cohen's d 0.605 but eval STORE precision
-    # 57-62%). Decision gate FAILED on FEVER STORE-DISCARD gap=−0.004 and
-    # poisoning 35-43%. At α=0.20 (80% precision target) the Bayes-floor
-    # inequality is reachable by the locked verifier on all three training
-    # benches. Per-cycle recalibrate_conformal_at_cycle.py already defaults
-    # to α=0.20, so the runtime fallback now matches the per-cycle refit.
-    conformal_alpha_defer: float = 0.40
+    # Defaults are set on `store_threshold` / `defer_threshold` further up
+    # this config block. The conformal-gate layer that previously fitted
+    # τ_store/τ_defer per cycle (Phase 2.4 split-CP, NeurIPS-style marginal
+    # coverage) was removed in Phase 1c after the v2.1 cycle-0 diagnostic
+    # showed cal/eval exchangeability violations broke the marginal-coverage
+    # guarantee in practice (TriviaQA τ→1 collapse, CSQA cal-fold-precision
+    # 96% → eval-fold near-random). Per-cycle composite refit (with the
+    # shrinkage prior toward pooled, P3a) keeps u_stored calibrated under
+    # SIL-induced model drift, so a fixed τ on the calibrated probability
+    # stays meaningful across cycles without per-cycle gate refitting.
 
     # ------------------------------------------------------------------ #
     # Atomic decomposition scope — Branch C 2026-04-25 (Phase 2.3)        #

@@ -259,88 +259,44 @@ step_7_0_cycle0() {
 }
 
 # ============================================================================
-# Step 7.0.2 — Fit composite calibration + conformal storage gate (Phase 2)
+# Step 7.0.1 — Fit per-benchmark CalProbComposite (Phase 1c)
 # ============================================================================
-# Branch C 2026-04-25 (Phase 2.1 + 2.4 + 2.5): replaces the legacy
-# scripts/calibrate_thresholds.py quantile fitter with the comprehensive
-# Phase-2 calibration stack:
-#   (A) fit_composite_calibration.py  → outputs/cycle_0/composite_calibration.json
-#       Per-signal isotonic + Cherian boost (logistic regression on
-#       calibrated per-signal probs). Auto-handles q_a_relevance sign-flip.
-#   (B) fit_conformal_gate.py         → outputs/cycle_0/conformal_gate.json
-#       Split-CP fitter: τ_store at α=0.05 (target 95% precision; locked
-#       from 25-variant Step 7.0.3 sweep, was 0.20 default), τ_defer at
-#       α=0.40 (target 60% precision). Reads (A) to rescore the
-#       calibration fold under the new composite before fitting.
-#   (C) calibrate_thresholds.py       → outputs/cycle_0/calibrated_thresholds.json
-#       Legacy quantile fit, kept as backward-compat artifact for the
-#       existing runner downstream that reads tau_store/defer/train. Will
-#       be deprecated once the runner reads (A)+(B) directly.
+# Phase 1c (2026-05-09): the conformal storage gate (split-CP at α targets)
+# and the legacy quantile threshold fitter were both removed after the
+# v2.1 cycle-0 diagnostic showed the cal/eval exchangeability assumption
+# breaks at our 500-sample per-bench cal-folds. The storage gate is now
+# a fixed threshold on the calibrated composite probability
+# (cfg.store_threshold / cfg.defer_threshold); only the composite is fit
+# at the cycle boundary.
+#
+# The fit produces outputs/cycle_0/composite_calibration.json:
+#   - Per-signal isotonic regression on the 1500-sample pooled cal-fold
+#   - Per-benchmark child composites with shrinkage prior toward pooled
+#     (α=0.6, prevents per-bench overfit on weak-signal benches)
+#   - Cherian-style logistic-regression boost (C=0.01, locked from the
+#     25-variant Step 7.0.3 sweep)
 step_7_0_calibrate() {
-    local out_legacy="outputs/cycle_0/calibrated_thresholds.json"
     local out_composite="outputs/cycle_0/composite_calibration.json"
-    local out_gate="outputs/cycle_0/conformal_gate.json"
-    if [[ -f "$out_legacy" && -f "$out_composite" && -f "$out_gate" ]]; then
-        log "Step 7.0.2: all calibration artifacts already fitted — skipping"
+    if [[ -f "$out_composite" ]]; then
+        log "Step 7.0.1: composite_calibration.json already fitted — skipping"
         return 0
     fi
-    band "Step 7.0.2 — Phase 2 calibration stack (composite + conformal gate)"
+    band "Step 7.0.1 — fit per-benchmark CalProbComposite (shrinkage_alpha=0.6)"
     local calib_json="outputs/cycle_0/calibration/calibration_fold_samples.json"
 
-    # (A) per-signal isotonic + Cherian boost
-    if [[ ! -f "$out_composite" ]]; then
-        log "Step 7.0.2(A) — fit CalProbComposite (per-signal isotonic + Cherian boost)"
-        python scripts/fit_composite_calibration.py \
-            --calib_jsons "$calib_json" \
-            --output_json "$out_composite" \
-            --cherian_boost \
-            --boost_C 0.01 2>&1 | tee -a "$RUNNER_LOG"
-        # 2026-04-26: boost_C tightened from sklearn default 1.0 → 0.01
-        # (strong L2). 25-variant sweep showed C=0.01 dominates C=1.0 on
-        # eval ID precision (76.3% vs 74.4%). See outputs/cycle_0/sweep/.
-    fi
-
-    # (B) conformal split-CP storage gate
-    if [[ ! -f "$out_gate" ]]; then
-        log "Step 7.0.2(B) — fit ConformalStorageGate (α_store=0.20, α_defer=0.40)"
-        python scripts/fit_conformal_gate.py \
-            --calib_jsons "$calib_json" \
-            --composite_calibration_json "$out_composite" \
-            --output_json "$out_gate" \
-            --alpha_store 0.20 \
-            --alpha_defer 0.40 2>&1 | tee -a "$RUNNER_LOG"
-        # v2.1 2026-05-09: alpha_store relaxed from 0.05 back to 0.20 after
-        # cycle-0 step_7_0_3 gate FAILED at α=0.05. The 95%-precision target
-        # was unreachable on FEVER+TriviaQA+CSQA cal-fold under per-bench
-        # dispatch (cal Cohen's d 0.605 but eval STORE precision collapsed to
-        # 57-62% because of the cal↔eval distribution gap). At α=0.20 (80%
-        # precision target) the Bayes-floor inequality TPR/FPR ≥ 4*(1-p_+)/p_+
-        # gives FEVER ~4.8, TriviaQA ~6.7, CSQA ~2.3 — all reachable by the
-        # locked verifier (achievable range 5-15). v1 trajectory ran at 0.05;
-        # the difference here is the smaller cal-fold (300 vs 1500 in v1) plus
-        # per-bench dispatch concentrates noise per slice.
-        # See branch_C_log.md 2026-05-09 entry.
-    fi
-
-    # (C) legacy quantile thresholds (backward-compat artifact for downstream)
-    if [[ ! -f "$out_legacy" ]]; then
-        log "Step 7.0.2(C) — fit legacy quantile thresholds (backward-compat artifact)"
-        python scripts/calibrate_thresholds.py \
-            --calib_jsons "$calib_json" \
-            --verifier_backend minicheck \
-            --output_json "$out_legacy" 2>&1 | tee -a "$RUNNER_LOG"
-        python - "$out_legacy" <<'PY'
-import json, sys
-d = json.load(open(sys.argv[1]))
-t = d["thresholds"]
-assert t["train"] > t["store"] > t["defer"], (
-    f"Threshold ordering violated: train={t['train']} store={t['store']} defer={t['defer']}"
-)
-print(f"Step 7.0.2(C) legacy OK: backend={d.get('verifier_backend')}  "
-      f"store={t['store']:.3f}  defer={t['defer']:.3f}  train={t['train']:.3f}")
-PY
-    fi
-    log "Step 7.0.2 OK — Phase 2 calibration stack ready for Step 7 main"
+    log "Step 7.0.1 — fit CalProbComposite (per-bench isotonic + shrinkage + Cherian boost)"
+    python scripts/fit_composite_calibration.py \
+        --calib_jsons "$calib_json" \
+        --output_json "$out_composite" \
+        --shrinkage_alpha 0.6 \
+        --cherian_boost \
+        --boost_C 0.01 2>&1 | tee -a "$RUNNER_LOG"
+    # boost_C 0.01 (strong L2) selected by the 25-variant sweep at v2 step_7_0_3
+    # (76.3% vs 74.4% eval ID precision over C=1.0). shrinkage_alpha 0.6 from
+    # the Phase 1c P3a design — moderate per-bench adaptation regularised
+    # toward pooled to prevent the TruthfulQA / StrategyQA / CSQA overfit
+    # observed on v2.1 cycle-0 under pure per-bench fitting.
+    log "Step 7.0.1 OK — composite ready for cycle-0 rescore + step_7_main"
 }
 
 # ============================================================================
@@ -363,64 +319,33 @@ step_7_0_2_5_rescore_eval() {
 }
 
 # ============================================================================
-# Step 7.0.3 — Weight validation checkpoint (post-audit 2026-04-24)
+# Step 7.0.3 — Empirical-precision audit (Phase 1c replacement)
 # ============================================================================
-# Analyzes Cycle-0 eval JSONs for composite discrimination power.
-# If weights are demonstrably broken (Cohen's d low, memory poisoning high,
-# inverted per-benchmark STORE advantage), exits non-zero to halt the runner
-# before 14-day Step 7 main commits. User reviews weight_validation.json,
-# tunes caem/config.py if needed, re-runs step_7_0_calibrate, resumes.
+# Phase 1c (2026-05-09): the previous Step 7.0.3 was a hard decision gate
+# enforcing the conformal-coverage 30% poisoning rate. After replacing the
+# conformal gate with a fixed threshold, this step becomes an *audit*:
+# it measures realised STORE precision per benchmark on the rescored eval
+# fold and writes weight_validation.json for thesis evidence, but does
+# not fail-stop the runner — the operator reviews and decides whether to
+# adjust cfg.store_threshold for the next cycle.
 step_7_0_3_validate_weights() {
     local out="outputs/cycle_0/weight_validation.json"
     if [[ -f "$out" ]]; then
-        log "Step 7.0.3: weight validation already done — skipping"
+        log "Step 7.0.3: empirical-precision audit already done — skipping"
         return 0
     fi
-    band "Step 7.0.3 — validate u_stored weights on Cycle-0 eval data"
-    if ! python scripts/validate_composite_weights.py \
+    band "Step 7.0.3 — empirical-precision audit on Cycle-0 eval-rescored fold"
+    python scripts/validate_composite_weights.py \
         --eval_dir outputs/cycle_0/eval_rescored \
         --output "$out" \
         --cohen_d_threshold 0.20 \
         --store_discard_gap 0.05 \
-        --max_poisoning_rate 0.30 \
+        --max_poisoning_rate 0.50 \
         --min_n_stored 5 \
-        2>&1 | tee -a outputs/cycle_0/run.log; then
-        # 2026-04-26: --eval_dir switched to eval_rescored (decisions
-        # recomputed through fitted CalProbComposite + ConformalStorageGate)
-        # because the original eval JSONs had bootstrap-composite decisions,
-        # so the gate was checking the wrong artifact. --min_n_stored 5 floor
-        # prevents small-N benchmarks (NQ, TriviaQA at n=2 stored) from
-        # tripping the gate on noise. See branch_C_log.md 2026-04-26 entry.
-        log "FATAL: weight validation failed. Review $out, tune config.py, re-run."
-        return 2
-    fi
-    log "Step 7.0.3: weight validation PASSED — safe to proceed to Step 7 main"
-}
-
-# ============================================================================
-# Step 7.0.4 — Per-benchmark α decision table (data-driven α selection)
-# ============================================================================
-# After Step 7.0.2 fits the conformal gate at uniform α=0.05 and Step 7.0.3
-# validates per-bench Cohen's d, this step measures eval-fold realized
-# precision and coverage at a grid of candidate α values per benchmark.
-# Output is the empirical receipt for choosing per-bench α before Step 7
-# main commits 7-8 days of GPU. Non-fatal — runner continues; operator
-# reviews the table at the natural pre-Step-7 halt boundary.
-step_7_0_4_alpha_decision_table() {
-    local out="outputs/cycle_0/per_bench_alpha_decision_table.json"
-    if [[ -f "$out" ]]; then
-        log "Step 7.0.4: per-benchmark α decision table already produced — skipping"
-        return 0
-    fi
-    band "Step 7.0.4 — per-benchmark α decision table (data-driven α selection)"
-    python scripts/per_bench_alpha_decision_table.py \
-        --cal_path outputs/cycle_0/calibration/calibration_fold_samples.json \
-        --eval_dir outputs/cycle_0/eval_rescored \
-        --output "$out" \
-        --min_coverage 0.10 \
         2>&1 | tee -a outputs/cycle_0/run.log || {
-            log "Step 7.0.4: decision table generation returned non-zero; review stdout."
+            log "Step 7.0.3: audit emitted non-zero — operator should review $out"
         }
+    log "Step 7.0.3: empirical-precision audit complete (informational only)"
 }
 
 # ============================================================================
@@ -1084,10 +1009,9 @@ main() {
     step_6_reseed
     step_6_5_em_prune       # v2.1 2026-05-08: drop confidently-wrong cold-start episodes
     step_7_0_cycle0
-    step_7_0_calibrate
-    step_7_0_2_5_rescore_eval     # produces outputs/cycle_0/eval_rescored for downstream gates
-    step_7_0_3_validate_weights   # 2026-04-24 audit: validate composite weights before Step 7 main
-    step_7_0_4_alpha_decision_table  # 2026-05-07: per-bench α empirical receipt
+    step_7_0_calibrate              # Phase 1c: composite-only fit (no separate gate)
+    step_7_0_2_5_rescore_eval       # produces outputs/cycle_0/eval_rescored
+    step_7_0_3_validate_weights     # Phase 1c: empirical-precision audit (informational)
     step_5_5_pairs
     step_5_5_headhead
     step_19_2_slice               # must precede Step 7

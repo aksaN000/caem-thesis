@@ -2,30 +2,36 @@
 """
 scripts/rescore_eval_with_fitted_gate.py
 =========================================
-Re-score Cycle-0 eval JSONs through the FITTED CalProbComposite +
-ConformalStorageGate to produce a defensible post-fit validation view.
+Re-score Cycle-0 eval JSONs through the FITTED CalProbComposite + the
+fixed-threshold storage gate to produce a defensible post-fit validation view.
 
 Why this exists
 ---------------
 ``scripts/validate_composite_weights.py`` reads ``decision`` and
 ``u_stored`` directly from cycle_0/eval/*.json. Those values were written
-during the eval pass BEFORE step 7.0.1/0.2 fitted the new composite, so
-the validate script ends up checking the BOOTSTRAP composite's STORE
-decisions rather than the fitted ones. After step 7.0.1/0.2 land
-``composite_calibration.json`` + ``conformal_gate.json``, this script
-re-applies them to every eval sample and writes a parallel directory
-of rescored eval JSONs.
+during the eval pass BEFORE step 7.0.1 fitted the new composite, so the
+validate script ends up checking the BOOTSTRAP composite's STORE decisions
+rather than the fitted ones. After step 7.0.1 lands ``composite_calibration.json``,
+this script re-applies it to every eval sample (with the fixed-threshold
+gate from CAEMConfig.store_threshold / defer_threshold) and writes a
+parallel directory of rescored eval JSONs.
+
+Phase 1c (2026-05-09): the conformal storage gate has been replaced by a
+fixed threshold on the calibrated composite probability. Gate parameters
+come from CAEMConfig (store_threshold, defer_threshold, abstain_pground_ceiling)
+instead of a per-cycle conformal_gate.json.
 
 Inputs
 ------
-- outputs/cycle_0/eval/*.json (original eval, with all 9 signals + bootstrap u_stored)
+- outputs/cycle_0/eval/*.json (original eval, with all 10 signals + bootstrap u_stored)
 - outputs/cycle_0/composite_calibration.json (fitted CalProbComposite)
-- outputs/cycle_0/conformal_gate.json (fitted ConformalStorageGate)
+- CAEMConfig defaults for tau_store / tau_defer / abstain_pground_ceiling
 
 Outputs
 -------
 - outputs/cycle_0/eval_rescored/*.json — per-sample u_stored + decision
-  recomputed through the fitted gate. Other fields preserved verbatim.
+  recomputed through the fitted composite + fixed gate. Other fields
+  preserved verbatim.
 - Stdout summary: per-benchmark STORE counts and precision under fitted gate.
 
 Usage
@@ -49,28 +55,29 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 EVAL_SRC = REPO_ROOT / "outputs" / "cycle_0" / "eval"
 EVAL_DST = REPO_ROOT / "outputs" / "cycle_0" / "eval_rescored"
 COMPOSITE_JSON = REPO_ROOT / "outputs" / "cycle_0" / "composite_calibration.json"
-GATE_JSON = REPO_ROOT / "outputs" / "cycle_0" / "conformal_gate.json"
 
 
 def main() -> int:
     if not COMPOSITE_JSON.exists():
         print(f"[error] {COMPOSITE_JSON} not found", file=sys.stderr)
         return 1
-    if not GATE_JSON.exists():
-        print(f"[error] {GATE_JSON} not found", file=sys.stderr)
-        return 1
     if not EVAL_SRC.exists():
         print(f"[error] {EVAL_SRC} not found", file=sys.stderr)
         return 1
 
+    from caem.config import CAEMConfig
     from caem.verification.cal_prob_composite import CalProbComposite
-    from caem.verification.conformal_gate import ConformalStorageGate
 
     composite = CalProbComposite.load(COMPOSITE_JSON)
-    gate = ConformalStorageGate.load(GATE_JSON)
+    cfg = CAEMConfig()
+    tau_store = cfg.store_threshold
+    tau_defer = cfg.defer_threshold
+    abstain_pg = cfg.abstain_pground_ceiling
     print(
-        f"[info] loaded composite ({len(composite.calibrations)} signals, boost={composite.boost_weights is not None}) "
-        f"and gate (τ_store={gate.tau_store:.4f}, τ_defer={gate.tau_defer:.4f})"
+        f"[info] loaded composite ({len(composite.calibrations)} signals, "
+        f"boost={composite.boost_weights is not None}); "
+        f"fixed gate τ_store={tau_store:.4f}, τ_defer={tau_defer:.4f}, "
+        f"abstain_pg={abstain_pg:.3f}"
     )
 
     EVAL_DST.mkdir(parents=True, exist_ok=True)
@@ -97,6 +104,9 @@ def main() -> int:
             # miss the cal-fold writer had. Without source_benchmark, predict()
             # also fell back to the pooled global composite, bypassing the
             # per-benchmark KEYSTONE dispatch.
+            # Phase 1c: 10 signals fed to the composite (alias_overlap and
+            # entity_head_consistency dropped after AUROC-diagnostic showed
+            # they were essentially random, P1).
             sig = {
                 "u_token":         float(s.get("u_token", 0.5) or 0.5),
                 "u_dropout":       float(s.get("u_dropout", 0.5) or 0.5),
@@ -108,19 +118,20 @@ def main() -> int:
                 "p_ground_mean":   float(s.get("p_ground_mean", 0.5) or 0.5),
                 "p_ground_atomic": float(s.get("p_ground_atomic", 0.5) or 0.5),
                 "q_a_relevance":   float(s.get("q_a_relevance", 0.5) or 0.5),
-                "alias_overlap":   float(s.get("alias_overlap", 0.5) or 0.5),
-                "entity_head_consistency": float(s.get("entity_head_consistency", 0.5) or 0.5),
             }
             new_u_stored = composite.predict(sig, source_benchmark=bench)
-            # Conformal gate signature: decide(u_stored, p_ground_max, abstain_pg)
-            # abstain_pg is the abstention p_ground threshold used in the
-            # legacy decision tree; we pass p_ground_max as a benign default
-            # (the gate uses u_stored and tau_store as primary).
-            decision, _abstained = gate.decide(
-                u_stored=new_u_stored,
-                p_ground_max=sig["p_ground_max"],
-                abstain_pg=sig["p_ground_max"],
-            )
+            # Fixed-threshold gate: same four-outcome decision tree as in
+            # UnifiedVerifier._decide(). Inlined here so this rescore script
+            # doesn't depend on a verifier instance (no GPU needed).
+            pgm = sig["p_ground_max"]
+            if new_u_stored >= tau_store:
+                decision = "STORE"
+            elif new_u_stored >= tau_defer:
+                decision = "DEFERRED"
+            elif pgm < abstain_pg:
+                decision = "ABSTAIN"
+            else:
+                decision = "DISCARD"
 
             # Preserve original sample, override u_stored + decision.
             new_s = dict(s)
@@ -147,9 +158,10 @@ def main() -> int:
         out_doc["samples"] = rescored
         out_doc["_rescored"] = {
             "composite_calibration_json": str(COMPOSITE_JSON.relative_to(REPO_ROOT)),
-            "conformal_gate_json": str(GATE_JSON.relative_to(REPO_ROOT)),
-            "tau_store": gate.tau_store,
-            "tau_defer": gate.tau_defer,
+            "gate_type": "fixed_threshold_on_calibrated_probability",
+            "tau_store": tau_store,
+            "tau_defer": tau_defer,
+            "abstain_pground_ceiling": abstain_pg,
         }
         dst_path = EVAL_DST / src_path.name
         with open(dst_path, "w") as f:
@@ -159,8 +171,8 @@ def main() -> int:
     # Print summary.
     print()
     print("=" * 78)
-    print(f"Rescored eval through fitted CalProbComposite + ConformalStorageGate")
-    print(f"  τ_store={gate.tau_store:.4f}  τ_defer={gate.tau_defer:.4f}")
+    print(f"Rescored eval through fitted CalProbComposite + fixed-threshold gate")
+    print(f"  τ_store={tau_store:.4f}  τ_defer={tau_defer:.4f}")
     print("=" * 78)
     print(f"{'benchmark':<22}{'n':>6}{'STORE':>8}{'correct':>10}{'precision':>12}")
     print("-" * 78)
