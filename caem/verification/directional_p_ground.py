@@ -229,8 +229,19 @@ class DirectionalScorer:
             # (otherwise stronger decay: 1 - 4·max).
             decay = 4.0 if strongest_direction > 0.10 else 2.0
             p_ground_mean = float(np.clip(1.0 - decay * strongest_direction, 0.0, 1.0))
-            # For the MAX, use the symmetric peak of either direction.
-            p_ground_max = float(np.clip(max(pos_max, neg_max), 0.0, 1.0))
+            # P2 FIX 2026-05-09: apply the same certainty-of-uncertainty
+            # treatment to p_ground_max as p_ground_mean. The previous
+            # max(pos_max, neg_max) collapsed to "high regardless of
+            # correctness" — em=1 mean 0.578, em=0 mean 0.555 on v1 cycle-0
+            # FEVER, AUROC 0.529 (random). Use the strongest peak's distance
+            # from 0.5 as the certainty signal: genuine NEI (both peaks near
+            # 0.5) → high p_ground_max; defensive NEI (one peak far from 0.5)
+            # → low p_ground_max. Same decay schedule as p_ground_mean.
+            cert_pos_peak = abs(pos_max - 0.5)
+            cert_neg_peak = abs(neg_max - 0.5)
+            strongest_peak = max(cert_pos_peak, cert_neg_peak)
+            decay_peak = 4.0 if strongest_peak > 0.10 else 2.0
+            p_ground_max = float(np.clip(1.0 - decay_peak * strongest_peak, 0.0, 1.0))
             return (p_ground_max, p_ground_mean)
 
         return None

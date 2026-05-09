@@ -165,10 +165,13 @@ def test_unified_verifier_output_carries_entity_head_consistency():
     assert vout2.entity_head_consistency == 0.91
 
 
-def test_composite_signals_includes_entity_head_consistency():
+def test_composite_signals_excludes_entity_head_consistency():
+    """Phase 1c (2026-05-09): entity_head_consistency is computed and logged
+    but NOT fed to the composite. Pooled AUROC 0.598 on v2.1 cycle-0 — barely
+    above random."""
     from caem.verification.cal_prob_composite import COMPOSITE_SIGNALS
-    assert "entity_head_consistency" in COMPOSITE_SIGNALS, (
-        f"COMPOSITE_SIGNALS missing entity_head_consistency; "
+    assert "entity_head_consistency" not in COMPOSITE_SIGNALS, (
+        f"COMPOSITE_SIGNALS unexpectedly contains entity_head_consistency; "
         f"got {COMPOSITE_SIGNALS}"
     )
 
