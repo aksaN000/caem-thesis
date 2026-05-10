@@ -1108,6 +1108,15 @@ class SelfImprovementLoop:
                 if hasattr(self.model, "config") and hasattr(self.model.config, "use_cache"):
                     prev_use_cache = self.model.config.use_cache
                     self.model.config.use_cache = False
+                # PEFT + gradient checkpointing: the frozen base model's
+                # inputs have no grad-bearing path to the adapter, so the
+                # checkpointed forward produces tensors with empty autograd
+                # graphs and loss.backward() raises "element 0 ... does not
+                # require grad". enable_input_require_grads() hooks the
+                # input embedding to require_grad on output, restoring the
+                # path. No-op on plain transformers models without PEFT.
+                if hasattr(self.model, "enable_input_require_grads"):
+                    self.model.enable_input_require_grads()
                 logger.info("Gradient checkpointing enabled for SIL fine-tune.")
         except Exception as exc:
             logger.debug("Gradient checkpointing unavailable (%s); continuing.", exc)
