@@ -1,4 +1,4 @@
-﻿"""
+"""
 tests/test_pre_routing.py
 ==========================
 Unit tests for PreRoutingConfidenceEstimator (Stage 3).

@@ -1,4 +1,4 @@
-﻿"""
+"""
 tests/test_router.py
 ====================
 Unit tests for AdaptiveRouter (Stage 3 dispatch).

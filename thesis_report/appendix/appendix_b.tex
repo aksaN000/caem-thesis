@@ -47,17 +47,17 @@ The per-benchmark coverage of the atomic-fact decomposition signal $p_{\text{gro
 \section{Composite weight table}
 \label{app:composite-weights}
 
-The headline composite weight table is reported in \Cref{tab:composite-calibration} in \Cref{ch:evaluation}. The full per-cycle re-calibration of the composite under exponential-moving-average smoothing will be reported in this section once the main-run trajectory lands.
+The headline composite weight table is reported in \Cref{tab:composite-calibration} in \Cref{ch:evaluation}. The full per-cycle re-calibration of the composite (per-signal isotonic curves blended toward the pooled fit through the registered shrinkage prior, plus the boost-layer coefficient refit) will be reported in this section once the main-run trajectory lands; the storage and deferral cut-points themselves stay frozen at the cycle-zero registered values.
 
 \section{Per-benchmark precision-cliff curves}
 \label{app:precision-cliff}
 
-The threshold-versus-precision tradeoff at the locked $\alpha_{\text{store}}=0.05$ band, which licenses the rate-precision frontier discussed in \Cref{sec:disc-sensitivity}, is auto-generated below: \Cref{fig:precision-cliff} renders the curve and \Cref{tab:precision-cliff-data} reports the underlying threshold and precision values.
+The threshold-versus-precision tradeoff at the locked storage cut-point $\tau_{\text{store}}=0.60$, which licenses the rate-precision frontier discussed in \Cref{sec:disc-sensitivity}, is auto-generated below: \Cref{fig:precision-cliff} renders the curve and \Cref{tab:precision-cliff} reports the underlying threshold and precision values.
 
 \begin{figure}[!htbp]
 \centering
 \includegraphics[width=0.85\textwidth]{figures/auto/precision_cliff.pdf}
-\caption{Per-benchmark precision-cliff curves at the locked configuration. Auto-generated from \texttt{outputs/phase4/precision\_cliff.pdf}; the underlying threshold-versus-precision data are in \Cref{tab:precision-cliff-data}.}
+\caption{Per-benchmark precision-cliff curves at the locked configuration. Auto-generated from \texttt{outputs/phase4/precision\_cliff.pdf}; the underlying threshold-versus-precision data are in \Cref{tab:precision-cliff}.}
 \label{fig:precision-cliff}
 \end{figure}
 

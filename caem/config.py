@@ -164,10 +164,14 @@ class CAEMConfig:
     #
     # Populated empirically from the cycle-0 calibration fold by
     # scripts/run_calibration.py (per-benchmark Platt + ECE minimisation
-    # under a closed-form sweep), then EMA-smoothed at every later cycle
-    # boundary (see the per-cycle composite refit at Step 8,
-    # `run_per_cycle_composite_refit` in scripts/run_experiment.py). When
-    # adaptive_thresholds_per_cycle = False these dicts are frozen at the
+    # under a closed-form sweep), then refit at every later cycle boundary
+    # by `run_per_cycle_recalibration` (in scripts/run_experiment.py),
+    # which writes the cycle-N temperature scalar back into this dict
+    # when adaptive_thresholds_per_cycle=True. The composite itself
+    # refits separately under `run_per_cycle_composite_refit` (per-signal
+    # isotonic + per-benchmark shrinkage prior + boost coefficients) and
+    # is independent of these per-benchmark T_b dicts. When
+    # adaptive_thresholds_per_cycle=False these dicts are frozen at the
     # cycle-0 fit.
     #
     # Empty defaults below mean: until cycle-0 calibration writes per-bench
@@ -314,10 +318,15 @@ class CAEMConfig:
     #
     # When ON, run_per_cycle_composite_refit (in scripts/run_experiment.py)
     # runs at every cycle boundary, re-fitting per-signal isotonic curves
-    # on the current cycle's calibration fold and EMA-smoothing with the
-    # previous cycle's values. (Phase 1c replaced the prior conformal
-    # tau_store/tau_defer/tau_train refit with a fixed-threshold gate on
-    # the calibrated composite probability.) This:
+    # on the current cycle's calibration fold, blending each per-benchmark
+    # child curve with the pooled fit through the registered shrinkage
+    # prior, and refitting the boost-layer coefficients on the same fold.
+    # The storage and deferral cut-points themselves stay frozen at the
+    # cycle-zero registered values (cfg.store_threshold / cfg.defer_threshold)
+    # — only the composite refits per cycle. (Phase 1c replaced the prior
+    # conformal tau_store/tau_defer/tau_train refit with this fixed
+    # cut-point + per-cycle composite refit; Phase 1d dropped h_norm
+    # from the composite signal set, leaving 9 signals.) This:
     #   - Auto-tunes to deployment user mix (no source_benchmark needed)
     #   - Maintains constant store rate as model improves cycle-over-cycle
     #   - Matches existing per-cycle T (temperature) re-fit pattern
@@ -331,8 +340,14 @@ class CAEMConfig:
     # quarterly via aggregated user feedback or human-labeled batches.
     # See thesis Ch 6 §Production Deployment.
     adaptive_thresholds_per_cycle: bool = True
-    # EMA smoothing factor: tau_new = alpha * tau_prev + (1-alpha) * tau_fit
-    # Higher alpha = slower drift (more stable). 0.7 is a moderate default.
+    # EMA smoothing factor for the per-cycle temperature scalar refit
+    # (the surviving EMA-smoothed quantity after Phase 1c removed the
+    # conformal-threshold EMA). Read by run_per_cycle_recalibration to
+    # blend the cycle-N fitted T with the previous cycle's value as
+    # T_new = alpha * T_prev + (1-alpha) * T_fit. Higher alpha = slower
+    # drift (more stable); 0.7 is a moderate default. Storage and
+    # deferral cut-points are NOT smoothed — they are frozen architectural
+    # parameters at cfg.store_threshold / cfg.defer_threshold.
     adaptive_thresholds_ema_alpha: float = 0.7
 
     # 2026-04-24: granular T-skip for production deployment.

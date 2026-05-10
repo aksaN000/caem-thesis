@@ -174,7 +174,7 @@ def _latex_table(
         "uniform few-shot scaffolded CoT prompt with forced decoder "
         "prefix (\\textsc{New}, the design adopted in the rest of this "
         "thesis; see Chapter~\\ref{ch:methodology} \\S"
-        "\\ref{sec:implementation}, \\emph{Generator prompt design}). "
+        "\\ref{sec:gen-retrieval}, \\emph{Generator and retrieval substrate}). "
         "Both runs use identical cold-start memory, identical "
         "calibration-fold quantile thresholds, and identical random "
         "seeds. $\\Delta$ columns are \\textsc{New} $-$ \\textsc{Old}. "
