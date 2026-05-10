@@ -1,8 +1,10 @@
-# CAEM Production Plan — v2 (Architectural Redesign)
+# CAEM Production Plan — v2.1 (Architectural Redesign + Phase 1c/1d patch sequence)
 
-**v2 created:** 2026-05-06
-**v1 superseded:** v1 (2026-05-04) was a continuation plan for the broken-architecture trajectory. v2 replaces it with the discovered-failure-mode + architectural-response plan.
-**Source of authority:** `CAEM_FIX_AUDIT.md` (pre-implementation read), `branch_C_log.md` 2026-05-06 entry (failure mode + v2 architecture lock), `outputs/research/agent_research_2026-05-06.md` (literature audit).
+**v2.1 update:** 2026-05-10 (Phase 1a cycle 1 in flight under v2.1+).
+**v2 created:** 2026-05-06.
+**v1 superseded:** v1 (2026-05-04) was a continuation plan for the broken-architecture trajectory. v2 replaced it with the discovered-failure-mode + architectural-response plan.
+**v2.1 supersedes v2 launch-ready state:** the v2 launch-ready architecture (2026-05-07) was hit by a cycle-0 MiniCheck AUROC failure (P0). The Phase 1c sequence (P0', P1, P2, P3a, P3b) restructured the storage gate from per-bench conformal to fixed-threshold-on-calibrated-probability with shrinkage-prior per-bench composite. Phase 1d (Option 4) lowered the gate to 0.60 and rescored cycle 0. Patch 2026-05-10 stopped the canonical composite path being overwritten each cycle close. The architecture decisions block below reflects v2.1 as actually launched.
+**Source of authority:** this file (v2.1) + `branch_C_log.md` 2026-05-06 to 2026-05-10 entries + `CAEM_FIX_AUDIT.md` for the Phase-0 architecture lock. v2 conformal-gate sections in this file are explicitly marked RETIRED below; do not re-introduce.
 
 Mark each step `[x]` once complete. Commit + push after every batch.
 
@@ -38,37 +40,60 @@ v2 deploys 13 coupled fixes targeting these gaps. Architecture is locked. Estima
 
 ---
 
-## Architecture decisions (locked v2)
+## Architecture decisions (locked v2.1)
 
 ```
 Model:               Qwen 2.5-3B-Instruct, no quantization (7B QLoRA registered as Phase 1c future work)
 SIL primitive:       LoRA r=32, α=64, all-linear targets {q,k,v,o,gate,up,down}, LR=2e-4 with cycle decay
                      L2 anchor REMOVED on LoRA path (LoRA's parameter budget IS the implicit anchor)
-Storage gate:        Per-benchmark conformal at α_b
-                     α_FEVER=0.05, α_TQA=0.40 (refit per-cycle), α_HotpotQA=0.05, α_CSQA=0.05
-Composite:           Per-benchmark isotonic + boost, 11 signals (h_norm STAYS RETIRED)
-                     9 base signals + alias_overlap (NEW) + entity_head_consistency (NEW)
-u_pre:               Per-benchmark T_b temperature scaling
-                     Per-benchmark safety_u_pre_min_b (data-driven from cal fold, dual contract: precision ≥ 0.85 AND coverage ≥ 0.40)
+Storage gate:        FIXED THRESHOLD on calibrated probability (Phase 1c P0', 2026-05-09)
+                     store_threshold = 0.60  (Option 4 lock, was 0.65 pre-Phase-1d, task #142)
+                     defer_threshold = 0.45
+                     RETIRED: per-benchmark conformal split-CP gate (v2 launch-ready spec).
+                     Refit-per-cycle was conformal-α; under fixed-threshold this becomes
+                     "empirical precision target", not a coverage-guarantee parameter.
+Composite:           Per-benchmark isotonic + Cherian boost (boost_C=0.01), 9 signals
+                     Signals: u_token, u_dropout, u_internal, s_avg, p_entail,
+                              p_ground_max, p_ground_mean, p_ground_atomic, q_a_relevance
+                     RETIRED (Phase 1c P1, 2026-05-09): alias_overlap, entity_head_consistency
+                     RETIRED (Phase 1d, 2026-05-09): h_norm (≈0 boost weight at cycle 0)
+                     Per-bench shrinkage prior toward pooled fit, shrinkage_alpha = 0.6 (P3a)
+                     Per-bench pool_max_share cap, bench-agnostic (P3b)
+u_pre:               Per-benchmark T_b temperature scaling (Fix 12 retained)
+                     Per-benchmark safety_u_pre_min_b (data-driven from cal fold)
 SIL pool:            Loss reweighting via temperature mixing T=2 + 3× upsampling cap + DoReMi floor + cold-start gold fallback
-                     REMOVE the general-domain mix (1000 hardcoded TriviaQA samples per cycle)
+                     General-domain mix REMOVED (Fix 13)
+                     pool_max_share cap (P3b) prevents single-bench monoculture
 Retention probe:     Multi-modal — MMLU 200 + TriviaQA test 200 + HotpotQA test 200
-                     Halt-and-rollback if ANY probe drops > 7% from pristine
+                     Halt-and-rollback if ANY probe drops > 7% from pristine (forgetting_tolerance=0.93)
 Coverage diag:       Per-benchmark admission rate + pool composition entropy + per-cycle adapter SVD + per-bench EM trajectory
-                     Halt triggers: zero-admission for 2 cycles → auto-relax α_b
+                     Halt triggers: zero-admission for 2 cycles → operator decision (auto-relax retired with conformal)
 Prompts:             Per-benchmark templates with answer-expansion for MCQ; benchmark-conditional verifier dispatch
-                     New: CommonsenseQA 5-choice template, HotpotQA multi-hop template
+                     CommonsenseQA 5-choice template, HotpotQA multi-hop template, FEVER NEI directional fix (P2)
+                     Verifier-input canonicalisation (`Answer: <X>.` form, idempotent), MCQ letter→option-text expansion
 Deferred reconsider: Five-layer hard-fail guard (orchestrator assert + SIL hard-fail + post-cycle log assert + unit test + pre-launch dry-run)
+Cycle-boundary calibration (Phase 1c P0' design):
+                     Step 2.1 — score cal fold under post-SIL model
+                     Step 2.2 — re-fit per-bench u_pre T_b (ECE-min)
+                     Step 2.3 — re-fit per-signal isotonic + Cherian boost, shrinkage_alpha=0.6
+                     Step 2.4 — reload verifier from cycle_{N}/composite_calibration.json
+                     Step 2.5 — retroactive re-verification under recalibrated verifier
+                     Patch 2026-05-10: canonical (cycle_0) path NOT overwritten per cycle close.
 
-Training panel (4):       FEVER + TriviaQA + HotpotQA + CommonsenseQA
-Transfer eval panel (3):  TruthfulQA + StrategyQA + NaturalQuestions
-Stream chunk:             1000/cycle (FEVER, TQA, HotpotQA), 700/cycle (CSQA — small training pool)
+Training panel (3):       FEVER + TriviaQA + CommonsenseQA
+                          (HotpotQA dropped from training panel; remains as transfer-only candidate.
+                           See memory caem_hotpotqa_vs_nq_history.md for rationale.)
+Transfer eval panel (2):  TruthfulQA + StrategyQA
+                          NaturalQuestions held back per the v2 panel-design audit.
+Stream chunk:             2000/cycle (FEVER, TriviaQA), 700/cycle (CSQA)
+                          Logged at Step 4 start as: sizes={'fever':2000,'triviaqa':2000,'commonsense_qa':700}
+Held-out eval per cycle:  300/bench × 5 benches (training panel + transfer panel)
 Cycle count:              10 trajectory cycles + cycle 0 calibration = 11 total
 ```
 
 Three small ambiguities resolved (2026-05-06):
 - **Fix 13 (general-domain mix):** full removal (cleaner code, smaller maintenance surface)
-- **Fix 6 (alias data):** local 150 MB Wikidata file (avoids 9 min/cycle network latency)
+- **Fix 6 (alias data):** local 150 MB Wikidata file (avoids 9 min/cycle network latency) — **but the signal itself was retired in Phase 1c P1 (task #136)**; the file is preserved for ablation reproduction
 - **LoRA checkpoint retention:** keep all 11 cycle adapters (~580 MB total — trivial)
 
 ---
@@ -221,29 +246,86 @@ After integration sign-off:
 
 ### Day 13 — cycle 0 cold-start rebuild + calibration
 
-- [ ] Cold-start seed: 4 training benchmarks × 1000 verified candidates → ~3000-3200 cold-start memory entries (~11 GPU-hours)
-- [ ] Per-benchmark composite calibration (4 benchmarks × 500 cal samples)
-- [ ] Per-benchmark conformal gate calibration
-- [ ] Per-benchmark u_pre T_b calibration + safety_u_pre_min_b fit
-- [ ] Cycle 0 validation gate: per-benchmark Cohen's d ≥ 0.20 (verify each benchmark passes)
+- [x] Cold-start seed: 3 training benchmarks × ~1000 verified candidates (~3000 entries after dedup, ~11 GPU-hours) — completed pre-2026-05-09
+- [x] Per-benchmark composite calibration (3 benchmarks × 500 cal samples = 1500 pooled)
+- [x] Per-benchmark u_pre T_b calibration + safety_u_pre_min_b fit
+- [~] Per-benchmark conformal gate calibration — **SUPERSEDED by Phase 1c P0' fixed-threshold gate (see Phase 0.5 below)**
+- [x] Cycle 0 validation — outcome captured offline in P4 (task #140) audit report; on-disk `weight_validation.json` is empty `{}` (known gap, see "What we can claim today" in Phase 4)
+
+---
+
+## Phase 0.5 — Phase 1c/1d patch sequence (2026-05-09 → 2026-05-10)
+
+Cycle-0 cal fold scored under the v2 launch-ready architecture exposed a MiniCheck pooled AUROC of 0.518 (essentially random). The patch sequence below restructured the gate and composite to recover discrimination without re-architecting the system. All patches landed before step_7_main launched 2026-05-10 07:01 UTC; the in-flight cycle-1 trajectory is running under v2.1.
+
+### Phase 1c patches (signal + composite restructure, 2026-05-09)
+
+| Patch | Subject | Task | Outcome |
+|-----|---------|------|---------|
+| P0  | Diagnose MiniCheck pooled AUROC=0.518                                  | #135 | Identified weak signals + composite over-fit to cold-start distribution |
+| P0' | Replace conformal split-CP gate with fixed threshold on calibrated prob | #139 | Stable gate across cycles; no per-cycle τ refit; **store_threshold=0.60 (post-Option-4)**, defer_threshold=0.45 |
+| P1  | Drop `alias_overlap` + `entity_head_consistency` from composite        | #136 | 11→9 signals; both rated essentially zero discriminative weight at cycle 0 |
+| P2  | Patch directional `p_ground_max` for FEVER NEI samples                 | #137 | Fixes the "NEI is the truthful claim" direction; restores FEVER discrimination |
+| P3a | Shrinkage prior (α=0.6) toward pooled fit in per-bench composite       | #138 | Reduces per-bench overfitting on n=500; KEYSTONE keeps per-bench specialisation |
+| P3b | Hard `pool_max_share` cap, bench-agnostic                              | #141 | Prevents v1's FEVER-monoculture SIL-pool failure mode independently of admission rates |
+| P4  | Re-run cycle 0 with patches; validate AUROC + gen→final EM gap          | #140 | Composite passes the operational test; logged offline (the empty `weight_validation.json` is a known reporting gap) |
+
+### Phase 1d patches (gate calibration + dropped signal, 2026-05-09)
+
+| Patch | Subject | Task | Outcome |
+|-----|---------|------|---------|
+| Option 4 | `store_threshold` 0.65 → 0.60 + rescore cycle 0                   | #142 | Empirical precision-cliff sat further right than the original sweep suggested |
+| h_norm drop | Phase 1d removed `h_norm` from the composite (≈ −5e-4 weight at cycle 0) | (rolled into Option 4) | 10→9 signals |
+
+### Patch 2026-05-10 — canonical composite no longer overwritten (in-flight bug fix)
+
+`run_per_cycle_composite_refit` previously wrote `cycle_{N}/composite_calibration.json` AND atomically replaced `outputs/cycle_0/composite_calibration.json` (the canonical path) at every cycle close. Side effect: after cycle 1 closes, the file named `cycle_0/composite_calibration.json` no longer holds the cycle-0 baseline. Patch (2026-05-10) comments out the canonical-replace block with a full rationale comment and pairs it with a resume-path fix so `--resume_from_cycle N` prefers the latest `cycle_{k}/composite_calibration.json` for `k < N` over the canonical. The patch is on disk in `scripts/run_experiment.py` but the running process (PID 340588, launched 2026-05-10 07:01 UTC) has the pre-patch code cached in RAM; the patch takes effect only on next process restart.
+
+**Cycle-2 resume protocol (patched code activates here, queued for 2026-05-11 ~06:00 UTC):**
+
+1. Wait for cycle 1 close — both markers must fire in `outputs/full_run/run.log`:
+   - `Cycle 1: checkpoint saved to outputs/full_run/cycle_1 (aborted=False).`
+   - `Step 6c: gdrive offload cycle_1/ artefacts OK`
+2. `tmux send-keys -t plan_a C-c`; verify PID 340588 exits cleanly.
+3. **Restore the cycle-0 canonical composite** by re-running the cycle-0 fit on preserved cal-fold data:
+   ```
+   python scripts/fit_composite_calibration.py \
+     --calib_jsons outputs/cycle_0/calibration/*.json \
+     --output_json outputs/cycle_0/composite_calibration.json \
+     --shrinkage_alpha 0.6 --cherian_boost --boost_C 0.01
+   ```
+   The pre-launch composite is not preserved on disk (overwritten by cycle 1's refit); the `pre_main_snapshot` on gdrive is two patch generations older (pre-Phase-1d, 12 signals incl. `h_norm` + `alias_overlap`). Re-fitting from the preserved cal-fold JSON reproduces the Option-4 launch state exactly.
+4. Sanity-check the regenerated canonical: `em_rate ≈ 0.4153`, 9 signals, `shrinkage_alpha=0.6`.
+5. Relaunch in tmux plan_a with `--resume_from_cycle 2` so a fresh Python process loads the patched `run_experiment.py`. Pipeline init reads the regenerated canonical (cycle 0 baseline); the patched resume reload loads `cycle_1/composite_calibration.json` into the verifier; Step 2.x for cycle 2 refits and writes `cycle_2/composite_calibration.json` without touching the canonical.
+
+### Verifier reasoning-blindspot (logged 2026-05-07)
+
+All 9 active composite signals score the canonical answer claim, not per-step claims in the chain. A reasoning chain that hits a wrong intermediate step but recovers the correct conclusion still passes the gate. Logged in memory `caem_verifier_reasoning_blindspot.md` and queued for Ch5 §sec:disc-threats + Ch6 §future-work during the report-rewrite phase. NOT a v2.1 code fix.
 
 ---
 
 ## Phase 1 — Trajectory cycles 1-10 (~17-20 days continuous, ~$160 GPU)
 
-Per-cycle wall-time: ~22-26 hours on 3B + LoRA + 4-bench panel + new signals.
+**Status as of 2026-05-10 22:00 UTC:** step_7_main launched 2026-05-10 07:01 UTC in tmux `plan_a` (PID 340588). Cycle 1 is mid-Step-4 (stream-chunk training pass), currently on TriviaQA at [~1150/2000]. FEVER stream chunk closed at 18:03 UTC (EM=0.5895, 707 STORE / 2000). Cycle 1 close estimated 2026-05-11 ~06:00 UTC.
 
-- [ ] **Cycle 1** through **Cycle 10**: launch in tmux `plan_a` via `./run_phase1a.sh` after Phase 0 lock
+Per-cycle wall-time: ~22-26 hours on 3B + LoRA + 3-bench training panel + 2-bench transfer eval + 9-signal verifier. Cycle 1 trending toward the high end of that range.
+
+- [x] **Cold-start + cycle 0 calibration** complete (pre-Phase-1c)
+- [~] **Cycle 1** in flight under v2.1
+- [ ] **Cycle 2** — patched-code restart required (see Phase 0.5 "Cycle-2 resume protocol"); cycles 2-10 run under v2.1 + Patch 2026-05-10 canonical-overwrite fix
+- [ ] **Cycles 3-10**: continue under the same patched code path
 - [ ] **Per-cycle artefacts** (each cycle):
-  - `cycle_N/adapter_model.bin` (~50 MB LoRA adapter)
-  - `cycle_N/adapter_config.json` (PEFT metadata)
-  - `cycle_N/composite_calibration.json` (per-benchmark dict)
-  - `cycle_N/conformal_gate.json` (per-benchmark dict)
-  - `cycle_N/safety_threshold.json` (per-benchmark T_b + safety_u_pre_min_b)
-  - `cycle_N/coverage_diagnostic.json` (admission rates, pool entropy, SV)
-  - `memory_store_cycle_N.{faiss,meta}` + `deferred_buffer_cycle_N.pkl` + `retroverify_cycleN.json`
-- [ ] **Per-cycle gdrive offload**: `rclone copy outputs/full_run/cycle_N/ gdrive:caem-phase1a-v2/full_run/cycle_N/`
-- [ ] **Halt criteria**: any retention probe drops > 7% (auto-rollback fires); per-benchmark admission rate zero for 2 cycles (auto-relax α_b); manual halt if anything else looks wrong
+  - `cycle_N/adapter/` (LoRA adapter dir; ~50 MB)
+  - `cycle_N/composite_calibration.json` (per-bench dict, 9 signals, shrinkage_alpha=0.6)
+  - `cycle_N/calibration/{bench}_cycle{N}.json` (cal-fold per-sample signals, n=500/bench × 3)
+  - `cycle_N/calibration/calibrated_config_cycle{N}.json` (per-bench T_b + safety floors)
+  - **NOT WRITTEN:** `conformal_gate.json` (retired Phase 1c P0')
+  - `cycle_N/coverage_diagnostic.json` (admission rates, pool entropy, SV) — Fix 5 wiring
+  - `memory_store_cycle_N.{faiss,meta}` + `deferred_buffer_cycle_N.pkl` + `retroverify_cycle{N}.json`
+  - `eval/{bench}_cycle{N}.json` (held-out eval, n=300/bench × 5)
+  - `eval/{bench}_cycle{N}_streamchunk.json` (Step-4 training-pass per-sample data, preserved by Step 4b snapshot)
+- [ ] **Per-cycle gdrive offload**: `rclone copy outputs/full_run/cycle_N/ gdrive:caem-phase1a/v2_1_phase1d/full_run/cycle_N/` (bucket is `v2_1_phase1d`, NOT `v2-launch`; verified from the runner env at PID 340588)
+- [ ] **Halt criteria**: any retention probe drops > 7% (auto-rollback fires); zero admission on training bench for 2 consecutive cycles (operator decision under fixed-threshold; auto-relax retired with conformal); manual halt if anything else looks wrong
 
 ---
 
@@ -313,6 +395,25 @@ After cycle 10 closes:
 - [ ] Final Ch5 `tab:sig_test` + `tab:hypothesis-verdicts` populated
 - [ ] Ch6 conclusion final pass
 
+### Verifier-accuracy trajectory aggregator (NEW, queued 2026-05-10)
+
+The reliability diagram (Fig 5.2) plots calibration shifting per cycle visually, but the codebase does not produce a scalar **verifier-accuracy trajectory** — one row per cycle with AUROC, Brier, ECE, and STORE-bucket EM. This is the headline graph that demonstrates "the verifier improves as the SIL loop improves the model." All primitives exist in `eval/metrics.py` (`auroc`, `brier_score`, `reliability_bins`) and per-sample data exists per cycle in `eval/{bench}_cycle{N}.json` + `cycle_{N}/calibration/{bench}_cycle{N}.json`; what is missing is the aggregator that iterates cycles and emits a CSV + figure.
+
+Phase 1c P0' replaced the conformal storage gate with a fixed threshold on the calibrated probability, so the v1 plan's "verifier accuracy α increasing per cycle" claim is now expressed as **empirical storage precision rising per cycle** under the constant 0.60 gate, plus discriminative-power (AUROC) and calibration-quality (Brier, ECE) trajectories. These four metrics together replace the per-cycle α that conformal would have produced.
+
+- [ ] Write `scripts/verifier_trajectory.py` (~80 lines):
+  - For each closed cycle N and each of the 5 benches plus a pooled view, compute:
+    - `auroc(u_stored, em)`, `brier_score(u_stored, em)`, ECE from `reliability_bins(u_stored, em, n_bins=10)`
+    - `store_bucket_em` = mean(em where `decision == 'STORE'`), with `n_store` count and 95% Clopper-Pearson interval
+    - `defer_store_em` = mean(em where `decision in {'STORE','DEFERRED'}`) as a secondary headline (optional)
+  - Read held-out eval JSONs at `outputs/full_run/eval/{bench}_cycle{N}.json` for N ∈ {0, 1, …, N_closed}.
+  - Also emit cal-fold version reading `outputs/full_run/cycle_{N}/calibration/{bench}_cycle{N}.json` for N ≥ 1 (plus `outputs/cycle_0/calibration/calibration_fold_samples.json` for N=0).
+- [ ] Output: `outputs/phase4_artifacts/verifier_trajectory.csv` (columns: `cycle, bench, eval_or_cal, auroc, brier, ece, store_em, store_em_lo, store_em_hi, n_store, n_total`).
+- [ ] Output: `outputs/phase4_artifacts/fig5_X_verifier_trajectory.{png,pdf}` with four lines (AUROC, 1−Brier, 1−ECE, STORE-bucket EM) over cycle index, one panel per bench plus a pooled panel.
+- [ ] Register the new figure in `scripts/make_figures.py:FIGURE_FILES` and the new CSV in `scripts/phase4_artifacts.py:emit_summary_table`.
+- [ ] Add a `tab:verifier_trajectory` reference in Ch5 §5.3 main results, with the per-cycle scalar trajectory replacing the conformal-α-per-cycle row originally drafted.
+- [ ] Sanity-check option: run the aggregator against cycle 0 only (already on disk) before cycle 1 close, to validate the metric definitions and bench keys; iterate until the CSV rows match a hand-spot-check.
+
 ---
 
 ## Phase 4 — Defense day (already prepped, demo work complete)
@@ -333,23 +434,26 @@ The v1 Phase A demo work is preserved and still valid. The cycle-3 memory snapsh
 ## Budget envelope
 
 ```
-Phase 0 (code work):           CPU only, ~$0
+Phase 0 (code work):           CPU only, ~$0  -- DONE
+Phase 0.5 (Phase 1c/1d patches): CPU + cycle-0 rescore on GPU, ~$3-5 -- DONE
 Phase 1 (trajectory):
-  Cold-start rebuild           ~11 GPU-hours, ~$6
-  Cycle 0 calibration          ~3 GPU-hours, ~$2
-  Cycles 1-10 trajectory       ~280 GPU-hours, ~$155
+  Cold-start rebuild           ~11 GPU-hours, ~$6  -- DONE
+  Cycle 0 calibration          ~3 GPU-hours, ~$2   -- DONE
+  Cycles 1-10 trajectory       ~280 GPU-hours, ~$155  -- cycle 1 in flight (Step 4)
   Subtotal Phase 1:            ~294 GPU-hours, ~$163
 Phase 2 (report rewrite):      CPU only, runs IN PARALLEL with Phase 1, ~$0
 Phase 3 (baselines + sig):     ~25-35 GPU-hours, ~$15-20
-Phase 4 (defense day):         negligible — single-launch demo
+Phase 4 (defense day):         negligible -- single-launch demo
 
-Total Phase 0-3:               ~$180-185
-Current Vast budget:           ~$95 (after today's burn)
-Recharge required:             ~$90-100
+Total Phase 0-3:               ~$180-190
+Vast credit at v2.1 launch (2026-05-10 07:00 UTC start, after top-up): ~$102 (per memory caem_phase1_credit.md)
+Burn since launch (~16h wall-clock, ~1 GPU-hr/h): ~$10-12
+Remaining as of 2026-05-10 22:00 UTC: ~$90-92 -- VERIFY BEFORE CYCLE-2 RELAUNCH
+Recharge required for full cycles 2-10: ~$60-80 depending on actual cycle wall-time
 
-Cycle wall-time: ~22-26 hours per cycle
+Cycle wall-time: ~22-26 hours per cycle (cycle 1 trending high end)
 Trajectory wall-clock: ~17-20 days continuous (cycles 1-10)
-Total v2 timeline: ~30-35 days from code-start to defense-ready
+Total v2.1 timeline: ~30-35 days from code-start to defense-ready
 ```
 
 ---
@@ -389,6 +493,12 @@ grep "Cohen's d on benchmark.*passes 0.20" outputs/full_run/run.log
 - 2026-05-07 — All 13 architecture fixes merged on `feat/qwen-3b-goal2`. 377 smoke + regression tests pass. Code work compressed from the 12-13-day estimate to 1 active day after the keystone (Fix 2) landed; remaining work is integration audit + orchestrator glue rather than architectural lifts.
 - 2026-05-07 — Verifier-input canonicalisation uses the short `Answer: <X>.` form (saves ~6-7 tokens/NLI call vs the longer alternative). Persisted as `feedback_uniform_verifier_input.md` memory entry.
 - 2026-05-07 — Test-file consolidation: 6 fix-prefix smoke files renamed/merged into existing test homes (`test_conformal_gate.py`, `test_cal_prob_composite.py`, `test_alias_overlap.py`, `test_entity_head.py`, `test_answer_canonicalizer.py`, `test_entity_expansion_scorer.py`); cross-cutting `test_fix12` and `test_fix10` contents moved into `test_pre_routing.py` / `test_router.py` / `test_calibration_batch_equivalence.py` / `test_prompts.py` / `test_eval.py`. Old fix-prefix files for Fix 2, 9, 11, 13 still present as historical (pre-this-turn) commits.
+- 2026-05-09 — Phase 1c patch sequence (P0, P0', P1, P2, P3a, P3b, P4): MiniCheck pooled AUROC=0.518 at cycle-0 cal fold triggered restructure. Conformal split-CP gate retired; replaced by fixed threshold on calibrated probability. `alias_overlap` + `entity_head_consistency` retired from composite. Shrinkage prior (α=0.6) toward pooled fit. `pool_max_share` hard cap. P4 audit logged offline (no `weight_validation.json` on disk; known reporting gap).
+- 2026-05-09 — Phase 1d Option 4: `store_threshold` 0.65 → 0.60; cycle-0 rescored. `h_norm` removed (≈0 weight at cycle 0). Composite now 9 signals.
+- 2026-05-10 — step_7_main launched 07:01 UTC in tmux `plan_a` (PID 340588) with the v2.1 stack on `feat/qwen-3b-goal2`. Cycle 1 SIL fine-tune closed 07:09 UTC after two backward-pass retries; recalibration + retroverify complete by 12:36 UTC; Step 4 stream-chunk pass in progress (FEVER closed 18:03 UTC, TriviaQA in flight).
+- 2026-05-10 — Audited the CSQA verifier-input path. Verifier reads canonicalised option text (`canonicalize_answer` expands letters via Choices block) for all NLI-based signals; multichoice scorer wraps as `"The answer to the question is: <option_text>"`. Template inconsistency between canonicalizer (`Answer: X.`) and multichoice scorer (`The answer to the question is: X`) noted for §Threats but no functional bug.
+- 2026-05-10 — Patch 2026-05-10 applied to `scripts/run_experiment.py` (canonical composite path no longer overwritten per cycle close; resume reload prefers latest per-cycle composite). Takes effect on next process restart (running process has pre-patch code cached in RAM). Cycle-2 resume protocol queued in Phase 0.5.
+- 2026-05-10 — Verifier-accuracy trajectory aggregator queued (Phase 3, new task). Replaces the v1 "α increasing per cycle" conformal narrative with AUROC + Brier + ECE + STORE-bucket EM trajectories under the fixed-threshold gate.
 
 ---
 

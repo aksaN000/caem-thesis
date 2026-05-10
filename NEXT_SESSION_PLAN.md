@@ -1,5 +1,7 @@
 # CAEM — Next Session Plan
 
+> **SUPERSEDED 2026-05-06 → 2026-05-10.** This file describes the v1 (pre-architecture-redesign) trajectory and the early-May continuation plan for v1's cycle-2 close. v1 was halted at cycle 5 (2026-05-06) after the FEVER-monoculture failure mode was diagnosed. The active plan is **`PRODUCTION_NEXT_SESSION_PLAN.md`** (v2.1, updated 2026-05-10). Do not act on the instructions below — every cycle reference, every artefact path, and every halt criterion has been replaced by the v2.1 stack. This file is preserved only as a record of the v1 narrative.
+
 **Updated 2026-04-29 13:36 UTC | Session 10 — autonomous Step 7 main + Phase 4 receipts after return**
 
 ---
