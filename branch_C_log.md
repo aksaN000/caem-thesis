@@ -4861,3 +4861,79 @@ shipped Phase 1c+1d code:
 | `cab11de` | doc  | Ch4 verifier table + theorem alignment |
 | `58fff85` | doc  | Ch4 composite per-bench + SIL LoRA + decision tree |
 | `cac2447` | doc  | Ch4 router safety floor 0.60 → 0.38 |
+
+
+## 2026-05-10 ~06:35 UTC — Cycle-1 SIL crash on PEFT + grad-checkpointing
+
+### Crash
+
+Cycle 0 baseline closed cleanly at 02:38 UTC under PID 288487 (Cycle 0 done in
+312.5 min, FAISS index 431 episodes, deferred buffer 0 entries). Calibration
+ran from 02:40 UTC to ~06:23 UTC and produced
+`outputs/full_run/calibration/calibrated_config.json` with a global T = 20.0855
+(saturated at the e^3 cap on FEVER + TriviaQA, T = 2.5189 on CSQA).
+
+The runner then attempted to resume from cycle 1 SIL training and crashed
+immediately at `caem/training/self_improvement.py:1225` on `loss.backward()`
+with `RuntimeError: element 0 of tensors does not require grad and does not
+have a grad_fn`. The PyTorch warning above the trace was the smoking gun:
+`UserWarning: None of the inputs have requires_grad=True. Gradients will be
+None`.
+
+### Diagnosis
+
+Two latent bugs surfaced for the first time on the cycle-1 SIL path. Cycle 0
+is baseline-only (no SIL training), so neither was exercised before, and the
+Phase 1c real-GPU equivalence smoke at n=50 ran on cycle-0 inputs only.
+
+**Bug 1 (fatal).** PEFT + gradient_checkpointing standard interaction. The
+base Qwen3-3B is frozen and only the r=32 LoRA adapters are trainable; the
+checkpointed forward boundary therefore receives no grad-bearing inputs from
+the embedding layer, so its autograd graph is empty and `loss.backward()`
+raises. The standard PEFT remedy is `model.enable_input_require_grads()`
+immediately after `gradient_checkpointing_enable()`. This installs a forward
+hook on the input embedding that flips its output to require_grad=True,
+restoring the autograd path through the checkpoint boundary to the adapter
+parameters.
+
+**Bug 2 (non-fatal).** `scripts/run_experiment.py` line 1499 referenced
+`_Path` inside the resume defensive-composite-reload block, but `_Path` was
+imported as a function-local alias in `run_per_cycle_composite_refit()` at
+line 370 and was therefore not in scope. The resume warning
+`Resume: defensive composite reload failed (name '_Path' is not defined)`
+fires every resume but the Step 2.4 refit catches the gap; however the warning
+masks the canonical-path defensive reload, so a future canonical-path
+divergence would silently miss the defence. Fix replaces `_Path` with the
+module-level `Path` import already present at line 54.
+
+### Fix
+
+* `caem/training/self_improvement.py` — add `model.enable_input_require_grads()`
+  guarded by `hasattr(...)` so non-PEFT paths remain a no-op. Documented in an
+  inline comment cross-referencing the PyTorch + PEFT interaction.
+
+* `scripts/run_experiment.py` — `_Path(_canonical).is_file()` → `Path(_canonical).is_file()`
+  on line 1499.
+
+### Verification before relaunch
+
+* `python3 -c "import ast; ast.parse(open(...).read())"` clean on both files.
+* `_Path` no longer referenced outside `run_per_cycle_composite_refit()` (the
+  intentional local alias remains scoped to that function).
+* Resume artefacts intact: `outputs/full_run/memory_store_cycle_0.{faiss,meta}`,
+  `outputs/full_run/deferred_buffer_cycle_0.pkl`, `outputs/cycle_0/composite_calibration.json`,
+  `outputs/full_run/calibration/calibrated_config.json`, MMLU + retention
+  baselines.
+
+### Cost
+
+~12 m of cycle-1 wall-clock lost from the crash (06:23 UTC SIL start →
+06:35 UTC fix landed). Cycle 0 baseline + calibration artefacts survive
+unchanged; resume replays from cycle 1 with the fixed self-improvement loop.
+No additional GPU spend on cycle 0 reproduction.
+
+### Restart
+
+Run via `bash run_phase1a.sh` in tmux `plan_a`. The Phase 1a runner detects
+the cycle-0 artefacts on disk and adds `--resume_from_cycle 1` automatically
+per its idempotency contract.

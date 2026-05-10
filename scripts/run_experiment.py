@@ -1496,7 +1496,7 @@ def run_experiment(ns: argparse.Namespace) -> None:
                 config, "composite_calibration_path",
                 "outputs/cycle_0/composite_calibration.json",
             )
-            if _Path(_canonical).is_file():
+            if Path(_canonical).is_file():
                 pipeline.verifier.reload_calibration(str(_canonical))
                 logger.info(
                     "Resume: defensive composite reload from canonical path %s",
