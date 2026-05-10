@@ -1032,6 +1032,16 @@ class SelfImprovementLoop:
             params = list(self.model.parameters())
 
         want_8bit = bool(getattr(cfg, "use_8bit_adamw", False))
+        # Phase 1d (2026-05-10): skip 8-bit AdamW on the LoRA path. The
+        # ~60 M trainable adapter has ~120 MB of Adam moment state, so the
+        # ~50% VRAM saving from bitsandbytes (~60 MB) is negligible against
+        # the 32 GB envelope, while the 8-bit quantization noise on Adam
+        # moments is relatively larger per-parameter on a small adapter
+        # than on a 3 B backbone. The full-FT fallback path (when LoRA is
+        # disabled) keeps 8-bit AdamW for the headroom it actually buys
+        # there. See branch_C_log 2026-05-10 entry.
+        if getattr(self, "_lora_active", False):
+            want_8bit = False
         on_cuda = str(self.device).startswith("cuda")
 
         if want_8bit and on_cuda:
@@ -1618,12 +1628,20 @@ class SelfImprovementLoop:
                         )
 
         # --- Tier 2: Google Drive every-cycle offload (env-gated) -------
-        # When CAEM_GDRIVE_OFFLOAD=1, upload EVERY cycle's adapter via rclone.
-        # v2 (2026-05-06): per-cycle artefacts land under
+        # When CAEM_GDRIVE_OFFLOAD=1, upload EVERY cycle's checkpoint via
+        # rclone. Per-cycle artefacts land under
         # gdrive:caem-phase1a/<bucket>/<run_name>/cycle_<n>/  where <bucket>
         # is read from CAEM_GDRIVE_BUCKET (defaults to "v2"). v1 cycles 0-4
         # are archived under gdrive:caem-phase1a/archive_v1/full_run/ as
         # failure-mode evidence (see branch_C_log 2026-05-06).
+        #
+        # Phase 1d (2026-05-10): on the LoRA path the per-cycle artefact is
+        # the adapter directory plus meta.pkl, not a model.pt full state-
+        # dict (which is never written under LoRA). Upload the entire
+        # ckpt_dir recursively so adapter/, meta.pkl, and any cycle-local
+        # calibration JSONs all land on gdrive together. On the legacy
+        # full-FT fallback path, the same recursive upload picks up
+        # model.pt as well.
         if os.environ.get("CAEM_GDRIVE_OFFLOAD", "0") == "1":
             import subprocess
             run_name = self.output_dir.name
@@ -1631,13 +1649,13 @@ class SelfImprovementLoop:
             remote_path = f"gdrive:caem-phase1a/{gd_bucket}/{run_name}/cycle_{cycle_num}/"
             try:
                 result = subprocess.run(
-                    ["rclone", "copy", str(weights_path), remote_path,
+                    ["rclone", "copy", str(ckpt_dir), remote_path,
                      "--transfers", "4", "--checkers", "8"],
                     capture_output=True, text=True, timeout=1800,
                 )
                 if result.returncode == 0:
                     logger.info(
-                        "Cycle %d: gdrive offload OK -> %smodel.pt",
+                        "Cycle %d: gdrive offload OK -> %s (recursive)",
                         cycle_num, remote_path,
                     )
                 else:
