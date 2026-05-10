@@ -4937,3 +4937,64 @@ No additional GPU spend on cycle 0 reproduction.
 Run via `bash run_phase1a.sh` in tmux `plan_a`. The Phase 1a runner detects
 the cycle-0 artefacts on disk and adds `--resume_from_cycle 1` automatically
 per its idempotency contract.
+
+
+## 2026-05-10 ~07:00 UTC — Cycle-1 follow-up fixes (gdrive, optimizer, log text, bucket)
+
+### What surfaced after the autograd fix held
+
+Cycle 1 SIL ran cleanly under PID 333139 from 06:40 to 06:47:42 UTC (LoRA
+adapter saved at `outputs/full_run/cycle_1/adapter/`, retention probes well
+above the 0.93 floor: mmlu=1.033, triviaqa\_test=1.0, csqa\_test=0.988,
+final\_loss=0.2539). Three follow-up issues then surfaced that had been
+latent and would have compounded across cycles 2-10.
+
+**Fix 1: gdrive offload pointed at non-existent model.pt.**
+`caem/training/self_improvement.py:1620-1654` always offloaded
+`weights_path = ckpt_dir/"model.pt"` regardless of LoRA path. Under LoRA the
+per-cycle artefact is `cycle_N/adapter/` plus `meta.pkl`; `model.pt` is never
+written. rclone then failed `rc=3 directory not found` every cycle. Fix:
+upload the entire `ckpt_dir` recursively, which captures `adapter/`,
+`meta.pkl`, and any cycle-local calibration JSON together; remains correct
+on the legacy full-FT fallback path because rclone's recursive copy picks
+up `model.pt` then. Local rolling-N retention is unchanged; gdrive offload
+is opportunistic, so the missed cycle-1 backup is recoverable from disk.
+
+**Fix 2: 8-bit AdamW unnecessary on the LoRA path.**
+`caem/training/self_improvement.py::_build_optimizer` was inheriting
+`cfg.use_8bit_adamw=True` from the legacy full-FT motivation, but the LoRA
+path has only ~60 M trainable parameters with ~120 MB of Adam moment state.
+The bitsandbytes 50% saving (~60 MB) is negligible against the 32 GB
+envelope, while the 8-bit quantization noise on Adam moments is relatively
+larger per-parameter on a small adapter than on a 3 B backbone. Fix:
+override `want_8bit=False` when `_lora_active`. The full-FT fallback path
+keeps 8-bit AdamW for the headroom it actually buys there.
+
+**Fix 3: stale AdaptiveNLIJudge log text.**
+`caem/verification/__init__.py:130-137` told future readers that "Step 7
+main requires step\_platt\_calibrate to have run first," but Phase 2
+ablated the long-hypothesis Qwen judge (Pearson rho=0.5843 < 0.70 floor;
+Appendix B judge-ablation diagnostic). The new text reflects shipped
+behaviour: bare MiniCheck for every prediction, with a 512-token encoder
+truncation registered as a Threats item.
+
+**Fix 4: separate v2.1 gdrive bucket.**
+`run_phase1a.sh` now sets `CAEM_GDRIVE_BUCKET="v2_1_phase1d"` on the python
+launch line, so cycle 1+ artefacts land at
+`gdrive:caem-phase1a/v2_1_phase1d/full_run/cycle_<n>/`, separate from
+`gdrive:caem-phase1a/v2/` (pre-Phase-1d cycles) and
+`gdrive:caem-phase1a/archive_v1/` (v1 cycles 0-4).
+
+### Cost
+
+Halt → fix → relaunch lost ~10 minutes of the in-flight cycle 1 calibration
+fold scoring (Step 2.1) plus ~3 minutes of model and verifier reload, with
+the cycle 1 LoRA SIL adapter rebuilt from scratch under the new optimizer
+choice (the originally saved 8-bit-AdamW adapter is overwritten on the
+re-do). Cycle 0 baseline + calibration artefacts survive unchanged.
+
+### Verification before relaunch
+
+`ast.parse` clean on `caem/training/self_improvement.py` and
+`caem/verification/__init__.py`. `bash -n run_phase1a.sh` clean. Process
+333139 confirmed dead, GPU 0 MiB used, tmux `plan_a` at the bash prompt.

@@ -644,7 +644,13 @@ step_7_main() {
         fi
     fi
 
-    CAEM_BATCH_U_TOK_DROP=1 CAEM_GDRIVE_OFFLOAD=1 python -m scripts.run_experiment \
+    # Phase 1d (2026-05-10): pin CAEM_GDRIVE_BUCKET to "v2_1_phase1d" so the
+    # current architecture variant lands at gdrive:caem-phase1a/v2_1_phase1d/
+    # full_run/cycle_<n>/, kept separate from gdrive:caem-phase1a/v2/ (pre-
+    # Phase-1d cycles) and gdrive:caem-phase1a/archive_v1/ (v1 cycles 0-4).
+    CAEM_BATCH_U_TOK_DROP=1 CAEM_GDRIVE_OFFLOAD=1 \
+    CAEM_GDRIVE_BUCKET="v2_1_phase1d" \
+    python -m scripts.run_experiment \
         --output_dir outputs/full_run \
         --num_cycles 10 \
         --n_questions 3000 \

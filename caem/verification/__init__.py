@@ -131,8 +131,14 @@ def load_verifier_judge(
                 logger.info(
                     "AdaptiveNLIJudge inactive (platt calibration missing or "
                     "CAEM_USE_ADAPTIVE_JUDGE=0); using bare MiniCheck judge. "
-                    "This is correct for Step 7.0; Step 7 main requires "
-                    "step_platt_calibrate to have run first.",
+                    "This is the shipped Phase 1c+ configuration: the long-"
+                    "hypothesis Qwen judge was ablated at Phase 2 after the "
+                    "Platt-fit Pearson floor (rho >= 0.70) was not cleared "
+                    "(measured rho = 0.5843, slope 0.137; see Appendix B "
+                    "judge-ablation diagnostic). Step 7 main therefore runs "
+                    "with bare MiniCheck for every prediction; long "
+                    "predictions (>408 tokens) truncate at MiniCheck's 512-"
+                    "token encoder, registered as a Threats item.",
                 )
                 return mc_judge, None, None
 
