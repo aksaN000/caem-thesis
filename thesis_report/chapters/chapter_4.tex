@@ -487,24 +487,18 @@ with $\Pr(V{=}1) = \mathrm{TPR}_c\,p_c + \mathrm{FPR}_c\,(1-p_c)$. The reduction
 
 \begin{theorem}[Monotonicity under verifier improvement]
 \label{thm:monotone}
-Let $d_{t}$ denote the verifier's Cohen's $d$ between correct and incorrect outputs on the calibration fold at cycle $t$, and let $\sigma_{t}$ denote the empirical storage rate at the locked threshold $\tau_{\text{store}}$. Assume the calibrated storage score is approximately Gaussian within each correctness class with shared variance $\varsigma^{2}$ and class means $\mu_{+}(d_{t})$, $\mu_{-}(d_{t})$ separated by $d_{t}$. If $d_{t+1} > d_{t}$ and the base rate of correct outputs exceeds one-half, then
-\begin{equation}
-\frac{\partial \sigma}{\partial d}\bigg|_{d=d_{t}} \;>\; 0,
-\qquad\text{hence}\qquad
-\sigma_{t+1} \;\ge\; \sigma_{t}.
-\label{eq:thm-monotone}
-\end{equation}
+Let $d_{t}$ denote the verifier's Cohen's $d$ between correct and incorrect outputs on the calibration fold at cycle $t$, and let $\sigma_{t}$ denote the empirical storage rate at the locked threshold $\tau_{\text{store}}$. Assume the calibrated storage score is approximately Gaussian within each correctness class with shared variance $\varsigma^{2}$ and class means $\mu_{+}(d_{t})$, $\mu_{-}(d_{t})$ separated by $d_{t}$. Let $p_{+}, p_{-}$ be the calibration-fold base rates of correct and incorrect outputs, and let $\phi_{\pm} = \phi\!\big((\mu_{\pm} - \tau_{\text{store}})/\varsigma\big)$ be the operating-point class densities. Then the sign of $\partial \sigma / \partial d$ equals the sign of $p_{+}\phi_{+} - p_{-}\phi_{-}$. In particular, when the operating-point correct-class mass dominates the incorrect-class mass (i.e.\ $p_{+}\phi_{+} > p_{-}\phi_{-}$) and $d_{t+1} > d_{t}$, the storage rate is non-decreasing: $\sigma_{t+1} \ge \sigma_{t}$.
 \end{theorem}
 
 \begin{proof}[Proof sketch]
 Under the within-class Gaussian assumption,
 \(\sigma = p_{+} \Phi\!\big((\mu_{+} - \tau_{\text{store}})/\varsigma\big) + p_{-} \Phi\!\big((\mu_{-} - \tau_{\text{store}})/\varsigma\big)\),
-where $p_{+}, p_{-}$ are the base rates and $\Phi$ is the standard normal CDF. Differentiating and using $\mu_{+} - \mu_{-} = d \cdot \varsigma$ yields
-\(\partial \sigma / \partial d = (1/2)\big(p_{+} \phi_{+} - p_{-} \phi_{-}\big)\)
-where $\phi_{\pm}$ are the corresponding densities. When $p_{+} > 1/2$ and $\tau_{\text{store}}$ is on the upper side of the population mean, $\phi_{+} \ge \phi_{-}$ in the relevant regime and the derivative is strictly positive.
+where $\Phi$ is the standard normal CDF. Differentiating and using $\mu_{+} - \mu_{-} = d \cdot \varsigma$ yields
+\(\partial \sigma / \partial d = (1/2)\big(p_{+} \phi_{+} - p_{-} \phi_{-}\big)\),
+so the sign of $\partial \sigma / \partial d$ is the sign of $p_{+}\phi_{+} - p_{-}\phi_{-}$. The dominance condition holds whenever the threshold sits in the high-precision regime where the correct-class density exceeds the incorrect-class density at the operating point. The simpler sufficient condition $p_{+} > 1/2$ implies the dominance whenever the densities are comparable, but is not necessary: in the low-base-rate regime, $\phi_{+}$ can still exceed $\phi_{-}$ enough to make $p_{+}\phi_{+} > p_{-}\phi_{-}$, in which case the storage rate is still monotone in $d$.
 \end{proof}
 
-\paragraph{Empirical receipt (storage rate in $d$).} The per-cycle storage rate should be non-decreasing on cycles whose calibration-fold Cohen's $d$ exceeds the prior cycle's. Cycle-to-cycle Cohen's $d$ readings are reported in \Cref{ch:evaluation} alongside the storage-rate trajectory, so a violation of monotonicity is read off as a paired-comparison result rather than asserted.
+\paragraph{Empirical receipt (storage rate in $d$).} The deciding statistic is the sign of the per-cycle storage-rate change paired with the sign of the per-cycle Cohen's $d$ change. Cycles for which the operating-point dominance condition $p_{+}\phi_{+} > p_{-}\phi_{-}$ holds are flagged in the trajectory artefact; a cycle in which the dominance condition does not hold is reported with its sign rather than asserted as a monotonicity violation. The cycle-by-cycle Cohen's $d$ trajectory and the per-cycle storage rate are reported in \Cref{ch:evaluation} alongside the dominance flag.
 
 \begin{theorem}[Monotonicity in base accuracy]
 \label{thm:monotone-purification}
