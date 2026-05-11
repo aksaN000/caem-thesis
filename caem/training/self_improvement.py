@@ -445,6 +445,7 @@ class SelfImprovementLoop:
         deferred_buffer: Optional[Any] = None,
         reconsider_fn: Optional[Callable[[Any], Any]] = None,
         cold_start_loader: Optional[Callable[[str, int], List["QAPair"]]] = None,
+        reconsider_fn_batch: Optional[Callable[[List[Any]], List[Any]]] = None,
     ) -> CycleResult:
         """Run one self-improvement cycle. See module docstring for the flow."""
         cfg = self.config
@@ -694,6 +695,7 @@ class SelfImprovementLoop:
                         deferred_buffer.reconsider(
                             verify_fn=effective_fn,
                             memory_store=memory_store,
+                            verify_fn_batch=reconsider_fn_batch,
                         )
                     reconsider_fired = True
                     logger.info(

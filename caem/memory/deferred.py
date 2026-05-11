@@ -248,6 +248,8 @@ class DeferredBuffer:
         memory_store,
         promote_threshold: Optional[float] = None,
         ttl_cycles: Optional[int] = None,
+        verify_fn_batch=None,
+        batch_size: int = 8,
     ) -> Tuple[int, int, int]:
         """Re-score every buffered entry; promote, drop, or keep.
 
@@ -325,9 +327,36 @@ class DeferredBuffer:
         n_ttl_dropped = 0
         n_kept = 0
 
-        for de in snapshot:
+        # Patch 2026-05-11: precompute verifier outputs in batches when
+        # verify_fn_batch is available, so the M-chain / dropout / rerank
+        # stages amortise across the snapshot. Per-entry promote / TTL /
+        # requeue logic below is unchanged; only the verifier invocation
+        # is pooled. Falls back to per-entry verify_fn on any batch-call
+        # exception or None entry in the returned list.
+        precomputed_vouts: Dict[int, Any] = {}
+        if verify_fn_batch is not None and snapshot:
+            for chunk_start in range(0, len(snapshot), batch_size):
+                chunk = snapshot[chunk_start:chunk_start + batch_size]
+                try:
+                    batch_scores = verify_fn_batch(chunk)
+                except Exception as exc:
+                    logger.warning(
+                        "Deferred reconsider: verify_fn_batch raised %s "
+                        "for N=%d -- falling back to serial for this chunk.",
+                        exc, len(chunk),
+                    )
+                    batch_scores = [None] * len(chunk)
+                for idx_in_chunk, sc in enumerate(batch_scores):
+                    precomputed_vouts[chunk_start + idx_in_chunk] = sc
+
+        for de_idx, de in enumerate(snapshot):
             try:
-                vout = verify_fn(de)
+                if de_idx in precomputed_vouts:
+                    vout = precomputed_vouts[de_idx]
+                    if vout is None:
+                        vout = verify_fn(de)
+                else:
+                    vout = verify_fn(de)
             except Exception as exc:
                 logger.warning(
                     "Deferred reconsider: verify_fn raised %s for q=%r "

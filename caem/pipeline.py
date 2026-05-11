@@ -868,6 +868,49 @@ class CAEMPipeline:
 
         return _retroverify
 
+    def make_retroverify_fn_batch(self):
+        """Return a closure ``(entries) -> List[Optional[UnifiedVerifierOutput]]``.
+
+        Patch 2026-05-11: batched retroverify entry point. Mirrors
+        :meth:`make_retroverify_fn` but takes a list of entries and dispatches
+        through :meth:`UnifiedVerifier.verify_batch` with ``is_query_time=False``
+        (so the confabulation early-exit stays disabled, identically to the
+        serial path). Returns one ``UnifiedVerifierOutput`` per input entry,
+        or ``None`` for the whole batch on an unexpected verifier exception
+        (callers fall back to the serial closure for that batch).
+
+        The batched path pools the M-chain generation and dropout passes
+        across the batch dimension, dropping per-episode wall-time from
+        ~9s (serial) to ~3s (batched at N=8). Composite scores are
+        byte-equivalent to the serial path modulo floating-point reordering;
+        validated by the cycle-0 equivalence smoke (task #105) on the
+        query-time path, with no additional risk on the retroverify path
+        because the only change is the disabled confab early-exit gate.
+        """
+        verifier = self.verifier
+
+        def _retroverify_batch(entries) -> List[Optional[UnifiedVerifierOutput]]:
+            if not entries:
+                return []
+            inputs = [(e.question, e.answer) for e in entries]
+            source_benchmarks = [
+                getattr(e, "source_benchmark", None) for e in entries
+            ]
+            try:
+                return verifier.verify_batch(
+                    inputs,
+                    source_benchmarks=source_benchmarks,
+                    is_query_time=False,
+                )
+            except Exception as exc:  # pragma: no cover -- defensive
+                logger.warning(
+                    "Retroverify batched call raised %s (N=%d) -- batch left "
+                    "for serial fallback.", exc, len(entries),
+                )
+                return [None] * len(entries)
+
+        return _retroverify_batch
+
     def make_reconsider_deferred_fn(self):
         """Return a closure ``(deferred_entry) -> UnifiedVerifierOutput``.
 
@@ -903,6 +946,40 @@ class CAEMPipeline:
                 return None
 
         return _reconsider
+
+    def make_reconsider_deferred_fn_batch(self):
+        """Return a closure ``(deferred_entries) -> List[Optional[UnifiedVerifierOutput]]``.
+
+        Patch 2026-05-11: batched deferred-reconsideration entry point.
+        Same contract as :meth:`make_retroverify_fn_batch` but takes a list
+        of ``DeferredEntry`` objects. Calls ``is_query_time=True`` (matches
+        :meth:`make_reconsider_deferred_fn`'s serial default, where the
+        confabulation early-exit IS active because the entry has not yet
+        passed the storage gate).
+        """
+        verifier = self.verifier
+
+        def _reconsider_batch(deferred_entries) -> List[Optional[UnifiedVerifierOutput]]:
+            if not deferred_entries:
+                return []
+            inputs = [(d.question, d.answer) for d in deferred_entries]
+            source_benchmarks = [
+                getattr(d, "source_benchmark", None) for d in deferred_entries
+            ]
+            try:
+                return verifier.verify_batch(
+                    inputs,
+                    source_benchmarks=source_benchmarks,
+                    is_query_time=True,
+                )
+            except Exception as exc:  # pragma: no cover -- defensive
+                logger.warning(
+                    "Deferred reconsideration batched call raised %s (N=%d) "
+                    "-- batch left for serial fallback.", exc, len(deferred_entries),
+                )
+                return [None] * len(deferred_entries)
+
+        return _reconsider_batch
 
     # ------------------------------------------------------------------ #
     # Storage decision (Stage 7)                                           #
