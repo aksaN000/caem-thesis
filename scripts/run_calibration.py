@@ -975,6 +975,41 @@ def calibrate_pipeline_temperature_only(
             "(skip live re-scoring).",
             cycle, len(u_pre_logits),
         )
+        # Patch 2026-05-11: when the cache hits, collect_calibration_data is
+        # never invoked, so the combined calibration_fold_samples.json the
+        # per-bench T_b / safety refit reads from below is never written and
+        # the per-bench refit silently no-ops. Synthesise the combined records
+        # file from the per-bench cal-fold JSONs that were already cached, so
+        # the downstream per-bench refit finds its input on the cache path
+        # exactly as it does on the live-rescore path.
+        try:
+            _records: List[Dict[str, Any]] = []
+            for _bm in list(calib_samples.keys()):
+                _p = cycle_calib_dir / f"{_bm}_cycle{cycle}.json"
+                if not _p.exists():
+                    continue
+                with open(_p, "r", encoding="utf-8") as _f:
+                    _payload = json.load(_f)
+                for _s in _payload.get("samples", []):
+                    _records.append({
+                        "benchmark": _s.get("benchmark", _bm),
+                        "u_pre": _s.get("u_pre"),
+                        "em": _s.get("em"),
+                    })
+            with open(records_path, "w", encoding="utf-8") as _f:
+                json.dump({"samples": _records}, _f)
+            logger.info(
+                "Cycle %d T-refit: synthesised combined records (%d samples) "
+                "from per-bench cal-fold JSONs so per-bench refit can read it.",
+                cycle, len(_records),
+            )
+        except Exception as _exc:
+            logger.warning(
+                "Cycle %d T-refit: failed to synthesise combined records JSON "
+                "from per-bench cal-fold cache (%s); per-bench T_b / safety "
+                "refit will skip and dicts stay at previous-cycle values.",
+                cycle, _exc,
+            )
     else:
         u_pre_logits, u_pre_labels, _, _ = collect_calibration_data(
             pipeline, calib_samples,
