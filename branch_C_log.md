@@ -4998,3 +4998,81 @@ re-do). Cycle 0 baseline + calibration artefacts survive unchanged.
 `ast.parse` clean on `caem/training/self_improvement.py` and
 `caem/verification/__init__.py`. `bash -n run_phase1a.sh` clean. Process
 333139 confirmed dead, GPU 0 MiB used, tmux `plan_a` at the bash prompt.
+
+
+## 2026-05-11 — `experiment_summary.csv` only writes at trajectory close (deferred, not a bug)
+
+### Observed
+
+`outputs/full_run/experiment_summary.csv` is missing on disk while cycle 2
+is in flight, even though cycles 0 and 1 have closed cleanly with full
+per-cycle artefacts (eval JSONs, retroverify, adapter, composite,
+memory store, deferred buffer). Operator inspection of the summary table
+mid-trajectory is therefore not possible without reading per-cycle JSONs
+directly.
+
+### Root cause
+
+`save_summary_csv(all_cycle_results, output_dir, ...)` in
+`scripts/run_experiment.py` is called **exactly once**, at line 2230 of
+`run_experiment()`. The call sits **after** the cycle for-loop at line
+1556 exits (either by reaching `config.num_cycles + 1` or by the
+early-stop break at line 2227). The CSV writer is not called per-cycle.
+
+Consequence: any process exit before the loop's natural end (manual halt,
+crash, hardware failure, scheduled restart for a code patch) means the
+CSV is never written for the cycles that completed in that process.
+The per-cycle JSONs survive at `outputs/full_run/cycle_<N>/` and at
+`gdrive:caem-phase1a/v2_1_phase1d/full_run/cycle_<N>/`, so no data is
+lost — only the convenience aggregator.
+
+On resume, the resume path reconstructs `all_cycle_results` from the
+per-cycle JSONs (`run_experiment.py` lines 1224 onwards) before re-entering
+the cycle loop, so the eventual `save_summary_csv` at trajectory close
+emits a complete CSV covering all cycles regardless of how many process
+restarts the trajectory required.
+
+### Why not blocking right now
+
+The CSV is the cross-cycle Table-1 aggregate. Every column it contains
+(cycle, benchmark, em, f1, tier1/2/3 fractions, storage_rate, mean
+u_stored, mean latency, mmlu retention) is reconstructable from the
+per-cycle artefacts already on disk:
+
+* `cycle / benchmark / em / f1 / tier* / storage_rate / mean_u_stored`
+  come from `outputs/full_run/eval/{benchmark}_cycle{N}.json :: meta`.
+* `mmlu_retention` and `mmlu_retention_ratio_pct` come from
+  `retroverify_cycle{N}.json :: fine_tune.mmlu_retention` and
+  `pristine_probes.mmlu` in `retention_baseline.json`.
+
+The Phase 4 verifier-accuracy trajectory aggregator (task #153) and the
+existing `aggregate_calibration_trajectory.py` both read the per-cycle
+JSONs directly, so neither blocks on the missing CSV.
+
+### Deferred fix (queued for after trajectory close)
+
+Call `save_summary_csv` at the end of each cycle iteration in addition to
+the existing call at trajectory close. The CSV writer is idempotent — it
+takes `all_cycle_results` and rewrites the full file each time, so
+per-cycle invocation produces a partial CSV that grows by one batch of
+rows each cycle, and the existing post-loop call still produces the
+final complete CSV. Roughly 5 lines of code inside the cycle loop near
+the existing Step 6 / Step 6b / Step 6c block.
+
+Two reasons to defer rather than patch now: (1) the change touches the
+in-flight runner's per-cycle code path, which would require another
+halt-and-restart on top of the cycle-2-to-3 restart already queued for
+the per-bench T_b fix; (2) the cycle-3 restart will rebuild
+`all_cycle_results` from per-cycle JSONs anyway, so the final
+trajectory-close CSV will cover cycles 0 through 10 regardless. The
+operator inconvenience during cycles 3 through 10 is one further restart
+window away.
+
+### Tracking
+
+Logged here so the gap is recoverable from the audit trail and so the
+patch can land in the same maintenance window as the next planned
+restart (most likely after step_7_main reaches cycle 10, before the
+Phase 4 receipts pass). No task ID created — the fix is a single-call
+addition tracked under the existing #88 "Phase 4 — empirical-evidence
+artifacts for the report" task scope.
