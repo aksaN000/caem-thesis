@@ -1091,6 +1091,7 @@ class UnifiedVerifier:
         u_tokens: Optional[List[Optional[float]]] = None,
         u_dropouts: Optional[List[Optional[float]]] = None,
         source_benchmarks: Optional[List[Optional[str]]] = None,
+        is_query_time: bool = True,
     ) -> List[UnifiedVerifierOutput]:
         """Run verification on N (query, answer) pairs in one batched pass.
 
@@ -1260,6 +1261,7 @@ class UnifiedVerifier:
                 source_benchmark=(
                     source_benchmarks[i] if source_benchmarks is not None else None
                 ),
+                is_query_time=is_query_time,
             ))
             per_stage_ms["verify_per_sample_total"] += (_t.perf_counter() - _ts) * 1000.0
         total_ms = (_t.perf_counter() - _t0) * 1000.0

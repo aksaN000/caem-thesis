@@ -583,10 +583,26 @@ def retroactive_reverification(pipeline, cycle: int, config) -> Dict:
     # Uses the pipeline's verifier so re-verification benefits from the
     # updated model weights after this cycle's fine-tuning.
     verify_fn = pipeline.make_retroverify_fn()
+    # Patch 2026-05-11: also pass the batched closure so retroverify
+    # pools the M-chain / dropout / rerank stages across episodes.
+    # ~2.5-3x speedup at N=8; serial closure stays in scope as the
+    # per-entry fallback for any batch-call exception. If pipeline does
+    # not expose the batched factory (older pickled instance, mock test
+    # harness), fall back to pure serial.
+    verify_fn_batch = None
+    if hasattr(pipeline, "make_retroverify_fn_batch"):
+        try:
+            verify_fn_batch = pipeline.make_retroverify_fn_batch()
+        except Exception as _exc:
+            logger.warning(
+                "retroverify: pipeline.make_retroverify_fn_batch() raised "
+                "%s -- falling back to serial.", _exc,
+            )
 
     n_updated, n_removed = store.retroverify(
         verify_fn=verify_fn,
         threshold=config.retroverify_prune_threshold,
+        verify_fn_batch=verify_fn_batch,
     )
 
     logger.info(
@@ -1600,6 +1616,23 @@ def run_experiment(ns: argparse.Namespace) -> None:
                 else None
             )
 
+        # Patch 2026-05-11: batched deferred reconsideration closure. When
+        # available on the pipeline, the buffered entries get scored in
+        # pooled batches (N=8) inside deferred_buffer.reconsider, mirroring
+        # the batched retroverify path. Falls back to serial if the factory
+        # isn't present (older pickled pipeline, mock harness) or raises.
+        _reconsider_fn_batch = None
+        if pipeline.deferred_buffer is not None and hasattr(
+            pipeline, "make_reconsider_deferred_fn_batch"
+        ):
+            try:
+                _reconsider_fn_batch = pipeline.make_reconsider_deferred_fn_batch()
+            except Exception as _exc:
+                logger.warning(
+                    "reconsider: pipeline.make_reconsider_deferred_fn_batch() "
+                    "raised %s -- falling back to serial.", _exc,
+                )
+
         logger.info("  Step 1: SelfImprovementLoop.run_cycle(%d) ...", cycle_num)
         # v2 Fix 3: cold_start_loader. When a training benchmark has
         # zero verified episodes for the upcoming cycle, the loader
@@ -1648,6 +1681,7 @@ def run_experiment(ns: argparse.Namespace) -> None:
             verify_fn=None,
             deferred_buffer=pipeline.deferred_buffer,
             reconsider_fn=_reconsider_fn,
+            reconsider_fn_batch=_reconsider_fn_batch,
             cold_start_loader=_cold_start_loader,
         )
 

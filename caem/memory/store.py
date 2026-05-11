@@ -608,6 +608,8 @@ class EpisodicMemoryStore:
         self,
         verify_fn,
         threshold: Optional[float] = None,
+        verify_fn_batch=None,
+        batch_size: int = 8,
     ) -> Tuple[int, int]:
         """Re-verify all stored episodes with the updated model.
 
@@ -666,6 +668,139 @@ class EpisodicMemoryStore:
 
         entry_ids = list(self._metadata.keys())
         logger.info("Retroactive re-verification of %d episodes.", len(entry_ids))
+
+        # Patch 2026-05-11: batched retroverify path.
+        # ----------------------------------------------------------------- #
+        # When the caller passes ``verify_fn_batch``, dispatch chunks of
+        # ``batch_size`` entries through it instead of calling ``verify_fn``
+        # one-at-a-time. The pooled M-chain generation, dropout, and rerank
+        # stages amortise across the chunk, cutting per-episode wall-time
+        # from ~9s (serial) to ~3s (batched at N=8). Loop-prune still runs
+        # per-entry BEFORE the batch is assembled, so loop entries never
+        # consume a slot in the verifier batch. The update / prune /
+        # downgrade application is identical to the serial path; only the
+        # signal-computation step is batched.
+        # ----------------------------------------------------------------- #
+        if verify_fn_batch is not None:
+            def _apply_scores(eid, entry, new_scores):
+                """Apply per-entry update/prune logic. Returns one of
+                {'updated', 'pruned', 'unchanged'}."""
+                nonlocal n_updated, n_threshold_pruned
+                if new_scores is None:
+                    return "unchanged"
+                new_u = new_scores.u_stored
+                if new_u < threshold:
+                    self.remove(eid)
+                    n_threshold_pruned += 1
+                    return "pruned"
+                direction_ok = (new_u > entry.u_stored) or (
+                    allow_downgrade and new_u != entry.u_stored
+                )
+                if direction_ok:
+                    self.update_u_stored(eid, new_u)
+                    entry.u_token = new_scores.u_token
+                    entry.u_dropout = new_scores.u_dropout
+                    entry.u_internal = new_scores.u_internal
+                    entry.s_avg = new_scores.s_avg
+                    entry.h_norm = new_scores.h_norm
+                    entry.p_entail = new_scores.p_entail
+                    entry.p_ground_max = new_scores.p_ground_max
+                    entry.p_ground_mean = new_scores.p_ground_mean
+                    entry.p_ground_atomic = new_scores.p_ground_atomic
+                    entry.p_contra = new_scores.p_contra
+                    entry.q_a_relevance = new_scores.q_a_relevance
+                    entry.decision = new_scores.decision
+                    entry.early_exit_triggered = new_scores.early_exit_triggered
+                    entry.retroverified = True
+                    entry.hit_counter = 0
+                    n_updated += 1
+                    return "updated"
+                entry.retroverified = True
+                entry.hit_counter = 0
+                return "unchanged"
+
+            # Walk entries; loop-prune in place; assemble batches of
+            # survivors and dispatch.
+            pending: List[Tuple[int, Any]] = []
+            for eid in entry_ids:
+                entry = self._metadata.get(eid)
+                if entry is None:
+                    continue
+                if prune_loops and is_repetitive_loop(
+                    entry.reasoning_chain or "", self.config
+                ):
+                    self.remove(eid)
+                    n_loop_pruned += 1
+                    continue
+                pending.append((eid, entry))
+                if len(pending) < batch_size:
+                    continue
+                batch_entries = [e for _, e in pending]
+                try:
+                    batch_scores = verify_fn_batch(batch_entries)
+                except Exception as exc:
+                    logger.warning(
+                        "retroverify: verify_fn_batch raised %s for N=%d "
+                        "-- falling back to serial for this batch.",
+                        exc, len(batch_entries),
+                    )
+                    batch_scores = [None] * len(batch_entries)
+                for (eid_p, entry_p), sc in zip(pending, batch_scores):
+                    if sc is None:
+                        # Per-entry fallback so a batch-call failure or
+                        # a None-from-closure doesn't strand survivors.
+                        try:
+                            sc = verify_fn(entry_p)
+                        except Exception as exc:
+                            logger.warning(
+                                "retroverify (serial fallback): verify_fn "
+                                "raised %s for entry %d -- skipping.",
+                                exc, eid_p,
+                            )
+                            continue
+                    _apply_scores(eid_p, entry_p, sc)
+                pending = []
+            # Flush trailing partial batch.
+            if pending:
+                batch_entries = [e for _, e in pending]
+                try:
+                    batch_scores = verify_fn_batch(batch_entries)
+                except Exception as exc:
+                    logger.warning(
+                        "retroverify: verify_fn_batch raised %s for trailing "
+                        "N=%d -- falling back to serial.",
+                        exc, len(batch_entries),
+                    )
+                    batch_scores = [None] * len(batch_entries)
+                for (eid_p, entry_p), sc in zip(pending, batch_scores):
+                    if sc is None:
+                        try:
+                            sc = verify_fn(entry_p)
+                        except Exception as exc:
+                            logger.warning(
+                                "retroverify (serial fallback): verify_fn "
+                                "raised %s for entry %d -- skipping.",
+                                exc, eid_p,
+                            )
+                            continue
+                    _apply_scores(eid_p, entry_p, sc)
+
+            n_removed = n_loop_pruned + n_threshold_pruned
+            logger.info(
+                "Retroverify complete (batched): %d updated, %d removed "
+                "(loop-pruned=%d, threshold-pruned=%d). Store size: %d",
+                n_updated, n_removed, n_loop_pruned, n_threshold_pruned,
+                self.size,
+            )
+            self._last_retroverify_breakdown = {
+                "loop_pruned": n_loop_pruned,
+                "threshold_pruned": n_threshold_pruned,
+            }
+            return n_updated, n_removed
+
+        # ----------------------------------------------------------------- #
+        # Serial path (back-compat: no verify_fn_batch passed).             #
+        # ----------------------------------------------------------------- #
 
         for eid in entry_ids:
             entry = self._metadata.get(eid)
