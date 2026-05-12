@@ -5076,3 +5076,58 @@ restart (most likely after step_7_main reaches cycle 10, before the
 Phase 4 receipts pass). No task ID created — the fix is a single-call
 addition tracked under the existing #88 "Phase 4 — empirical-evidence
 artifacts for the report" task scope.
+
+
+## 2026-05-12 — cycle-0 post-rescore eval JSONs backed up to gdrive
+
+### Observed
+
+During a routine gdrive audit, the post-Phase-1d (post-Option-4) cycle-0
+held-out eval JSONs at local
+`outputs/full_run/eval/{benchmark}_cycle0.json` were found to be
+local-only. The cycle-0 baseline on gdrive lived at
+`caem-phase1a/pre_main_snapshot/c5b8066/cycle_0/eval/` and held the
+pre-rescore versions (the originals from the cycle-0 cold-start +
+calibration phase, before Option 4 lowered the storage threshold from
+0.65 to 0.60 and the rescore ran). MD5 confirmed the two sets differ:
+local FEVER cycle 0 md5 was ea39fb10..., the snapshot version was
+5938ab3a..., and the snapshot sample count (n=500) is the larger
+cycle-0 calibration scoring rather than the trajectory's n=300 held-out
+eval.
+
+The trajectory's reported cycle-0 baseline numbers (FEVER 0.4500,
+TriviaQA 0.4067, CSQA 0.6067, TruthfulQA 0.3300, StrategyQA 0.6067)
+come from the local post-rescore files, so any report regeneration
+that pulled from gdrive's `pre_main_snapshot/` would produce
+slightly different cycle-0 numbers from the ones already discussed.
+
+### Action
+
+Uploaded all five post-rescore cycle-0 eval JSONs to
+`gdrive:caem-phase1a/v2_1_phase1d/full_run/cycle_0/eval/` via
+`rclone copy --include "*_cycle0.json"`. Five files, 2.68 MiB total.
+Post-upload md5 verification confirmed byte equivalence with local.
+This closes the cycle-0 audit gap: the gdrive `v2_1_phase1d/full_run/`
+hierarchy now contains the cycle-0 evals consistent with the running
+trajectory, alongside cycle_1 (complete) and cycle_2 (in flight).
+
+### Why this matters for the report
+
+Without this upload, a fresh post-trajectory regeneration of Ch5 tables
+on a different machine pulling from gdrive would compute the cycle-0
+EM and CHM baseline from the pre-rescore snapshot (different sample
+size and different storage-threshold) and produce different Δ values
+against cycle 1+ readings. With this upload, the cycle-0 row of every
+Ch5 trajectory table is reproducible from gdrive alone, alongside the
+cycle 1-10 rows that Step 6c uploads automatically at each cycle close.
+
+### Future-proofing
+
+The `run_phase1a.sh:step_7_main` block does not currently upload the
+cycle-0 trajectory evals to gdrive as part of Step 7's prelude (it only
+syncs cycle_N for N>=1 via the cycle-close offload at Step 6c). A small
+addition to `step_7_main` — `rclone copy outputs/full_run/eval/
+gdrive:caem-phase1a/.../cycle_0/eval/ --include "*_cycle0.json"`
+right before the python launch — would prevent this gap from recurring
+on future re-launches. Filed as a follow-up under #88's scope, not as a
+standalone task.
