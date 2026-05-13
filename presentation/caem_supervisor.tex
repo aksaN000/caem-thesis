@@ -596,29 +596,32 @@
 
 % =====================================================================
 \begin{frame}{Stage 7 -- production response per decision}
-  \footnotesize
-  User-facing output rules:
+  \scriptsize
+  The full production envelope (frozen dataclass) exposes six rendered fields plus the raw decision. Confidence is the continuous $u_{\text{stored}} \in [0, 1]$, rendered as a percentage; the semantic tag carries the failure-mode meaning; the ordinal label is an at-a-glance hint; the icon name accompanies the rendering.
 
   \vspace{0.3em}
-  \begin{tabular}{@{}lcccp{4.2cm}@{}}
+  \begin{tabular}{@{}lccccp{4.6cm}@{}}
     \toprule
-    Decision & \textbf{show\_answer} & tag & label & user-facing caveat \\
+    Decision & \textbf{show\_answer} & tag & label & icon & user-facing caveat \\
     \midrule
-    STORE    & \good & verified     & high     & --- (clean confident answer) \\
-    DEFERRED & \good & provisional  & moderate & ``I'll reconsider this at my\\&&&& next learning cycle.'' \\
-    DISCARD  & \good & conflicting  & low      & ``Evidence exists but signals\\&&&& disagree -- verify independently.'' \\
-    ABSTAIN  & \bad & insufficient  & very\_low & ``I don't have enough evidence\\&&&& to answer this reliably.'' \\
+    STORE    & \good & verified     & high      & check   & None (clean confident answer) \\
+    DEFERRED & \good & provisional  & moderate  & tilde   & ``I'll reconsider this at my next learning cycle. Please ask again later for an updated answer.'' \\
+    DISCARD  & \good & conflicting  & low       & warning & ``Evidence exists but some signals disagree -- independent verification is recommended.'' \\
+    ABSTAIN  & \bad  & insufficient & very\_low & cross   & None; answer replaced with ``I don't have enough evidence to answer this reliably.'' \\
     \bottomrule
   \end{tabular}
 
   \vspace{0.4em}
   \begin{itemize}\scriptsize
-    \item Confidence is always shown; only the answer text is hidden (ABSTAIN).
-    \item DEFERRED + DISCARD show the answer with a hedge -- user is informed the system is uncertain and why.
-    \item This matters for trust calibration: a system that always shows or always hides is less informative than one that grades trust.
+    \item \textbf{Continuous confidence is always shown.} The user sees both a semantic tag and the underlying calibrated probability rendered as a percentage (e.g., \textbf{verified $\cdot$ $72\%$}). The four-class tag describes the failure mode; the percentage gives the granular reliability.
+    \item \textbf{Only the answer string is hidden on ABSTAIN}; the substituted insufficient-evidence message replaces the answer, the caveat field stays empty.
+    \item \textbf{DEFERRED caveat has three deployment-aware forms.} Generic ``next learning cycle'' is the fallback; an explicit ETA (``around 6 am tomorrow'') overrides it; a named cadence (\emph{nightly} / \emph{hourly} / \emph{continuous} / \emph{shortly}) produces deployment-specific user copy. The cycle itself is query-volume-triggered ($N$ queries per cycle), not wall-clock.
+    \item \textbf{DISCARD shows the answer with a hedge.} Evidence exists but signals disagree -- the user gets the model's best guess plus the explicit independent-verification ask.
   \end{itemize}
 
-  \why{The four-class output schema lets the deployer build trust-aware UX. Plain fine-tuning has no such axis -- it just emits a string.}
+  \why{Four-class semantic tag plus continuous confidence percentage plus deployment-aware hedge text is the load-bearing trust-calibration surface. A system that always shows or always hides is less informative than one that grades trust; a system with no calibrated probability cannot anchor the tag in a number the user can reason about.}
+
+  \altn{A single binary ``answered / refused'' surface (which plain fine-tuning produces) collapses DEFERRED, DISCARD, and ABSTAIN into one bucket and forces the deployer to choose between hiding too much and exposing too much. The four-class schema preserves the calibrated probability and the failure-mode signal separately.}
 \end{frame}
 
 % =====================================================================
