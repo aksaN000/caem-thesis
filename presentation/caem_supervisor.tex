@@ -135,7 +135,7 @@
   \end{columns}
 
   \vspace{0.4em}
-  {\scriptsize Backbone: Qwen-2.5-3B-Instruct. Verifier judges: MiniCheck (Flan-T5-Large) on short premises; frozen Qwen NLI on longer ones, length-dispatched. Encoder: SBERT all-mpnet-base-v2. Retriever: 21M-passage DPR over Wikipedia. Reranker: BAAI/bge-reranker-v2-m3.}
+  {\scriptsize Backbone: Qwen-2.5-3B-Instruct. NLI judge: MiniCheck (Flan-T5-Large) on every prediction; the long-hypothesis frozen Qwen judge was ablated at Phase 2 after its Platt-calibration Pearson floor ($\rho \ge 0.70$) was not cleared (measured $\rho = 0.5843$). Hypotheses exceeding 408 MC-tokens truncate at MiniCheck's 512-token encoder; this is a registered Threats item. Encoder: SBERT all-mpnet-base-v2. Retriever: 21M-passage DPR over Wikipedia. Reranker: BAAI/bge-reranker-v2-m3 (frozen, untrained by CAEM).}
 \end{frame}
 
 % =====================================================================
@@ -507,7 +507,7 @@
   \scriptsize
   \textbf{Family D (one signal):} $q_{\text{a,rel}}$ -- independent cross-encoder score of $(\text{question}, \text{served\_answer})$. Verifier's cross-encoder is FROZEN.
 
-  \why{This single signal carries the largest weight ($w = 0.500$). It catches the ``off-topic but grounded'' failure mode -- model confidently answers a related-but-different question, retrieval finds passages supporting the wrong question. Internal/grounding signals miss this.}
+  \why{This single signal carries one of the largest pooled boost weights at cycle 0 ($w_{\text{global}} = +0.41$, the per-bench values on the next slide). It catches the ``off-topic but grounded'' failure mode -- model confidently answers a related-but-different question, retrieval finds passages supporting the wrong question. Internal/grounding signals miss this.}
 
   \vspace{0.4em}
   \textbf{Stage 5b -- per-benchmark composite:}
@@ -639,7 +639,7 @@
     \item Gradient checkpointing on, AMP \texttt{bfloat16}
     \item Eager-mode SIL block (avoids compile-backward OOM under attention SDPA)
     \item Batch size $4$, gradient accumulation $4$, effective batch $16$; three epochs per cycle
-    \item Training pool: $u_{\text{stored}} \ge \tau_{\text{train}} = 0.75 > \tau_{\text{store}} = 0.60$, so the training-pool threshold is strictly stricter than the storage threshold
+    \item Training pool: $u_{\text{stored}} \ge \tau_{\text{train}} = 0.70 > \tau_{\text{store}} = 0.60$ (lowered from $0.75$ on 2026-05-09 to restore a non-empty verified-episode share without breaking the ``stricter than store'' invariant), so the training-pool threshold remains strictly stricter than the storage threshold
     \item Pool reweighting: temperature mixing $T{=}2$, three-fold upsampling cap, a per-benchmark floor (DoReMi-style), and a cold-start gold-label fallback for any benchmark whose verified-candidate count drops to zero. A hard per-benchmark share cap of $40\%$ prevents monoculture
   \end{itemize}
 
@@ -691,7 +691,7 @@
 
   \why{The training-transfer split matters for the empirical claim: training-panel improvement could be memorisation, but transfer-panel improvement is the load-bearing evidence that the architecture confers cross-distribution benefit.}
 
-  \textbf{Cycle close:} write the LoRA adapter directory ($\sim$50 MB), the retroactive-verification log, the memory store, and the deferred buffer; archive the whole cycle directory to the public host. Cycle $N{+}1$ begins.
+  \textbf{Cycle close:} write the LoRA adapter directory ($\sim$230 MB; r=32, $\alpha$=64, all-linear targets on Qwen-2.5-3B), the retroactive-verification log, the memory store, and the deferred buffer; archive the whole cycle directory to the public host. Cycle $N{+}1$ begins.
 \end{frame}
 
 % =====================================================================
@@ -764,7 +764,7 @@
     $\tau_{\text{store}}$ (storage gate) & \textbf{0.60} & boost L$_2$ strength $C$ & 0.01 \\
     $\tau_{\text{defer}}$ (defer gate) & \textbf{0.45} & shrinkage prior $\alpha$ & 0.60 \\
     $\tau_{\text{retro}}$ (retroactive prune) & 0.50 & calibration fold (pooled) & 1500 \\
-    $\tau_{\text{train}}$ (training pool floor) & 0.75 & calibration fold per benchmark & 500 \\
+    $\tau_{\text{train}}$ (training pool floor) & 0.70 & calibration fold per benchmark & 500 \\
     safety floor $u_{\text{pre,min}}$ (pooled) & 0.38 & active signals in composite & 9 \\
     abstention floor $\phi_{\text{pg}}$ & 0.20 & cycles in main run & 10 \\
     Tier-1 combined threshold & 0.90 & stream-chunk per cycle & 4700 \\
@@ -857,7 +857,7 @@
     \item \textbf{Cross-encoder rerank cost.} Reranker is the largest single wall-clock component ($\sim$2.4 s/sample) and is NOT cacheable across cycles because the rerank pair includes the model's answer (which changes per cycle).
     \item \textbf{High-confidence rare-fact false negatives.} Architecture trades these for the precision contract -- registered, deliberate, but non-trivial cost.
     \item \textbf{Distribution shift outside the calibration fold.} The fixed-threshold gate provides an empirical precision target rather than a distribution-free coverage guarantee. Queries from a fundamentally different distribution may violate the empirical precision pattern until the next cycle-boundary calibration fold from that new distribution refits the per-benchmark composite. Transfer-benchmark precision is the load-bearing signal here.
-    \item \textbf{Compute cost at training time.} Per-cycle cal+retroverify+stream+eval $\approx$ 14 hours on a 5090 with current optimisations. Plain fine-tuning is faster per cycle in pure wall-clock (but weaker on every other axis).
+    \item \textbf{Compute cost at training time.} Per-cycle close-to-close wall-time $\approx 24$--$30$ hours on a 5090 with current optimisations (cycle 1 close-to-close measured at $25.8$ hours, cycle 2 at $\sim 31$ hours including the retroverify prune-rate roughly doubling against the larger pool). Roughly $5$ hours of that is the SIL fine-tune itself; the rest is retroactive re-verification, the stream chunk, and the held-out eval. Plain fine-tuning is faster per cycle in pure wall-clock (but weaker on every other axis).
     \item \textbf{Memory pollution risk under bias.} If the cold-start seed contains systematic bias, the verifier can perpetuate it via SIL fine-tune. Mitigation: integrity envelope NFR5 (fold disjointness) + retroactive prune at $\tau_{\text{retro}}$.
   \end{itemize}
 \end{frame}
