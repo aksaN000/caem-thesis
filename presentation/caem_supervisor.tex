@@ -635,11 +635,12 @@
   \vspace{0.3em}
   \textbf{Optimisation envelope:}
   \begin{itemize}\scriptsize
-    \item AdamW8bit (bitsandbytes), gradient checkpointing, AMP bf16
+    \item \texttt{torch.optim.AdamW} over the $\sim$60 M adapter parameters at $\text{lr}=2\!\cdot\!10^{-4}$ ($10\times$ the backbone-FT learning rate; the adapter is small enough to take a larger step). The bitsandbytes 8-bit AdamW path was explicitly disabled on the LoRA branch (Phase 1d, 2026-05-10): on a $\sim$60 M adapter the $\sim$50\% optimiser-state saving is $\sim$60 MB on a 32 GB envelope, while the 8-bit moment-quantisation noise is relatively larger per-parameter on a small adapter than on a 3 B backbone. The 8-bit path is retained only for the Full-FT fallback
+    \item Gradient checkpointing on, AMP \texttt{bfloat16}
     \item Eager-mode SIL block (avoids compile-backward OOM under attention SDPA)
     \item Batch size $4$, gradient accumulation $4$, effective batch $16$; three epochs per cycle
     \item Training pool: $u_{\text{stored}} \ge \tau_{\text{train}} = 0.75 > \tau_{\text{store}} = 0.60$, so the training-pool threshold is strictly stricter than the storage threshold
-    \item Pool reweighting: temperature mixing $T{=}2$, three-fold upsampling cap, a per-benchmark floor (DoReMi-style), and a cold-start gold-label fallback for any benchmark whose verified-candidate count drops to zero. A hard per-benchmark share cap prevents monoculture
+    \item Pool reweighting: temperature mixing $T{=}2$, three-fold upsampling cap, a per-benchmark floor (DoReMi-style), and a cold-start gold-label fallback for any benchmark whose verified-candidate count drops to zero. A hard per-benchmark share cap of $40\%$ prevents monoculture
   \end{itemize}
 
   \vspace{0.3em}
