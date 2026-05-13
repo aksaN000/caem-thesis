@@ -37,10 +37,14 @@ reliability signal; c_conv is a secondary prior on query stability.
 
 OR-condition
 ------------
-    if u_pre < CAEMConfig.safety_u_pre_min (0.60):
+    if u_pre < CAEMConfig.safety_u_pre_min (0.38; per-benchmark via
+                                            safety_u_pre_min_per_benchmark):
         -> force Tier 3, regardless of memory similarity
 
-This is checked via PreRoutingConfidence.is_safe(), not baked into any formula.
+This is checked by the router via ``cfg.get_safety_u_pre_min_for(bench)``,
+not baked into any formula. The default of 0.38 is the v2 Fix 12 pooled
+floor; per-benchmark dicts may override per training bench, and currently
+sit at 0.38 across {FEVER, TriviaQA, CommonsenseQA}.
 
 **Branch C decision (2026-04-22)**: Branch C is decoder-only; Flan-T5 /
 encoder-decoder support has been removed. For the legacy T5 code path, use
