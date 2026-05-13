@@ -499,6 +499,46 @@ grep "Cohen's d on benchmark.*passes 0.20" outputs/full_run/run.log
 - 2026-05-10 — Audited the CSQA verifier-input path. Verifier reads canonicalised option text (`canonicalize_answer` expands letters via Choices block) for all NLI-based signals; multichoice scorer wraps as `"The answer to the question is: <option_text>"`. Template inconsistency between canonicalizer (`Answer: X.`) and multichoice scorer (`The answer to the question is: X`) noted for §Threats but no functional bug.
 - 2026-05-10 — Patch 2026-05-10 applied to `scripts/run_experiment.py` (canonical composite path no longer overwritten per cycle close; resume reload prefers latest per-cycle composite). Takes effect on next process restart (running process has pre-patch code cached in RAM). Cycle-2 resume protocol queued in Phase 0.5.
 - 2026-05-10 — Verifier-accuracy trajectory aggregator queued (Phase 3, new task). Replaces the v1 "α increasing per cycle" conformal narrative with AUROC + Brier + ECE + STORE-bucket EM trajectories under the fixed-threshold gate.
+- 2026-05-13 — Tier-1 latency measurement artefact discovered. `BatchPipeline.answer_batch` averages batch wall-time across all samples (`pipeline_batch.py:463-464`), so per-sample `latency_ms` in eval JSONs cannot resolve per-tier intrinsic cost. Slide deck's "Tier 1 ~50 ms / Tier 2 ~3-5 s / Tier 3 ~10 s" table reflects design-intent intrinsic latency, not the JSON column. Post-trajectory diagnostic (task #154) will fix the receipt path; see new "Post-trajectory diagnostics" section below.
+- 2026-05-13 — Trajectory-length flexibility analysis. User considering stopping at cycle 4 or 5 instead of full 10. Empirical receipts for H1, H2 (load-bearing architectural claims), H3 (convergence deceleration) are defensible at cycle 4-5. H4 (asymptotic floor) needs cycle 7+ for strong support; reportable as "partial / consistent with prediction" at cycle 5. Recommended sweet spot: cycle 5 (frees ~$100 of credit + 5 days for writing). Cycle 10 only worth pushing for if Cohen's d on H4 looks marginal at cycle 5.
+
+---
+
+## Post-trajectory diagnostics (after cycle-N final close)
+
+These run after the trajectory stops at its registered horizon (cycle 5 or cycle 10, user's choice). Each takes hours, not days, and resolves a measurement gap in the live trajectory artefacts.
+
+### Tier-1 amortisation diagnostic (task #154)
+
+**Why.** `BatchPipeline.answer_batch` averages batch wall-time across all samples, so the per-sample `latency_ms` column in eval JSONs reports the batch's amortised cost for every sample regardless of which tier it actually used. A Tier-1 hit logs the same latency as the Tier-3 queries in its batch. The slide deck's per-tier intrinsic latency table (~50 ms / ~3-5 s / ~10 s) is the design intent, not measurable from the live JSON column.
+
+**What to measure.** True per-tier intrinsic cost ($c_1, c_2, c_3$) at one cycle-state. Per-cycle intrinsic costs are approximately constant across cycles (FAISS lookup grows only $O(\log n)$ with store size; LoRA inference is invariant; passage index is fixed at 21M). So one measurement plus the per-cycle tier-share trajectory (already in eval JSONs `tier` field) reconstructs every cycle's pooled wall-time.
+
+**How.** Use the serial `caem.pipeline.Pipeline` class directly (not `BatchPipeline`), at bs=1. The serial path (`pipeline.py:644-645`) uses real `time.perf_counter()` per sample.
+
+**Eval set.** 100 deliberately-constructed queries:
+- 50 paraphrased FEVER/TQA/CSQA claims of cycle-stored entries (target Tier 1)
+- 30 in-distribution but novel queries (target Tier 2)
+- 20 OOD queries (target Tier 3)
+
+**Sanity pass.** Also run against cycle-0 pipeline state (load from HF snapshot `aksaN000/caem-passage-index-21m/pre_main_snapshot/`). If $c_1, c_2, c_3$ at cycle 0 are within ~10% of the final-cycle values, the per-cycle decomposition is licensed for Ch5.
+
+**Outputs.**
+- `outputs/diagnostics/tier_latency.json` — per-tier descriptives (mean, p10, p50, p90)
+- `outputs/diagnostics/per_cycle_pooled_latency.csv` — derived per-cycle pooled wall-time = $\sum_t \pi_t^{(N)} c_t$
+- Cite in Ch5 §setup-reproducibility for the per-tier latency table and §results for the per-cycle amortisation receipt (H5).
+
+**Time budget.** Pipeline setup ~1 h, 100-query bs=1 inference ~10 min per state (run twice = 20 min), analysis ~30 min. Total ~2 h.
+
+**Script.** `scripts/measure_tier_latency.py` — to be written; sketch in `caem_tier1_latency_diagnostic.md` memory file.
+
+### Verifier-accuracy trajectory aggregator (existing task)
+
+Already queued from 2026-05-10. AUROC, Brier, ECE, storage-bucket exact-match per cycle per benchmark. Built from per-cycle calibration-fold sample JSONs + composite JSONs that are already on disk for cycles 0-N. CPU only, ~30 min.
+
+### Reconsider-after-recalibration ordering audit (v2 future work, optional)
+
+Architectural improvement: move deferred-buffer reconsideration from inside `sil.run_cycle` (Step 1) to a new Step 2.6 alongside retroverify at Step 2.5, so both passes use the same freshly refit composite. Saves ~5% retroverify compute per cycle (~15 min) and removes one-cycle promotion lag for entries the new composite would admit. **Do NOT land mid-trajectory** — breaks cycle 0-N comparability. Document as planned v2 improvement in Ch6 §future-work.
 
 ---
 
