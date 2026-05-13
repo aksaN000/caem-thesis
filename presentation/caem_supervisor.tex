@@ -153,7 +153,7 @@
     \node[tier,below=0.9cm of s3]                (t2) {Tier 2\\ zero-shot};
     \node[tier,below=0.9cm of s3,xshift=3.2cm]  (t3) {Tier 3\\ RAG};
     \node[draw=caemred,thick,dashed,fit=(t1)(t2)(t3),inner sep=0.25cm,
-          label={[font=\tiny,caemred]above:safety override forces Tier 3 if $u_{\text{pre}} < 0.60$}] {};
+          label={[font=\tiny,caemred]above:safety override forces Tier 3 if $u_{\text{pre}} < u_{\text{pre,min}}^b$ ($=0.38$ across benches at cycles 0--3)}] {};
     \node[font=\tiny,below=0.05cm of t1] {$\mathcal{S} \ge 0.90$};
     \node[font=\tiny,below=0.05cm of t2] {$s > 0.75$};
     \node[font=\tiny,below=0.05cm of t3] {fallback};
@@ -271,7 +271,7 @@
   \scriptsize
   \begin{enumerate}
     \item \textbf{Verified episodic memory with a four-outcome decision.} Admission rule finer than a binary threshold; every generated answer enters one of \{STORE, DEFERRED, DISCARD, ABSTAIN\} via the calibrated probability composite + the confabulation early-exit. Storage is similarity-indexed with novelty filter and value-based pruning combining recency, retrieval frequency, and stored-answer quality.
-    \item \textbf{Pre-generation confidence and three-tier routing with safety override.} $u_{\text{pre}}$ from encoder-only forward pass, temperature-scaled on a disjoint fold, used \emph{independently} from memory similarity. Router combines query-to-memory similarity with stored-answer quality into a single dispatch score over \{memory-direct, zero-shot, RAG\}. Independent safety override forces RAG whenever $u_{\text{pre}}<0.60$ -- grounded retrieval is available before generation begins.
+    \item \textbf{Pre-generation confidence and three-tier routing with safety override.} $u_{\text{pre}}$ from a single decoder-only forward pass, temperature-scaled per benchmark on a disjoint fold, used \emph{independently} from memory similarity. Router combines query-to-memory similarity with stored-answer quality into a single dispatch score over \{memory-direct, zero-shot, RAG\}. Independent safety override forces RAG whenever $u_{\text{pre}}<u_{\text{pre,min}}^b$ -- the per-benchmark fitted floor (currently $0.38$ on every training bench) -- grounded retrieval is available before generation begins.
     \item \textbf{Nine-signal post-generation verifier with per-benchmark calibrated probability composite.} Four families: internal calibration ($u_{\text{token}}, u_{\text{dropout}}, u_{\text{internal}}$), sample-set agreement ($s_{\text{avg}}, p_{\text{entail}}$), external grounding ($p_{\text{ground,max}}, p_{\text{ground,mean}}, p_{\text{ground,atomic}}$), and question-answer relevance ($q_{\text{a,rel}}$). Each training benchmark has its own per-signal isotonic curves and Cherian L$_2$ logistic boost weights/intercept, shrunk toward a pooled prior at $\alpha{=}0.6$. Transfer benchmarks use the pooled global composite.
     \item \textbf{Fixed-threshold storage gate on the calibrated probability.} The composite output decides a four-way outcome: $u_{\text{stored}} \ge 0.60 \Rightarrow$ STORE, $\ge 0.45 \Rightarrow$ DEFERRED, otherwise ABSTAIN or DISCARD (split by a passage-grounding floor). The threshold is constant across cycles; the per-bench signal-to-probability mapping refits at each cycle boundary so that the same threshold means the same precision target as the model improves.
   \end{enumerate}
