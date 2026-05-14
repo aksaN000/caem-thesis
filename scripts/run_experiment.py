@@ -1796,10 +1796,31 @@ def run_experiment(ns: argparse.Namespace) -> None:
                 )
 
         # Step 2.5: External retroactive re-verification under the now-
-        # recalibrated verifier (or the previous-cycle calibration if the
-        # cycle was aborted / recalibration failed).
-        logger.info("  Step 2.5: Retroactive re-verification ...")
-        retroverify_stats = retroactive_reverification(pipeline, cycle_num, config)
+        # recalibrated verifier. Skipped on aborted cycles because the
+        # model weights were rolled back to theta_prev and the verifier
+        # still holds the previous cycle's calibration; stored entries
+        # were already scored under those same weights at the previous
+        # cycle's retroverify, so re-scoring would produce identical
+        # results at ~6 h of wasted GPU. Patch 2026-05-14 after C4
+        # aborted on the retention guard and the empty pass became
+        # visible. The skip is recorded explicitly so downstream readers
+        # of retroverify_cycle{N}.json can distinguish a skip from a
+        # genuine zero-delta retroverify.
+        if not cycle_result.aborted:
+            logger.info("  Step 2.5: Retroactive re-verification ...")
+            retroverify_stats = retroactive_reverification(pipeline, cycle_num, config)
+        else:
+            logger.info(
+                "  Step 2.5: SKIPPED — cycle %d aborted, weights rolled "
+                "back to theta_prev; retroverify under unchanged weights "
+                "would be a no-op (saves ~6h GPU).", cycle_num,
+            )
+            retroverify_stats = {
+                "total": len(pipeline.memory_store.all_entries()),
+                "updated": 0,
+                "pruned": 0,
+                "skipped": "aborted_cycle",
+            }
 
         # Step 3: Save retroverify stats alongside cycle results
         # mmlu_retention is included here so the resume path can reconstruct
