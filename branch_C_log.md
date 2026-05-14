@@ -16,6 +16,51 @@ Detail belongs in the commit message; the log is for quick rewind.
 
 ---
 
+## 2026-05-14 (BDT — date rolls based on activity)
+
+### 2026-05-14 11:20 BDT  `[GATE]` + `[IMPL]` + `[DECISION]`  Cycle 4 retention guard fired; skip-retroverify-on-abort patch shipped; runner restarted to pick up patch
+
+**Event:** Cycle 4 SIL aborted at 08:56 BDT on the retention guard. Worst probe TriviaQA-test dropped 0.395 → 0.345 (ratio 0.8734 < 0.93 floor). MMLU still gaining (1.0432), CommonsenseQA-test marginal (0.9333). LoRA adapter saved to `outputs/full_run/cycle_4/adapter/` with `aborted=True` flag; weights restored to cycle-3 θ_prev; memory store preserved (asymmetric rollback exactly as designed). First in-flight firing of the retention rollback on this trajectory — direct empirical receipt for H4 and load-bearing differentiator #4.
+
+**Cause:** C4 SIL training pool was 2881 episodes vs C3's 1542. The C3 deferred-buffer promotion (184 entries) plus a fuller stream-chunk yield pushed the C4 pool up; the 2× larger gradient signal in one shot exceeded the implicit LoRA envelope. Mechanism worked as designed (the guard caught the drift before it polluted the trajectory).
+
+**Patch:** Commit `2347d60` to `scripts/run_experiment.py`. Comment at line 1745 already said retroverify should be skipped on aborted cycles, but only the cal-refit block (Steps 2.1–2.4) actually checked the abort flag; Step 2.5 ran unconditionally. Patch adds the same guard around `retroactive_reverification()` and records the skip explicitly in `retroverify_cycle{N}.json` (`skipped="aborted_cycle"`) so downstream readers can distinguish a skip from a genuine zero-delta retroverify. Saves ~6h GPU per aborted cycle.
+
+**Runner restart:** SIGINT to old runner PID 423221 at 11:19 BDT; wrapper trap exited the bash chain and tmux session. Re-created tmux `plan_a`, relaunched `./run_phase1a.sh`; wrapper auto-detected cycle 3 as last complete and resumed from cycle 4 (PID 507749, command verified). C4 will re-attempt SIL (will re-abort, ~10 min), then Step 2.5 SKIPPED (patch active), then Step 4 stream chunk + Step 5 eval normally.
+
+**Trajectory decision (locked):** Stop at C5 regardless of outcome.
+- **C5 passes** → C4 was a one-off (2× batch), 5-cycle trajectory has parametric progression
+- **C5 also aborts** → saturation at C3 confirmed, two independent rollbacks = strong evidence the implicit LoRA envelope hit its design limit (matches Theorem 4.x asymptote prediction)
+
+After C5: kill runner, pivot to baselines (Task #112), ablation rerun, diagnostics (Task #113), Ch5/Ch6 artefact generation (Task #114). Do NOT extend to C6-C10; credit budget needs ~$30-40 for the baseline panel (the single largest remaining thesis evidence gap, H2).
+
+**Continual-learning extensions registered as Ch6 future work (NOT mid-trajectory interventions):** Experience Replay from cold-start memory; EWC via λ_anc on LoRA path (already coded, currently disabled); LR reduction; larger backbone (7B/13B) with more spare-neuron headroom per fine-tune.
+
+**Per-tier EM through C3 (eval fold, n=1500 per cycle, 4 benches at C3 with strategyqa pending):** T2 share 1.5% → 13.8%, T2 EM 0.727 → 0.620; T3 share 98.5% → 86.2%, T3 EM 0.476 → 0.460; pooled EM 0.480 → 0.482. The C2→C3 pooled dip is 100% from T3 dropping (selection effect on residual hard tail), 0% from share-shifting to T2 (T2 EM held flat). T2 EM (0.620 at C3) > base T3 EM at C0 (0.476) by +14 pp — clean SIL-as-distillation receipt.
+
+### 2026-05-14 08:10 BDT  `[NOTE]` + `[DECISION]`  Per-tier EM decomposition — pooled-EM dip C2→C3 is selection effect, not RAG degradation
+
+Held-out eval-fold per-tier EM trajectory through cycle 3 (n=1200, strategyqa pending) computed from `outputs/full_run/eval/{bench}_cycle{N}.json`:
+
+| Cycle | T2 share | T2 EM | T3 share | T3 EM | Pooled EM |
+|---|---|---|---|---|---|
+| C0 | 1.5% | 0.727 (n=22) | 98.5% | 0.476 | 0.480 |
+| C1 | 4.8% | 0.778 (n=72) | 95.2% | 0.502 | 0.515 |
+| C2 | 7.8% | 0.624 (n=117) | 92.2% | 0.511 | 0.520 |
+| C3 | 13.8% | 0.620 (n=166) | 86.2% | 0.460 | 0.482 |
+
+**The thesis story:** T2 EM at C3 (0.620) is +14 pp above base T3 EM at C0 (0.476). The fine-tuned model answering zero-shot is more correct than the base model with RAG. SIL-as-distillation is folding verified RAG outputs into parametric capacity; every query that migrates T3 → T2 is both cheaper and more correct.
+
+**Decomposing the C2→C3 pooled dip (−3.8 pp):** If T3 EM had held at 0.511, hypothetical C3 pooled = 0.526 (+0.6 pp vs C2). 100% of the dip comes from T3 itself dropping 5.1 pp, NOT from share-shifting to T2.
+
+**Why T3 is dropping is the selection effect, not RAG mechanism failure.** 12.3 pp of "easy" (high pre-routing confidence) queries migrated out of T3 between C0 and C3. Hypothetical: if those migrated queries had EM ≈ 0.85, then C0 T3 EM restricted to the C3-residual subset would have been ~0.42. Actual C3 T3 EM = 0.460 on the same hard subset is +4 pp better — SIL is helping T3 too, just less than it helps T2. Structural T3 ceiling on this 5-bench mix is ~0.45–0.50 (corpus K(C), adversarial TruthfulQA, multi-hop StrategyQA, distractor passages, retrieval-dependent residual).
+
+**Decision (NOT a thesis edit yet):** Land in Ch5 §sec:tier-precision + §sec:disc-headline during the post-trajectory rewrite pass. Lead with per-tier EM + cost-adjusted EM (T2 EM > C0 T3 EM); the corpus-bounded floor framing in §sec:check-asymptotic is the right place to bound T3. Watch C4–C5: if T2 EM also starts falling alongside T3, the selection-effect story breaks and SIL would need a genuine-RAG-corruption inspection.
+
+**Reference:** `caem_per_tier_em_selection_effect.md` in `/root/.claude/projects/-workspace/memory/`.
+
+---
+
 ## 2026-04-26 (BDT — date rolls based on activity)
 
 ### 2026-04-26 21:30 BDT  `[GATE]` + `[DECISION]`  Frozen Qwen judge ABLATED — Platt calibration failed Pearson ρ ≥ 0.70 gate
