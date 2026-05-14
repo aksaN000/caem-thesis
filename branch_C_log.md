@@ -18,6 +18,25 @@ Detail belongs in the commit message; the log is for quick rewind.
 
 ## 2026-05-14 (BDT — date rolls based on activity)
 
+### 2026-05-15 06:30 BDT  `[NOTE]` + `[DECISION]`  Headline thesis contrast is B1 → C3, NOT intra-trajectory C0 → C3
+
+User raised the framing point: current trajectory reporting compares CAEM C0 → C3 (pooled EM +0.2 pp, CHM −22%). But C0 is already the **full CAEM architecture minus SIL** (verifier + retrieval + memory + gate + abstain). The headline thesis claim should be **raw Qwen (B1) → CAEM C3**, which the intra-trajectory comparison drastically understates.
+
+**Three-comparison decomposition** (per Ch5 §sec:comp-zero-shot already structures this):
+
+| Comparison | Isolates | Magnitude |
+|---|---|---|
+| **B1 → CAEM C3** | Full architecture + SIL (headline) | ~+7 pp EM, ~−65% CHM (est.) |
+| **B1 → CAEM C0** | Architecture without SIL | ~+7 pp EM, ~−50% CHM (est.) |
+| **CAEM C0 → C3** | SIL incremental on top of architecture | +0.2 pp EM, −22% CHM (measured) |
+| **B6 → CAEM C3** | SIL with full arch vs vanilla FT | TBD post-baselines |
+
+**Why this matters:** Reviewers reading "C0 → C3 = +0.2 pp EM" might ask whether a 4000-line architecture is justified for a marginal gain. The answer is yes, but only when framed against B1, not C0. SIL's job in the thesis story is to **shift T2 share up (1.5% → 18.1%)** for cost-amortisation, not to be the dominant accuracy lever — most of the accuracy + hallucination-reduction gain comes from the architecture itself (retrieval + verifier + abstain + memory).
+
+**Decision (NOT a code change):** When B1 lands post-C5 (Step P-2 in PRODUCTION_NEXT_SESSION_PLAN.md Phase 1.6), reframe Ch5 §sec:summary-headline + Ch5 §sec:disc-headline + Ch6 §sec:concl-headline + abstract to lead with the B1 → C3 contrast. The current Ch5 framing (placeholder "main-run pending") will naturally absorb this once real B1 numbers replace the estimates.
+
+**Reference:** memory file `caem_b1_vs_c0_framing.md` for the full estimated per-bench table, caveats on the B1 EM estimates, and the specific section-by-section reframing plan.
+
 ### 2026-05-14 11:20 BDT  `[GATE]` + `[IMPL]` + `[DECISION]`  Cycle 4 retention guard fired; skip-retroverify-on-abort patch shipped; runner restarted to pick up patch
 
 **Event:** Cycle 4 SIL aborted at 08:56 BDT on the retention guard. Worst probe TriviaQA-test dropped 0.395 → 0.345 (ratio 0.8734 < 0.93 floor). MMLU still gaining (1.0432), CommonsenseQA-test marginal (0.9333). LoRA adapter saved to `outputs/full_run/cycle_4/adapter/` with `aborted=True` flag; weights restored to cycle-3 θ_prev; memory store preserved (asymmetric rollback exactly as designed). First in-flight firing of the retention rollback on this trajectory — direct empirical receipt for H4 and load-bearing differentiator #4.
