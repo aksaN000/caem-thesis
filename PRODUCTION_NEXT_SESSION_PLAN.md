@@ -392,6 +392,16 @@ From `outputs/research/topvenue_panel_2026-05-14.md`:
 - [ ] `python -m scripts.run_baselines --output_dir outputs/baselines --baselines B1 B2 B3 B4 B5 B6 B7 --eval_fold outputs/full_run/eval/sample_manifest.json`
 - [ ] Manifest enforces identical sample IDs as CAEM eval (matched-protocol pairing per Ch5 §sec:sig-pairing)
 - [ ] Per-baseline outputs land under `outputs/baselines/B{1..7}/{bench}_eval.json`
+- [ ] **Post-hoc rescore (CRITICAL — pin the composite version explicitly):**
+  ```
+  python -m scripts.rescore_baselines_through_verifier \
+      --composite_calibration outputs/full_run/cycle_3/composite_calibration.json \
+      --passage_index data/passage_index \
+      --baselines B1 B2 B3 B4 B5 B6 B7
+  ```
+  Do NOT use the default `--composite_calibration` path. The composite is refit at every cycle boundary; CAEM C3 was scored against the cycle-3 composite, so matched-protocol requires the baselines score against the SAME cycle-3 composite. Pin the path explicitly so reviewers can verify the methodology section's claim.
+- [ ] Add a Ch5 §sec:setup-metrics methodology sentence: *"Every baseline's signals are computed through the same locked cycle-3 verifier composite (`outputs/full_run/cycle_3/composite_calibration.json`), so the measurement instrument is held fixed across CAEM and all seven baselines."*
+- [ ] Add the cross-distribution-application caveat paragraph to Ch5 §sec:disc-threats (full text in memory file `caem_b1_vs_c0_framing.md` under "Methodology pre-registrations").
 
 ### Step P-3 — Architectural ablation panel (~$15 GPU, 1-2 days)
 - [ ] `python -m scripts.run_ablation --variants no_retroverify no_self_improvement no_forgetting_guard --output_dir outputs/ablation`

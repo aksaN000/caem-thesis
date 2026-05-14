@@ -18,6 +18,16 @@ Detail belongs in the commit message; the log is for quick rewind.
 
 ## 2026-05-14 (BDT — date rolls based on activity)
 
+### 2026-05-15 07:15 BDT  `[NOTE]` + `[DECISION]`  Two methodology pre-registrations for the B1 → C3 baseline rescore
+
+User-raised methodology points for the post-C5 baseline-panel rescore. Both must land in the paper, not in rebuttal.
+
+**1. Composite-version pre-registration.** The verifier composite is refit at every cycle boundary (per-bench shrinkage prior + per-bench T_b). Cycle 0's composite ≠ cycle 3's. The B1 (and B2-B7) rescore must use the **same composite that CAEM C3 was scored against** — the cycle-3 composite at `outputs/full_run/cycle_3/composite_calibration.json`. Pass it explicitly via `--composite_calibration` (the rescorer has the flag with a different default, do NOT rely on the default). The matched-protocol claim only holds if the measurement instrument is held fixed across CAEM and all seven baselines. State this in Ch5 §sec:setup-metrics.
+
+**2. Cross-distribution-application caveat.** The composite was fit on CAEM's signal distributions over the training-panel calibration fold. Applying it to B1 outputs is a cross-distribution application — B1's per-signal distributions differ from CAEM's (no retrieval, no abstain class, different prompt template). This is methodologically fine for matched-protocol purposes (verifier as **fixed measurement instrument**, not as fitted predictor for B1's distribution), but the paper must say so explicitly. Defense against the hostile reviewer ("composite under-discriminates on B1") is the standard cross-system evaluation logic: a fixed instrument scores both systems on the same scale, even when neither system is the instrument's optimal operating point. A composite refit per baseline would defeat matched-protocol because the headline contrast would then conflate generator differences with measurement-instrument differences.
+
+**Where it goes:** Suggested Ch5 §sec:disc-threats paragraph (full text in memory `caem_b1_vs_c0_framing.md` → "Methodology pre-registrations"); runbook Step P-2 in PRODUCTION_NEXT_SESSION_PLAN.md updated with the explicit composite-pin command and the methodology-sentence requirement.
+
 ### 2026-05-15 06:30 BDT  `[NOTE]` + `[DECISION]`  Headline thesis contrast is B1 → C3, NOT intra-trajectory C0 → C3
 
 User raised the framing point: current trajectory reporting compares CAEM C0 → C3 (pooled EM +0.2 pp, CHM −22%). But C0 is already the **full CAEM architecture minus SIL** (verifier + retrieval + memory + gate + abstain). The headline thesis claim should be **raw Qwen (B1) → CAEM C3**, which the intra-trajectory comparison drastically understates.
