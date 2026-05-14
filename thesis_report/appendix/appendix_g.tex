@@ -8,14 +8,14 @@
 % what does CAEM contribute that plain fine-tuning on the same batch
 % would not?". The body of the thesis carries the full architectural
 % specification in formal academic register; this appendix lays out the
-% five load-bearing differentiators that justify the architecture even
+% six load-bearing differentiators that justify the architecture even
 % under that simplest skeptical framing.
 % ============================================================================
 
 \chapter{Architecture positioning — frequently asked questions}
 \label{app:positioning-qa}
 
-The body chapters specify what CAEM does and how. This appendix collects the comparative-positioning and design-justification questions a reviewer in an adjacent area would ask, and answers each by naming the specific mechanism CAEM contributes that the alternative would lack. The first part answers \emph{why CAEM rather than the simpler alternative of plain exact-match-labelled fine-tuning at the same labelling budget} along the five load-bearing differentiators. The second part answers \emph{why the calibration discipline and cycle-boundary ordering chosen, rather than the straightforward alternatives}.
+The body chapters specify what CAEM does and how. This appendix collects the comparative-positioning and design-justification questions a reviewer in an adjacent area would ask, and answers each by naming the specific mechanism CAEM contributes that the alternative would lack. The first part answers \emph{why CAEM rather than the simpler alternative of plain exact-match-labelled fine-tuning at the same labelling budget} along the six load-bearing differentiators. The second part answers \emph{why the calibration discipline and cycle-boundary ordering chosen, rather than the straightforward alternatives}.
 
 \part*{Part I — Positioning against plain fine-tuning}
 
@@ -66,20 +66,28 @@ The calibrated-probability composite catches each of these failure modes at infe
 
 % ---------------------------------------------------------------------------- %
 
+\section{What does the zero-shot tier gain from the cycle loop that plain fine-tuning cannot match?}
+\label{app:qa-tier2-distillation}
+
+A plain fine-tune produces a single static checkpoint whose zero-shot output distribution does not change between deployments. The cycle loop produces a sequence of checkpoints whose zero-shot output distribution evolves under a specific architectural pressure: at each cycle boundary the self-improvement loop draws its training pool from stored episodes whose answers were originally produced by the retrieval-augmented tier and were certified by the nine-signal verifier, so the fine-tune folds verified retrieval-augmented reasoning into the generator's parametric capacity. The next cycle is therefore able to answer a measurable share of the previously retrieval-dependent queries from the zero-shot tier alone, without paying the retrieval cost. The deployment-side reading of this mechanism is a tier-share migration over cycles: the zero-shot tier's share of the served stream grows, the retrieval-augmented tier's share contracts, and the per-query cost of the workload falls accordingly. Plain fine-tuning has no analogous mechanism because it has no separate retrieval-augmented tier whose certified outputs to distil from; the training data for a plain fine-tune is either pre-collected and static or it accumulates without the verifier-gated quality filter that the CAEM cycle imposes. The empirical receipt at the partial-trajectory point in \Cref{ch:evaluation} is the realised pooled zero-shot share rising from $7.5$ to $14.0$ percent across the first two completed cycles, with the corresponding retrieval-augmented share contracting from $92.3$ to $85.7$ percent; the full cycle-by-cycle trajectory is reported in \Cref{sec:tier-hit}.
+
+% ---------------------------------------------------------------------------- %
+
 \section{When would CAEM not be worth deploying?}
 \label{app:qa-when-not}
 
-The architecture is not a free contribution. Each of the five differentiators above corresponds to an architectural component whose cost is non-zero: the verifier ensemble pays forward passes through MiniCheck, the cross-encoder, and the sentence encoder at every query; the labelled cycle-boundary batch requires ongoing labelling effort; the cycle policy requires operational discipline. The architecture is worth deploying exactly when at least one of the five differentiators is binding for the deployment, and is not worth deploying when all five relax simultaneously:
+The architecture is not a free contribution. Each of the six differentiators above corresponds to an architectural component whose cost is non-zero: the verifier ensemble pays forward passes through MiniCheck, the cross-encoder, and the sentence encoder at every query; the labelled cycle-boundary batch requires ongoing labelling effort; the cycle policy requires operational discipline. The architecture is worth deploying exactly when at least one of the six differentiators is binding for the deployment, and is not worth deploying when all six relax simultaneously:
 
 \begin{itemize}[leftmargin=2em]
 \item Deployments with no requirement for an abstain class.
 \item Deployments where memory-direct cost savings do not compound (very low traffic, or a product requirement that every query traverse the same path for uniformity).
+\item Deployments where the zero-shot tier's per-cycle improvement does not bind because the deployed workload distribution is too narrow for the SIL-driven distillation to gain traction, or too broad for a 3B-class generator to absorb at any cycle horizon.
 \item Deployments where a manual previous-checkpoint backup is sufficient and an external snapshot pipeline already solves the catastrophic-forgetting recovery problem.
 \item Deployments with a labelling budget large enough to support frequent direct fine-tuning, where the verifier-as-sample-efficiency-multiplier value collapses because labelling cost is not the binding constraint.
 \item Deployments below the parametric-capacity ceiling of the underlying generator, where direct fine-tuning still produces meaningful accuracy gains so the inference-time-error-catching value of the composite is dominated by what fine-tuning would also provide.
 \end{itemize}
 
-A deployment that satisfies all five conditions simultaneously is one where plain fine-tuning at the same labelling budget would deliver comparable user-facing quality with simpler implementation. A deployment that fails any one of these conditions is one where the corresponding architectural component is binding. The thesis's value proposition is the regime where at least one of the five conditions binds; the empirical receipts in \Cref{ch:evaluation} measure the contribution of each component on the registered five-benchmark workload, where every component is binding by construction of the failure-mode taxonomy in \Cref{sec:hallucination-taxonomy}.
+A deployment that satisfies all six conditions simultaneously is one where plain fine-tuning at the same labelling budget would deliver comparable user-facing quality with simpler implementation. A deployment that fails any one of these conditions is one where the corresponding architectural component is binding. The thesis's value proposition is the regime where at least one of the six conditions binds; the empirical receipts in \Cref{ch:evaluation} measure the contribution of each component on the registered five-benchmark workload, where every component is binding by construction of the failure-mode taxonomy in \Cref{sec:hallucination-taxonomy}.
 
 \part*{Part II — Design-justification: calibration discipline and cycle-boundary ordering}
 
