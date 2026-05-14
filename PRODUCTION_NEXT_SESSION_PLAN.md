@@ -306,6 +306,8 @@ All 9 active composite signals score the canonical answer claim, not per-step cl
 
 ## Phase 1 — Trajectory cycles 1-10 (~17-20 days continuous, ~$160 GPU)
 
+**Status as of 2026-05-15 05:30 BDT:** Trajectory stop locked at cycle 5. Cycles 0-3 fully closed; Cycle 4 SIL aborted on retention guard (TriviaQA-test ratio 0.8354 < 0.93 floor), Step 4 + Step 5 running on rolled-back C3 weights with C4-augmented memory; Cycle 5 will attempt next (predicted abort), then trajectory ends regardless of outcome. See "Phase 1.5 — C5-stop pivot" below for the post-trajectory plan.
+
 **Status as of 2026-05-10 22:00 UTC:** step_7_main launched 2026-05-10 07:01 UTC in tmux `plan_a` (PID 340588). Cycle 1 is mid-Step-4 (stream-chunk training pass), currently on TriviaQA at [~1150/2000]. FEVER stream chunk closed at 18:03 UTC (EM=0.5895, 707 STORE / 2000). Cycle 1 close estimated 2026-05-11 ~06:00 UTC.
 
 Per-cycle wall-time: ~22-26 hours on 3B + LoRA + 3-bench training panel + 2-bench transfer eval + 9-signal verifier. Cycle 1 trending toward the high end of that range.
@@ -326,6 +328,123 @@ Per-cycle wall-time: ~22-26 hours on 3B + LoRA + 3-bench training panel + 2-benc
   - `eval/{bench}_cycle{N}_streamchunk.json` (Step-4 training-pass per-sample data, preserved by Step 4b snapshot)
 - [ ] **Per-cycle gdrive offload**: `rclone copy outputs/full_run/cycle_N/ gdrive:caem-phase1a/v2_1_phase1d/full_run/cycle_N/` (bucket is `v2_1_phase1d`, NOT `v2-launch`; verified from the runner env at PID 340588)
 - [ ] **Halt criteria**: any retention probe drops > 7% (auto-rollback fires); zero admission on training bench for 2 consecutive cycles (operator decision under fixed-threshold; auto-relax retired with conformal); manual halt if anything else looks wrong
+
+---
+
+## Phase 1.5 — C5-stop pivot decision (2026-05-14)
+
+**Decision locked 2026-05-14 11:20 BDT:** Stop trajectory after C5 close regardless of outcome. Do NOT extend to C6-C10. Credit budget needs ~$30-40 for the baseline panel (the single largest remaining thesis evidence gap, H2).
+
+### What triggered the decision
+- C4 SIL aborted on retention guard: TriviaQA-test post-train 0.345 → 0.330 (ratio 0.8734 → 0.8354 across two attempts), both < 0.93 floor.
+- MMLU still gaining (ratio 1.0432) and CSQA-test marginal (0.9333). Drift is concentrated on one probe.
+- Cause: C4 SIL training pool was 2881 episodes vs C3's 1542 (cycle-3 deferred-buffer promotions + fuller stream chunk). 2× gradient signal in one shot exceeded the implicit LoRA envelope.
+- Retention rollback is **architecturally correct behavior** (asymmetric rollback: memory preserved, adapter reverts). C4 is the first in-flight firing of the guard on the main trajectory → direct empirical receipt for H4 + load-bearing differentiator #4.
+
+### Skip-retroverify-on-abort patch (commit 2347d60, 2026-05-14)
+Applied to `scripts/run_experiment.py`. Step 2.5 retroverify now SKIPPED when `cycle_result.aborted=True`. Saves ~6h GPU per aborted cycle. Records `skipped="aborted_cycle"` in `retroverify_cycle{N}.json` so downstream readers can distinguish a skip from a genuine zero-delta retroverify. Runner restarted 2026-05-14 11:20 BDT to pick up patch; patch verified firing in C4 retry at 11:37 BDT.
+
+### Empirical state at C3 close (the high-water mark)
+| Metric | C0 | C3 | Δ |
+|---|---|---|---|
+| Pooled CHM | 0.156 | 0.121 | **−22% relative** |
+| FEVER CHM | 0.163 | 0.117 | −29% |
+| TriviaQA CHM | 0.165 | 0.123 | −25% |
+| CommonsenseQA CHM | 0.132 | 0.131 | ~flat |
+| TruthfulQA CHM (transfer) | 0.160 | 0.116 | −27% |
+| StrategyQA CHM (transfer) | 0.161 | 0.119 | −26% |
+| Pooled EM | 0.480 | 0.482 | +0.2 pp (flat) |
+| T2 share (3-bench training) | 1.5% | 18.1% | +16.6 pp |
+| T2 EM | 0.727 | 0.620 | held high |
+| T3 EM | 0.476 | 0.460 | held (selection effect dominates) |
+| False refusal rate | 0.296 | 0.069 | **−77%** (biggest single-subtype win) |
+| Confident confabulation rate | 0.110 | 0.242 | +120% ✗ (CC regression, register as Ch5 §disc-threats item) |
+
+### What C5 outcome locks
+- **C5 passes** → 5-cycle parametric progression, conventional "improvement curve" headline
+- **C5 also aborts** → saturation at C3 confirmed across two consecutive cycles → "architecture self-bounds at parametric ceiling, memory tier keeps amortising cost" → matches Theorem 4.x asymptote prediction empirically (arguably *more* compelling)
+
+Either outcome publishable. The C5 result determines which story leads in Ch5 §sec:disc-headline.
+
+### 5 pending baseline-panel decisions (lock before launching B1-B7)
+From `outputs/research/topvenue_panel_2026-05-14.md`:
+- [ ] Drop the agent's "MiniCheck as 10th composite signal" recommendation (CONFIRMED REDUNDANT)
+- [ ] Substitute AlignScore as the lone companion evaluator (yes/no)
+- [ ] Lock panel of 3 vs panel of 7 baselines (decide)
+- [ ] Defer LongFact + VeriScore to rebuttal phase (decide)
+- [ ] Skip GPT-4o-mini TruthfulQA judge (decide)
+
+---
+
+## Phase 1.6 — Post-C5 finish-line roadmap (~12-13 days, ~$50-60 GPU)
+
+**Trigger:** C5 fully closes (estimated ~06:00 BDT May 16 if C5 aborts; ~12 hours later if it passes).
+
+### Step P-1 — Kill trajectory runner + checkpoint state (operator, ~5 min)
+- [ ] Verify C5 close: `experiment_summary.csv` has cycle-5 row, `memory_store_cycle_5.faiss` + `.meta` + `deferred_buffer_cycle_5.pkl` written.
+- [ ] `tmux kill-session -t plan_a`
+- [ ] `git status` (nothing should be modified by the runner itself; if it is, investigate)
+- [ ] Final gdrive offload: `rclone copy outputs/full_run/cycle_5/ gdrive:caem-phase1a/v2_1_phase1d/full_run/cycle_5/`
+- [ ] HF snapshot of full run (memory + adapters all cycles) for reproducibility
+
+### Step P-2 — Baselines B1-B7 (~$30-40 GPU, 2-3 days)
+- [ ] Lock the 5 panel decisions above
+- [ ] `python -m scripts.run_baselines --output_dir outputs/baselines --baselines B1 B2 B3 B4 B5 B6 B7 --eval_fold outputs/full_run/eval/sample_manifest.json`
+- [ ] Manifest enforces identical sample IDs as CAEM eval (matched-protocol pairing per Ch5 §sec:sig-pairing)
+- [ ] Per-baseline outputs land under `outputs/baselines/B{1..7}/{bench}_eval.json`
+
+### Step P-3 — Architectural ablation panel (~$15 GPU, 1-2 days)
+- [ ] `python -m scripts.run_ablation --variants no_retroverify no_self_improvement no_forgetting_guard --output_dir outputs/ablation`
+- [ ] All 3 lesions registered in `caem/ablation/variants.py`; the runner reuses the same `BatchPipeline` with mutated `CAEMConfig`
+- [ ] Outputs land under `outputs/ablation/{variant}/cycle_{0..5}/` (only cycles that produce divergent state need re-running per `needs_cyclic_rerun` flag)
+
+### Step P-4 — Diagnostics (~$5 GPU + scripts, ~1 day)
+- [ ] Per-cycle purity validation: `python -m scripts.run_purity_validation --cycles 0 1 2 3 4 5`
+- [ ] Per-signal correlation matrix: `python -m scripts.signal_correlation_matrix`
+- [ ] Tier-1 amortisation diagnostic (Task #154): serial Pipeline at bs=1, custom small eval set, fills `H5` empirical receipt
+- [ ] Cohen's d trajectory per signal across cycles
+- [ ] Coverage feedback diagnostic
+
+### Step P-5 — Statistical analysis (scripts, hours)
+- [ ] `python -m scripts.baseline_sig_tests` (McNemar paired + bootstrap BCa per benchmark per baseline)
+- [ ] Holm correction within each benchmark family
+- [ ] Architectural-claim licensing rule: Holm-adjusted p ≤ 0.05 AND bootstrap 95% CI lower bound ≥ 0.02
+- [ ] Output: `outputs/baselines/sig_test_results.csv` → renders into `thesis_report/figures/auto/tab_sig_test.tex`
+
+### Step P-6 — Auto-table generation (scripts, hours)
+- [ ] `python -m scripts.make_tables` (consumes all `outputs/{full_run,baselines,ablation,purity,...}` and writes `thesis_report/figures/auto/*.tex`)
+- [ ] Tables referenced from chapters: `tab_headline`, `tab_cycle_progression`, `tab_halluc_subtypes`, `tab_calibration_trajectory`, `tab_grounding`, `tab_purity`, `tab_continual`, `tab_calibration`, `tab_sig_test`, `tab_tier_baseline_cost`, `tab_ablation_results`, `cohen_d`, `composite_weights`, `cross_benchmark_summary`, `sweep_top`
+- [ ] Verify each generated table renders cleanly in a test compile
+
+### Step P-7 — Ch5/Ch6 integration writing (~2 days, no GPU)
+- [ ] §sec:summary-headline: replace placeholder with the licensing-rule verdict on the headline contrasts
+- [ ] H1-H5 verdicts in `tab:hypothesis-verdicts`: replace `main-run pending` / `ablation-run pending` with the licensed verdict (supported / partially supported / unsupported)
+- [ ] §sec:disc-headline: fill with the actual CAEM-vs-baseline contrasts (top-line CHM reduction + per-benchmark deltas + statistical licensing)
+- [ ] §sec:retention: add the C4-abort empirical receipt and the asymmetric-rollback receipt
+- [ ] §sec:disc-threats: add the confident-confabulation rise (CC: 0.110 → 0.242 across C0-C3) as a probe-precision threat-to-validity item
+- [ ] §sec:disc-threats: also add the single-probe-precision threat (TQA-test ratio shows ±4% relative noise between runs; per-cycle drift readings should be interpreted with this band)
+- [ ] Ch6 §concl-headline: finalize with licensing-rule outcome
+- [ ] Ch6 §concl-open: register the parametric-ceiling-at-3B + corpus-coverage-floor + Experience-Replay / EWC continual-learning extensions (already partially in place, expand)
+
+### Step P-8 — Visual polish (~1-2 days)
+- [ ] TikZ figures: system architecture diagram, cycle loop diagram, three-tier flow diagram
+- [ ] Headline plot: pooled CHM curve C0-C5 + per-tier-share curves overlay + multi-modal probe retention curves
+- [ ] Per-bench EM trajectory plot
+- [ ] System architecture figure refresh in `thesis_report/figures/system_architecture_figure.tex`
+
+### Step P-9 — Final cross-bench coherence pass (~1 day)
+- [ ] Numbers match across Ch1 abstract → Ch5 tables → Ch6 conclusion (use `grep` to find every quoted number and trace to its source)
+- [ ] All `\Cref{}` and `\ref{}` references resolve (LaTeX clean compile)
+- [ ] Bibliography complete and sorted
+- [ ] Appendix references valid
+
+### Step P-10 — PDF build + defense prep (~1 day)
+- [ ] `latexmk -pdf -interaction=nonstopmode thesis_report/main.tex` clean compile (zero warnings)
+- [ ] Update `presentation/caem_supervisor.tex` with the final numbers
+- [ ] Practice defense run-through with the slides
+
+### Realistic finish date
+Assuming C5 closes ~06:00 BDT May 16: thesis defensible PDF by **~May 28-30**. Parallelisable: writing (P-7) can run while GPU work (P-2 / P-3 / P-4) is in flight.
 
 ---
 
