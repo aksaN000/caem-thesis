@@ -78,7 +78,7 @@ A plain fine-tune produces a single static checkpoint whose zero-shot output dis
 
 The architecture is not a free contribution. Each of the six differentiators above corresponds to an architectural component whose cost is non-zero: the verifier ensemble pays forward passes through MiniCheck, the cross-encoder, and the sentence encoder at every query; the labelled cycle-boundary batch requires ongoing labelling effort; the cycle policy requires operational discipline. The architecture is worth deploying exactly when at least one of the six differentiators is binding for the deployment, and is not worth deploying when all six relax simultaneously:
 
-\begin{itemize}[leftmargin=2em]
+\begin{itemize}
 \item Deployments with no requirement for an abstain class.
 \item Deployments where memory-direct cost savings do not compound (very low traffic, or a product requirement that every query traverse the same path for uniformity).
 \item Deployments where the zero-shot tier's per-cycle improvement does not bind because the deployed workload distribution is too narrow for the SIL-driven distillation to gain traction, or too broad for a 3B-class generator to absorb at any cycle horizon.

@@ -20,8 +20,8 @@
 \label{ch:evaluation}
 
 % Chapter scope: presents the empirical record in full. Section 5.1
-% reports the trajectory of headline metrics across the eleven
-% measurement cycles. Section 5.2 reports the calibration discipline
+% reports the trajectory of headline metrics across the ten-cycle
+% measurement horizon. Section 5.2 reports the calibration discipline
 % and the locked configuration that the trajectory uses. Section 5.3
 % reports the statistical significance panel against external
 % baselines. Section 5.4 reports baselines, ablations, and their
@@ -38,7 +38,7 @@
 \subsubsection{Benchmarks and the training-versus-transfer split}
 \label{sec:setup-benchmarks}
 
-The empirical programme uses five public benchmarks split into a training panel of three and a transfer panel of two. The training panel comprises FEVER \cite{thorne-etal-2018-fever} for factual claim verification, TriviaQA \cite{joshi-etal-2017-triviaqa} for open-domain trivia, and CommonsenseQA \cite{talmor-etal-2019-commonsenseqa} for five-option multiple-choice commonsense reasoning. The transfer panel comprises TruthfulQA \cite{lin-etal-2022-truthfulqa} for common-misconception probes and StrategyQA \cite{geva2021strategyqa} for implicit multi-step reasoning. The asymmetric split has a registered purpose: the per-benchmark calibrated probability composite (with shrinkage prior toward the pooled fit) and the self-improvement training pool draw exclusively from the training panel, while the transfer panel is held out as a measurement of generalisation under distribution shift; transfer-panel samples never enter the calibration fold, the seed pool, or the per-cycle stream chunks. The retention guard reads a registered multi-modal probe panel rather than a single fold: a general-knowledge multiple-choice probe on MMLU \cite{hendrycks2021measuring}, a held-out open-text factoid probe drawn from the TriviaQA test fold, and a held-out commonsense multiple-choice probe drawn from the CommonsenseQA test fold; none of these probes is used as a target benchmark for the headline metrics. Two benchmarks registered earlier in the project (HotpotQA and Natural Questions) were retired before the main run on cycle-zero diagnostic evidence that the verifier-balanced-accuracy precondition for self-improvement was violated; both are kept on disk under the same licence terms as registered exclusion evidence rather than carried into the live panel.
+The empirical programme uses five public benchmarks split into a training panel of three and a transfer panel of two. The training panel comprises FEVER \cite{thorne-etal-2018-fever} for factual claim verification, TriviaQA \cite{joshi-etal-2017-triviaqa} for open-domain trivia, and CommonsenseQA \cite{talmor-etal-2019-commonsenseqa} for five-option multiple-choice commonsense reasoning. The transfer panel comprises TruthfulQA \cite{lin-etal-2022-truthfulqa} for common-misconception probes and StrategyQA \cite{geva2021strategyqa} for implicit multi-step reasoning. The asymmetric split has a registered purpose: the per-benchmark calibrated probability composite (with shrinkage prior toward the pooled fit) and the self-improvement training pool draw exclusively from the training panel, while the transfer panel is held out as a measurement of generalisation under distribution shift; transfer-panel samples never enter the calibration fold, the seed pool, or the per-cycle stream chunks. The retention guard reads a registered multi-modal probe panel rather than a single fold: a general-knowledge multiple-choice probe on MMLU \cite{hendrycks2021measuring}, a held-out open-text factoid probe drawn from the TriviaQA test fold, and a held-out commonsense multiple-choice probe drawn from the CommonsenseQA test fold; none of these probes is used as a target benchmark for the headline metrics. Three benchmarks registered earlier in the project (HotpotQA, Natural Questions, and ARC-Challenge) were retired before the main run on cycle-zero diagnostic evidence that the verifier-balanced-accuracy precondition for self-improvement was violated; all three are kept on disk under the same licence terms as registered exclusion evidence rather than carried into the live panel.
 
 The cross-fold sample budget is summarised in \Cref{tab:benchmark-pools}. Each training benchmark contributes a $1000$-sample seed pool for cold-start memory population, a $500$-sample calibration fold for the per-signal isotonic curves and the per-benchmark composite refits, a $500$-sample purity-validation slice for the empirical-precision audit, ten per-cycle stream chunks of benchmark-specific size (FEVER and TriviaQA at $2000$ per cycle, CommonsenseQA at $700$ per cycle to fit the smaller available train pool of approximately ten thousand samples after dedup), a $300$-sample evaluation fold for cycle-by-cycle headline metric reporting, and a $500$-sample test fold reserved for the final post-trajectory comparative panel. Each transfer benchmark contributes a $300$-sample evaluation fold and a test fold of up to $500$ samples (clamped where the benchmark's dev split admits fewer than $800$ samples). The pool counts are recorded in \verb|outputs/full_run/dataset_splits.json| and verified disjoint at construction time by the pool builder under cross-benchmark and within-benchmark content-hash leakage guards.
 
@@ -107,7 +107,7 @@ Every trajectory reading reported in this subsection and the four following is e
 \subsubsection{Pooled trajectory}
 \label{sec:headline-pooled}
 
-The pooled headline metrics across the eleven measurement cycles are auto-generated by \texttt{scripts/make\_tables.py} from the per-cycle aggregation outputs. The headline pooled table lands at \texttt{figures/auto/tab\_headline.tex} once the main run completes; the per-cycle progression table at \texttt{figures/auto/tab\_cycle\_progression.tex} reports the same metrics broken out by cycle.
+The pooled headline metrics across the ten-cycle measurement horizon are auto-generated by \texttt{scripts/make\_tables.py} from the per-cycle aggregation outputs. The headline pooled table lands at \texttt{figures/auto/tab\_headline.tex} once the main run completes; the per-cycle progression table at \texttt{figures/auto/tab\_cycle\_progression.tex} reports the same metrics broken out by cycle.
 
 \input{figures/auto/tab_headline.tex}
 
@@ -343,12 +343,12 @@ The few-shot chain-of-thought baseline prepends five in-context (question, reaso
 \subsubsection{Vanilla fine-tuning (B6)}
 \label{sec:comp-vanilla-ft}
 
-The vanilla fine-tuning baseline trains Qwen-2.5-3B-Instruct on the verified episode pool for the same realised cycle horizon as CAEM at matched per-benchmark chunk size, without the $L_2$ anchor, without the retention guard, and without the episodic memory or the verifier at inference time. Every selected episode is treated as a clean label. B6 isolates the contribution of CAEM's retention-protection machinery: if B6 degrades on the held-out general-knowledge probe or on the later cycles while CAEM does not, the retention guard and the $L_2$ anchor are responsible. The expected contrast under matched protocol is that CAEM's accuracy is at least as high as B6's on the in-distribution benchmarks while CAEM's retention ratio is strictly higher.
+The vanilla fine-tuning baseline trains Qwen-2.5-3B-Instruct on the verified episode pool for the same realised cycle horizon as CAEM at matched per-benchmark chunk size, without the multi-modal retention probe and rollback guard, without the bounded low-rank-adapter envelope, and without the episodic memory or the verifier at inference time. Every selected episode is treated as a clean label. B6 isolates the contribution of CAEM's retention-protection machinery: if B6 degrades on the multi-modal probe panel or on the later cycles while CAEM does not, the retention probe panel and the rollback guard are responsible. The expected contrast under matched protocol is that CAEM's accuracy is at least as high as B6's on the in-distribution benchmarks while CAEM's retention ratio is strictly higher.
 
 \subsubsection{EWC fine-tuning (B7)}
 \label{sec:comp-ewc-ft}
 
-The EWC fine-tuning baseline trains for the same realised cycle horizon as CAEM with the $L_2$ adapter anchor and the multi-modal retention guard in place but strips the nine-signal verifier, the calibrated probability composite, the fixed-threshold storage gate, the episodic memory, and the routing. B7 isolates the contribution of the verification-and-memory machinery from the contribution of the retention machinery. The contrast between B6 and B7 measures the retention-machinery effect on the same training signal; the contrast between B7 and CAEM measures the verification-and-memory effect on top of the retention machinery. Together B6 and B7 decompose CAEM's training-time contribution into two orthogonal axes.
+The EWC fine-tuning baseline trains for the same realised cycle horizon as CAEM with an $L_2$ adapter anchor as the registered continual-learning mechanism, alongside the multi-modal retention probe and rollback guard, but strips the nine-signal verifier, the calibrated probability composite, the fixed-threshold storage gate, the episodic memory, and the routing. B7's $L_2$ anchor is the elastic-weight-consolidation alternative to CAEM's bounded low-rank-adapter envelope: on the shipped CAEM configuration the anchor coefficient is set to zero because the bounded adapter envelope plus the multi-modal probe panel together carry the retention contract, while B7 activates the anchor as a separate registered continual-learning mechanism to compare against. B7 isolates the contribution of the verification-and-memory machinery from the contribution of the retention machinery. The contrast between B6 and B7 measures the retention-machinery effect on the same training signal; the contrast between B7 and CAEM measures the verification-and-memory effect on top of a continual-learning baseline that uses a different retention mechanism. Together B6 and B7 decompose CAEM's training-time contribution into two orthogonal axes.
 
 \subsection{Architectural ablation panel}
 \label{sec:comp-ablations}
@@ -356,7 +356,7 @@ The EWC fine-tuning baseline trains for the same realised cycle horizon as CAEM 
 \subsubsection{Pre-registered expected-effect bands}
 \label{sec:comp-bands}
 
-The architectural ablation panel removes one mechanism at a time from the locked configuration and measures the per-cycle effect on the headline metrics. Each ablation has a pre-registered effect direction and a pre-registered effect band, recorded before the panel runs so that within-band and out-of-band outcomes can be flagged transparently. \Cref{tab:ablation-bands} summarises the panel.
+The architectural ablation panel removes one mechanism at a time from the locked configuration and measures the per-cycle effect on the headline metrics. The panel is deliberately narrow: it runs only on those mechanisms whose contribution cannot be read off a directly-measured metric on the full-CAEM trajectory itself. The three-tier dispatch share, the calibration-fold empirical-precision anchor, the per-cycle pool-purity audit, the per-signal correlation matrix, and the natural-language-inference judge interchangeability test each license a single architectural claim through a metric that the full-CAEM trajectory already reports, and an additional ablation that removes the same mechanism would produce a redundant reading. The panel therefore restricts to the three mechanisms whose claim cannot be answered by a directly-measured metric: the cycle-boundary retroactive re-verification pass, the self-improvement fine-tune itself, and the multi-modal-probe rollback guard. Each ablation has a pre-registered effect direction and a pre-registered effect band, recorded before the panel runs so that within-band and out-of-band outcomes can be flagged transparently. \Cref{tab:ablation-bands} summarises the panel; the ablation registry is enumerated in \texttt{caem/ablation/variants.py}.
 
 \begin{table}[!htbp]
 \centering
@@ -365,16 +365,12 @@ The architectural ablation panel removes one mechanism at a time from the locked
 \toprule
 \textbf{Ablation} & \textbf{Mechanism removed} & \textbf{Effect direction} & \textbf{Pre-registered effect band} \\
 \midrule
-A1 No memory & Episodic memory + Tier 1 dispatch & negative (CHM up) & $+2$ to $+5$ pp on pooled CHM at the cycle horizon \\
-A2 No verifier  & Ten-signal post-generation verifier & negative (precision down) & $-10$ to $-20$ pp on calibration-fold storage precision \\
-A3 Cut-point relaxed & Storage cut-point shifted from $\tau_{\text{store}}=0.60$ to a looser percentile threshold & negative (precision down) & $-3$ to $-8$ pp on evaluation-fold storage precision \\
-A4 No anchor    & Quadratic anchor on the fine-tune & negative (retention down) & $-3$ to $-7$ pp on retention ratio \\
-A5 No retroverify & Cycle-boundary re-verification pass & negative (purity down) & $-2$ to $-5$ pp on per-cycle pool purity \\
-A6 No deferred  & Deferred buffer + reconsideration pass & negative (training pool shrinks) & $-15$ to $-30\%$ in training pool size at horizon \\
-A7 No early-exit & Confabulation early-exit rule & negative (CHM-confabulation up) & $+1$ to $+3$ pp on the confabulation subtype \\
+A1 No retroverify       & Cycle-boundary retroactive re-verification pass over the stored pool & negative (purity down) & $-2$ to $-5$ pp on per-cycle pool purity \\
+A2 No self-improvement  & Per-cycle low-rank-adapter fine-tune; cycle-zero pristine model retained at every cycle & negative (accuracy stagnates, tier share frozen) & $-2$ to $-6$ pp on pooled exact match at the cycle horizon, with Tier 2 share frozen at cycle zero \\
+A3 No retention guard   & Multi-modal-probe rollback that aborts a cycle when worst per-probe retention falls below the registered floor & negative (retention down) & $-3$ to $-7$ pp on the worst-probe retention ratio at the cycle horizon \\
 \bottomrule
 \end{tabular}
-\caption{Architectural ablation panel: pre-registered expected-effect direction and band per ablation. Each band is registered before the panel runs; realised effects within the band are reported as confirming the mechanism, out-of-band effects are flagged in \Cref{sec:comp-falsifications}.}
+\caption{Architectural ablation panel: pre-registered expected-effect direction and band per ablation. The three ablations are the lesions registered in \texttt{caem/ablation/variants.py}, each tied to a specific numbered claim whose evidence cannot be supplied by a direct trajectory metric. Each band is registered before the panel runs; realised effects within the band are reported as confirming the mechanism, out-of-band effects are flagged in \Cref{sec:comp-falsifications}.}
 \label{tab:ablation-bands}
 \end{table}
 
@@ -425,8 +421,8 @@ Each pre-registered hypothesis from \Cref{sec:hypotheses} is adjudicated against
 H1 & The fixed-threshold storage gate at $\tau_{\text{store}}=0.60$ admits a calibration-fold storage class whose empirical precision $\pi_{\text{store}}$ exceeds the verifier's chance baseline. & Calibration-fold $\pi_{\text{store}}$ in \Cref{sec:adj-locked} & \textbf{supported} ($\pi_{\text{store}} \approx 0.64$ over $478$ stored entries) \\
 H2 & The architecture reduces the composite hallucination metric on the pooled evaluation panel under matched protocol. & McNemar+bootstrap in \Cref{sec:comp-baselines} & \textit{main-run pending} \\
 H3 & The memory-direct tier share grows across cycles at the expense of the retrieval-augmented tier share. & Per-tier hit-rate trajectory in \Cref{sec:tier-hit} & \textit{main-run pending} \\
-H4 & The retention ratio against the held-out probe stays above the registered floor under the L2-anchored fine-tune. & Retention trajectory in \Cref{sec:retention} & \textit{main-run pending} \\
-H5 & The four cycle-boundary update passes (retroactive re-verification, deferred reconsideration, consolidation, retention guard) each contribute non-trivially to the headline outcome. & Architectural ablation panel in \Cref{sec:comp-ablations} & \textit{ablation-run pending} \\
+H4 & The worst per-probe retention ratio over the multi-modal probe panel stays above the registered floor under the bounded low-rank-adapter envelope and the rollback guard. & Retention trajectory in \Cref{sec:retention} & \textit{main-run pending} \\
+H5 & The cycle-boundary mechanisms registered in \texttt{caem/ablation/variants.py} (retroactive re-verification, per-cycle self-improvement fine-tune, multi-modal-probe rollback guard) each contribute non-trivially to the headline outcome. & Architectural ablation panel in \Cref{sec:comp-ablations} & \textit{ablation-run pending} \\
 \bottomrule
 \end{tabular}
 \caption{Pre-registered hypotheses adjudicated against the corresponding deciding statistic in this chapter. H1's verdict is closed from cycle-zero artefacts; H2--H4 are gated by the main-run trajectory and H5 is gated by the architectural ablation panel.}
@@ -448,7 +444,7 @@ H5 & The four cycle-boundary update passes (retroactive re-verification, deferre
 \Cref{sec:hypotheses} (H1) & Calibrated-probability gate precision floor at registered cut-point & \Cref{sec:adj-locked}, \Cref{sec:adj-cal-eval-gap} \\
 \Cref{sec:hypotheses} (H2) & Hallucination reduction under matched protocol  & \Cref{sec:comp-baselines}, \Cref{sec:sig-licensing} \\
 \Cref{sec:hypotheses} (H3) & Tier-1 share grows across cycles                & \Cref{sec:tier-hit}, \Cref{sec:tier-cost} \\
-\Cref{sec:hypotheses} (H4) & Retention ratio above floor under multi-modal probe & \Cref{sec:retention} \\
+\Cref{sec:hypotheses} (H4) & Worst per-probe retention above floor under bounded adapter envelope + rollback guard & \Cref{sec:retention} \\
 \Cref{sec:hypotheses} (H5) & Cycle-boundary passes contribute individually   & \Cref{sec:comp-ablations} \\
 \Cref{sec:nonfunc-reqs} (NFR2) & Storage precision anchor at $\tau_{\text{store}}=0.60$ & \Cref{sec:adj-locked} ($\pi_{\text{store}} \approx 0.64$ on $n=478$) \\
 \Cref{sec:nonfunc-reqs} (NFR3) & Retention floor                             & \Cref{sec:retention} (per-cycle $\rho$) \\
