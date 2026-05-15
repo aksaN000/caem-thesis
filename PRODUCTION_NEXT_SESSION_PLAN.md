@@ -387,21 +387,24 @@ From `outputs/research/topvenue_panel_2026-05-14.md`:
 - [ ] Final gdrive offload: `rclone copy outputs/full_run/cycle_5/ gdrive:caem-phase1a/v2_1_phase1d/full_run/cycle_5/`
 - [ ] HF snapshot of full run (memory + adapters all cycles) for reproducibility
 
-### Step P-2 — Baselines B1-B7 (~$30-40 GPU, 2-3 days)
+### Step P-2 — Baselines B1-B7 (~$30-40 GPU, ~24h with overhead)
 - [ ] Lock the 5 panel decisions above
-- [ ] `python -m scripts.run_baselines --output_dir outputs/baselines --baselines B1 B2 B3 B4 B5 B6 B7 --eval_fold outputs/full_run/eval/sample_manifest.json`
-- [ ] Manifest enforces identical sample IDs as CAEM eval (matched-protocol pairing per Ch5 §sec:sig-pairing)
-- [ ] Per-baseline outputs land under `outputs/baselines/B{1..7}/{bench}_eval.json`
-- [ ] **Post-hoc rescore (CRITICAL — pin the composite version explicitly):**
+- [ ] **One-shot launcher** (post-2026-05-15 audit; bakes in all correct overrides):
   ```
-  python -m scripts.rescore_baselines_through_verifier \
-      --composite_calibration outputs/full_run/cycle_3/composite_calibration.json \
-      --passage_index data/passage_index \
-      --baselines B1 B2 B3 B4 B5 B6 B7
+  bash scripts/launch_baselines.sh all
   ```
-  Do NOT use the default `--composite_calibration` path. The composite is refit at every cycle boundary; CAEM C3 was scored against the cycle-3 composite, so matched-protocol requires the baselines score against the SAME cycle-3 composite. Pin the path explicitly so reviewers can verify the methodology section's claim.
+  This runs B1-B7 sequentially (5 inference + 2 training), then post-hoc rescores all 7 through the cycle-3 verifier composite, then prints the command for stats. Defaults baked in:
+  - `--n_questions 300` / `--n_eval_per_bench 300` (matches CAEM eval fold)
+  - `--eval_batch_size 32` (matches CAEM step_7_main)
+  - `--num_cycles 5` for B6/B7 (matches C5-stop decision)
+  - `--composite_calibration outputs/full_run/cycle_3/composite_calibration.json` (matched-protocol pin; replaces the retired `outputs/production/` default)
+  - `--passage_index data/passage_index` + `--seed 42` (matches CAEM)
+- [ ] For individual baselines (debugging): `bash scripts/launch_baselines.sh zero_shot` (or `cot`, `rag`, etc.)
+- [ ] For rescore only (after manual baseline runs): `bash scripts/launch_baselines.sh rescore`
+- [ ] Verify pre-flight: launcher checks composite-pin exists + passage index exists before launching; aborts cleanly if C3 not yet closed
 - [ ] Add a Ch5 §sec:setup-metrics methodology sentence: *"Every baseline's signals are computed through the same locked cycle-3 verifier composite (`outputs/full_run/cycle_3/composite_calibration.json`), so the measurement instrument is held fixed across CAEM and all seven baselines."*
 - [ ] Add the cross-distribution-application caveat paragraph to Ch5 §sec:disc-threats (full text in memory file `caem_b1_vs_c0_framing.md` under "Methodology pre-registrations").
+- [ ] **B7 retention-guard scope:** Ch5 §sec:comp-ewc-ft updated 2026-05-15 to say "MMLU-only retention guard" (matches `run_simple_ft.py --use_mmlu_guard`); multi-modal probe is a CAEM-specific extension not extended to B7. Document this as a deliberate scope choice in the comparison contrast, not an oversight.
 
 ### Step P-3 — Architectural ablation panel (~$15 GPU, 1-2 days)
 - [ ] `python -m scripts.run_ablation --variants no_retroverify no_self_improvement no_forgetting_guard --output_dir outputs/ablation`

@@ -18,6 +18,32 @@ Detail belongs in the commit message; the log is for quick rewind.
 
 ## 2026-05-14 (BDT — date rolls based on activity)
 
+### 2026-05-15 08:30 BDT  `[BUG]` + `[IMPL]`  B1-B7 baseline implementation audit + 6 fixes shipped
+
+Audit performed on scripts/run_baseline.py + scripts/run_simple_ft.py + scripts/rescore_baselines_through_verifier.py + eval/baselines.py. All 7 baseline classes correctly implement their thesis-spec mechanism. 6 default-value issues + 1 stale-docstring issue found; all fixed in-place. None of these files are in the live runner's import graph, so the in-flight C4/C5 trajectory is unaffected.
+
+**Fixes shipped:**
+
+1. **Ch5 §sec:comp-ewc-ft prose updated** to match B7 code: `--use_mmlu_guard` reads MMLU probe only, so paragraph now says "MMLU-only retention probe... multi-modal probe extension that CAEM uses." Framed as deliberate scope choice (matches published EWC configuration, not an oversight); the matched-protocol contrast accordingly isolates verifier+memory+multi-modal extension as a single bundled contribution.
+
+2. **`run_simple_ft.py --num_cycles` default 10 → 5** (matches C5-stop decision).
+
+3. **`run_simple_ft.py --n_eval_per_bench` default 500 → 300** (matches CAEM eval fold, which uses `--n_eval_questions 300` CLI override even though `DEFAULT_EVAL_SIZE` in benchmark_splits.py is still 500).
+
+4. **`run_baseline.py --n_questions` default 500 → 300** (same rationale).
+
+5. **`run_baseline.py --eval_batch_size` default 1 → 32** (matches CAEM step_7_main; ~2× speedup).
+
+6. **`rescore_baselines_through_verifier.py --composite_calibration` default `outputs/production/composite_calibration.json` → `outputs/full_run/cycle_3/composite_calibration.json`** (matched-protocol pin; pre-Phase-1d production path retired in help text).
+
+7. **`run_simple_ft.py` docstring rewritten** to v2.1 (5-bench panel; NQ removed; added B7 retention-guard-scope explanatory paragraph).
+
+**New file: `scripts/launch_baselines.sh`** — one-shot launcher that bakes in all correct overrides. Usage: `bash scripts/launch_baselines.sh all` runs B1-B7 + rescore + stats hint sequentially. Per-baseline variants: `... zero_shot | cot | rag | cot_rag | fiveshot_cot | vanilla_ft | ewc_only_ft | rescore`. Pre-flight aborts cleanly if `outputs/full_run/cycle_3/composite_calibration.json` doesn't exist (C3 not closed) or passage index missing.
+
+**Time estimate for full panel:** ~15h GPU (Phase A generation ~7.5h + Phase B rescoring ~7.3h), ~24h with overhead + crash recovery. Phase C (stats + auto-tables, CPU): ~30 min.
+
+**Reference:** memory `caem_baseline_audit_2026-05-15.md` (full per-issue table, time estimates per-baseline, application checklist).
+
 ### 2026-05-15 07:45 BDT  `[NOTE]` + `[DECISION]`  Three-headline-table structure locked for abstract + Ch5/Ch6 (post-B1 writing plan)
 
 User-locked the strong-paper framing: the abstract and Ch5 §sec:summary-headline report THREE headlines side-by-side, not a single number. Each isolates a different mechanism:
