@@ -18,19 +18,28 @@ contribution of the anchor itself.
 Training data
 -------------
 Raw (question, answer) pairs are loaded straight from the benchmark
-training splits (FEVER, TriviaQA, Natural Questions). No verifier
-filter, no memory curation, no 90/10 general-data mix (unless
---general_data_frac > 0).
+training splits. v2.1 panel (2026-05-08): FEVER, TriviaQA,
+CommonsenseQA. No verifier filter, no memory curation, no 90/10
+general-data mix (unless --general_data_frac > 0).
 
 Evaluation
 ----------
 After each cycle the fine-tuned weights are evaluated on the full
-six-benchmark panel (3 ID + 3 OOD; see ``TRAINING_BENCHMARKS`` /
-``TRANSFER_BENCHMARKS`` in ``caem/config.py``) via
-``eval.harness.EvalHarness`` driven by a
+five-benchmark v2.1 panel (3 training + 2 transfer; see
+``TRAINING_BENCHMARKS`` / ``TRANSFER_BENCHMARKS`` in
+``caem/config.py``) via ``eval.harness.EvalHarness`` driven by a
 ``ZeroShotBaseline`` that wraps the current model, so the baseline
 output JSONs are schema-compatible with CAEM runs and with the
 inference-baseline JSONs produced by ``scripts/run_baseline.py``.
+
+B7 retention-guard scope
+------------------------
+``--use_mmlu_guard`` reads the MMLU probe only, matching the
+published EWC configuration. CAEM's shipped multi-modal probe
+(MMLU + TriviaQA-test + CommonsenseQA-test) is intentionally
+NOT extended to B7, so the matched-protocol contrast against
+CAEM isolates the verifier + memory + multi-modal extension as a
+single bundled contribution rather than two. See Ch5 §sec:comp-ewc-ft.
 
 Output
 ------
@@ -99,7 +108,13 @@ def _parse_args() -> argparse.Namespace:
                    help="Subdirectory name under --output_dir "
                         "(e.g. 'vanilla_ft' or 'ewc_only_ft').")
     p.add_argument("--output_dir", default="outputs/baselines")
-    p.add_argument("--num_cycles", type=int, default=10)
+    p.add_argument("--num_cycles", type=int, default=5,
+                   help=("Default 5 matches the CAEM trajectory's effective "
+                         "cycle horizon after the C5-stop decision "
+                         "(2026-05-14, see PRODUCTION_NEXT_SESSION_PLAN.md "
+                         "Phase 1.5). Override to match CAEM's actual cycle "
+                         "count if the trajectory is extended later. "
+                         "Updated 2026-05-15 from the v1 default of 10."))
     p.add_argument("--epochs_per_cycle", type=int, default=3)
     p.add_argument("--batch_size", type=int, default=16,
                    help="Training DataLoader batch_size (not eval). See --eval_batch_size for eval.")
@@ -137,7 +152,16 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--eval_benchmarks", nargs="+",
                    default=list(_CFG_TRAINING_BENCHMARKS) + list(_CFG_TRANSFER_BENCHMARKS))
     p.add_argument("--n_train_per_bench", type=int, default=2000)
-    p.add_argument("--n_eval_per_bench", type=int, default=500)
+    p.add_argument("--n_eval_per_bench", type=int, default=300,
+                   help=("Default 300 matches CAEM's per-cycle eval fold "
+                         "as actually run by step_7_main (--n_eval_questions "
+                         "300 CLI override on run_phase1a.sh; the underlying "
+                         "DEFAULT_EVAL_SIZE in benchmark_splits.py is 500 "
+                         "but unused in the production trajectory). Matches "
+                         "the per-sample IDs in outputs/full_run/eval/ so "
+                         "the matched-protocol pairing rule (Ch5 "
+                         "§sec:sig-pairing) holds. Updated 2026-05-15 from "
+                         "the v1 default of 500."))
     p.add_argument(
         "--model_name",
         default=None,

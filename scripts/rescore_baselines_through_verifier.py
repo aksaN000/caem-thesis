@@ -450,7 +450,18 @@ def _parse_args() -> argparse.Namespace:
                    help="Sidecar JSONs land at "
                         "<output_dir>/<baseline>/<bench>_cycle0_with_chm.json.")
     p.add_argument("--composite_calibration", type=Path,
-                   default=Path("outputs/production/composite_calibration.json"))
+                   default=Path("outputs/full_run/cycle_3/composite_calibration.json"),
+                   help=("Composite-version pin. The composite is refit at "
+                         "every cycle boundary; matched-protocol cross-system "
+                         "evaluation requires the baselines score under the "
+                         "SAME composite that CAEM C3 was scored against. "
+                         "Default 2026-05-15: cycle-3 composite. Override "
+                         "explicitly to compare against a different cycle's "
+                         "composite (e.g. for cycle-by-cycle methodology "
+                         "diagnostics). The pre-Phase-1d "
+                         "outputs/production/composite_calibration.json path "
+                         "is RETIRED — that composite predates the Phase-1d "
+                         "patches and would produce comparison artifacts."))
     p.add_argument("--checkpoint", type=Path,
                    default=Path("outputs/production/cycle_0/model.pt"),
                    help="SIL fine-tuned model checkpoint (cycle-10 weights "

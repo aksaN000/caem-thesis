@@ -112,18 +112,28 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument(
         "--n_questions",
         type=int,
-        default=500,
-        help="Samples per benchmark (use 10-20 for smoke tests).",
+        default=300,
+        help=(
+            "Samples per benchmark (use 10-20 for smoke tests). Default 300 "
+            "matches CAEM's per-cycle eval fold as actually run by step_7_main "
+            "(--n_eval_questions 300 CLI override; underlying "
+            "DEFAULT_EVAL_SIZE in benchmark_splits.py is 500 but unused in "
+            "the production trajectory). Matches the per-sample IDs in "
+            "outputs/full_run/eval/ so the matched-protocol pairing rule "
+            "(Ch5 §sec:sig-pairing) holds. Updated 2026-05-15 from the v1 "
+            "default of 500."
+        ),
     )
     p.add_argument(
         "--eval_batch_size",
         type=int,
-        default=1,
+        default=32,
         help=(
-            "Goal 5 Level B eval batch size. bs=1 preserves serial per-query "
-            "path. bs=8-32 uses the baseline's answer_batch (zero_shot / cot / "
-            "rag / cot_rag gain ~1.5-2x; FLARE falls back to serial due to "
-            "iterative look-ahead decoding)."
+            "Goal 5 Level B eval batch size. Default 32 matches CAEM's "
+            "step_7_main config and runs ~2x faster than serial. Set to 1 "
+            "if debugging per-query state or running FLARE (which falls "
+            "back to serial due to iterative look-ahead decoding). Updated "
+            "2026-05-15 from the v1 default of 1."
         ),
     )
     p.add_argument(
