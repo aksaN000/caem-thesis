@@ -411,12 +411,34 @@ From `outputs/research/topvenue_panel_2026-05-14.md`:
 - [ ] All 3 lesions registered in `caem/ablation/variants.py`; the runner reuses the same `BatchPipeline` with mutated `CAEMConfig`
 - [ ] Outputs land under `outputs/ablation/{variant}/cycle_{0..5}/` (only cycles that produce divergent state need re-running per `needs_cyclic_rerun` flag)
 
-### Step P-4 — Diagnostics (~$5 GPU + scripts, ~1 day)
-- [ ] Per-cycle purity validation: `python -m scripts.run_purity_validation --cycles 0 1 2 3 4 5`
+### Step P-4 — Diagnostics + theorem-receipt aggregations (~$5 GPU + scripts, ~1 day)
+
+Complete script-run sequence (verified 2026-05-15 against actual coverage):
+
+**Theorem-receipt aggregations** (most can run immediately after C5 close, no extra GPU):
+
+- [ ] **Purity validation** (Theorems 1, 2, 3): `python -m scripts.run_purity_validation --cycles 0 1 2 3 4 5` — outputs `outputs/purity_validation/*.json`
+- [ ] **Theorem receipts** (Thm convergence + asymptotic-elim + 3 corollaries): `python -m scripts.theorem_receipts --output_dir outputs/full_run/theorem_receipts` — outputs 5 receipt JSONs
+- [ ] **Calibration trajectory** (per-cycle τ, T, store/defer rates, α purity): `python scripts/aggregate_calibration_trajectory.py --csv_out outputs/full_run/calibration_trajectory.csv --tex_out thesis_report/figures/auto/tab_calibration_trajectory.tex`
+  - WARNING: script's default `--tex_out` is the legacy `"pre thesis 1 report/tables/"` path. Override with `thesis_report/figures/auto/` explicitly.
+- [ ] **Per-cycle π_store trajectory** (NEW 2026-05-15): `python -m scripts.aggregate_pi_store_trajectory --max_cycle 5` — empirical receipt for H1 + thm:purity, outputs `tab_pi_store_trajectory.tex` (cal-fold + stream-chunk decomposition)
+- [ ] **Per-tier CHM trajectory** (NEW 2026-05-15): `python -m scripts.aggregate_tier_chm --max_cycle 5` — empirical receipt for cor:tier1-floor, outputs `tab_tier_chm_trajectory.tex` (T1/T2/T3 EM + CHM separately)
+- [ ] **Stochastic-equilibrium aggregator** (NEW 2026-05-15): `python -m scripts.aggregate_stochastic_equilibrium` — empirical receipt for cor:stochastic-equilibrium, outputs `tab_stochastic_equilibrium.tex` (per-cycle commit indicator + worst-probe + π_commit)
+
+**Other diagnostics:**
+
 - [ ] Per-signal correlation matrix: `python -m scripts.signal_correlation_matrix`
-- [ ] Tier-1 amortisation diagnostic (Task #154): serial Pipeline at bs=1, custom small eval set, fills `H5` empirical receipt
+- [ ] Per-cycle ablation aggregation: `python -m scripts.aggregate_ablation --root outputs/ablation` (after P-3 baseline panel completes)
+- [ ] Tier-1 amortisation diagnostic (Task #154): serial Pipeline at bs=1, custom small eval set, fills H5 empirical receipt
 - [ ] Cohen's d trajectory per signal across cycles
 - [ ] Coverage feedback diagnostic
+
+**Known infrastructure gaps to acknowledge during P-4 run:**
+
+- `scripts/phase4_artifacts.py` writes to `outputs/phase4/`, NOT to `thesis_report/figures/auto/` — outputs (cohen_d, composite_weights, atomic_scope, prompt_compliance, precision_cliff) need to be either (a) symlinked/copied to figures/auto/, or (b) the script's OUT_DIR patched. Pre-existing `figures/auto/cohen_d.tex` was from a v1-panel run that includes retired benchmarks (NQ, ARC, ASQA) — regenerate before final compile.
+- `scripts/aggregate_calibration_trajectory.py` default `--tex_out` points to `"pre thesis 1 report/"` (legacy path). Override at the CLI call.
+- `scripts/generate_session5_artifacts.py` default `--out_tables` also points to legacy path. Override at CLI call.
+- Auto-tables with NO known generator: `tab_tier_baseline_cost.tex`, `tab_production_envelope_examples.tex`, `tab_prompt_design_ablation.tex` — need to be either built or removed from Ch5 if not needed.
 
 ### Step P-5 — Statistical analysis (scripts, hours)
 - [ ] `python -m scripts.baseline_sig_tests` (McNemar paired + bootstrap BCa per benchmark per baseline)
