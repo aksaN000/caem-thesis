@@ -618,6 +618,30 @@ Any stored episode whose stored composite was produced under a verifier with bal
 
 \paragraph{Empirical receipt.} Each retroactive pass logs the per-entry promote / prune / refresh decisions. The corollary is testable by tracking the survival-cycles distribution for entries that were eventually pruned and confirming that the distribution is bounded. The empirical-pruning trajectory is reported in \Cref{sec:check-asymptotic}.
 
+\begin{corollary}[Stochastic equilibrium under retention rollback]
+\label{cor:stochastic-equilibrium}
+Let $P$ denote the multi-modal probe panel registered in \Cref{sec:retention} with floor $\rho_{\min}$. Define the cycle-$t$ commit indicator $X_t \in \{0,1\}$ as the random variable taking value $1$ if the post-fine-tune worst-probe ratio $\min_{p \in P} \rho_p(M_t)$ exceeds $\rho_{\min}$ and $0$ otherwise, with $M_t$ the post-fine-tune model. The commit event depends on the realised training pool composition $Q_t$ (a function of the deferred-buffer state and the stream-chunk yield), the optimizer initialization randomness $s_t$, and the per-probe scoring noise $\varepsilon$. Then:
+
+(i) The expected commit fraction $\pi_{\mathrm{commit}} := \mathbb{E}[X_t]$ satisfies $\pi_{\mathrm{commit}} \in (0, 1]$ on any trajectory where the worst-probe distribution intersects the floor, with $\pi_{\mathrm{commit}} = 1$ only in the degenerate case where the retention guard never fires.
+
+(ii) The convergence envelope of \Cref{thm:convergence} measured on the calendar timeline becomes
+\begin{equation}
+\mathbb{E}[G_t] \;\le\; (1 - \pi_{\mathrm{commit}} \cdot r)^{t} \, G_0,
+\label{eq:thm-stochastic-envelope}
+\end{equation}
+with $r$ as in \Cref{eq:thm-convergence}; the original $(1-r)^c$ envelope still holds on the committed-cycle subsequence indexed by $c = \sum_{s \le t} X_s$.
+
+(iii) The memory store $|M_t|$ and the per-tier hit-rate trajectory grow monotonically across all cycles because the stream-chunk generate-and-store path executes independently of $X_t$, while the parametric backbone advances only on the committed-cycle subsequence; the cycle-wise architecture therefore decouples deployment-time cost amortisation (memory tier growth) from training-time parametric progression (adapter commits).
+
+(iv) When the worst-probe distribution centres within the probe-noise band $\varepsilon$ of the floor, the trajectory enters a stochastic equilibrium in which commits and rollbacks alternate at rate $\pi_{\mathrm{commit}}$ near the parametric ceiling rather than departing it. The architectural property licensing this equilibrium is the asymmetric rollback registered in \Cref{sec:retention}: every rolled-back cycle preserves the memory store and the deferred buffer exactly as they were at the previous committed cycle's close, so the trajectory can resume parametric advance from any subsequent committed cycle without losing accumulated state.
+\end{corollary}
+
+\begin{proof}[Proof sketch]
+Each cycle's commit event is governed by the indicator $X_t = \mathbb{1}[\min_{p \in P} \rho_p(M_t) \ge \rho_{\min}]$, where the worst-probe ratio depends on stochastic factors enumerated above; the indicator is therefore a Bernoulli random variable with success probability $\pi_{\mathrm{commit}}$ that is conditional on the trajectory's history of prior commits (through $Q_t$). Conditional on $X_t = 1$, the per-cycle gap contraction follows \Cref{thm:convergence} at the original rate $r$; conditional on $X_t = 0$, the gap is unchanged because the parameter update is reverted. Taking expectations gives $\mathbb{E}[G_{t+1} \mid G_t] = (1 - \pi_{\mathrm{commit}} \cdot r) \cdot G_t$, and iterating yields \Cref{eq:thm-stochastic-envelope}. The memory-tier growth claim follows from the runner's invariant that the stream-chunk step writes new verified entries to the memory store regardless of whether the cycle's adapter is committed (formalised in \Cref{sec:retention} as the asymmetric rollback property). The equilibrium-location claim is heuristic: when the worst-probe ratio centres within the noise band of the floor, the Bernoulli rate stabilises at a stationary value bounded away from both endpoints, and the trajectory exhibits a bounded distance from the floor across cycles rather than monotone divergence or monotone convergence to a fixed interior point.
+\end{proof}
+
+\paragraph{Empirical receipt (stochastic equilibrium).} The realised commit fraction $\sum_{s \le T} X_s / T$, the per-cycle worst-probe trajectory $\min_{p \in P} \rho_p(M_t)$ across the cycle horizon, and the divergence between the parametric backbone subsequence and the memory store size sequence are all directly measurable from the cycle-by-cycle artefacts. Under the locked configuration with $\rho_{\min} = 0.93$, the corollary predicts a non-monotone worst-probe trajectory hovering near the floor on cycles after the parametric ceiling is approached, a commit fraction bounded strictly between zero and one, and a memory store size that grows on every cycle including rolled-back ones. The corollary is falsified by either a degenerate commit rate (all commits or all rollbacks across the entire trajectory) or by a memory store that stalls on rolled-back cycles.
+
 
 \section{Chapter signpost}
 \label{sec:ch4-signpost}
