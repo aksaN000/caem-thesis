@@ -427,14 +427,24 @@ From `outputs/research/topvenue_panel_2026-05-14.md`:
 - [ ] Verify each generated table renders cleanly in a test compile
 
 ### Step P-7 — Ch5/Ch6 integration writing (~2 days, no GPU)
-- [ ] §sec:summary-headline: replace placeholder with the licensing-rule verdict on the headline contrasts
+- [ ] **THREE-HEADLINE TABLE in §sec:summary-headline** (per `caem_three_headline_decomposition.md`):
+  - Row 1: B1 → CAEM C3 (architecture + SIL, the marketing number)
+  - Row 2: C0 → CAEM C3 (SIL increment only, methodologically conservative)
+  - Row 3: B1 → CAEM C0 (architecture only, no SIL)
+  - Plus bonus row: T2 EM at C3 vs base T3 EM at C0 (+14.4 pp, distillation receipt)
+  - Do NOT collapse to a single headline. The decomposition is what defuses "how much is just RAG?" in advance.
+- [ ] §sec:summary-headline: replace placeholder with the three-row table populated from baseline + trajectory data
 - [ ] H1-H5 verdicts in `tab:hypothesis-verdicts`: replace `main-run pending` / `ablation-run pending` with the licensed verdict (supported / partially supported / unsupported)
-- [ ] §sec:disc-headline: fill with the actual CAEM-vs-baseline contrasts (top-line CHM reduction + per-benchmark deltas + statistical licensing)
+- [ ] §sec:disc-headline: lead with matched-protocol framing verbatim: *"Under matched-protocol cross-system evaluation, CAEM C3 reduces pooled hallucination metric by [X%] relative to the raw Qwen-2.5-3B-Instruct baseline."* Then per-row decomposition rationale.
 - [ ] §sec:retention: add the C4-abort empirical receipt and the asymmetric-rollback receipt
 - [ ] §sec:disc-threats: add the confident-confabulation rise (CC: 0.110 → 0.242 across C0-C3) as a probe-precision threat-to-validity item
 - [ ] §sec:disc-threats: also add the single-probe-precision threat (TQA-test ratio shows ±4% relative noise between runs; per-cycle drift readings should be interpreted with this band)
-- [ ] Ch6 §concl-headline: finalize with licensing-rule outcome
+- [ ] §sec:disc-threats: add the cross-distribution-application caveat paragraph (full text in `caem_b1_vs_c0_framing.md` → "Methodology pre-registrations" → "Suggested Ch5 §sec:disc-threats paragraph")
+- [ ] Ch6 §concl-headline: finalize with licensing-rule outcome, same three-row decomposition structure (abstract-length version)
 - [ ] Ch6 §concl-open: register the parametric-ceiling-at-3B + corpus-coverage-floor + Experience-Replay / EWC continual-learning extensions (already partially in place, expand)
+- [ ] **Abstract rewrite** (`thesis_report/core/abstract.tex`) — use template from `caem_three_headline_decomposition.md`:
+  - "CAEM reduces pooled hallucination metric by [X%] relative to a raw Qwen-2.5-3B-Instruct baseline under matched cross-system evaluation, with [Y%] of the reduction attributable to deployment-time mechanisms (retrieval, multi-signal verification, episodic memory, abstain class) and [Z%] to training-time self-improvement via verifier-gated distillation. The distilled model's zero-shot outputs further exceed the base-model-with-retrieval pipeline by 14.4 points exact match, demonstrating that calibrated self-distillation produces a parametric model that improves on its retrieval-augmented source."
+  - Variables: X% (B1 → C3 pooled CHM reduction), Y% (B1 → C0), Z% (X − Y, SIL-attributable increment); use multiplicative-honest phrasing not subtractive percentages
 
 ### Step P-8 — Visual polish (~1-2 days)
 - [ ] TikZ figures: system architecture diagram, cycle loop diagram, three-tier flow diagram

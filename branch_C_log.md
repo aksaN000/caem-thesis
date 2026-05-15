@@ -18,6 +18,29 @@ Detail belongs in the commit message; the log is for quick rewind.
 
 ## 2026-05-14 (BDT — date rolls based on activity)
 
+### 2026-05-15 07:45 BDT  `[NOTE]` + `[DECISION]`  Three-headline-table structure locked for abstract + Ch5/Ch6 (post-B1 writing plan)
+
+User-locked the strong-paper framing: the abstract and Ch5 §sec:summary-headline report THREE headlines side-by-side, not a single number. Each isolates a different mechanism:
+
+- **B1 → CAEM C3**: full system (architecture + SIL) — the marketing number for the abstract
+- **C0 → CAEM C3**: SIL increment only (intra-trajectory) — methodologically conservative
+- **B1 → CAEM C0**: architecture only (no SIL) — credits RAG + verifier + memory + abstain without SIL
+- **Bonus row**: T2 EM (0.620 at C3) > base T3 EM (0.476 at C0) by +14.4 pp — distillation receipt
+
+Decomposition identity: full-system reduction ≈ architecture reduction × SIL-increment reduction (multiplicatively honest, not subtractive).
+
+**Why:** A weak paper picks the largest number. A strong paper reports all three so no reviewer can surface a hidden number to undercut the headline. Defuses "how much is just RAG?" + "your gain is just deployment-time tricks" + "your C0 → C3 trajectory is small, why fine-tune?" in advance. The three rows pre-empt each objection by crediting each mechanism separately and letting the per-row magnitudes speak for themselves.
+
+**Where it goes:**
+- Ch5 §sec:summary-headline: the three-row table
+- Ch5 §sec:disc-headline: lead with matched-protocol framing verbatim, then per-row decomposition rationale
+- Ch6 §sec:concl-headline: same three-row structure, abstract-length version
+- Abstract (`thesis_report/core/abstract.tex`): rewrite using the template
+
+**Rating context (also user-noted):** Project rating 9/10, conditional on B1 landing in projected range (~CHM 0.30-0.40). Methodological rigor of post-hoc scoring + composite-pin doesn't change the rating because the rating was already conditional. Upper-end B1 → 9.5; lower-end → 9; both publishable at strong venues.
+
+**Reference:** memory `caem_three_headline_decomposition.md` (full table template, abstract template, per-row reviewer-defense table, application checklist).
+
 ### 2026-05-15 07:15 BDT  `[NOTE]` + `[DECISION]`  Two methodology pre-registrations for the B1 → C3 baseline rescore
 
 User-raised methodology points for the post-C5 baseline-panel rescore. Both must land in the paper, not in rebuttal.
