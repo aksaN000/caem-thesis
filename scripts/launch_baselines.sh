@@ -106,21 +106,26 @@ run_training_baseline() {
     local extra_flags="${2:-}"
     band "B-FT $name — 5 cycles training + per-cycle eval"
     # shellcheck disable=SC2086
-    # 2026-05-16 VRAM fix (2nd iteration): bs=4 still OOMed at the loss
-    # computation (logits ~700 MiB tensor). Final config:
-    #   - batch_size=2 + grad_accum=16 (effective batch 32, 1/8 the per-step VRAM)
-    #   - gradient_checkpointing enabled in run_simple_ft.py (model-side)
-    #   - eval_batch_size=8 (down from default 32)
-    #   - n_train_per_bench=700 (matches CSQA chunk floor; reduces total data
-    #     from ~23.5K to ~10.5K, closer to CAEM SIL's actual training pool)
+    # 2026-05-16 VRAM fix (3rd iteration — root-cause fix):
+    # The real OOM driver was full 32-bit AdamW on 3B params = 24 GiB
+    # optimizer state alone, before activations. Fixed in run_simple_ft.py
+    # by switching to bitsandbytes.optim.AdamW8bit (~6 GiB state). With
+    # that + gradient_checkpointing, full bs=32 fits on the 32 GiB envelope.
+    # Final config restores bs=32 (matching the original baseline-panel intent):
+    #   - batch_size=32, grad_accum=1 (effective batch 32, single-step training)
+    #   - 8-bit AdamW (run_simple_ft.py patch)
+    #   - gradient_checkpointing (run_simple_ft.py patch)
+    #   - eval_batch_size=8 (conservative; reduces eval-side OOM risk)
+    #   - n_train_per_bench=700 (matches CAEM SIL pool size for sample-budget
+    #     parity; total ~10.5K vs CAEM's ~9.3K)
     python -m scripts.run_simple_ft \
         --baseline_name "$name" \
         --output_dir "$OUTPUT_DIR" \
         --num_cycles 5 \
         --n_train_per_bench 700 \
         --n_eval_per_bench 300 \
-        --batch_size 2 \
-        --grad_accum_steps 16 \
+        --batch_size 32 \
+        --grad_accum_steps 1 \
         --eval_batch_size 8 \
         --seed 42 \
         $extra_flags \

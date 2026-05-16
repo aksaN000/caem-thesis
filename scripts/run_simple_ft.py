@@ -354,7 +354,25 @@ def _finetune_one_cycle(
 
     loader = DataLoader(dataset, batch_size=ns.batch_size, shuffle=True,
                         collate_fn=_collate)
-    optimizer = AdamW(model.parameters(), lr=ns.learning_rate)
+    # 2026-05-16 VRAM fix: switch to bitsandbytes 8-bit AdamW. Full 32-bit
+    # AdamW on Qwen-3B = 24 GiB optimizer state (3B params × 4 bytes × 2
+    # moments), which exceeds the 32 GiB envelope ALONE before activations.
+    # 8-bit cuts optimizer state to ~6 GiB. Graceful fallback to torch.AdamW
+    # if bitsandbytes is missing or non-CUDA device.
+    optimizer = None
+    if str(device).startswith("cuda"):
+        try:
+            import bitsandbytes as bnb
+            optimizer = bnb.optim.AdamW8bit(model.parameters(), lr=ns.learning_rate)
+            logger.info("Optimiser: bitsandbytes AdamW8bit (cuts optimizer state ~4x).")
+        except ImportError:
+            logger.warning("bitsandbytes not installed; falling back to torch.AdamW "
+                           "(will likely OOM on Qwen-3B full-FT).")
+        except Exception as exc:
+            logger.warning("AdamW8bit init failed (%s); falling back to torch.AdamW.", exc)
+    if optimizer is None:
+        optimizer = AdamW(model.parameters(), lr=ns.learning_rate)
+        logger.info("Optimiser: torch.optim.AdamW (32-bit).")
 
     # L2 anchor snapshot placement: keep on GPU when VRAM ≥ 24 GB.
     anchor_tensors = None
