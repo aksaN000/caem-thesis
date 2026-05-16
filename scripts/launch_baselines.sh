@@ -106,17 +106,21 @@ run_training_baseline() {
     local extra_flags="${2:-}"
     band "B-FT $name — 5 cycles training + per-cycle eval"
     # shellcheck disable=SC2086
-    # 2026-05-16 VRAM fix: vanilla_ft OOMed at bs=16 during layernorm forward
-    # (30.66 GiB allocated, 4.25 MiB free at fail point). Reduced to bs=4 with
-    # grad_accum_steps=8 to keep effective batch 32. eval_batch_size also
-    # reduced from 32 to 8 in case per-cycle eval OOMs on the same envelope.
+    # 2026-05-16 VRAM fix (2nd iteration): bs=4 still OOMed at the loss
+    # computation (logits ~700 MiB tensor). Final config:
+    #   - batch_size=2 + grad_accum=16 (effective batch 32, 1/8 the per-step VRAM)
+    #   - gradient_checkpointing enabled in run_simple_ft.py (model-side)
+    #   - eval_batch_size=8 (down from default 32)
+    #   - n_train_per_bench=700 (matches CSQA chunk floor; reduces total data
+    #     from ~23.5K to ~10.5K, closer to CAEM SIL's actual training pool)
     python -m scripts.run_simple_ft \
         --baseline_name "$name" \
         --output_dir "$OUTPUT_DIR" \
         --num_cycles 5 \
+        --n_train_per_bench 700 \
         --n_eval_per_bench 300 \
-        --batch_size 4 \
-        --grad_accum_steps 8 \
+        --batch_size 2 \
+        --grad_accum_steps 16 \
         --eval_batch_size 8 \
         --seed 42 \
         $extra_flags \
