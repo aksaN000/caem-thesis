@@ -798,6 +798,7 @@ for p in glob.glob('outputs/baselines/*/fever_cycle0.json'):
     python -m scripts.rescore_baselines_through_verifier \
         --composite_calibration "$pin" \
         --passage_index data/passage_index \
+        --checkpoint outputs/full_run/cycle_3/adapter \
         --baselines zero_shot cot rag cot_rag fiveshot_cot flare semantic_entropy vanilla_ft \
         --baselines_dir outputs/baselines \
         --output_dir outputs/baselines \
