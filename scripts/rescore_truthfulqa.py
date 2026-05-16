@@ -221,7 +221,16 @@ def build_anthropic_client(api_key: Optional[str]) -> Any:
         raise SystemExit(
             "anthropic SDK required. Install: pip install anthropic"
         ) from e
-    return anthropic.Anthropic(api_key=api_key or os.environ.get("ANTHROPIC_API_KEY"))
+    # 2026-05-16: tight client timeouts + zero SDK retries so my custom
+    # retry policy (judge_one) has full control. The SDK's default 600s
+    # read timeout + max_retries=2 produced a hang where one stuck
+    # connection blocked the whole pool for 10+ minutes (18 threads stuck
+    # on futex while one waited on do_poll with a 600s timeout).
+    return anthropic.Anthropic(
+        api_key=api_key or os.environ.get("ANTHROPIC_API_KEY"),
+        timeout=30.0,        # 30s per request; my retry handler escalates
+        max_retries=0,       # disable SDK internal retries; my outer loop handles 429
+    )
 
 
 # Module-level throttle state for rate-limit avoidance.
