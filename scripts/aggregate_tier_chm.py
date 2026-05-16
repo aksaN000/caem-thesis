@@ -83,7 +83,15 @@ def aggregate(run_dir: Path, max_cycle: int = 10) -> List[Dict]:
                     "false_refusal": float("nan"),
                 })
                 continue
-            em = sum((s.get("em") or 0) for s in tier_samples) / n
+            # 2026-05-16: prefer em_llm_judged for TruthfulQA samples (the
+            # legacy em is rouge_l > 0.15, which inflates long-prose answers).
+            # All other benches keep the strict-EM path.
+            em = sum(
+                (s.get("em_llm_judged") if s.get("benchmark") == "truthfulqa"
+                 and s.get("em_llm_judged") is not None
+                 else (s.get("em") or 0))
+                for s in tier_samples
+            ) / n
             out = composite_hallucination_metric(tier_samples)
             sub = out["per_subtype_rates"]
             rows.append({
@@ -96,7 +104,12 @@ def aggregate(run_dir: Path, max_cycle: int = 10) -> List[Dict]:
             })
 
         # Pooled row across all 3 tiers for sanity
-        em_pooled = sum((s.get("em") or 0) for s in all_samples) / len(all_samples)
+        em_pooled = sum(
+            (s.get("em_llm_judged") if s.get("benchmark") == "truthfulqa"
+             and s.get("em_llm_judged") is not None
+             else (s.get("em") or 0))
+            for s in all_samples
+        ) / len(all_samples)
         out_pooled = composite_hallucination_metric(all_samples)
         sub_p = out_pooled["per_subtype_rates"]
         rows.append({
