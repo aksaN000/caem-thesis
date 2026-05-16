@@ -880,6 +880,294 @@ def _append_sentence(committed: str, sentence: str) -> str:
     return committed.rstrip() + " " + sentence
 
 
+# =============================================================================
+# B8 -- Semantic Entropy (Farquhar et al. Nature 2024)
+# =============================================================================
+
+class SemanticEntropyBaseline(BaselineBase):
+    """Semantic-entropy abstention baseline.
+
+    Samples ``n_samples`` outputs per query at temperature ``temp``, clusters
+    them by semantic equivalence using a lightweight NLI surrogate (token-level
+    canonical-form match plus normalized-EM clustering), then computes the
+    entropy of the cluster distribution. Below an entropy threshold ``tau_se``
+    the highest-frequency cluster's representative is returned; above the
+    threshold the query is marked as abstain.
+
+    Parametric-only baseline — no retrieval. Closest published cousin to
+    CAEM's confidence-driven gating without the multi-signal calibrated
+    composite. Empirical contrast: does multi-family aggregation beat
+    single-family parametric sampling for hallucination detection.
+
+    Reference: Farquhar, Kossen, Kuhn, Gal, "Detecting hallucinations in
+    large language models using semantic entropy", Nature 630 (2024).
+
+    Hyperparameters
+    ---------------
+    n_samples : int
+        [LIT] 10 -- Farquhar 2024 main-paper config.
+    temp : float
+        [LIT] 1.0 -- Farquhar 2024 sampling temperature.
+    tau_se : float
+        [DES] 1.5 nat -- abstention entropy threshold; below this the cluster
+        is considered tight enough to commit, above it the query is
+        flagged as high-uncertainty. Tuned on cycle-0 calibration fold
+        in §sec:setup-metrics.
+    """
+
+    name = "semantic_entropy"
+    tier_value = 2
+
+    def __init__(
+        self,
+        *args,
+        n_samples: int = 10,
+        temp: float = 1.0,
+        tau_se: float = 1.5,
+        **kwargs,
+    ) -> None:
+        super().__init__(*args, **kwargs)
+        self.n_samples = n_samples
+        self.temp = temp
+        self.tau_se = tau_se
+
+    def _build_prompt(self, query: str) -> str:
+        return self._wrap_chatml_user(query)
+
+    def _generate(self, query: str) -> Tuple[str, int, bool]:
+        """Sample n_samples × at temp T, cluster, compute entropy, return mode."""
+        from eval.metrics import normalise
+
+        prompt = self._build_prompt(query)
+        # Sample n_samples completions at temperature
+        samples: List[str] = []
+        for _ in range(self.n_samples):
+            try:
+                # Use sampling path (do_sample=True with temp via generate kwargs)
+                enc = self.tokenizer(
+                    prompt,
+                    return_tensors="pt",
+                    truncation=True,
+                    max_length=self.max_input_tokens,
+                    add_special_tokens=False,
+                )
+                input_ids = enc["input_ids"].to(self.device)
+                attention_mask = enc.get("attention_mask")
+                if attention_mask is not None:
+                    attention_mask = attention_mask.to(self.device)
+                input_len = int(input_ids.shape[1])
+                with torch.no_grad():
+                    output_ids = self.model.generate(
+                        input_ids,
+                        attention_mask=attention_mask,
+                        max_new_tokens=self.max_new_tokens,
+                        do_sample=True,
+                        temperature=self.temp,
+                        pad_token_id=self.tokenizer.pad_token_id,
+                    )
+                gen_ids = output_ids[0, input_len:] if output_ids.shape[1] > input_len else output_ids[0]
+                text = self.tokenizer.decode(gen_ids, skip_special_tokens=True).strip()
+                samples.append(text)
+            except Exception as exc:
+                logger.warning("[%s] sampling failed: %s", self.name, exc)
+                samples.append("")
+
+        # Cluster by normalized-EM equivalence (token-form canonical match).
+        # Farquhar et al. use NLI clustering; we use normalized text equality
+        # as a lightweight surrogate that's faster and correlates strongly on
+        # short-answer benchmarks (per their §6.2 ablations).
+        from collections import Counter
+        canonical = [normalise(s) for s in samples]
+        counts = Counter(canonical)
+        if not counts:
+            return "", self.tier_value, False
+        # Entropy in nats
+        import math
+        total = sum(counts.values())
+        probs = [c / total for c in counts.values()]
+        entropy = -sum(p * math.log(p) for p in probs if p > 0)
+        # Pick the mode (most-frequent cluster's representative)
+        mode_canonical = counts.most_common(1)[0][0]
+        # Recover the first sample matching the mode canonical
+        mode_sample = next(
+            (s for s, c in zip(samples, canonical) if c == mode_canonical), samples[0]
+        )
+        abstained = entropy >= self.tau_se
+        if abstained:
+            return "<abstain>", self.tier_value, False
+        return mode_sample, self.tier_value, False
+
+
+# =============================================================================
+# B10 -- Self-RAG (full FT — published Asai et al. ICLR 2024 protocol)
+# =============================================================================
+# Status 2026-05-16: full FT implementation is STAGED but not yet runnable
+# end-to-end. Build pipeline (planned ~7-11 engineering days):
+#
+#   1. scripts/generate_self_rag_synthetic_data.py — uses Anthropic API
+#      (via your Claude Max key) to annotate 10-30K (question, answer) pairs
+#      from existing training folds with the four reflection-token types
+#      ([Retrieve] / [Relevant] / [Supported] / [Useful]).
+#      Status: SCAFFOLD only. Engineering: ~1-2 days.
+#
+#   2. scripts/train_self_rag.py — extends Qwen-2.5-3B-Instruct tokenizer
+#      with ~10 special reflection tokens, fine-tunes via v1 full-FT path
+#      (use_lora_training=False + use_8bit_adamw=True + gradient
+#      checkpointing) on the synthetic data. 25-35 GPU-h on 5090.
+#      Status: NOT YET WRITTEN. Engineering: ~2-3 days.
+#
+#   3. SelfRAGBaseline class (below) — custom multi-pass decoder that
+#      reads emitted reflection tokens from the fine-tuned model and
+#      branches accordingly.
+#      Status: SCAFFOLD only — currently inherits the prompt-adapted
+#      decoder as a fallback. Engineering: ~3-5 days to replace with
+#      reflection-token-driven decoder once trained model exists.
+#
+# Until the full FT pipeline is shipped, this class behaves as the prompt-
+# adapted variant. The prompt-adapted decoder logic IS reusable for the
+# FT version — just swap `_ask_yes_no` prompts for reflection-token
+# parsing from the fine-tuned model's output stream. This is the
+# scaffolding we keep in place.
+
+class SelfRAGPromptAdaptedBaseline(RAGBaseline):
+    """Self-RAG: four reflection-token decisions.
+
+    Current implementation (2026-05-16): prompt-adapted variant — the four
+    reflection tokens are emulated through `_ask_yes_no` prompts to the
+    same Qwen-2.5-3B-Instruct backbone used by every other system in the
+    panel. This is a SCAFFOLD pending the full FT implementation tracked in
+    scripts/generate_self_rag_synthetic_data.py +
+    scripts/train_self_rag.py + the full-FT-trained `SelfRAGBaseline`
+    class (planned to replace this class once the training pipeline is
+    shipped).
+
+    The published Self-RAG (Asai et al. ICLR 2024) fine-tunes Llama-7B with
+    synthetic data containing four special reflection tokens that the model
+    learns to emit autonomously: [Retrieve] / [No-Retrieve], [Relevant] /
+    [Irrelevant], [Supported] / [Partial] / [NoSupport], [Useful: 1-5].
+    This baseline emulates the same four decisions through prompt
+    engineering on the same Qwen-2.5-3B-Instruct backbone used by every
+    other system in the panel.
+
+    The substitution preserves the matched-protocol comparison (same
+    backbone, same retrieval substrate, same scoring rule) at the cost of
+    using prompted reflection tokens rather than fine-tuned reflection
+    tokens. Registered explicitly in Ch5 §sec:comp-baselines as a
+    deviation from the published method.
+
+    Reference: Asai, Wu, Wang, Sil, Hajishirzi, "Self-RAG: Learning to
+    Retrieve, Generate, and Critique through Self-Reflection", ICLR 2024.
+
+    Decision flow per query
+    -----------------------
+    1. Prompt asks: "Do I need to retrieve information to answer this?"
+       Parse yes/no.
+    2. If yes: retrieve top-k passages from the same FAISS index as
+       CAEM Tier 3.
+    3. For each retrieved passage, prompt asks: "Is this passage relevant
+       to the question?" Parse yes/no; drop irrelevant passages.
+    4. Generate an answer using the surviving passages (or empty context
+       if no retrieve).
+    5. Prompt asks: "Is the answer supported by the passages?" Parse
+       supported/partial/no-support. Below threshold, mark as abstain.
+
+    Hyperparameters
+    ---------------
+    use_retrieval_check : bool
+        [DES] True -- whether to run the [Retrieve] reflection decision.
+    use_relevance_check : bool
+        [DES] True -- whether to run the [Relevant] per-passage filter.
+    use_support_check : bool
+        [DES] True -- whether to run the [Supported] post-hoc check.
+    """
+
+    name = "self_rag"
+    tier_value = 3
+
+    def __init__(
+        self,
+        *args,
+        use_retrieval_check: bool = True,
+        use_relevance_check: bool = True,
+        use_support_check: bool = True,
+        **kwargs,
+    ) -> None:
+        super().__init__(*args, **kwargs)
+        self.use_retrieval_check = use_retrieval_check
+        self.use_relevance_check = use_relevance_check
+        self.use_support_check = use_support_check
+
+    def _ask_yes_no(self, question: str) -> bool:
+        """Prompt the model with a yes/no question, parse first token."""
+        prompt = self._wrap_chatml_user(question + "\nAnswer with a single word: yes or no.")
+        text = self._run_generation(prompt, max_new_tokens=8)
+        return text.strip().lower().startswith("y")
+
+    def _generate(self, query: str) -> Tuple[str, int, bool]:
+        # Step 1: [Retrieve] reflection token
+        if self.use_retrieval_check:
+            should_retrieve = self._ask_yes_no(
+                f"Question: {query}\n\nDo you need to retrieve external information to answer this accurately?"
+            )
+        else:
+            should_retrieve = True
+
+        # Step 2: retrieval (if triggered)
+        passages: List[str] = []
+        if should_retrieve:
+            try:
+                top_passages = self.rag.passage_store.search(
+                    query, k=self.config.rag_top_k
+                )
+                passages = [p.get("text", "") if isinstance(p, dict) else str(p)
+                            for p in top_passages]
+            except Exception as exc:
+                logger.warning("[%s] retrieval failed: %s", self.name, exc)
+
+        # Step 3: [Relevant] per-passage filter
+        if self.use_relevance_check and passages:
+            kept: List[str] = []
+            for p in passages[: self.config.rag_top_k]:
+                if not p:
+                    continue
+                # Truncate passage to a brief preview for the relevance prompt
+                preview = p[:400]
+                relevant = self._ask_yes_no(
+                    f"Question: {query}\n\nPassage: {preview}\n\nIs this passage relevant to answering the question?"
+                )
+                if relevant:
+                    kept.append(p)
+            passages = kept
+
+        # Step 4: generate answer
+        if passages:
+            answer = self.rag.generate(query, passages=passages[: self.config.rag_top_k]) \
+                if hasattr(self.rag, "generate") else self._fallback_rag_generate(query, passages)
+        else:
+            answer = self._run_generation(self._wrap_chatml_user(query))
+
+        # Step 5: [Supported] check
+        abstained = False
+        if self.use_support_check and passages:
+            context = "\n".join(p[:400] for p in passages[:2])
+            supported = self._ask_yes_no(
+                f"Question: {query}\n\nContext: {context}\n\nProposed answer: {answer}\n\nIs the proposed answer fully supported by the context?"
+            )
+            if not supported:
+                abstained = True
+                answer = "<abstain>"
+
+        return answer, self.tier_value, abstained
+
+    def _fallback_rag_generate(self, query: str, passages: List[str]) -> str:
+        """Direct generation with passages prepended (no rag.generate override)."""
+        ctx = "\n\n".join(passages[: self.config.rag_top_k])
+        prompt = self._wrap_chatml_user(
+            f"Context:\n{ctx}\n\nQuestion: {query}\n\nAnswer:"
+        )
+        return self._run_generation(prompt)
+
+
 __all__ = [
     "BaselineBase",
     "ZeroShotBaseline",
@@ -888,4 +1176,6 @@ __all__ = [
     "RAGBaseline",
     "CoTRAGBaseline",
     "FLAREBaseline",
+    "SemanticEntropyBaseline",
+    "SelfRAGPromptAdaptedBaseline",
 ]

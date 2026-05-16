@@ -101,23 +101,41 @@ run_training_baseline() {
         2>&1 | tee -a "$OUTPUT_DIR/$name.train.log"
 }
 
-# --- Rescoring (all 7 baselines at once, after all gen passes) ---
+# --- Rescoring (all baselines, after all gen passes) ---
 rescore_all() {
     band "PHASE B — post-hoc rescore through cycle-3 verifier (composite pin: $COMPOSITE_PIN)"
     python -m scripts.rescore_baselines_through_verifier \
         --composite_calibration "$COMPOSITE_PIN" \
         --passage_index "$PASSAGE_INDEX" \
-        --baselines zero_shot cot rag cot_rag fiveshot_cot vanilla_ft ewc_only_ft \
+        --baselines zero_shot cot rag cot_rag fiveshot_cot flare semantic_entropy self_rag vanilla_ft ewc_only_ft \
         --baseline_dir "$OUTPUT_DIR" \
         --output_dir "$OUTPUT_DIR" \
         2>&1 | tee -a "$OUTPUT_DIR/rescore.log"
 }
 
+# --- Runtime-sorted execution order (2026-05-16) ---
+# Sorted by expected wall-time, fastest to slowest. Sequential on single GPU.
+# Estimates assume eval_batch_size=32 and the 300-sample held-out fold.
+#
+#   1. B1 zero_shot         ~10 min  inference, no retrieval, no CoT
+#   2. B2 cot               ~15 min  inference, +CoT trigger
+#   3. B5 fiveshot_cot      ~20 min  inference, +5 demos
+#   4. B3 rag               ~65 min  inference, retrieval + generate
+#   5. B4 cot_rag           ~75 min  inference, retrieval + CoT
+#   6. B9 flare             ~90 min  inference, multi-pass retrieval
+#   7. B6 vanilla_ft        ~2 h    train 5 cycles + eval
+#   8. B8 semantic_entropy  ~2-3 h  inference, 10× sampling
+#   9. B7 ewc_only_ft       ~3 h    train 5 cycles + L2 anchor + eval
+#   10. B10 self_rag (FT)   blocked  awaiting synthetic data + FT pipeline
+#
+# Total B1-B9 sequential: ~10 h GPU + ~7 h rescore = ~17 h GPU (~24 h wall-clock).
+# B10 staged separately; build pipeline ~7-11 engineering days + ~30 GPU-h.
+
 # --- Dispatch ---
 TARGET="${1:-all}"
 
 case "$TARGET" in
-    zero_shot|cot|fiveshot_cot|rag|cot_rag)
+    zero_shot|cot|fiveshot_cot|rag|cot_rag|flare|semantic_entropy|self_rag)
         run_inference_baseline "$TARGET"
         ;;
     vanilla_ft)
@@ -129,21 +147,46 @@ case "$TARGET" in
     rescore)
         rescore_all
         ;;
-    all)
-        # Run all 5 inference baselines, then both training baselines,
-        # then rescore everything in one pass. Sequential on a single GPU.
-        for b in zero_shot cot fiveshot_cot rag cot_rag; do
-            run_inference_baseline "$b"
-        done
-        run_training_baseline "vanilla_ft"
-        run_training_baseline "ewc_only_ft" "--use_l2_anchor --use_mmlu_guard"
+    b1_to_b9|all)
+        # Run B1-B9 in runtime-sorted order (fastest to slowest).
+        # B10 (Self-RAG full FT) excluded — pipeline still being built.
+        # Sequential on single GPU. Each baseline finishes before next starts.
+        band "Launching B1-B9 panel in runtime-sorted order (fastest -> slowest)"
+        log "Order: zero_shot -> cot -> fiveshot_cot -> rag -> cot_rag -> flare -> vanilla_ft -> semantic_entropy -> ewc_only_ft"
+
+        run_inference_baseline "zero_shot"        # ~10 min
+        run_inference_baseline "cot"              # ~15 min
+        run_inference_baseline "fiveshot_cot"     # ~20 min
+        run_inference_baseline "rag"              # ~65 min
+        run_inference_baseline "cot_rag"          # ~75 min
+        run_inference_baseline "flare"            # ~90 min
+        run_training_baseline  "vanilla_ft"       # ~2 h
+        run_inference_baseline "semantic_entropy" # ~2-3 h
+        run_training_baseline  "ewc_only_ft" "--use_l2_anchor --use_mmlu_guard"  # ~3 h
+
         rescore_all
-        band "ALL BASELINES + RESCORE COMPLETE"
+        band "B1-B9 PANEL + RESCORE COMPLETE"
         log "Next: python -m scripts.baseline_sig_tests --baseline_dir $OUTPUT_DIR"
+        log "Note: B10 (Self-RAG full FT) is on a separate build track; see"
+        log "  scripts/generate_self_rag_synthetic_data.py + scripts/train_self_rag.py"
+        ;;
+    self_rag_ft_build_status)
+        band "Self-RAG full-FT pipeline status check"
+        log "Stage 1 (synthetic data gen): scripts/generate_self_rag_synthetic_data.py — SCAFFOLD"
+        log "Stage 2 (full FT):            scripts/train_self_rag.py — SCAFFOLD"
+        log "Stage 3 (baseline class):     eval/baselines.py:SelfRAGPromptAdaptedBaseline (placeholder; will be replaced)"
+        log "Engineering remaining: ~7-11 days. See PRODUCTION_NEXT_SESSION_PLAN.md Phase 1.6 Step P-2."
         ;;
     *)
         echo "Unknown target: $TARGET"
-        echo "Usage: bash scripts/launch_baselines.sh [zero_shot|cot|fiveshot_cot|rag|cot_rag|vanilla_ft|ewc_only_ft|rescore|all]"
+        echo "Usage: bash scripts/launch_baselines.sh [TARGET]"
+        echo "  TARGETs:"
+        echo "    zero_shot | cot | fiveshot_cot | rag | cot_rag | flare    (individual inference)"
+        echo "    semantic_entropy | self_rag                                (individual inference, new)"
+        echo "    vanilla_ft | ewc_only_ft                                   (individual training)"
+        echo "    rescore                                                    (post-hoc rescore all)"
+        echo "    b1_to_b9 | all                                             (full panel B1-B9 sequential)"
+        echo "    self_rag_ft_build_status                                   (check B10 FT pipeline progress)"
         exit 2
         ;;
 esac

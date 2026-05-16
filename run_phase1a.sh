@@ -682,93 +682,19 @@ print(f"Step 7 OK: {n_data} cycle rows (cycles 0..{last_cycle}); "
 PY
 }
 
-# step_8_flare_smoke and step_13_b5 (FLARE) removed 2026-05-07: FLARE is
-# inference-only and cannot batch (iterative look-ahead per sentence), so
-# at 30k serial queries it would cost ~25-125 GPU-h for a baseline that
-# doesn't defend any of the 5 headline claims. Removal rationale:
-# branch_C_log.md 2026-04-22.
-
 # ============================================================================
-# Steps 9-15 — B1..B7 baselines (n=3000 per benchmark; matched-scale to CAEM
-# Step 7 main under the 2026-04-24 budget downsize)
+# Baselines B1-B9 — delegated to scripts/launch_baselines.sh (2026-05-16)
 # ============================================================================
-_run_inference_baseline() {
-    local step="$1" name="$2" flag="$3"; shift 3
-    local extra=("$@")
-    local outdir="outputs/baselines/$name"
-    if ls "$outdir"/*.json &>/dev/null; then
-        log "Step $step ($name): already present — skipping"
-        return 0
-    fi
-    band "Step $step — $name baseline (n=3000, bs=32)"
-    python -m scripts.run_baseline \
-        --baseline "$flag" \
-        --benchmarks $BASELINE_BENCHES \
-        --n_questions 3000 \
-        --eval_batch_size 32 \
-        --output_dir outputs/baselines \
-        "${extra[@]}" \
-        2>&1 | tee "outputs/baselines/${step}_${name}.log"
-}
-
-step_9_b1()  { _run_inference_baseline "B1" "zero_shot"     "zero_shot"; }
-step_10_b2() { _run_inference_baseline "B2" "cot"           "cot"; }
-# B5 slot reclaimed for 5-shot CoT (Wei et al. 2022) after FLARE removal.
-# Runs between B2 and B3 to group inference-only / no-retrieval baselines
-# together (B1, B2, B5). 5 demos drawn from fever train split with seed 42.
-step_11_5_b5() { _run_inference_baseline "B5" "fiveshot_cot" "fiveshot_cot"; }
-step_11_b3() { _run_inference_baseline "B3" "rag"           "rag"       --passage_index data/passage_index; }
-step_12_b4() { _run_inference_baseline "B4" "cot_rag"       "cot_rag"   --passage_index data/passage_index; }
-step_14_b6_vanilla_ft() {
-    local outdir="outputs/baselines/vanilla_ft"
-    if [[ -s "$outdir/training_log.jsonl" ]]; then
-        local cycles
-        cycles=$(wc -l < "$outdir/training_log.jsonl")
-        if (( cycles >= 10 )); then
-            log "Step 14 (B6 vanilla_ft): $cycles cycles complete — skipping"
-            return 0
-        fi
-    fi
-    band "Step 14 — B6 vanilla FT (10 cycles, no L2 anchor, no MMLU guard, eval bs=32, gdrive offload ON)"
-    # v2.1 2026-05-08: panel pruned to 3 training benches; FEVER+TQA chunks
-    # doubled to 2000, CSQA stays at 700. Per-bench allocation budget
-    # n_train_per_bench=30000 is an upper bound (FEVER/TQA need 10×2000=20000;
-    # CSQA needs 10×700=7000); build_benchmark_pools clips to per-bench chunk.
-    # Baseline must train on the same effective per-cycle chunk as CAEM main.
-    CAEM_GDRIVE_OFFLOAD=1 python -m scripts.run_simple_ft \
-        --baseline_name vanilla_ft \
-        --num_cycles 10 \
-        --eval_benchmarks "${BENCHMARKS[@]}" \
-        --n_eval_per_bench 500 \
-        --n_train_per_bench 30000 \
-        --eval_batch_size 32 \
-        --output_dir "$outdir" 2>&1 | tee outputs/baselines/B6_vanilla_ft.log
-}
-
-step_15_b7_ewc_only() {
-    local outdir="outputs/baselines/ewc_only_ft"
-    if [[ -s "$outdir/training_log.jsonl" ]]; then
-        local cycles
-        cycles=$(wc -l < "$outdir/training_log.jsonl")
-        if (( cycles >= 10 )); then
-            log "Step 15 (B7 ewc_only_ft): $cycles cycles complete — skipping"
-            return 0
-        fi
-    fi
-    band "Step 15 — B7 EWC-only FT (10 cycles, L2 anchor + MMLU guard on, eval bs=32, gdrive offload ON)"
-    # v2.1 2026-05-08: panel pruned to 3 training benches; FEVER+TQA chunks
-    # doubled to 2000, CSQA stays at 700. n_train_per_bench=30000 is an
-    # upper bound; per-bench chunk override clips inside build_benchmark_pools.
-    CAEM_GDRIVE_OFFLOAD=1 python -m scripts.run_simple_ft \
-        --baseline_name ewc_only_ft \
-        --use_l2_anchor \
-        --use_mmlu_guard \
-        --num_cycles 10 \
-        --eval_benchmarks "${BENCHMARKS[@]}" \
-        --n_eval_per_bench 500 \
-        --n_train_per_bench 30000 \
-        --eval_batch_size 32 \
-        --output_dir "$outdir" 2>&1 | tee outputs/baselines/B7_ewc_only_ft.log
+# The old in-runner baseline steps (step_9_b1 through step_15_b7_ewc_only)
+# were retired 2026-05-16 because their hardcoded settings (n_questions=3000,
+# num_cycles=10, FLARE removed) drifted from the v2.1 panel after the
+# C5-stop decision. The new launcher matches matched-protocol pairing:
+# n_questions=300 (CAEM eval fold size), num_cycles=5 (C5-stop), FLARE
+# back in panel, B8 SemanticEntropy + B9 self_rag scaffold added.
+# Decision: scripts/launch_baselines.sh is the single source of truth.
+step_baselines_all() {
+    band "Step 9-15 — B1-B9 baseline panel (delegated to launch_baselines.sh)"
+    bash scripts/launch_baselines.sh b1_to_b9 2>&1 | tee -a "$RUNNER_LOG"
 }
 
 # ============================================================================
@@ -1059,14 +985,11 @@ main() {
     # --- Headline (~7-8 days under v2 batched cal) ---
     step_7_main
 
-    # --- External baselines (~8 h batched + ~55 h FT) ---
-    step_9_b1
-    step_10_b2
-    step_11_5_b5                  # 5-shot CoT (Wei 2022) — reclaimed B5 slot
-    step_11_b3
-    step_12_b4
-    step_14_b6_vanilla_ft
-    step_15_b7_ewc_only
+    # --- External baselines B1-B9 + sig-tests (~17 h GPU under v2.1) ---
+    # Delegated to scripts/launch_baselines.sh (single source of truth);
+    # see comment above step_baselines_all for the 2026-05-16 retirement
+    # of the in-runner baseline steps.
+    step_baselines_all
     step_15_5_sig
 
     # --- Diagnostics ---
