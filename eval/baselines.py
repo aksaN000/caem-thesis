@@ -87,7 +87,7 @@ from caem.config import CAEMConfig
 from caem.memory.encoder import QueryEncoder
 from caem.model_loader import load_base_generator
 from caem.pipeline import PipelineResult
-from caem.prompts import FORCED_PREFIX, build_tier3_prompt
+from caem.prompts import FORCED_PREFIX, SYSTEM_PROMPT, build_tier3_prompt
 from caem.retrieval.rag import PassageStore, TierThreeRAG
 from eval.metrics import extract_cot_answer
 
@@ -119,6 +119,17 @@ class BaselineBase:
 
     name: str = "baseline"
     tier_value: int = 2  # override in retrieval-augmented subclasses
+
+    # Matched-protocol scaffolding (2026-05-16). When set, ``_build_prompt``
+    # wraps the user content with this system prompt and appends
+    # ``forced_prefix`` so the model's continuation starts mid-format. The
+    # batched/serial answer paths then re-prepend ``forced_prefix`` to the
+    # decoded continuation via ``_finalize_answer`` so ``extract_cot_answer``
+    # finds the mandated ``"Answer:"`` marker. Empty defaults preserve the
+    # pre-2026-05-16 behaviour for RAG/CoT-RAG/FLARE which already use
+    # ``build_tier3_prompt`` and the surrounding pipeline machinery.
+    system_prompt: Optional[str] = None
+    forced_prefix: str = ""
 
     def __init__(
         self,
@@ -156,15 +167,51 @@ class BaselineBase:
     # Subclass hook                                                        #
     # ------------------------------------------------------------------ #
 
+    def _build_user_content(self, query: str) -> str:
+        """Return the bare user-message text for ``query``. Subclasses override
+        to inject CoT triggers or few-shot demos. The wrapping with ChatML +
+        optional system prompt + optional forced prefix is done by
+        ``_build_prompt`` so all subclasses inherit the matched-protocol
+        scaffolding for free.
+        """
+        return query
+
     def _build_prompt(self, query: str) -> str:
-        """Return the full prompt string fed to the model. Subclasses override."""
-        return self._wrap_chatml_user(query)
+        """Return the full prompt string fed to the model.
+
+        When ``self.system_prompt`` is set, wraps as ChatML with both system
+        and user roles. When ``self.forced_prefix`` is set, appends the prefix
+        to the prompt so the model's continuation starts mid-format. The
+        returned answer is re-prepended with the prefix by
+        ``_finalize_answer`` so the EM extractor finds the mandated marker.
+        """
+        user = self._build_user_content(query)
+        if self.system_prompt:
+            chat = self._wrap_chatml_system_user(self.system_prompt, user)
+        else:
+            chat = self._wrap_chatml_user(user)
+        if self.forced_prefix:
+            return chat + self.forced_prefix
+        return chat
+
+    def _finalize_answer(self, raw: str) -> str:
+        """Re-prepend ``forced_prefix`` to a raw continuation so the
+        downstream EM extractor sees the same ``"Reasoning: ... Answer: ..."``
+        shape CAEM Tier 2 / Tier 3 produces. No-op when ``forced_prefix`` is
+        empty or already present at the start of the continuation.
+        """
+        if not self.forced_prefix:
+            return raw
+        stripped = raw.lstrip()
+        if stripped.startswith(self.forced_prefix):
+            return raw
+        return f"{self.forced_prefix}{raw}" if raw else self.forced_prefix
 
     def _generate(self, query: str) -> Tuple[str, int, bool]:
         """Generate an answer. Returns (answer, tier, escalated)."""
         prompt = self._build_prompt(query)
         answer = self._run_generation(prompt)
-        return answer, self.tier_value, False
+        return self._finalize_answer(answer), self.tier_value, False
 
     # ------------------------------------------------------------------ #
     # ChatML wrapping                                                      #
@@ -190,6 +237,27 @@ class BaselineBase:
             except Exception:
                 pass
         return user_content
+
+    def _wrap_chatml_system_user(self, system_content: str, user_content: str) -> str:
+        """Wrap ``(system, user)`` as a two-message ChatML prompt with the
+        assistant-generation marker appended. Used by matched-protocol
+        baselines so they consume the same SYSTEM_PROMPT CAEM Tier 2 sees.
+        """
+        tok = self.tokenizer
+        messages = [
+            {"role": "system", "content": system_content},
+            {"role": "user", "content": user_content},
+        ]
+        if hasattr(tok, "apply_chat_template"):
+            try:
+                rendered = tok.apply_chat_template(
+                    messages, tokenize=False, add_generation_prompt=True,
+                )
+                if isinstance(rendered, str):
+                    return rendered
+            except Exception:
+                pass
+        return f"{system_content}\n\n{user_content}"
 
     # ------------------------------------------------------------------ #
     # Shared generation helper                                             #
@@ -290,6 +358,7 @@ class BaselineBase:
         try:
             prompts = [self._build_prompt(q) for q in queries]
             answers = self._run_generation_batch(prompts)
+            answers = [self._finalize_answer(a) for a in answers]
         except Exception as exc:
             logger.error("[%s] batched generation failed (%d queries): %s",
                          self.name, len(queries), exc)
@@ -355,19 +424,25 @@ class BaselineBase:
 # =============================================================================
 
 class ZeroShotBaseline(BaselineBase):
-    """Zero-shot Qwen-3B. Floor baseline: no CoT, no retrieval, no memory.
+    """Zero-shot Qwen-3B. Floor baseline: no CoT trigger, no retrieval, no
+    memory, no verifier — but the SAME answer-format scaffolding as CAEM
+    Tier 2 (system prompt mandating ``"Answer: <text>"`` + a ``"Reasoning:"``
+    forced prefix). This isolates the B1 vs CAEM delta to the architectural
+    pieces (memory / retrieval / verifier / SIL) rather than to prompt
+    engineering.
 
-    The query is ChatML-wrapped as a single user turn with no system prompt
-    and no few-shot examples -- the cleanest ablation against CAEM's
-    scaffolded-CoT system prompt. Differences on Chapter-5 metrics then
-    attribute to CAEM's machinery rather than to ChatML-vs-flat prompting.
+    Matched-protocol fix (2026-05-16): the previous version emitted bare
+    ChatML prose without an ``"Answer:"`` marker, so the EM extractor
+    found nothing and reported 0% on open-ended QA even though the prose
+    contained the correct answer 59% of the time on TriviaQA. The fix
+    inherits the base's matched-protocol scaffolding via ``system_prompt``
+    + ``forced_prefix`` class attributes.
     """
 
     name = "zero_shot"
     tier_value = 2
-
-    def _build_prompt(self, query: str) -> str:
-        return self._wrap_chatml_user(query)
+    system_prompt = SYSTEM_PROMPT
+    forced_prefix = FORCED_PREFIX
 
 
 # =============================================================================
@@ -393,9 +468,18 @@ class CoTBaseline(BaselineBase):
     name = "cot"
     tier_value = 2
     prefix: str = "Let's think step by step."
+    system_prompt = SYSTEM_PROMPT
+    forced_prefix = FORCED_PREFIX
 
-    def _build_prompt(self, query: str) -> str:
-        return self._wrap_chatml_user(f"{self.prefix}\n\n{query}")
+    def __init__(self, *args, max_new_tokens: int = 512, **kwargs) -> None:
+        # Matched-protocol bump (2026-05-16): CAEM's cot_max_new_tokens = 512;
+        # the previous default of 256 truncated Qwen mid-reasoning before it
+        # reached the mandated "Answer:" line, dropping CoT TriviaQA EM to
+        # 2.7% even though the model knew 62.3% of the answers.
+        super().__init__(*args, max_new_tokens=max_new_tokens, **kwargs)
+
+    def _build_user_content(self, query: str) -> str:
+        return f"{self.prefix}\n\n{query}"
 
 
 # =============================================================================
@@ -428,15 +512,19 @@ class FiveShotCoTBaseline(BaselineBase):
     tier_value = 2
     prefix: str = "Let's think step by step."
     n_shots: int = 5
+    system_prompt = SYSTEM_PROMPT
+    forced_prefix = FORCED_PREFIX
 
     def __init__(
         self,
         *args,
         demo_samples: Optional[List[dict]] = None,
         demo_seed: int = 42,
+        max_new_tokens: int = 512,
         **kwargs,
     ) -> None:
-        super().__init__(*args, **kwargs)
+        # Matched-protocol bump (2026-05-16): same rationale as CoTBaseline.
+        super().__init__(*args, max_new_tokens=max_new_tokens, **kwargs)
         self.demo_seed = demo_seed
         self._demo_block = self._build_demo_block(demo_samples or [])
 
@@ -472,19 +560,17 @@ class FiveShotCoTBaseline(BaselineBase):
             return ""
         return "\n\n".join(parts)
 
-    def _build_prompt(self, query: str) -> str:
+    def _build_user_content(self, query: str) -> str:
         if self._demo_block:
-            content = (
+            return (
                 f"Here are some examples of answering questions with brief reasoning:\n\n"
                 f"{self._demo_block}\n\n"
                 f"{self.prefix}\n\n"
-                f"Question: {query}\nReasoning:"
+                f"Question: {query}"
             )
-        else:
-            # Fall back to zero-shot CoT if no demos were provided (e.g. at
-            # smoke-test time). Produces B2-equivalent behaviour for that run.
-            content = f"{self.prefix}\n\n{query}"
-        return self._wrap_chatml_user(content)
+        # Fall back to zero-shot CoT if no demos were provided (e.g. at
+        # smoke-test time). Produces B2-equivalent behaviour for that run.
+        return f"{self.prefix}\n\n{query}"
 
 
 # =============================================================================
@@ -917,6 +1003,8 @@ class SemanticEntropyBaseline(BaselineBase):
 
     name = "semantic_entropy"
     tier_value = 2
+    system_prompt = SYSTEM_PROMPT
+    forced_prefix = FORCED_PREFIX
 
     def __init__(
         self,
@@ -924,15 +1012,18 @@ class SemanticEntropyBaseline(BaselineBase):
         n_samples: int = 10,
         temp: float = 1.0,
         tau_se: float = 1.5,
+        max_new_tokens: int = 512,
         **kwargs,
     ) -> None:
-        super().__init__(*args, **kwargs)
+        # Matched-protocol bump (2026-05-16): SE samples 10x at temperature
+        # 1.0; with the same prompt scaffolding as CAEM Tier 2 the sampled
+        # outputs end with "Answer: <text>" which makes the cluster mode
+        # extractable and the entropy semantically meaningful (Farquhar 2024
+        # §6.2's normalized-EM clustering surrogate).
+        super().__init__(*args, max_new_tokens=max_new_tokens, **kwargs)
         self.n_samples = n_samples
         self.temp = temp
         self.tau_se = tau_se
-
-    def _build_prompt(self, query: str) -> str:
-        return self._wrap_chatml_user(query)
 
     def _generate(self, query: str) -> Tuple[str, int, bool]:
         """Sample n_samples × at temp T, cluster, compute entropy, return mode."""
@@ -972,12 +1063,20 @@ class SemanticEntropyBaseline(BaselineBase):
                 logger.warning("[%s] sampling failed: %s", self.name, exc)
                 samples.append("")
 
-        # Cluster by normalized-EM equivalence (token-form canonical match).
-        # Farquhar et al. use NLI clustering; we use normalized text equality
-        # as a lightweight surrogate that's faster and correlates strongly on
-        # short-answer benchmarks (per their §6.2 ablations).
+        # Cluster by normalized-EM equivalence on the EXTRACTED answer span
+        # (token-form canonical match of the post-"Answer:" content). Farquhar
+        # et al. use NLI clustering; we use normalized text equality as a
+        # lightweight surrogate that's faster and correlates strongly on
+        # short-answer benchmarks (per their §6.2 ablations). Matched-
+        # protocol scaffolding (2026-05-16) ensures each sample ends with
+        # "Answer: <text>"; clustering on the extracted answer (not the full
+        # prose) lets samples that reason differently but agree on the
+        # answer fall into the same cluster, which is the property Farquhar
+        # actually wants from semantic-equivalence clustering.
         from collections import Counter
-        canonical = [normalise(s) for s in samples]
+        finalized = [self._finalize_answer(s) for s in samples]
+        extracted = [extract_cot_answer(s) for s in finalized]
+        canonical = [normalise(e) for e in extracted]
         counts = Counter(canonical)
         if not counts:
             return "", self.tier_value, False
@@ -988,9 +1087,12 @@ class SemanticEntropyBaseline(BaselineBase):
         entropy = -sum(p * math.log(p) for p in probs if p > 0)
         # Pick the mode (most-frequent cluster's representative)
         mode_canonical = counts.most_common(1)[0][0]
-        # Recover the first sample matching the mode canonical
+        # Recover the first finalized sample whose extracted answer matches
+        # the mode canonical; this preserves the full "Reasoning:/Answer:"
+        # shape downstream EM/F1 expects.
         mode_sample = next(
-            (s for s, c in zip(samples, canonical) if c == mode_canonical), samples[0]
+            (s for s, c in zip(finalized, canonical) if c == mode_canonical),
+            finalized[0],
         )
         abstained = entropy >= self.tau_se
         if abstained:
