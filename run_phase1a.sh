@@ -698,6 +698,58 @@ step_baselines_all() {
 }
 
 # ============================================================================
+# Gdrive auto-sync — outputs/full_run + outputs/baselines to remote (2026-05-16)
+# ============================================================================
+# Mirrors the local artefact tree to gdrive so future re-runs (e.g. Qwen-7B)
+# don't leave the trajectory stranded on the Vast VM. Idempotent: rclone copy
+# skips files whose size+mtime match. Safe no-op when rclone/gdrive remote
+# isn't configured.
+#
+# Tag the run via CAEM_RUN_TAG env so different experiments land at separate
+# gdrive paths and don't clobber each other:
+#
+#     CAEM_RUN_TAG=v2_2_qwen7b ./run_phase1a.sh
+#
+# Default tag is v2_1_phase1d (the current trajectory). Override the full
+# remote path entirely via GDRIVE_REMOTE for non-standard layouts.
+step_gdrive_sync_post_trajectory() {
+    local tag="${CAEM_RUN_TAG:-v2_1_phase1d}"
+    local remote="${GDRIVE_REMOTE:-gdrive:caem-phase1a/${tag}}"
+
+    if ! command -v rclone >/dev/null; then
+        log "gdrive sync: rclone not on PATH — skipping (non-fatal)"
+        return 0
+    fi
+    if ! rclone listremotes 2>/dev/null | grep -q '^gdrive:'; then
+        log "gdrive sync: 'gdrive:' remote not configured — skipping (non-fatal)"
+        return 0
+    fi
+
+    band "gdrive sync -> ${remote} (idempotent rclone copy)"
+
+    if [[ -d outputs/full_run ]]; then
+        log "  syncing outputs/full_run/ -> ${remote}/full_run/"
+        rclone copy outputs/full_run "${remote}/full_run" \
+            --transfers 4 \
+            --exclude "*.pre_phase1d" \
+            --exclude ".snapshot_staging/**" \
+            --exclude "**/.tmp" \
+            2>&1 | tee -a "$RUNNER_LOG"
+    fi
+
+    if [[ -d outputs/baselines ]]; then
+        log "  syncing outputs/baselines/ -> ${remote}/baselines/"
+        rclone copy outputs/baselines "${remote}/baselines" \
+            --transfers 4 \
+            --exclude "*_pre_matched_protocol_*/**" \
+            --exclude "**/.tmp" \
+            2>&1 | tee -a "$RUNNER_LOG"
+    fi
+
+    log "gdrive sync OK"
+}
+
+# ============================================================================
 # Step 15.5 — McNemar + bootstrap CI + Holm sig-tests
 # ============================================================================
 step_15_5_sig() {
@@ -990,6 +1042,7 @@ main() {
     # see comment above step_baselines_all for the 2026-05-16 retirement
     # of the in-runner baseline steps.
     step_baselines_all
+    step_gdrive_sync_post_trajectory   # sync trajectory + baselines (idempotent)
     step_15_5_sig
 
     # --- Diagnostics ---
@@ -1009,6 +1062,10 @@ main() {
     step_23_calib_traj            # per-cycle τ/T/memory calibration table + figure
     step_24_session5_artifacts    # audit summary + before/after + α-trajectory
     step_25_t1_robustness         # T1 routing robustness validation
+
+    # Final gdrive sync (catches sig-tests + diagnostics + Ch5 artefacts).
+    # Idempotent — rclone copy re-checks every file but only uploads deltas.
+    step_gdrive_sync_post_trajectory
 
     band "Phase 1a runner COMPLETE at $(ts)"
     log "Next: scp outputs/ down locally (Step 20.2), then Vast.ai Stop."
