@@ -340,6 +340,38 @@ def _aggregate_chm(rows: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
 # Per-(baseline, benchmark) rescore + write                                #
 # ----------------------------------------------------------------------- #
 
+def _resolve_src_paths(
+    baselines_dir: Path,
+    baseline: str,
+    bench: str,
+    *,
+    training_baselines: set,
+    training_cycles: List[int],
+) -> List[Tuple[int, Path]]:
+    """Return [(cycle, src_path), ...] for a given (baseline, bench).
+
+    Inference baselines: a single (0, <baseline>/<bench>_cycle0.json) pair.
+    Training baselines: one pair per cycle in ``training_cycles``, e.g.
+    [(3, <baseline>/eval/<bench>_cycle3.json), (5, ...)].
+
+    Missing files are silently dropped from the returned list — the caller
+    logs the resulting empty list at info level.
+    """
+    out: List[Tuple[int, Path]] = []
+    if baseline in training_baselines:
+        for cyc in training_cycles:
+            p = baselines_dir / baseline / "eval" / f"{bench}_cycle{cyc}.json"
+            if p.exists():
+                out.append((cyc, p))
+        return out
+
+    # Inference layout — single cycle 0.
+    p = baselines_dir / baseline / f"{bench}_cycle0.json"
+    if p.exists():
+        out.append((0, p))
+    return out
+
+
 def _rescore_one(
     verifier: Any,
     src_path: Path,
@@ -433,6 +465,24 @@ def _parse_args() -> argparse.Namespace:
                             "fiveshot_cot", "vanilla_ft", "ewc_ft"],
                    help="Baseline names matching subdirectories of "
                         "<baselines_dir>.")
+    # 2026-05-16: training baselines (B6 vanilla_ft, B7 ewc_only_ft) write
+    # under <baseline>/eval/<bench>_cycle{N}.json with N>=1 per cycle, not
+    # the inference layout <baseline>/<bench>_cycle0.json. The path
+    # resolver tries inference layout first, then falls back to training
+    # layout. --training_cycles selects which cycles get rescored for
+    # training baselines (default 3, 5: matched-protocol headline +
+    # retention-guard-ablation receipt).
+    p.add_argument("--training_cycles", nargs="+", type=int,
+                   default=[3, 5],
+                   help="Cycles to rescore for training baselines "
+                        "(B6/B7). C3 = matched-protocol headline "
+                        "(CAEM's last successful SIL cycle), "
+                        "C5 = retention-guard-ablation receipt.")
+    p.add_argument("--training_baselines", nargs="+",
+                   default=["vanilla_ft", "ewc_only_ft", "ewc_ft"],
+                   help="Baseline names that use the training-baseline "
+                        "directory layout (predictions under <baseline>/"
+                        "eval/<bench>_cycle{N}.json).")
     # v2 Fix 9b: argparse default tracks caem.config so the rescoring
     # CSV columns line up with the live v2 panel
     # (was hardcoded to v1 7-bench list including arc_challenge + asqa).
@@ -448,7 +498,10 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--output_dir", type=Path,
                    default=Path("outputs/baselines"),
                    help="Sidecar JSONs land at "
-                        "<output_dir>/<baseline>/<bench>_cycle0_with_chm.json.")
+                        "<output_dir>/<baseline>/<bench>_cycle{N}_with_chm.json "
+                        "for inference baselines (N=0) and "
+                        "<output_dir>/<baseline>/eval/<bench>_cycle{N}_with_chm.json "
+                        "for training baselines (N in --training_cycles).")
     p.add_argument("--composite_calibration", type=Path,
                    default=Path("outputs/full_run/cycle_3/composite_calibration.json"),
                    help=("Composite-version pin. The composite is refit at "
@@ -502,17 +555,42 @@ def main() -> int:
         device=ns.device,
     )
 
+    # comparison key for training baselines is "<name>@c<cycle>" so the
+    # downstream comparison table can distinguish B6@C3 (matched-protocol
+    # headline) from B6@C5 (retention-guard-ablation receipt).
     comparison: Dict[str, Dict[str, Any]] = {}
+    training_baselines = set(ns.training_baselines)
 
     for baseline in ns.baselines:
         for bench in ns.benchmarks:
-            src = ns.baselines_dir / baseline / f"{bench}_cycle0.json"
-            if not src.exists():
-                logger.warning("Skip missing %s", src)
+            pairs = _resolve_src_paths(
+                ns.baselines_dir, baseline, bench,
+                training_baselines=training_baselines,
+                training_cycles=ns.training_cycles,
+            )
+            if not pairs:
+                logger.info("Skip %s/%s: no source JSONs found (inference "
+                            "layout <baseline>/<bench>_cycle0.json or "
+                            "training layout <baseline>/eval/<bench>_cycle"
+                            "{%s}.json)",
+                            baseline, bench,
+                            ",".join(str(c) for c in ns.training_cycles))
                 continue
-            dst = ns.output_dir / baseline / f"{bench}_cycle0_with_chm.json"
-            summary = _rescore_one(verifier, src, dst, batch_size=ns.batch_size)
-            comparison.setdefault(baseline, {})[bench] = summary
+            for cyc, src in pairs:
+                # Preserve the source layout in the output path so
+                # downstream readers can find the rescored sidecar next
+                # to the original prediction JSON.
+                if baseline in training_baselines:
+                    dst = (ns.output_dir / baseline / "eval"
+                           / f"{bench}_cycle{cyc}_with_chm.json")
+                    key = f"{baseline}@c{cyc}"
+                else:
+                    dst = (ns.output_dir / baseline
+                           / f"{bench}_cycle{cyc}_with_chm.json")
+                    key = baseline
+                summary = _rescore_one(verifier, src, dst,
+                                       batch_size=ns.batch_size)
+                comparison.setdefault(key, {})[bench] = summary
 
     # Add the CAEM cycle-N row by aggregating the live eval JSONs that
     # already carry signals + decision (no rescoring needed).
