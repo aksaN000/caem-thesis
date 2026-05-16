@@ -224,6 +224,14 @@ def build_anthropic_client(api_key: Optional[str]) -> Any:
     return anthropic.Anthropic(api_key=api_key or os.environ.get("ANTHROPIC_API_KEY"))
 
 
+# Module-level throttle state for rate-limit avoidance.
+# Anthropic claude-haiku-4-5 default tier: 50 req/min sliding window. We
+# pace ourselves at ~45 req/min (1.35s between calls, room for retries),
+# and back off harder if a 429 actually fires.
+_LAST_CALL_T: Dict[str, float] = {"t": 0.0}
+_MIN_INTERVAL_SEC = 1.35
+
+
 def judge_one(
     client: Any,
     question: str,
@@ -232,9 +240,23 @@ def judge_one(
     incorrect: List[str],
     *,
     model: str = "claude-haiku-4-5",
-    max_retries: int = 3,
+    max_retries: int = 4,
 ) -> Tuple[Optional[float], str]:
-    """Returns (em ∈ {0.0, 1.0} or None on failure, reason)."""
+    """Returns (em ∈ {0.0, 1.0} or None on failure, reason).
+
+    Rate-limit handling (2026-05-16 fix, tuned for $3.62 budget):
+    - Pre-call throttle: at least 1.35s since last call (caps us at ~45
+      req/min, under the 50/min tier limit). Prevents 429 in steady state.
+    - On RateLimitError (HTTP 429): respect the ``retry-after`` header if
+      present, else wait 60s (the 50/min window's reset interval). The
+      OLD policy of ``sleep(2**attempt)`` gave up after 14s total which
+      is shorter than the rate-limit window — observed 79 permanent
+      failures across 5 file completions in the broken run.
+    - On other exceptions: exponential backoff capped at 16s.
+    - max_retries=4 (down from the 6-attempt draft) bounds worst-case
+      per-sample API spend; $3.45 estimated → $0.17 headroom on the
+      $3.62 budget cap.
+    """
     prompt = JUDGE_PROMPT_TEMPLATE.format(
         question=question,
         prediction=prediction or "(empty)",
@@ -243,6 +265,12 @@ def judge_one(
     )
     last_err = ""
     for attempt in range(1, max_retries + 1):
+        # Pre-call throttle: never less than _MIN_INTERVAL_SEC between calls.
+        now = time.monotonic()
+        elapsed = now - _LAST_CALL_T["t"]
+        if elapsed < _MIN_INTERVAL_SEC:
+            time.sleep(_MIN_INTERVAL_SEC - elapsed)
+        _LAST_CALL_T["t"] = time.monotonic()
         try:
             resp = client.messages.create(
                 model=model,
@@ -262,9 +290,30 @@ def judge_one(
             if first_line.startswith("false"):
                 return 0.0, reason_line
             last_err = f"unparseable judge output: {text[:80]!r}"
+            # Non-rate-limit retryable; small backoff.
+            time.sleep(min(2 ** attempt, 16))
         except Exception as exc:
             last_err = f"{type(exc).__name__}: {exc}"
-            time.sleep(min(2 ** attempt, 16))
+            exc_name = type(exc).__name__
+            # Rate-limit needs a full-minute wait (50/min sliding window).
+            if exc_name == "RateLimitError" or "429" in str(exc) or "rate_limit" in str(exc).lower():
+                # Try to read retry-after header from the response when present.
+                wait_s = 60.0
+                resp_obj = getattr(exc, "response", None)
+                if resp_obj is not None:
+                    hdr = getattr(resp_obj, "headers", None)
+                    if hdr and "retry-after" in {k.lower() for k in hdr.keys()}:
+                        try:
+                            ra = next(v for k, v in hdr.items() if k.lower() == "retry-after")
+                            wait_s = max(float(ra) + 1.0, 30.0)
+                        except Exception:
+                            pass
+                wait_s = wait_s * min(attempt, 3)  # linear escalation, capped
+                logger.info("Rate-limit hit on attempt %d; sleeping %.0fs before retry",
+                            attempt, wait_s)
+                time.sleep(wait_s)
+            else:
+                time.sleep(min(2 ** attempt, 16))
     logger.warning("judge_one permanent failure: %s", last_err)
     return None, last_err
 
