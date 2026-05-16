@@ -770,6 +770,19 @@ def main() -> None:
         use_torch_compile=False,
     )
 
+    # 2026-05-16 VRAM fix: enable gradient checkpointing to fit full-FT on 32 GiB.
+    # Without this, B6/B7 OOM at bs=4 in the loss computation (logits[..., :-1, :]
+    # tensor allocation ~700 MiB). Trades ~30% wall-time for ~40% activation
+    # memory savings. CAEM's SIL has this enabled by default; B6/B7 needed it
+    # too. Setting use_cache=False is required for gradient checkpointing.
+    if hasattr(model, "gradient_checkpointing_enable"):
+        try:
+            model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
+            model.config.use_cache = False
+            logger.info("Gradient checkpointing ENABLED (VRAM mitigation).")
+        except Exception as exc:
+            logger.warning("Could not enable gradient checkpointing: %s", exc)
+
     # Pre-cycle MMLU baseline (needed for retention ratio even if guard off,
     # because the RET axis of CES consumes it).
     pristine_mmlu = _mmlu_accuracy(
