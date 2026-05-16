@@ -86,7 +86,8 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument(
         "--baseline",
         required=True,
-        choices=["zero_shot", "cot", "fiveshot_cot", "rag", "cot_rag", "flare"],
+        choices=["zero_shot", "cot", "fiveshot_cot", "rag", "cot_rag", "flare",
+                 "semantic_entropy", "self_rag"],
         help="Which external baseline to run.",
     )
     p.add_argument(
@@ -244,6 +245,7 @@ def _build_baseline(ns: argparse.Namespace):
     from eval.baselines import (
         ZeroShotBaseline, CoTBaseline, FiveShotCoTBaseline,
         RAGBaseline, CoTRAGBaseline, FLAREBaseline,
+        SemanticEntropyBaseline, SelfRAGPromptAdaptedBaseline,
     )
 
     name = ns.baseline
@@ -252,6 +254,10 @@ def _build_baseline(ns: argparse.Namespace):
         return ZeroShotBaseline(model_name=ns.model_name, device=ns.device, dtype=dtype)
     if name == "cot":
         return CoTBaseline(model_name=ns.model_name, device=ns.device, dtype=dtype)
+    if name == "semantic_entropy":
+        return SemanticEntropyBaseline(
+            model_name=ns.model_name, device=ns.device, dtype=dtype,
+        )
     if name == "fiveshot_cot":
         # Demos drawn from the FIRST benchmark's training split (ns.benchmarks[0]).
         # The same 5 demos are reused across all eval benchmarks in this run so the
@@ -300,8 +306,12 @@ def _build_baseline(ns: argparse.Namespace):
             passage_store=passage_store,
             model_name=ns.model_name, device=ns.device, dtype=dtype,
         )
-    # argparse choices=BASELINE_NAMES enforces that name is one of the
-    # five handled cases above, so no terminal branch is needed here.
+    if name == "self_rag":
+        return SelfRAGPromptAdaptedBaseline(
+            passage_store=passage_store,
+            model_name=ns.model_name, device=ns.device, dtype=dtype,
+        )
+    # argparse choices enforces that name is one of the handled cases above
     assert name == "flare", name
     return FLAREBaseline(
         passage_store=passage_store,
