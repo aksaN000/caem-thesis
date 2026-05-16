@@ -112,7 +112,17 @@ OUTPUT_FIELDS = [
 
 
 def _load_id_to_em(json_path: Path) -> Dict[str, float]:
-    """Return ``{sample_id: em}`` from a harness-format cycle JSON."""
+    """Return ``{sample_id: em}`` from a harness-format cycle JSON.
+
+    For TruthfulQA samples, prefer ``em_llm_judged`` over the legacy
+    ``em`` field when populated. The legacy ``em`` for TQA is
+    rouge_l > 0.15 (eval/harness.py:571-575) which inflates long-prose
+    answers — B1 zero_shot scores 0.803 under legacy vs 0.433 under
+    LLM judge. Without this preference the McNemar paired test sees
+    the wrong TQA values for every system and the bootstrap-BCa CIs
+    on the TQA contrast become methodologically unsound.
+    """
+    is_tqa = "truthfulqa" in json_path.name.lower()
     with json_path.open("r", encoding="utf-8") as f:
         blob = json.load(f)
     out: Dict[str, float] = {}
@@ -120,7 +130,10 @@ def _load_id_to_em(json_path: Path) -> Dict[str, float]:
         sid = s.get("id")
         if sid is None or sid == "":
             continue
-        out[str(sid)] = float(s.get("em", 0.0))
+        if is_tqa and s.get("em_llm_judged") is not None:
+            out[str(sid)] = float(s["em_llm_judged"])
+        else:
+            out[str(sid)] = float(s.get("em", 0.0))
     return out
 
 
