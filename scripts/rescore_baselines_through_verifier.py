@@ -109,6 +109,8 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
+import numpy as np
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -211,7 +213,21 @@ def _build_verifier(
     passage_store = PassageStore.load(str(passage_index))
 
     def _retrieve(q: str, k: int) -> List[str]:
-        return passage_store.search(q, k)
+        # 2026-05-16 fix: the passage store's search() expects an L2-normalised
+        # numpy embedding vector, NOT a raw query string. The trajectory's
+        # internal retriever (caem/pipeline.py:_verifier_passage_retriever)
+        # encodes + normalises before calling search; this rescore retriever
+        # was passing the raw string and tripping 'str object has no attribute
+        # astype' on every query → all retrieval-dependent signals (p_entail,
+        # p_ground_max/mean/atomic) silently fell back to defaults. Mirror
+        # the trajectory's closure exactly so the matched-protocol comparison
+        # uses identical retrieval mechanics across CAEM and baselines.
+        emb = encoder.encode(q).astype(np.float32)
+        norm = np.linalg.norm(emb)
+        if norm > 0:
+            emb = emb / norm
+        results = passage_store.search(emb, k=k)
+        return [p for p, _ in results]
 
     verifier = UnifiedVerifier(
         model=gen_model,
