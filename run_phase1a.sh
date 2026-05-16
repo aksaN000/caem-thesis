@@ -787,13 +787,47 @@ for p in glob.glob('outputs/baselines/*/fever_cycle0.json'):
 # All three write CSV + LaTeX outputs to outputs/ and
 # thesis_report/figures/auto/.
 step_15_6_decomposition_tables() {
-    band "Step 15.6 — Three-headline + per-tier EM + CES per system tables"
+    band "Step 15.6 — Three-headline + per-tier EM + CES + memory-trajectory + survival + decision-diagnostics"
     python -m scripts.aggregate_three_headline_decomposition \
         2>&1 | tee -a "$RUNNER_LOG" || log "  three-headline aggregator returned non-zero"
     python -m scripts.aggregate_per_tier_em \
         2>&1 | tee -a "$RUNNER_LOG" || log "  per-tier-em aggregator returned non-zero"
     python -m scripts.aggregate_ces_per_system \
         2>&1 | tee -a "$RUNNER_LOG" || log "  ces-per-system aggregator returned non-zero"
+    python -m scripts.aggregate_memory_store_trajectory \
+        2>&1 | tee -a "$RUNNER_LOG" || log "  memory-store trajectory returned non-zero"
+    python -m scripts.aggregate_survival_distribution \
+        2>&1 | tee -a "$RUNNER_LOG" || log "  survival distribution returned non-zero"
+    python -m scripts.aggregate_decision_diagnostics \
+        2>&1 | tee -a "$RUNNER_LOG" || log "  decision diagnostics returned non-zero"
+}
+
+# ============================================================================
+# Step 15.7 — Tier-1 recall diagnostic (Task #154)
+# ============================================================================
+# Builds 100-query custom eval set (50 paraphrases + 30 in-distribution +
+# 20 OOD) and runs serial Pipeline at bs=1 on the cycle-N final state.
+# Produces empirical receipts for H3, cor:tier1-floor, and per-tier
+# intrinsic latency (resolves the batch-amortisation artefact).
+# Requires ANTHROPIC_API_KEY + GPU. Cycle defaults to 5 (current C5-stop).
+step_15_7_tier1_recall_diagnostic() {
+    local marker="outputs/tier1_recall/summary_cycle5.json"
+    if [[ -f "$marker" ]]; then
+        log "Step 15.7: T1-recall diagnostic already done — skipping"
+        return 0
+    fi
+    if [[ -z "${ANTHROPIC_API_KEY:-}" ]]; then
+        log "Step 15.7: ANTHROPIC_API_KEY not set — skipping T1-recall diagnostic"
+        log "          (provides empirical receipts for H3 + cor:tier1-floor)"
+        return 0
+    fi
+    band "Step 15.7 — Tier-1 recall diagnostic (100-query custom eval, serial bs=1)"
+    python -m scripts.run_tier1_recall_diagnostic \
+        --cycle 5 \
+        --output_dir outputs/tier1_recall \
+        2>&1 | tee -a "$RUNNER_LOG" || {
+        log "T1-recall diagnostic returned non-zero; continuing"
+    }
 }
 
 # ============================================================================
@@ -1146,7 +1180,8 @@ main() {
     step_rescore_baselines_through_verifier   # gives CHM/CES for baselines (~7 GPU-h)
     step_gdrive_sync_post_trajectory       # sync trajectory + baselines (idempotent)
     step_15_5_sig                          # McNemar + bootstrap BCa + Holm
-    step_15_6_decomposition_tables         # three-headline + per-tier EM + CES
+    step_15_6_decomposition_tables         # 6 new aggregators (incl. memory + survival + decision)
+    step_15_7_tier1_recall_diagnostic      # T1-recall + per-tier latency (Task #154)
 
     # --- Diagnostics ---
     step_19_purity
