@@ -48,6 +48,22 @@ if [[ -f /venv/main/bin/activate ]]; then
     source /venv/main/bin/activate
 fi
 
+# CUDA env hardening (2026-05-16 added after B1 OOM caused by stale context
+# from prior killed CAEM trajectory runner).
+#
+# CAEM_FORCE_GPU_CLEANUP=1: caem.model_loader reaps stale CUDA processes
+# before each baseline's pipeline loads, preventing stale-context leaks
+# from contaminating new VRAM allocation. Critical when baselines launch
+# immediately after a killed trajectory runner.
+#
+# PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True: lets the allocator
+# recycle reserved-but-unallocated blocks across compiled-backward and
+# anchor allocations. Without this, the 32 GiB envelope fragments under
+# torch.compile and small allocations can OOM with ~600 MiB reserved-but-
+# unused (matches the C4 abort window OOM pattern from run_phase1a.sh).
+export CAEM_FORCE_GPU_CLEANUP="${CAEM_FORCE_GPU_CLEANUP:-1}"
+export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"
+
 OUTPUT_DIR="outputs/baselines"
 COMPOSITE_PIN="outputs/full_run/cycle_3/composite_calibration.json"
 PASSAGE_INDEX="data/passage_index"
