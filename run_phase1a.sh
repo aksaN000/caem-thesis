@@ -810,7 +810,8 @@ for p in glob.glob('outputs/baselines/*/fever_cycle0.json'):
 # All three write CSV + LaTeX outputs to outputs/ and
 # thesis_report/figures/auto/.
 step_15_6_decomposition_tables() {
-    band "Step 15.6 — Three-headline + per-tier EM + CES + memory-trajectory + survival + decision-diagnostics"
+    band "Step 15.6 — 9 post-trajectory aggregators (decomposition + theorem receipts)"
+    # Cross-system comparison aggregators (B6 + baselines + CAEM cycles)
     python -m scripts.aggregate_three_headline_decomposition \
         2>&1 | tee -a "$RUNNER_LOG" || log "  three-headline aggregator returned non-zero"
     python -m scripts.aggregate_per_tier_em \
@@ -823,6 +824,15 @@ step_15_6_decomposition_tables() {
         2>&1 | tee -a "$RUNNER_LOG" || log "  survival distribution returned non-zero"
     python -m scripts.aggregate_decision_diagnostics \
         2>&1 | tee -a "$RUNNER_LOG" || log "  decision diagnostics returned non-zero"
+    # Theorem-receipt aggregators (NEW 2026-05-15, added to chain 2026-05-16)
+    # Plan listing: Phase 1.6 Step P-4 calls for these explicitly. Each writes
+    # one CSV + one tab_*.tex to thesis_report/figures/auto/.
+    python -m scripts.aggregate_pi_store_trajectory --max_cycle 5 \
+        2>&1 | tee -a "$RUNNER_LOG" || log "  pi_store trajectory returned non-zero"
+    python -m scripts.aggregate_tier_chm --max_cycle 5 \
+        2>&1 | tee -a "$RUNNER_LOG" || log "  per-tier CHM trajectory returned non-zero"
+    python -m scripts.aggregate_stochastic_equilibrium \
+        2>&1 | tee -a "$RUNNER_LOG" || log "  stochastic equilibrium returned non-zero"
 }
 
 # ============================================================================
@@ -1088,12 +1098,16 @@ step_23_calib_traj() {
         return 0
     fi
     band "Step 23 — aggregate per-cycle calibration trajectory (τ, T, store-rate, memory size)"
+    # 2026-05-16 fix: tex_out + fig_out were the legacy "pre thesis 1 report/"
+    # path; the active thesis build reads from thesis_report/figures/auto/ so
+    # outputs would have been invisible to the compile. Re-pointed to the
+    # auto/ dir matching the rest of the figure pipeline.
     python scripts/aggregate_calibration_trajectory.py \
         --run_dir outputs/full_run \
         --cycle_0_dir outputs/cycle_0 \
         --csv_out "$csv_out" \
-        --tex_out "pre thesis 1 report/tables/tab_calibration_trajectory.tex" \
-        --fig_out "pre thesis 1 report/figures/fig_tau_trajectory.pdf" \
+        --tex_out "thesis_report/figures/auto/tab_calibration_trajectory.tex" \
+        --fig_out "thesis_report/figures/auto/fig_tau_trajectory.pdf" \
         2>&1 | tee -a "$RUNNER_LOG" || {
             log "Step 23: aggregator returned non-zero; some per-cycle data may be absent."
         }
@@ -1107,13 +1121,18 @@ step_23_calib_traj() {
 # fig_alpha_trajectory all read from outputs/full_run + outputs/cycle_0 +
 # outputs/purity_validation. Feeds Ch5 §5.X audit discussion + Ch6.
 step_24_session5_artifacts() {
-    local out="pre thesis 1 report/tables/tab_audit_summary.tex"
+    # 2026-05-16 fix: skip-marker path + script's --out_tables/--out_figures
+    # defaults all pointed at the legacy "pre thesis 1 report/" tree; re-pointed
+    # to thesis_report/figures/auto/ to match the active build.
+    local out="thesis_report/figures/auto/tab_audit_summary.tex"
     if [[ -f "$out" ]]; then
         log "Step 24: Session 5 artifacts already emitted — skipping"
         return 0
     fi
     band "Step 24 — generate Session 5 audit artifacts (2 tables + 4 figures)"
     python scripts/generate_session5_artifacts.py \
+        --out_tables thesis_report/figures/auto \
+        --out_figures thesis_report/figures/auto \
         2>&1 | tee -a "$RUNNER_LOG" || {
             log "Step 24: artifact generator returned non-zero; review stdout for missing inputs."
         }
