@@ -751,7 +751,14 @@ step_rescore_truthfulqa() {
         return 0
     fi
     band "Step 15.2 — LLM-judge rescore of TruthfulQA (Claude Haiku 4.5, idempotent)"
-    python -m scripts.rescore_truthfulqa 2>&1 | tee -a "$RUNNER_LOG" || {
+    # 2026-05-16: force max_concurrent=1 so the 1.35s per-call throttle
+    # in scripts/rescore_truthfulqa.py:judge_one actually paces us under
+    # the 50 req/min rate-limit tier. With the default max_concurrent=10
+    # the 10 worker threads raced past the throttle simultaneously and
+    # produced ~600 calls/min effective, hitting 347 rate-limit retries
+    # across 5 minutes of wall-clock with negligible throughput.
+    python -m scripts.rescore_truthfulqa --max_concurrent 1 \
+        2>&1 | tee -a "$RUNNER_LOG" || {
         log "TruthfulQA rescore returned non-zero; continuing"
     }
 }
