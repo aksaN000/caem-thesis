@@ -157,26 +157,41 @@ def _build_verifier(
     )
     logger.info("Base generator loaded in %.1fs", time.perf_counter() - t0)
 
-    if checkpoint is not None:
+    # 2026-05-16: support both legacy full-state-dict checkpoints AND v2.1
+    # LoRA adapter directories. CAEM v2.1 stores per-cycle weights as PEFT
+    # LoRA adapters under outputs/full_run/cycle_<N>/adapter/ rather than
+    # the v1 "production/cycle_0/model.pt" single-file checkpoint.
+    if checkpoint is not None and str(checkpoint) not in {"", "none", "None"}:
         ckpt_path = Path(checkpoint)
         if not ckpt_path.exists():
             raise FileNotFoundError(
-                f"--checkpoint {ckpt_path} does not exist. Without the SIL "
-                f"checkpoint the verifier runs base Qwen weights, which does "
-                f"NOT match the locked cycle-10 verifier."
+                f"--checkpoint {ckpt_path} does not exist. Pass an empty "
+                f"--checkpoint '' to use base Qwen weights (with the matched-"
+                f"protocol warning), or point at a real adapter directory / "
+                f"state-dict checkpoint."
             )
         t1 = time.perf_counter()
-        state = torch.load(str(ckpt_path), map_location=device, weights_only=False)
-        if isinstance(state, dict) and "model" in state and isinstance(state["model"], dict):
-            state = state["model"]
-        gen_model.load_state_dict(state)
-        logger.info("Loaded SIL checkpoint %s in %.1fs",
-                    ckpt_path, time.perf_counter() - t1)
+        if ckpt_path.is_dir() and (ckpt_path / "adapter_config.json").is_file():
+            # PEFT LoRA adapter directory — load via peft.PeftModel
+            from peft import PeftModel
+            gen_model = PeftModel.from_pretrained(gen_model, str(ckpt_path))
+            logger.info("Loaded LoRA adapter from %s in %.1fs",
+                        ckpt_path, time.perf_counter() - t1)
+        else:
+            # Legacy full-state-dict checkpoint (.pt file)
+            state = torch.load(str(ckpt_path), map_location=device, weights_only=False)
+            if isinstance(state, dict) and "model" in state and isinstance(state["model"], dict):
+                state = state["model"]
+            gen_model.load_state_dict(state)
+            logger.info("Loaded SIL checkpoint %s in %.1fs",
+                        ckpt_path, time.perf_counter() - t1)
     else:
         logger.warning(
             "No --checkpoint provided. Verifier will use base Qwen weights, "
-            "NOT the cycle-10 SIL-fine-tuned model. This is methodologically "
-            "incorrect for the cross-baseline CHM contrast."
+            "NOT the cycle-N SIL-fine-tuned adapter. Composite signals from "
+            "the locked cycle-3 composite_calibration.json still apply, but "
+            "generator-dependent signals (u_token, u_dropout, u_internal) "
+            "will be computed against base Qwen logits rather than C3."
         )
 
     encoder = QueryEncoder(device=device)
@@ -516,7 +531,7 @@ def _parse_args() -> argparse.Namespace:
                          "is RETIRED — that composite predates the Phase-1d "
                          "patches and would produce comparison artifacts."))
     p.add_argument("--checkpoint", type=Path,
-                   default=Path("outputs/production/cycle_0/model.pt"),
+                   default=Path("outputs/full_run/cycle_3/adapter"),
                    help="SIL fine-tuned model checkpoint (cycle-10 weights "
                         "staged at production-cycle-0 path per Phase B swap).")
     p.add_argument("--passage_index", type=Path,
