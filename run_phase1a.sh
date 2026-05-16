@@ -799,7 +799,7 @@ for p in glob.glob('outputs/baselines/*/fever_cycle0.json'):
         --composite_calibration "$pin" \
         --passage_index data/passage_index \
         --baselines zero_shot cot rag cot_rag fiveshot_cot flare semantic_entropy vanilla_ft \
-        --baseline_dir outputs/baselines \
+        --baselines_dir outputs/baselines \
         --output_dir outputs/baselines \
         2>&1 | tee -a "$RUNNER_LOG" || {
         log "Verifier rescore returned non-zero; continuing"
