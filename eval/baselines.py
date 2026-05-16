@@ -444,6 +444,15 @@ class ZeroShotBaseline(BaselineBase):
     system_prompt = SYSTEM_PROMPT
     forced_prefix = FORCED_PREFIX
 
+    def __init__(self, *args, max_new_tokens: int = 512, **kwargs) -> None:
+        # Matched-protocol bump (2026-05-16): CAEM's SYSTEM_PROMPT mandates a
+        # "Reasoning:" line before the "Answer:" line, so B1 — even with no
+        # explicit CoT trigger — generates 3-4 sentences of reasoning. The
+        # previous default of 256 truncated the answer mid-text on TriviaQA
+        # ("Answer: \"If I R..." cut off). 512 matches CAEM's
+        # cot_max_new_tokens.
+        super().__init__(*args, max_new_tokens=max_new_tokens, **kwargs)
+
 
 # =============================================================================
 # B2 -- Chain-of-Thought
