@@ -73,12 +73,25 @@ def load(path: Path) -> List[dict]:
 
 # --- 1. Decision matrix ---------------------------------------------------- #
 
+def _sample_em(s: dict) -> float:
+    """Return the appropriate EM value for a sample.
+
+    For TruthfulQA samples, prefer ``em_llm_judged`` when populated
+    (the legacy ``em`` is rouge_l > 0.15, which inflates long-prose
+    answers — see Lin et al. ACL 2022 §3.2 methodology). All other
+    benches keep the strict-EM path.
+    """
+    if s.get("benchmark") == "truthfulqa" and s.get("em_llm_judged") is not None:
+        return float(s["em_llm_judged"])
+    return float(s.get("em", 0) or 0)
+
+
 def decision_matrix(samples: List[dict]) -> Dict[str, Dict[str, int]]:
     """Returns {decision: {correct: N, wrong: N}}."""
     grid: Dict[str, Dict[str, int]] = defaultdict(lambda: {"correct": 0, "wrong": 0})
     for s in samples:
         dec = s.get("decision") or ("ABSTAIN" if s.get("abstained") else "UNKNOWN")
-        em = s.get("em", 0) or 0
+        em = _sample_em(s)
         key = "correct" if em > 0 else "wrong"
         grid[dec][key] += 1
     return dict(grid)
@@ -88,7 +101,7 @@ def decision_matrix(samples: List[dict]) -> Dict[str, Dict[str, int]]:
 
 def grounding_distribution(samples: List[dict], thresholds=(0.7, 0.5, 0.3, 0.1)) -> Dict[float, float]:
     """Fraction of EM=1 samples whose p_ground_mean exceeds each threshold."""
-    pos = [s for s in samples if (s.get("em", 0) or 0) > 0
+    pos = [s for s in samples if _sample_em(s) > 0
            and s.get("p_ground_mean") is not None]
     if not pos:
         return {t: 0.0 for t in thresholds}
@@ -107,7 +120,7 @@ SIG_KEYS = ["u_pre", "p_entail", "p_ground_max", "p_ground_mean",
 def signal_fingerprint(samples: List[dict], decision="STORE") -> Dict[str, Optional[float]]:
     """Per-signal median for samples matching `decision` AND em=1."""
     sel = [s for s in samples if s.get("decision") == decision
-           and (s.get("em", 0) or 0) > 0]
+           and _sample_em(s) > 0]
     if not sel:
         return {k: None for k in SIG_KEYS}
     out = {}
@@ -127,7 +140,7 @@ def ustored_calibration(samples: List[dict], edges=(0.6, 0.7, 0.8, 0.9, 1.0)) ->
         sel = [s for s in samples if s.get("u_stored") is not None
                and lo <= s["u_stored"] < hi]
         n = len(sel)
-        em = (sum((s.get("em", 0) or 0) > 0 for s in sel) / n) if n else 0.0
+        em = (sum(_sample_em(s) > 0 for s in sel) / n) if n else 0.0
         rows.append({"bucket": f"[{lo:.2f},{hi:.2f})", "n": n, "em_rate": em})
         lo = hi
     return rows
@@ -139,7 +152,7 @@ def contamination_examples(samples: List[dict], top_n=10) -> List[Dict]:
     """Wrong-stored samples sorted by u_stored descending."""
     wrong_stored = [s for s in samples
                     if s.get("decision") == "STORE"
-                    and (s.get("em", 0) or 0) == 0]
+                    and _sample_em(s) == 0]
     wrong_stored.sort(key=lambda s: -(s.get("u_stored") or 0))
     out = []
     for s in wrong_stored[:top_n]:

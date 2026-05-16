@@ -250,7 +250,13 @@ def annotate_file(path: Path, *, force: bool = False) -> Tuple[int, int, int]:
         if cap is None:
             # Open-ended bench: fall back to strict em so downstream
             # aggregators see a populated field for every sample.
-            cap = float(s.get("em") or 0.0)
+            # 2026-05-16: for TruthfulQA, prefer em_llm_judged when populated
+            # (legacy em on TQA is rouge_l > 0.15, which inflates long-prose
+            # answers — Lin et al. ACL 2022 §3.2 methodology).
+            if "truthfulqa" in bench and s.get("em_llm_judged") is not None:
+                cap = float(s["em_llm_judged"])
+            else:
+                cap = float(s.get("em") or 0.0)
         s["capability_em"] = float(cap)
         n_added += 1
         if cap >= 1.0:
