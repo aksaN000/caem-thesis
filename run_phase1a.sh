@@ -698,6 +698,105 @@ step_baselines_all() {
 }
 
 # ============================================================================
+# Step 15.1 — OOM recovery for any baselines that hit CUDA-OOM on big batches
+# ============================================================================
+# Scans outputs/baselines/*/*_cycle0.json for OOM signatures (empty pred OR
+# forced-prefix-only stub). Re-runs damaged (baseline, bench) pairs at
+# --eval_batch_size 8 to fit the VRAM envelope. Idempotent: if no damage,
+# this step is a no-op.
+step_recover_oom_baselines() {
+    band "Step 15.1 — OOM recovery scan + re-run (if any)"
+    bash scripts/recover_oom_baselines.sh 2>&1 | tee -a "$RUNNER_LOG" || {
+        log "OOM recovery returned non-zero; continuing (some baseline files may still be incomplete)"
+    }
+}
+
+# ============================================================================
+# Step 15.2 — LLM-judge rescore of TruthfulQA across all baselines + CAEM cycles
+# ============================================================================
+# Legacy eval/harness.py:571-575 scores TruthfulQA as rouge_l > 0.15, which
+# inflates long-prose answers (B1 zero_shot hits "EM" 0.80 even on wrong
+# answers). This step calls scripts.rescore_truthfulqa to add em_llm_judged
+# fields per sample using Claude Haiku 4.5 as a judge. Idempotent: samples
+# with em_llm_judged already populated are skipped on re-run.
+#
+# Requires ANTHROPIC_API_KEY exported in env. If missing, skips with a warning.
+step_rescore_truthfulqa() {
+    if [[ -z "${ANTHROPIC_API_KEY:-}" ]]; then
+        log "Step 15.2: ANTHROPIC_API_KEY not set — skipping LLM-judge TruthfulQA rescore"
+        log "          (legacy rouge>0.15 em values still in place; em_llm_judged will be None)"
+        return 0
+    fi
+    band "Step 15.2 — LLM-judge rescore of TruthfulQA (Claude Haiku 4.5, idempotent)"
+    python -m scripts.rescore_truthfulqa 2>&1 | tee -a "$RUNNER_LOG" || {
+        log "TruthfulQA rescore returned non-zero; continuing"
+    }
+}
+
+# ============================================================================
+# Step 15.3 — Verifier rescore of baseline predictions
+# ============================================================================
+# Passes every baseline prediction through CAEM's 9-signal verifier
+# composite with the cycle-3 calibration pin. Adds per-sample u_pre,
+# p_entail, p_ground_*, p_contra, q_a_relevance, alias_overlap, etc. so
+# CHM / CES are computable for baselines. ~7 GPU-h.
+#
+# Without this step, CHM cannot be compared apples-to-apples between
+# baselines and CAEM (baseline samples have all verifier signals = None,
+# leading to phantom CHM = 0).
+step_rescore_baselines_through_verifier() {
+    local pin="outputs/full_run/cycle_3/composite_calibration.json"
+    if [[ ! -f "$pin" ]]; then
+        log "Step 15.3: composite pin $pin missing — skipping verifier rescore"
+        return 0
+    fi
+    # Check if at least one baseline already has verifier signals
+    local marker
+    marker=$(python3 -c "
+import json, glob
+for p in glob.glob('outputs/baselines/*/fever_cycle0.json'):
+    samples = json.load(open(p)).get('samples', [])
+    if samples and samples[0].get('u_pre') is not None:
+        print('done')
+        break
+" 2>/dev/null)
+    if [[ "$marker" == "done" ]]; then
+        log "Step 15.3: verifier signals already populated on at least one baseline — skipping"
+        return 0
+    fi
+    band "Step 15.3 — Verifier rescore of all baseline predictions (~7 GPU-h)"
+    python -m scripts.rescore_baselines_through_verifier \
+        --composite_calibration "$pin" \
+        --passage_index data/passage_index \
+        --baselines zero_shot cot rag cot_rag fiveshot_cot flare semantic_entropy vanilla_ft ewc_only_ft \
+        --baseline_dir outputs/baselines \
+        --output_dir outputs/baselines \
+        2>&1 | tee -a "$RUNNER_LOG" || {
+        log "Verifier rescore returned non-zero; continuing"
+    }
+}
+
+# ============================================================================
+# Step 15.6 — Decomposition + per-tier + CES tables (Ch5 §5.3 deep dives)
+# ============================================================================
+# Runs the three new post-baseline aggregators added 2026-05-16:
+#   1. three-headline decomposition (B1→C3, B1→C0, C0→C3)
+#   2. per-tier EM breakdown (the CSQA selection-effect headline)
+#   3. CES per system (5-axis composite, requires verifier rescore for full picture)
+#
+# All three write CSV + LaTeX outputs to outputs/ and
+# thesis_report/figures/auto/.
+step_15_6_decomposition_tables() {
+    band "Step 15.6 — Three-headline + per-tier EM + CES per system tables"
+    python -m scripts.aggregate_three_headline_decomposition \
+        2>&1 | tee -a "$RUNNER_LOG" || log "  three-headline aggregator returned non-zero"
+    python -m scripts.aggregate_per_tier_em \
+        2>&1 | tee -a "$RUNNER_LOG" || log "  per-tier-em aggregator returned non-zero"
+    python -m scripts.aggregate_ces_per_system \
+        2>&1 | tee -a "$RUNNER_LOG" || log "  ces-per-system aggregator returned non-zero"
+}
+
+# ============================================================================
 # Gdrive auto-sync — outputs/full_run + outputs/baselines to remote (2026-05-16)
 # ============================================================================
 # Mirrors the local artefact tree to gdrive so future re-runs (e.g. Qwen-7B)
@@ -1042,8 +1141,12 @@ main() {
     # see comment above step_baselines_all for the 2026-05-16 retirement
     # of the in-runner baseline steps.
     step_baselines_all
-    step_gdrive_sync_post_trajectory   # sync trajectory + baselines (idempotent)
-    step_15_5_sig
+    step_recover_oom_baselines             # auto-discover + fix any CUDA-OOM damage
+    step_rescore_truthfulqa                # LLM-judge TruthfulQA (needs ANTHROPIC_API_KEY)
+    step_rescore_baselines_through_verifier   # gives CHM/CES for baselines (~7 GPU-h)
+    step_gdrive_sync_post_trajectory       # sync trajectory + baselines (idempotent)
+    step_15_5_sig                          # McNemar + bootstrap BCa + Holm
+    step_15_6_decomposition_tables         # three-headline + per-tier EM + CES
 
     # --- Diagnostics ---
     step_19_purity
