@@ -73,6 +73,28 @@ BENCH_DISPLAY = {
 }
 TRAIN_BENCHES = set(_CFG_TRAINING_BENCHMARKS)
 TRANSFER_BENCHES = set(_CFG_TRANSFER_BENCHMARKS)
+
+
+def _sample_em(s: Dict[str, Any], bench: Optional[str] = None) -> float:
+    """Return appropriate EM for a sample.
+
+    For TruthfulQA: prefer em_llm_judged (Lin et al. ACL 2022 §3.2
+    methodology). The legacy em on TQA is rouge_l > 0.15 (eval/harness.py
+    :571-575) which inflates long-prose answers. All other benches keep
+    the strict-EM path. ``bench`` argument is optional — falls back to
+    the sample's own ``benchmark`` field for per-sample dispatch when
+    samples from multiple benches are pooled together.
+    """
+    is_tqa = (bench == "truthfulqa") if bench is not None \
+             else (s.get("benchmark") == "truthfulqa")
+    if is_tqa and s.get("em_llm_judged") is not None:
+        return float(s["em_llm_judged"])
+    raw = s.get("em")
+    if raw in (1, 1.0):
+        return 1.0
+    if raw in (0, 0.0):
+        return 0.0
+    return float(raw or 0.0)
 SIGNAL_DISPLAY = [
     ("u_stored",        r"$u_{\text{stored}}$"),
     ("p_ground_mean",   r"$p^{\text{mean}}_{\text{ground}}$"),
@@ -163,8 +185,8 @@ def emit_cohen_d_table() -> Tuple[Path, bool]:
         if samples is None:
             continue
         n_present += 1
-        pos = [s for s in samples if s.get("em") in (1, 1.0)]
-        neg = [s for s in samples if s.get("em") in (0, 0.0)]
+        pos = [s for s in samples if _sample_em(s, bench=b) == 1.0]
+        neg = [s for s in samples if _sample_em(s, bench=b) == 0.0]
         rows[b] = {}
         for sig, _ in SIGNAL_DISPLAY:
             p_vals = [s[sig] for s in pos if isinstance(s.get(sig), (int, float))]
@@ -192,11 +214,11 @@ def emit_cohen_d_table() -> Tuple[Path, bool]:
             target_neg = id_neg if b in TRAIN_BENCHES else tr_neg
             for s in samples:
                 v = s.get(sig)
-                em = s.get("em")
+                em = _sample_em(s, bench=b)
                 if isinstance(v, (int, float)):
-                    if em in (1, 1.0):
+                    if em == 1.0:
                         target_pos.append(float(v))
-                    elif em in (0, 0.0):
+                    elif em == 0.0:
                         target_neg.append(float(v))
         id_pooled[sig] = cohen_d(id_pos, id_neg)
         tr_pooled[sig] = cohen_d(tr_pos, tr_neg)
@@ -344,7 +366,7 @@ def emit_precision_cliff() -> Tuple[List[Path], bool]:
         if not samples:
             return [], [], 0
         pairs = sorted(
-            [(float(s.get("u_stored", 0.0)), int(s.get("em", 0))) for s in samples],
+            [(float(s.get("u_stored", 0.0)), int(_sample_em(s))) for s in samples],
             key=lambda p: -p[0],
         )
         precs, recalls = [], []
@@ -375,9 +397,9 @@ def emit_precision_cliff() -> Tuple[List[Path], bool]:
     ]
     for tgt in [0.95, 0.90, 0.85, 0.80, 0.75, 0.70]:
         f_id = precision_cliff([float(s.get("u_stored", 0.0)) for s in id_samples],
-                                 [int(s.get("em", 0)) for s in id_samples], tgt)
+                                 [int(_sample_em(s)) for s in id_samples], tgt)
         f_tr = precision_cliff([float(s.get("u_stored", 0.0)) for s in transfer_samples],
-                                 [int(s.get("em", 0)) for s in transfer_samples], tgt)
+                                 [int(_sample_em(s)) for s in transfer_samples], tgt)
         cell_id = f"{f_id[0] / max(1, id_n):.1%}" if f_id and id_n else "unreach"
         cell_tr = f"{f_tr[0] / max(1, tr_n):.1%}" if f_tr and tr_n else "unreach"
         lines_tex.append(f"$\\geq {int(tgt * 100)}\\%$ & {cell_id} & {cell_tr} \\\\")
