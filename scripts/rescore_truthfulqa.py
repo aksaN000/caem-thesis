@@ -87,6 +87,12 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_GLOBS = [
     "outputs/baselines/*/truthfulqa_cycle*.json",
+    # Training baselines (B6 vanilla_ft, B7 ewc_only_ft) write per-cycle
+    # predictions under <baseline>/eval/ rather than the inference layout
+    # used by B1-B5/B8/B9 above. The TQA LLM judge must cover both layouts;
+    # without this glob B6's TruthfulQA outputs are invisible to the
+    # rescore step and the matched-protocol axis breaks (added 2026-05-16).
+    "outputs/baselines/*/eval/truthfulqa_cycle*.json",
     "outputs/full_run/eval/truthfulqa_cycle*.json",
 ]
 
