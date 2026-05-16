@@ -217,7 +217,7 @@ def main() -> int:
                    default=[0, 3, 5])
     p.add_argument("--baseline_names", nargs="+",
                    default=["zero_shot", "cot", "fiveshot_cot", "rag", "cot_rag",
-                            "flare", "vanilla_ft", "semantic_entropy", "ewc_only_ft"])
+                            "flare", "vanilla_ft", "semantic_entropy"])
     p.add_argument("--log_level", default="INFO")
     ns = p.parse_args()
 

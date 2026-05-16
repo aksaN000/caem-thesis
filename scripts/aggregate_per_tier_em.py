@@ -54,8 +54,17 @@ def load_samples(path: Path) -> List[dict]:
         return []
 
 
-def per_tier_em(samples: List[dict]) -> Dict[int, Dict[str, Optional[float]]]:
-    """Return {tier: {em, n, share}} keyed by tier."""
+def per_tier_em(
+    samples: List[dict],
+    *,
+    field: str = "em",
+) -> Dict[int, Dict[str, Optional[float]]]:
+    """Return {tier: {em, n, share}} keyed by tier.
+
+    ``field`` picks the scoring column: ``"em"`` (strict, default) or
+    ``"capability_em"`` (lenient diagnostic populated by
+    scripts/add_capability_em.py).
+    """
     if not samples:
         return {t: {"em": None, "n": 0, "share": 0.0} for t in TIERS}
     total = len(samples)
@@ -65,35 +74,40 @@ def per_tier_em(samples: List[dict]) -> Dict[int, Dict[str, Optional[float]]]:
         if not sub:
             out[t] = {"em": None, "n": 0, "share": 0.0}
             continue
-        # For TruthfulQA prefer em_llm_judged
+        # For TruthfulQA prefer em_llm_judged regardless of field choice
         if samples[0].get("benchmark") == "truthfulqa":
             judged = [s.get("em_llm_judged") for s in sub
                       if s.get("em_llm_judged") is not None]
             if judged:
                 em = sum(judged) / len(judged)
             else:
-                em = sum(s.get("em", 0.0) for s in sub) / len(sub)
+                em = sum(s.get(field, s.get("em", 0.0)) for s in sub) / len(sub)
         else:
-            em = sum(s.get("em", 0.0) for s in sub) / len(sub)
+            em = sum(s.get(field, s.get("em", 0.0)) for s in sub) / len(sub)
         out[t] = {"em": em, "n": len(sub), "share": len(sub) / total}
     return out
 
 
-def collect_cycle(eval_dir: Path, cycle: int) -> Dict[str, Dict]:
+def collect_cycle(
+    eval_dir: Path,
+    cycle: int,
+    *,
+    field: str = "em",
+) -> Dict[str, Dict]:
     """Return {bench: {tier_breakdown, pooled_em, total_n}} for one cycle."""
     out = {}
     for bench in BENCHES:
         path = eval_dir / f"{bench}_cycle{cycle}.json"
         samples = load_samples(path)
-        per_tier = per_tier_em(samples)
+        per_tier = per_tier_em(samples, field=field)
         if samples:
             if bench == "truthfulqa":
                 judged = [s.get("em_llm_judged") for s in samples
                           if s.get("em_llm_judged") is not None]
                 pooled = sum(judged) / len(judged) if judged else \
-                         sum(s.get("em", 0) for s in samples) / len(samples)
+                         sum(s.get(field, s.get("em", 0)) for s in samples) / len(samples)
             else:
-                pooled = sum(s.get("em", 0) for s in samples) / len(samples)
+                pooled = sum(s.get(field, s.get("em", 0)) for s in samples) / len(samples)
         else:
             pooled = None
         out[bench] = {
@@ -205,46 +219,57 @@ def main() -> int:
 
     logging.basicConfig(level=ns.log_level, format="%(asctime)s %(levelname)s %(message)s")
 
-    cycles = {c: collect_cycle(ns.eval_dir, c) for c in ns.cycles}
+    # Two passes: strict ``em`` (headline) and ``capability_em`` (lenient
+    # diagnostic). Each writes its own CSV + LaTeX with a "_capability"
+    # suffix; the capability pass is silently skipped if the field isn't
+    # populated yet (i.e., scripts.add_capability_em not yet run).
+    for field in ("em", "capability_em"):
+        cycles = {c: collect_cycle(ns.eval_dir, c, field=field) for c in ns.cycles}
 
-    # Console summary across cycles for CSQA (the headline)
-    print()
-    print("=" * 90)
-    print("CSQA per-tier EM trajectory (the selection-effect headline)")
-    print("=" * 90)
-    print(f"{'Cycle':<6} | {'T2 EM':>7} | {'T2 n':>5} | {'T3 EM':>7} | {'T3 n':>5} | "
-          f"{'Pooled':>7} | T2-share")
-    print("-" * 90)
-    for c in ns.cycles:
-        d = cycles[c].get("commonsense_qa", {})
-        if not d or d.get("total_n", 0) == 0:
-            continue
-        pt = d["per_tier"]
-        t2_em = _fmt(pt[2]["em"])
-        t3_em = _fmt(pt[3]["em"])
-        pooled = _fmt(d["pooled_em"])
-        t2_share = _fmt(pt[2]["share"], "share").replace("\\%", "%")
-        print(f"C{c:<5} | {t2_em:>7} | {pt[2]['n']:>5} | "
-              f"{t3_em:>7} | {pt[3]['n']:>5} | "
-              f"{pooled:>7} | {t2_share}")
+        # Console summary across cycles for CSQA (the headline)
+        print()
+        print("=" * 90)
+        if field == "em":
+            print("CSQA per-tier — STRICT EM (deployment-grade headline)")
+        else:
+            print("CSQA per-tier — CAPABILITY EM (knowledge-vs-format diagnostic)")
+        print("=" * 90)
+        print(f"{'Cycle':<6} | {'T2 EM':>7} | {'T2 n':>5} | {'T3 EM':>7} | {'T3 n':>5} | "
+              f"{'Pooled':>7} | T2-share")
+        print("-" * 90)
+        for c in ns.cycles:
+            d = cycles[c].get("commonsense_qa", {})
+            if not d or d.get("total_n", 0) == 0:
+                continue
+            pt = d["per_tier"]
+            t2_em = _fmt(pt[2]["em"])
+            t3_em = _fmt(pt[3]["em"])
+            pooled = _fmt(d["pooled_em"])
+            t2_share = _fmt(pt[2]["share"], "share").replace("\\%", "%")
+            print(f"C{c:<5} | {t2_em:>7} | {pt[2]['n']:>5} | "
+                  f"{t3_em:>7} | {pt[3]['n']:>5} | "
+                  f"{pooled:>7} | {t2_share}")
 
-    print()
-    print(f"=== Full per-tier table for cycle {ns.focus_cycle} ===")
-    by_bench = cycles[ns.focus_cycle]
-    print(f"{'Bench':<18} | {'T1 EM (n)':>14} | {'T2 EM (n)':>14} | {'T3 EM (n)':>14} | {'pooled':>6}")
-    print("-" * 90)
-    for bench in BENCHES:
-        d = by_bench[bench]
-        pt = d["per_tier"]
-        def cell(t):
-            if pt[t]["n"] == 0:
-                return "--"
-            return f"{_fmt(pt[t]['em'])} ({pt[t]['n']})"
-        print(f"{bench:<18} | {cell(1):>14} | {cell(2):>14} | {cell(3):>14} | "
-              f"{_fmt(d['pooled_em']):>6}")
+        print()
+        print(f"=== Full per-tier table for cycle {ns.focus_cycle} ({field}) ===")
+        by_bench = cycles[ns.focus_cycle]
+        print(f"{'Bench':<18} | {'T1 EM (n)':>14} | {'T2 EM (n)':>14} | {'T3 EM (n)':>14} | {'pooled':>6}")
+        print("-" * 90)
+        for bench in BENCHES:
+            d = by_bench[bench]
+            pt = d["per_tier"]
+            def cell(t):
+                if pt[t]["n"] == 0:
+                    return "--"
+                return f"{_fmt(pt[t]['em'])} ({pt[t]['n']})"
+            print(f"{bench:<18} | {cell(1):>14} | {cell(2):>14} | {cell(3):>14} | "
+                  f"{_fmt(d['pooled_em']):>6}")
 
-    write_csv(cycles, ns.out_csv)
-    write_latex(cycles, ns.focus_cycle, ns.out_tex)
+        suffix = "" if field == "em" else "_capability"
+        out_csv = ns.out_csv.with_name(ns.out_csv.stem + suffix + ns.out_csv.suffix)
+        out_tex = ns.out_tex.with_name(ns.out_tex.stem + suffix + ns.out_tex.suffix)
+        write_csv(cycles, out_csv)
+        write_latex(cycles, ns.focus_cycle, out_tex)
     return 0
 
 

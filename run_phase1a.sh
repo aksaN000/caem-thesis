@@ -712,6 +712,29 @@ step_recover_oom_baselines() {
 }
 
 # ============================================================================
+# Step 15.1.5 — Add capability_em alongside strict em (2026-05-16)
+# ============================================================================
+# B6 vanilla_ft cycle 1 collapsed CSQA prompt-following so badly that strict EM
+# reads 0.000 — the model emits "Reasoning:X" without the "Answer: X" line the
+# scorer expects, even though X is correct. ``capability_em`` is a lenient
+# matched-protocol field that prefers the "Answer:" line if present and falls
+# back to canonical-token extraction otherwise. Applied uniformly to every
+# baseline + every CAEM cycle so the comparison axis stays valid.
+#
+# Strict EM remains the headline deployment-grade number; capability EM is the
+# secondary "knowledge-vs-format" diagnostic for Ch5 §sec:comp-vanilla-ft.
+# Idempotent (skips samples whose capability_em field is already populated).
+step_capability_em() {
+    band "Step 15.1.5 — Annotate capability_em on every eval JSON (idempotent)"
+    /venv/main/bin/python -m scripts.add_capability_em \
+        --baselines_dir outputs/baselines \
+        --caem_dir outputs/full_run/eval \
+        2>&1 | tee -a "$RUNNER_LOG" || {
+        log "capability_em annotation returned non-zero; continuing"
+    }
+}
+
+# ============================================================================
 # Step 15.2 — LLM-judge rescore of TruthfulQA across all baselines + CAEM cycles
 # ============================================================================
 # Legacy eval/harness.py:571-575 scores TruthfulQA as rouge_l > 0.15, which
@@ -768,7 +791,7 @@ for p in glob.glob('outputs/baselines/*/fever_cycle0.json'):
     python -m scripts.rescore_baselines_through_verifier \
         --composite_calibration "$pin" \
         --passage_index data/passage_index \
-        --baselines zero_shot cot rag cot_rag fiveshot_cot flare semantic_entropy vanilla_ft ewc_only_ft \
+        --baselines zero_shot cot rag cot_rag fiveshot_cot flare semantic_entropy vanilla_ft \
         --baseline_dir outputs/baselines \
         --output_dir outputs/baselines \
         2>&1 | tee -a "$RUNNER_LOG" || {
@@ -1176,6 +1199,7 @@ main() {
     # of the in-runner baseline steps.
     step_baselines_all
     step_recover_oom_baselines             # auto-discover + fix any CUDA-OOM damage
+    step_capability_em                     # annotate capability_em (B6 format-collapse diagnostic)
     step_rescore_truthfulqa                # LLM-judge TruthfulQA (needs ANTHROPIC_API_KEY)
     step_rescore_baselines_through_verifier   # gives CHM/CES for baselines (~7 GPU-h)
     step_gdrive_sync_post_trajectory       # sync trajectory + baselines (idempotent)
