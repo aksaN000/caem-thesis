@@ -33,9 +33,13 @@
 #   B4 cot_rag:          ~75 min  (gen) + ~62 min (rescore)
 #   B5 fiveshot_cot:     ~20 min  (gen) + ~62 min (rescore)
 #   B6 vanilla_ft:       ~2 h     (train + per-cycle eval) + ~62 min (rescore)
-#   B7 ewc_only_ft:      ~3 h     (train + per-cycle eval, L2 anchor slower) + ~62 min (rescore)
-#   Total wall-clock:    ~15 h GPU
-#   With overhead + crash recovery margin: ~24 h
+#   B7 ewc_only_ft:      SKIPPED 2026-05-16 (L2 anchor fp32-cast on 3B params is
+#                        intractable on 32 GiB envelope — even after bs=8 +
+#                        8-bit AdamW + grad_ckpt the anchor sum OOMs. Defensible
+#                        as ablation-style baseline; Ch5 §sec:comp-ewc-ft footnote
+#                        registers this scope decision.)
+#   Total wall-clock:    ~12 h GPU (B7 skip frees ~3 h)
+#   With overhead + crash recovery margin: ~20 h
 # ============================================================================
 
 set -euo pipefail
@@ -106,13 +110,16 @@ run_training_baseline() {
     local extra_flags="${2:-}"
     band "B-FT $name — 5 cycles training + per-cycle eval"
     # shellcheck disable=SC2086
-    # 2026-05-16 VRAM fix (3rd iteration — root-cause fix):
-    # The real OOM driver was full 32-bit AdamW on 3B params = 24 GiB
-    # optimizer state alone, before activations. Fixed in run_simple_ft.py
-    # by switching to bitsandbytes.optim.AdamW8bit (~6 GiB state). With
-    # that + gradient_checkpointing, full bs=32 fits on the 32 GiB envelope.
-    # Final config restores bs=32 (matching the original baseline-panel intent):
-    #   - batch_size=32, grad_accum=1 (effective batch 32, single-step training)
+    # 2026-05-16 VRAM fix (4th iteration — final config):
+    # Even with 8-bit AdamW + grad_ckpt, bs=32 OOMs at the logits tensor:
+    # bs × seq × vocab = 32 × 512 × 151936 × 2 bytes = 4.97 GiB for logits
+    # alone, plus shift_logits + loss intermediates push past the 32 GiB
+    # envelope (observed: 26.4 GiB in use when forward asks for +6.11 GiB).
+    # B7 EWC additionally OOMs in the L2 anchor (fp32 cast on 3B params).
+    # Fix: drop physical batch 32→8, raise grad_accum 1→4 (effective batch
+    # 32 preserved). At bs=8 logits is 1.24 GiB and total fits ~22-24 GiB.
+    # Final config:
+    #   - batch_size=8, grad_accum=4 (effective batch 32, identical SGD update)
     #   - 8-bit AdamW (run_simple_ft.py patch)
     #   - gradient_checkpointing (run_simple_ft.py patch)
     #   - eval_batch_size=8 (conservative; reduces eval-side OOM risk)
@@ -124,8 +131,8 @@ run_training_baseline() {
         --num_cycles 5 \
         --n_train_per_bench 700 \
         --n_eval_per_bench 300 \
-        --batch_size 32 \
-        --grad_accum_steps 1 \
+        --batch_size 8 \
+        --grad_accum_steps 4 \
         --eval_batch_size 8 \
         --seed 42 \
         $extra_flags \
@@ -138,7 +145,7 @@ rescore_all() {
     python -m scripts.rescore_baselines_through_verifier \
         --composite_calibration "$COMPOSITE_PIN" \
         --passage_index "$PASSAGE_INDEX" \
-        --baselines zero_shot cot rag cot_rag fiveshot_cot flare semantic_entropy self_rag vanilla_ft ewc_only_ft \
+        --baselines zero_shot cot rag cot_rag fiveshot_cot flare semantic_entropy self_rag vanilla_ft \
         --baseline_dir "$OUTPUT_DIR" \
         --output_dir "$OUTPUT_DIR" \
         2>&1 | tee -a "$OUTPUT_DIR/rescore.log"
@@ -154,12 +161,13 @@ rescore_all() {
 #   4. B3 rag               ~65 min  inference, retrieval + generate
 #   5. B4 cot_rag           ~75 min  inference, retrieval + CoT
 #   6. B9 flare             ~90 min  inference, multi-pass retrieval
-#   7. B6 vanilla_ft        ~2 h    train 5 cycles + eval
+#   7. B6 vanilla_ft        ~1.5 h  train 5 cycles + eval (bs=8 + 8-bit AdamW)
 #   8. B8 semantic_entropy  ~2-3 h  inference, 10× sampling
-#   9. B7 ewc_only_ft       ~3 h    train 5 cycles + L2 anchor + eval
+#   9. B7 ewc_only_ft       SKIPPED 2026-05-16 (L2 anchor OOM, see header)
 #   10. B10 self_rag (FT)   blocked  awaiting synthetic data + FT pipeline
 #
-# Total B1-B9 sequential: ~10 h GPU + ~7 h rescore = ~17 h GPU (~24 h wall-clock).
+# Total B1-B8 sequential: ~7 h GPU + ~7 h rescore = ~14 h GPU (~20 h wall-clock).
+# B7 staged for retry on Qwen-7B QLoRA in Phase 1.7 (memory-friendlier anchor).
 # B10 staged separately; build pipeline ~7-11 engineering days + ~30 GPU-h.
 
 # --- Dispatch ---
@@ -173,17 +181,30 @@ case "$TARGET" in
         run_training_baseline "vanilla_ft"
         ;;
     ewc_only_ft)
+        # 2026-05-16: B7 dropped from the auto-chain because the EWC L2 anchor
+        # sum (p.float() over 3B params) cannot fit alongside the bs=8 forward
+        # state on the 32 GiB envelope. This individual dispatch is retained
+        # for future re-attempt on a memory-friendlier backbone (Qwen-7B QLoRA
+        # in Phase 1.7, or larger-VRAM GPU). It is no longer reached by `all`.
+        log "WARNING: B7 ewc_only_ft is the OOM-prone training baseline."
+        log "  L2 anchor needs ~12 GiB fp32-cast scratch on top of forward state."
+        log "  Iteration history (2026-05-16): bs=16, bs=4 grad_accum=8,"
+        log "  bs=32 + 8-bit AdamW + grad_ckpt all OOMed. If retrying, drop to"
+        log "  bs=4 grad_accum=8 AND wrap the L2 loop to accumulate in fp16,"
+        log "  OR use a 80 GiB GPU."
         run_training_baseline "ewc_only_ft" "--use_l2_anchor --use_mmlu_guard"
         ;;
     rescore)
         rescore_all
         ;;
     b1_to_b9|all)
-        # Run B1-B9 in runtime-sorted order (fastest to slowest).
+        # Run B1-B8 in runtime-sorted order (fastest to slowest).
+        # B7 (ewc_only_ft) DROPPED 2026-05-16 — L2 anchor fp32-cast on 3B params
+        # exceeds the 32 GiB envelope (see header + ewc_only_ft dispatch case).
         # B10 (Self-RAG full FT) excluded — pipeline still being built.
         # Sequential on single GPU. Each baseline finishes before next starts.
-        band "Launching B1-B9 panel in runtime-sorted order (fastest -> slowest)"
-        log "Order: zero_shot -> cot -> fiveshot_cot -> rag -> cot_rag -> flare -> vanilla_ft -> semantic_entropy -> ewc_only_ft"
+        band "Launching B1-B8 panel in runtime-sorted order (B7 skipped, B10 deferred)"
+        log "Order: zero_shot -> cot -> fiveshot_cot -> rag -> cot_rag -> flare -> vanilla_ft -> semantic_entropy"
 
         run_inference_baseline "zero_shot"        # ~10 min
         run_inference_baseline "cot"              # ~15 min
@@ -191,12 +212,11 @@ case "$TARGET" in
         run_inference_baseline "rag"              # ~65 min
         run_inference_baseline "cot_rag"          # ~75 min
         run_inference_baseline "flare"            # ~90 min
-        run_training_baseline  "vanilla_ft"       # ~2 h
+        run_training_baseline  "vanilla_ft"       # ~1.5 h
         run_inference_baseline "semantic_entropy" # ~2-3 h
-        run_training_baseline  "ewc_only_ft" "--use_l2_anchor --use_mmlu_guard"  # ~3 h
 
         rescore_all
-        band "B1-B9 PANEL + RESCORE COMPLETE"
+        band "B1-B8 PANEL + RESCORE COMPLETE (B7 SKIPPED)"
         log "Next: python -m scripts.baseline_sig_tests --baseline_dir $OUTPUT_DIR"
         log "Note: B10 (Self-RAG full FT) is on a separate build track; see"
         log "  scripts/generate_self_rag_synthetic_data.py + scripts/train_self_rag.py"

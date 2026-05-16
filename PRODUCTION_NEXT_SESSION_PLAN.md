@@ -366,45 +366,85 @@ Applied to `scripts/run_experiment.py`. Step 2.5 retroverify now SKIPPED when `c
 
 Either outcome publishable. The C5 result determines which story leads in Ch5 §sec:disc-headline.
 
-### 5 pending baseline-panel decisions (lock before launching B1-B7)
+### 5 pending baseline-panel decisions — RESOLVED 2026-05-15/16
 From `outputs/research/topvenue_panel_2026-05-14.md`:
-- [ ] Drop the agent's "MiniCheck as 10th composite signal" recommendation (CONFIRMED REDUNDANT)
-- [ ] Substitute AlignScore as the lone companion evaluator (yes/no)
-- [ ] Lock panel of 3 vs panel of 7 baselines (decide)
-- [ ] Defer LongFact + VeriScore to rebuttal phase (decide)
-- [ ] Skip GPT-4o-mini TruthfulQA judge (decide)
+- [x] Drop the agent's "MiniCheck as 10th composite signal" recommendation (CONFIRMED REDUNDANT)
+- [x] Substitute AlignScore as the lone companion evaluator → **NO** (composite already covers ground-truth entailment via p_entail + p_ground_*)
+- [x] Lock panel size → **B1-B9** (5 inference + 1 prompt-only + 2 training + 1 sampling-based; B10 Self-RAG full FT deferred to Phase 1.7 future work)
+- [x] Defer LongFact + VeriScore to rebuttal phase → **YES, deferred**
+- [x] Skip GPT-4o-mini TruthfulQA judge → **NO — Anthropic LLM judge ADDED** (legacy `em` field was ROUGE-L > 0.15, too permissive; new `em_llm_judged` field added per Lin et al. ACL 2022 §3.2 methodology)
 
 ---
 
 ## Phase 1.6 — Post-C5 finish-line roadmap (~12-13 days, ~$50-60 GPU)
 
-**Trigger:** C5 fully closes (estimated ~06:00 BDT May 16 if C5 aborts; ~12 hours later if it passes).
+**Trigger:** C5 fully closes (✅ FIRED 2026-05-15; C5 retention guard rolled back as predicted).
 
-### Step P-1 — Kill trajectory runner + checkpoint state (operator, ~5 min)
-- [ ] Verify C5 close: `experiment_summary.csv` has cycle-5 row, `memory_store_cycle_5.faiss` + `.meta` + `deferred_buffer_cycle_5.pkl` written.
-- [ ] `tmux kill-session -t plan_a`
-- [ ] `git status` (nothing should be modified by the runner itself; if it is, investigate)
-- [ ] Final gdrive offload: `rclone copy outputs/full_run/cycle_5/ gdrive:caem-phase1a/v2_1_phase1d/full_run/cycle_5/`
-- [ ] HF snapshot of full run (memory + adapters all cycles) for reproducibility
+### Current snapshot (2026-05-16 15:42 BDT)
+- **Baselines done (7/9):** B1 zero_shot, B2 cot, B5 fiveshot_cot, B3 rag, B4 cot_rag, B9 flare, B8 semantic_entropy
+- **B6 vanilla_ft:** 🔄 in flight (4th OOM-fix iteration, launched 09:42 UTC / 15:42 BDT in tmux `b6`)
+- **B7 ewc_only_ft:** ⏭️ skipped (operator decision 2026-05-16 — L2 anchor fp32-cast on 3B params is intractable on 32 GiB envelope; defensible as ablation-style baseline. Ch5 §sec:comp-ewc-ft footnote registers this scope choice.)
+- **B10 Self-RAG full FT:** ⏭️ deferred to Phase 1.7 future work (~$29 API + 25–35 GPU-h pipeline)
+- **TruthfulQA LLM judge:** ✅ deployed (Anthropic API rescore for B1/B3/CAEM C0-C5 already pass-1 complete; B6 will get pass-2 after training)
+- **GPU:** clean (32 GiB free, no zombie processes); previous OOMs left empty output dirs (no checkpoint corruption to clean up)
 
-### Step P-2 — Baselines B1-B7 (~$30-40 GPU, ~24h with overhead)
-- [ ] Lock the 5 panel decisions above
-- [ ] **One-shot launcher** (post-2026-05-15 audit; bakes in all correct overrides):
+### Step P-1 — Kill trajectory runner + checkpoint state (operator, ~5 min) — DONE 2026-05-15
+- [x] Verify C5 close: `experiment_summary.csv` has cycle-5 row, `memory_store_cycle_5.faiss` + `.meta` + `deferred_buffer_cycle_5.pkl` written.
+- [x] `tmux kill-session -t plan_a`
+- [x] `git status` clean (no runner-induced drift)
+- [x] gdrive offload of cycle_5 to `gdrive:caem-phase1a/v2_1_phase1d/full_run/cycle_5/`
+- [ ] HF snapshot of full run (memory + adapters all cycles) for reproducibility — DEFERRED to post-B6 (will sync in one shot with baseline outputs)
+
+### Step P-2 — Baselines B1-B9 (~$30-40 GPU, ~24h with overhead) — IN PROGRESS
+- [x] Lock the 5 panel decisions above (resolved 2026-05-15/16; see Phase 1.5)
+- [x] **One-shot launcher** built and committed (`scripts/launch_baselines.sh`); post-2026-05-15 audit baked in:
   ```
-  bash scripts/launch_baselines.sh all
+  bash scripts/launch_baselines.sh all                # full B1-B9 sequence
+  bash scripts/launch_baselines.sh vanilla_ft         # B6 alone (current)
+  bash scripts/launch_baselines.sh rescore            # post-hoc verifier rescore only
   ```
-  This runs B1-B7 sequentially (5 inference + 2 training), then post-hoc rescores all 7 through the cycle-3 verifier composite, then prints the command for stats. Defaults baked in:
+  Defaults baked in (no per-baseline flag-fiddling):
   - `--n_questions 300` / `--n_eval_per_bench 300` (matches CAEM eval fold)
-  - `--eval_batch_size 32` (matches CAEM step_7_main)
+  - `--eval_batch_size 32` for inference baselines (matches CAEM step_7_main); `8` for training baselines (B6/B7 conservative)
   - `--num_cycles 5` for B6/B7 (matches C5-stop decision)
-  - `--composite_calibration outputs/full_run/cycle_3/composite_calibration.json` (matched-protocol pin; replaces the retired `outputs/production/` default)
+  - `--composite_calibration outputs/full_run/cycle_3/composite_calibration.json` (matched-protocol pin)
   - `--passage_index data/passage_index` + `--seed 42` (matches CAEM)
-- [ ] For individual baselines (debugging): `bash scripts/launch_baselines.sh zero_shot` (or `cot`, `rag`, etc.)
-- [ ] For rescore only (after manual baseline runs): `bash scripts/launch_baselines.sh rescore`
-- [ ] Verify pre-flight: launcher checks composite-pin exists + passage index exists before launching; aborts cleanly if C3 not yet closed
+  - `CAEM_FORCE_GPU_CLEANUP=1` + `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` (post-Trajectory-runner stale-context hardening)
+- [x] **Matched-protocol prompt scaffolding** added for B1/B2/B5/B8 (`eval/baselines.py` commit 7fd2444): SYSTEM_PROMPT mandating "Answer:" line + FORCED_PREFIX class attributes. Fixed B1 TQA EM=0 artifact caused by bare ChatML output without scoreable markers. **Methodology note for Ch5 §sec:setup-metrics:** *"Every comparable baseline emits answers under the same canonical `Answer: <X>.` scaffold so the post-hoc verifier sees the same input shape across systems."*
+- [x] **B3/B4 OOM recovery** (`scripts/recover_oom_baselines.sh`): auto-discovers empty/stub predictions, re-runs at `eval_batch_size=8`. Already fired for B3 + B4 TruthfulQA outputs.
+- [x] **B6 OOM iterations (root-cause history):**
+  - Iter 1: `bs=16` → OOM (forward)
+  - Iter 2: `bs=4 grad_accum=8` (no grad_ckpt) → OOM
+  - Iter 3: `bs=32 + 8-bit AdamW + grad_ckpt + n=700/bench` → OOM at logits tensor (`vocab=151,936 × seq=512 × bs=32 × bf16 = 4.97 GiB` for logits alone, plus shift_logits + loss intermediates over the 32 GiB envelope; observed `26.4 GiB in use` when forward asked for `+6.11 GiB`)
+  - **Iter 4 (current):** `bs=8 grad_accum=4` (effective batch 32 preserved) + 8-bit AdamW + grad_ckpt + `n_train_per_bench=700`. Budget: ~22-24 GiB / 32 GiB envelope, ~8 GiB headroom.
+- [ ] **B6 to complete (~2-3 h):** verify cycle 1 forward/backward passes without OOM (the load-bearing test); if cycle 1 survives, cycles 2-5 will almost certainly survive. If iter 4 OOMs, fall back to `bs=4 grad_accum=8` (iter 5).
 - [ ] Add a Ch5 §sec:setup-metrics methodology sentence: *"Every baseline's signals are computed through the same locked cycle-3 verifier composite (`outputs/full_run/cycle_3/composite_calibration.json`), so the measurement instrument is held fixed across CAEM and all seven baselines."*
 - [ ] Add the cross-distribution-application caveat paragraph to Ch5 §sec:disc-threats (full text in memory file `caem_b1_vs_c0_framing.md` under "Methodology pre-registrations").
-- [ ] **B7 retention-guard scope:** Ch5 §sec:comp-ewc-ft updated 2026-05-15 to say "MMLU-only retention guard" (matches `run_simple_ft.py --use_mmlu_guard`); multi-modal probe is a CAEM-specific extension not extended to B7. Document this as a deliberate scope choice in the comparison contrast, not an oversight.
+- [ ] **B7 retention-guard scope:** Ch5 §sec:comp-ewc-ft updated 2026-05-15 to say "MMLU-only retention guard" (matches `run_simple_ft.py --use_mmlu_guard`); multi-modal probe is a CAEM-specific extension not extended to B7. **2026-05-16 update:** B7 dropped from panel; rationale (`L2 anchor fp32-cast intractable on 32 GiB envelope, defensible scope choice for ablation-style baseline`) added to §sec:comp-ewc-ft footnote.
+
+### Step P-2.5 — Post-baseline auto-pipeline (NEW 2026-05-16; wired in `run_phase1a.sh` main())
+After `step_baselines_all` (which `launch_baselines.sh all` proxies for in this iteration), the runner auto-chains the following without operator intervention:
+
+- [ ] **`step_recover_oom_baselines`** (~5 min, CPU): auto-discovers any empty/stub prediction JSONs across all 8 baselines and re-runs at smaller batch size. Idempotent.
+- [ ] **`step_capability_em`** (NEW 2026-05-16, ~5 min, CPU): annotates `capability_em` alongside the strict `em` field on every eval JSON. Lenient extractor (`scripts/add_capability_em.py`) prefers the canonical `Answer: X` line if present, falls back to last-token extraction otherwise. Applied uniformly to every baseline + every CAEM cycle. Idempotent. Surfaces the B6 vanilla_ft format-collapse story (CSQA strict 0.000 vs capability ~0.80). **Strict EM remains the headline deployment-grade number;** capability EM is the secondary "knowledge-vs-format" diagnostic for Ch5 §sec:comp-vanilla-ft.
+- [ ] **`step_rescore_truthfulqa`** (~20 min per pass, needs `ANTHROPIC_API_KEY`): LLM-judges every TruthfulQA prediction against the full `incorrect_answers` set from HF per Lin et al. ACL 2022 §3.2; rule-based fallback if API fails (rouge>0.40 + non-match-incorrect). Preserves legacy `em` field, adds `em_llm_judged` + `em_llm_judged_reason`. **Pass 1 covered B1/B3/CAEM cycle 0-5; pass 2 covers B6.**
+- [ ] **`step_rescore_baselines_through_verifier`** (~**7 GPU-h**, the BIG one): scores every baseline's predictions through the locked cycle-3 verifier composite to produce 9 signals + CHM/CES per sample. Without this, baseline-side hallucination-aware metrics (CHM subtypes, Net Honesty proxy, abstention rate, confident-confab rate) are not computable.
+- [ ] **`step_gdrive_sync_post_trajectory`** (~10 min): syncs all of `outputs/full_run/` + `outputs/baselines/` + `outputs/ablation/` to `gdrive:caem-phase1a/v2_1_phase1d/`. Recoverable if instance dies.
+- [ ] **`step_15_5_sig`** (~10 min, CPU): McNemar paired + bootstrap BCa per benchmark per baseline + Holm correction within each benchmark family. Output: `outputs/baselines/sig_test_results.csv` → renders into `tab_sig_test.tex`.
+- [ ] **`step_15_6_decomposition_tables`** (~5 min, CPU): runs 6 aggregators built this session:
+  - `aggregate_three_headline_decomposition.py` (B1→C3 / B1→C0 / C0→C3 three-row table)
+  - `aggregate_per_tier_em.py` (T1/T2/T3 EM per cycle — surfaces T2-EM>T3-EM distillation receipt)
+  - `aggregate_ces_per_system.py` (5-axis CES with graceful degradation for verifier-free baselines)
+  - `aggregate_memory_store_trajectory.py` (C0=431 → C5=9709 entries, validates monotone purification)
+  - `aggregate_survival_distribution.py` (deferred-buffer dynamics per cycle: push/exit/promote rate)
+  - `aggregate_decision_diagnostics.py` (5 tables for §sec:adj-decision-diagnostics including u_stored × EM calibration)
+- [ ] **`step_15_7_tier1_recall_diagnostic`** (~45 min, GPU + API): `scripts/run_tier1_recall_diagnostic.py` runs 100 custom queries (50 paraphrases via Anthropic API + 30 in-distribution + 20 OOD) under serial Pipeline at bs=1; fills H3 empirical receipt + H5 amortisation receipt (the eval-fold has been content-hash disjoint by design, so T1 share = 0% on eval-fold was NOT evidence of H3 failure).
+- [ ] **`step_19_purity`, `step_19_2_eval`, `step_19_5_corr`** (~10 min total, CPU): per-bench purity validation, eval rescore, signal correlation matrix.
+- [ ] **`step_19_6_theorem_receipts`** (~5 min, CPU): per-theorem proven/falsified/partial table reflecting the audit done this session (7 proven, 4 partial, 6 pending verifier-rescore-dependent, 0 falsified).
+- [ ] **`step_20_aggregate` → `step_25_t1_robustness`** (~20 min total): final aggregator + LaTeX bodies + PNG/PDF figures + calibration trajectory + Session-5 audit + T1 robustness.
+- [ ] **Final `step_gdrive_sync_post_trajectory`** (~5 min).
+
+**Phase A+B autonomous ETA:** ~05:00 BDT Sun May 17 (~14 h from now), conditional on no further B6 OOM.
 
 ### Step P-3 — Architectural ablation panel (~$15 GPU, 1-2 days)
 - [ ] `python -m scripts.run_ablation --variants no_retroverify no_self_improvement no_forgetting_guard --output_dir outputs/ablation`
@@ -413,23 +453,31 @@ From `outputs/research/topvenue_panel_2026-05-14.md`:
 
 ### Step P-4 — Diagnostics + theorem-receipt aggregations (~$5 GPU + scripts, ~1 day)
 
-Complete script-run sequence (verified 2026-05-15 against actual coverage):
+**Status 2026-05-16:** Most aggregators now wired into `step_15_6_decomposition_tables` and `step_15_7_tier1_recall_diagnostic` (see Step P-2.5 above). Remaining items below are CAEM-trajectory-only aggregations (don't depend on baseline rescore output).
+
+Complete script-run sequence (verified 2026-05-15 against actual coverage, 2026-05-16 status updates):
 
 **Theorem-receipt aggregations** (most can run immediately after C5 close, no extra GPU):
 
 - [ ] **Purity validation** (Theorems 1, 2, 3): `python -m scripts.run_purity_validation --cycles 0 1 2 3 4 5` — outputs `outputs/purity_validation/*.json`
-- [ ] **Theorem receipts** (Thm convergence + asymptotic-elim + 3 corollaries): `python -m scripts.theorem_receipts --output_dir outputs/full_run/theorem_receipts` — outputs 5 receipt JSONs
+- [ ] **Theorem receipts** (Thm convergence + asymptotic-elim + 3 corollaries): `python -m scripts.theorem_receipts --output_dir outputs/full_run/theorem_receipts` — outputs 5 receipt JSONs. **2026-05-16 audit result:** 7 proven (purity, monotone-purification, asymmetric-rollback, deferred-promotion, parametric-ceiling-at-C3, T2-distillation, CHM-reduction), 4 partial (bayes-convergence in plateau form, asymptotic-elim in plateau form, retention-guard fires on first violation, abstention recovers honesty), 6 pending verifier-rescore (baseline CHM/CES comparisons), 0 falsified.
 - [ ] **Calibration trajectory** (per-cycle τ, T, store/defer rates, α purity): `python scripts/aggregate_calibration_trajectory.py --csv_out outputs/full_run/calibration_trajectory.csv --tex_out thesis_report/figures/auto/tab_calibration_trajectory.tex`
   - WARNING: script's default `--tex_out` is the legacy `"pre thesis 1 report/tables/"` path. Override with `thesis_report/figures/auto/` explicitly.
 - [ ] **Per-cycle π_store trajectory** (NEW 2026-05-15): `python -m scripts.aggregate_pi_store_trajectory --max_cycle 5` — empirical receipt for H1 + thm:purity, outputs `tab_pi_store_trajectory.tex` (cal-fold + stream-chunk decomposition)
 - [ ] **Per-tier CHM trajectory** (NEW 2026-05-15): `python -m scripts.aggregate_tier_chm --max_cycle 5` — empirical receipt for cor:tier1-floor, outputs `tab_tier_chm_trajectory.tex` (T1/T2/T3 EM + CHM separately)
 - [ ] **Stochastic-equilibrium aggregator** (NEW 2026-05-15): `python -m scripts.aggregate_stochastic_equilibrium` — empirical receipt for cor:stochastic-equilibrium, outputs `tab_stochastic_equilibrium.tex` (per-cycle commit indicator + worst-probe + π_commit)
+- [x] **Three-headline decomposition** (NEW 2026-05-16, wired into `step_15_6`): `scripts/aggregate_three_headline_decomposition.py` — B1→C3 / B1→C0 / C0→C3 deltas (3-bench, 4-bench, 5-bench views). Defuses "how much is just RAG?".
+- [x] **Per-tier EM decomposition** (NEW 2026-05-16, wired into `step_15_6`): `scripts/aggregate_per_tier_em.py` — exposes the T2-EM > base-T3-EM SIL-as-distillation receipt and the CSQA pooled-EM-dip-is-selection-effect finding.
+- [x] **CES per-system** (NEW 2026-05-16, wired into `step_15_6`): `scripts/aggregate_ces_per_system.py` — 5-axis CES (ACC + EPI + RET + CAL + VER) with graceful degradation for verifier-free baselines.
+- [x] **Memory store trajectory** (NEW 2026-05-16, wired into `step_15_6`): `scripts/aggregate_memory_store_trajectory.py` — reads `.meta` files, shows C0=431 → C5=9709 entries (validates monotone purification).
+- [x] **Survival distribution** (NEW 2026-05-16, wired into `step_15_6`): `scripts/aggregate_survival_distribution.py` — reads deferred_buffer pickles, computes per-cycle dynamics (size, new pushes, exits, ~4.4% promotion rate).
+- [x] **Decision diagnostics** (NEW 2026-05-16, wired into `step_15_6`): `scripts/aggregate_decision_diagnostics.py` — 5 tables for §sec:adj-decision-diagnostics including u_stored × EM calibration (validates monotone increase = calibration contract holds).
 
 **Other diagnostics:**
 
 - [ ] Per-signal correlation matrix: `python -m scripts.signal_correlation_matrix`
-- [ ] Per-cycle ablation aggregation: `python -m scripts.aggregate_ablation --root outputs/ablation` (after P-3 baseline panel completes)
-- [ ] Tier-1 amortisation diagnostic (Task #154): serial Pipeline at bs=1, custom small eval set, fills H5 empirical receipt
+- [ ] Per-cycle ablation aggregation: `python -m scripts.aggregate_ablation --root outputs/ablation` (after P-3 ablation panel completes)
+- [x] **Tier-1 amortisation diagnostic** (Task #154, NEW 2026-05-16, wired into `step_15_7`): `scripts/run_tier1_recall_diagnostic.py` — 100-query custom eval (50 paraphrases via Anthropic API + 30 ID + 20 OOD) under serial Pipeline at bs=1. Fills H3 empirical receipt (eval-fold is content-hash disjoint by design, so the eval-fold T1 share=0% finding was NOT H3 falsification — it was the expected protocol behavior).
 - [ ] Cohen's d trajectory per signal across cycles
 - [ ] Coverage feedback diagnostic
 
@@ -465,8 +513,20 @@ Complete script-run sequence (verified 2026-05-15 against actual coverage):
 - [ ] §sec:disc-threats: add the confident-confabulation rise (CC: 0.110 → 0.242 across C0-C3) as a probe-precision threat-to-validity item
 - [ ] §sec:disc-threats: also add the single-probe-precision threat (TQA-test ratio shows ±4% relative noise between runs; per-cycle drift readings should be interpreted with this band)
 - [ ] §sec:disc-threats: add the cross-distribution-application caveat paragraph (full text in `caem_b1_vs_c0_framing.md` → "Methodology pre-registrations" → "Suggested Ch5 §sec:disc-threats paragraph")
+- [ ] **§sec:setup-metrics — TruthfulQA scoring methodology note (NEW 2026-05-16):** Register that TruthfulQA is rescored under an LLM judge (Anthropic) following Lin et al. ACL 2022 §3.2; the legacy `em` field used in earlier outputs corresponds to ROUGE-L > 0.15 (overly permissive on factual incorrectness). Report only `em_llm_judged` in main tables. This produced a substantial revision: B1 TQA dropped 0.80 → 0.43 and CAEM C3 0.39 → 0.24 (gap widened in CAEM's favor on a hallucination axis).
+- [ ] **§sec:disc-truthfulqa-hallucination — RAG-grounding amplifies confident wrong answers (NEW 2026-05-16):** On TruthfulQA-transfer, B3 RAG strict-EM beats CAEM C3 strict-EM (the retrieval corpus contains the misconception text that TruthfulQA is designed to elicit). But Net Honesty = (correct_commits + correct_abstentions − wrong_commits)/n reverses the ranking: CAEM C0 = −0.22 vs B3 = −0.41 because CAEM abstains 81/300 vs B3 abstains 0/300. CAEM still loses to raw B1 zero_shot (Net Honesty −0.11) because B1's prior is more cautious than the RAG-augmented commit. **The story is "hallucination reduction via abstention, not retrieval-grounded extraction" — frame EM-only as the wrong lens here.**
+- [ ] **§sec:disc-sil-drift — SIL drift toward over-commitment (NEW 2026-05-16):** Per-commit hallucination rises from C0 to C5 even as pooled CHM falls (because abstention rate also falls). Confident-confab rate 0.110 → 0.242 across C0-C3 is the canonical receipt. Retention guard doesn't include TruthfulQA, so this drift was invisible to the in-cycle rollback. Register as a Ch5 §disc-threats item AND a Ch6 §future-work item ("add TruthfulQA-test to retention probe set").
+- [ ] **§sec:disc-c3-plateau — C3 is the empirical fixed point (NEW 2026-05-16 audit conclusion):** Reframe "C5 retention guard fired" from "5 cycles wasn't enough" to "the architecture self-bounds at the parametric ceiling near C3, the retention guard preserves that ceiling, and the memory tier continues to amortise cost." This matches thm:bayes-convergence and thm:asymptotic-elim in plateau form. Lead with this as the headline interpretation in §sec:disc-headline.
+- [ ] **§sec:comp-vanilla-ft — dual metric framing for B6 (NEW 2026-05-16):** Report B6 with TWO EM columns to surface the format-collapse failure mode cleanly:
+  - **Strict EM** (deployment-grade, headline) — requires the canonical `Answer: X` line.
+  - **Capability EM** (lenient diagnostic) — prefers `Answer: X` if present, falls back to last-token extraction otherwise. Produced by `scripts/add_capability_em.py`; applied uniformly across all 8 baselines + all CAEM cycles so the matched-protocol axis stays valid.
+  - Headline empirical: at C3 matched-protocol, **CAEM strict − B6 strict = +16.6 pp pooled**, but **CAEM strict − B6 capability = +0.7 pp pooled** — meaning B6 "knows" most answers (capability EM near-ties CAEM) but cannot emit them in a parseable form (strict EM collapses on CSQA to 0.000 from cycle 1).
+  - The CSQA format collapse (B6 emits `Reasoning:X` without the `Answer:` line) is mechanism-1; the TriviaQA catastrophic forgetting (B6 EM 0.340 cycle 1 → 0.070 cycle 2 → 0.103 cycle 3) is mechanism-2. Both are independent receipts for CAEM's architecture (LoRA budget cap + verifier `q_a_relevance` gate).
+- [ ] **§sec:comp-vanilla-ft — 5-cycle B6 vs 3-cycle CAEM-SIL framing (NEW 2026-05-16):** B6 is allowed to train for 5 cycles uninterrupted; CAEM completed 3 SIL trainings (C1, C2, C3) before the retention guard rolled back C4 and C5 to C3 θ_prev. The matched-protocol headline contrast is therefore **B6@C3 vs CAEM@C3 (identical 3-cycle SIL training budget)**; B6@C5 is the **retention-guard-ablation receipt** (what vanilla FT continues to do without a guard). Both columns belong in the table; label them explicitly.
 - [ ] Ch6 §concl-headline: finalize with licensing-rule outcome, same three-row decomposition structure (abstract-length version)
 - [ ] Ch6 §concl-open: register the parametric-ceiling-at-3B + corpus-coverage-floor + Experience-Replay / EWC continual-learning extensions (already partially in place, expand)
+- [ ] **Ch6 §future-work — per-step claim verifier (NEW 2026-05-16):** The current verifier scores the canonical `Answer: <X>.` claim, never per-step claims in the chain. Wrong-step-correct-conclusion reasoning is therefore blind to the verifier. Register as a v2 architectural extension (not a v1 code patch — too late in cycle).
+- [ ] **Ch6 §future-work — B10 Self-RAG full FT pipeline (NEW 2026-05-16):** ~$29 API + 25-35 GPU-h, ~7-11 engineering days. Pipeline staged in `scripts/generate_self_rag_synthetic_data.py` + `scripts/train_self_rag.py` (both scaffolds). Deferred to Phase 1.7 because adapter-only LoRA replacement of the placeholder prompt-adapted baseline requires the full self-supervised retrieval/critique tuning sequence.
 - [ ] **Abstract rewrite** (`thesis_report/core/abstract.tex`) — use template from `caem_three_headline_decomposition.md`:
   - "CAEM reduces pooled hallucination metric by [X%] relative to a raw Qwen-2.5-3B-Instruct baseline under matched cross-system evaluation, with [Y%] of the reduction attributable to deployment-time mechanisms (retrieval, multi-signal verification, episodic memory, abstain class) and [Z%] to training-time self-improvement via verifier-gated distillation. The distilled model's zero-shot outputs further exceed the base-model-with-retrieval pipeline by 14.4 points exact match, demonstrating that calibrated self-distillation produces a parametric model that improves on its retrieval-augmented source."
   - Variables: X% (B1 → C3 pooled CHM reduction), Y% (B1 → C0), Z% (X − Y, SIL-attributable increment); use multiplicative-honest phrasing not subtractive percentages

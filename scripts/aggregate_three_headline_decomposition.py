@@ -60,12 +60,26 @@ TRAINING_BENCHES = ["fever", "triviaqa", "commonsense_qa"]
 NON_TQA_BENCHES = [b for b in BENCHES if b != "truthfulqa"]
 
 
-def load_em(path: Path, *, use_judged_for_tqa: bool = True) -> Optional[float]:
+def load_em(
+    path: Path,
+    *,
+    use_judged_for_tqa: bool = True,
+    field: str = "em",
+) -> Optional[float]:
     """Compute per-bench EM from a single evaluation JSON.
 
-    For TruthfulQA, prefer ``em_llm_judged`` over the legacy ``em`` field
-    when populated (the legacy field is rouge_l>0.15, which inflates
-    long-prose answers — see eval/harness.py:571-575).
+    ``field`` selects the score column:
+
+    - ``"em"`` (default) — strict deployment-grade EM; the headline number.
+      For TruthfulQA, prefer ``em_llm_judged`` when populated (the legacy
+      ``em`` field is rouge_l>0.15, which inflates long-prose answers —
+      see eval/harness.py:571-575).
+
+    - ``"capability_em"`` — lenient diagnostic EM produced by
+      scripts/add_capability_em.py. Prefers the canonical "Answer: X"
+      line when present, falls back to last-token extraction otherwise.
+      Surfaces the B6 vanilla_ft format-collapse story (CSQA strict 0.000
+      vs capability ~0.80). Same TruthfulQA judged-EM rule applies.
     """
     if not path.is_file():
         return None
@@ -79,20 +93,30 @@ def load_em(path: Path, *, use_judged_for_tqa: bool = True) -> Optional[float]:
                   if s.get("em_llm_judged") is not None]
         if judged:
             return sum(judged) / len(judged)
-        # Fall through to legacy em if judged isn't populated yet
-        logger.warning("TruthfulQA %s has no em_llm_judged; using legacy em "
-                       "(inflated). Run scripts/rescore_truthfulqa.py.",
-                       path)
+        # Fall through to legacy em/capability_em if judged isn't populated yet
+        logger.warning("TruthfulQA %s has no em_llm_judged; using legacy "
+                       "%s (inflated). Run scripts/rescore_truthfulqa.py.",
+                       path, field)
 
-    ems = [s.get("em", 0.0) for s in samples]
-    return sum(ems) / len(ems) if ems else None
+    scores = [s.get(field, s.get("em", 0.0) if field == "capability_em" else 0.0)
+              for s in samples]
+    return sum(scores) / len(scores) if scores else None
 
 
-def collect_row(label: str, paths: Dict[str, Path]) -> Dict[str, Optional[float]]:
-    """Pull per-bench EMs into one row dict keyed by bench name."""
-    row: Dict[str, Optional[float]] = {"label": label}
+def collect_row(
+    label: str,
+    paths: Dict[str, Path],
+    *,
+    field: str = "em",
+) -> Dict[str, Optional[float]]:
+    """Pull per-bench EMs into one row dict keyed by bench name.
+
+    ``field`` selects ``em`` (strict, default) or ``capability_em`` (lenient
+    diagnostic populated by scripts/add_capability_em.py).
+    """
+    row: Dict[str, Optional[float]] = {"label": label, "field": field}
     for bench in BENCHES:
-        row[bench] = load_em(paths[bench])
+        row[bench] = load_em(paths[bench], field=field)
     # Pooled views
     row["pooled_5"] = _safe_mean(row[b] for b in BENCHES)
     row["pooled_4"] = _safe_mean(row[b] for b in NON_TQA_BENCHES)
@@ -227,42 +251,54 @@ def main() -> int:
     c0_paths = {b: ns.caem_dir / f"{b}_cycle0.json" for b in BENCHES}
     c3_paths = {b: ns.caem_dir / f"{b}_cycle{ns.caem_c3_cycle}.json" for b in BENCHES}
 
-    b1 = collect_row("B1 zero_shot", b1_paths)
-    c0 = collect_row("CAEM C0", c0_paths)
-    c3 = collect_row(f"CAEM C{ns.caem_c3_cycle}", c3_paths)
+    # Two passes: strict em (headline) and capability_em (diagnostic). The
+    # capability pass is skipped silently if the field isn't present yet
+    # (i.e., scripts.add_capability_em hasn't been run).
+    for field in ("em", "capability_em"):
+        b1 = collect_row("B1 zero_shot", b1_paths, field=field)
+        c0 = collect_row("CAEM C0", c0_paths, field=field)
+        c3 = collect_row(f"CAEM C{ns.caem_c3_cycle}", c3_paths, field=field)
 
-    # Sanity log
-    for label, row in [("B1", b1), ("C0", c0), (f"C{ns.caem_c3_cycle}", c3)]:
-        missing = [b for b in BENCHES if row[b] is None]
-        if missing:
-            logger.warning("%s missing per-bench EM for: %s", label, missing)
+        # Sanity log
+        for label, row in [("B1", b1), ("C0", c0), (f"C{ns.caem_c3_cycle}", c3)]:
+            missing = [b for b in BENCHES if row[b] is None]
+            if missing:
+                logger.warning("%s (%s) missing per-bench EM for: %s",
+                               label, field, missing)
 
-    rows = build_decomposition(b1, c0, c3)
+        rows = build_decomposition(b1, c0, c3)
 
-    # Console summary
-    print()
-    print("=" * 88)
-    print("Three-headline decomposition (per-cell value = Δ EM in percentage points)")
-    print("=" * 88)
-    print(f"{'Contrast':<30} | {'pooled-5':>8} | {'pooled-4':>8} | {'pooled-3':>8}")
-    print("-" * 88)
-    for r in rows:
-        print(f"{r['contrast']:<30} | "
-              f"{_fmt_pp(r['pooled_5']):>8} | "
-              f"{_fmt_pp(r['pooled_4']):>8} | "
-              f"{_fmt_pp(r['pooled_3']):>8}")
-    print()
-    print(f"{'Reference (absolute EM %)':<30} | {'pooled-5':>8} | {'pooled-4':>8} | {'pooled-3':>8}")
-    print("-" * 88)
-    for label, row in [("B1 zero_shot", b1), ("CAEM C0", c0), (f"CAEM C{ns.caem_c3_cycle}", c3)]:
-        def _abs(v): return f"{v*100:.1f}" if v is not None else "--"
-        print(f"{label:<30} | "
-              f"{_abs(row['pooled_5']):>8} | "
-              f"{_abs(row['pooled_4']):>8} | "
-              f"{_abs(row['pooled_3']):>8}")
+        # Console summary
+        print()
+        print("=" * 88)
+        if field == "em":
+            print("Three-headline decomposition — STRICT EM (deployment-grade headline)")
+        else:
+            print("Three-headline decomposition — CAPABILITY EM (knowledge-vs-format diagnostic)")
+        print("(per-cell value = Δ EM in percentage points)")
+        print("=" * 88)
+        print(f"{'Contrast':<30} | {'pooled-5':>8} | {'pooled-4':>8} | {'pooled-3':>8}")
+        print("-" * 88)
+        for r in rows:
+            print(f"{r['contrast']:<30} | "
+                  f"{_fmt_pp(r['pooled_5']):>8} | "
+                  f"{_fmt_pp(r['pooled_4']):>8} | "
+                  f"{_fmt_pp(r['pooled_3']):>8}")
+        print()
+        print(f"{'Reference (absolute EM %)':<30} | {'pooled-5':>8} | {'pooled-4':>8} | {'pooled-3':>8}")
+        print("-" * 88)
+        for label, row in [("B1 zero_shot", b1), ("CAEM C0", c0), (f"CAEM C{ns.caem_c3_cycle}", c3)]:
+            def _abs(v): return f"{v*100:.1f}" if v is not None else "--"
+            print(f"{label:<30} | "
+                  f"{_abs(row['pooled_5']):>8} | "
+                  f"{_abs(row['pooled_4']):>8} | "
+                  f"{_abs(row['pooled_3']):>8}")
 
-    write_csv(rows, ns.out_csv)
-    write_latex(rows, b1, c0, c3, ns.out_tex)
+        suffix = "" if field == "em" else "_capability"
+        out_csv = ns.out_csv.with_name(ns.out_csv.stem + suffix + ns.out_csv.suffix)
+        out_tex = ns.out_tex.with_name(ns.out_tex.stem + suffix + ns.out_tex.suffix)
+        write_csv(rows, out_csv)
+        write_latex(rows, b1, c0, c3, out_tex)
 
     return 0
 
