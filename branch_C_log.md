@@ -16,6 +16,122 @@ Detail belongs in the commit message; the log is for quick rewind.
 
 ---
 
+## 2026-05-17 (BDT)
+
+### 2026-05-17 07:00 BDT  `[BLOCKER]`  Vast credit exhausted — resume instructions
+
+**State at credit end:**
+- Step 15.3 (`rescore_baselines_through_verifier`) in progress: **20/40 files done** (zero_shot ✓, cot ✓, rag ✓, cot_rag 5/5 partially — cot_rag/fever done, ~4 more in cot_rag; fiveshot_cot/flare/semantic_entropy/vanilla_ft pending).
+- PID 769668 (`python -m scripts.rescore_baselines_through_verifier`) was live at 101% CPU when credit ended.
+- Steps 15.4 → 15.7 → 19.x → 20 → 21 → 22 → 23 → 24 → 25 all pending — automated by `run_post_baseline_chain.sh`.
+
+**Resume procedure after Vast top-up (new instance or same if resumed):**
+
+1. SSH into Vast instance (or provision new one with same disk volume).
+2. If the old instance is gone, restore outputs from gdrive:
+   ```
+   rclone copy gdrive:caem_backup/post_traj/ outputs/ --progress
+   ```
+   Already-completed `*_with_chm.json` files live in `outputs/baselines/<baseline>/`.
+3. Kill any stale rescore process: `kill 769668` (or `pkill -f rescore_baselines`).
+4. Re-run step 15.3 for remaining baselines only. The script is idempotent — files that already exist as `*_with_chm.json` are skipped automatically. Just re-run:
+   ```
+   tmux new-session -d -s pipeline \
+     'bash run_post_baseline_chain.sh 2>&1 | tee outputs/post_baseline_chain_resume.log'
+   ```
+   The chain will skip 15.1/15.2 (already done) and resume from 15.3 (idempotent skip of completed files) then continue through 15.4–25 automatically.
+5. Monitor: `tail -f outputs/post_baseline_chain_resume.log`
+
+**Completed before credit end (safe, do not re-run):**
+- All 7 baselines generated (`outputs/baselines/*/benchmark_cycle0.json`)
+- TruthfulQA LLM-judged rescore (step 15.2): `em_llm_judged` written per-sample in all baseline JSONs
+- `capability_em` annotation (step 15.1.5): all baseline JSONs annotated
+- Verifier rescore (step 15.3): 20/40 `*_with_chm.json` files written
+
+**RUC design work (deferred to post-exams):**
+- Research prompt: `outputs/research/ruc_agent_prompt.md`
+- Literature scaffold: `outputs/research/ruc_literature_research.md`
+- Existing LOBO-CV script: `scripts/retrieval_utility_classifier.py`
+- Router logic (accurate): two-mechanism design in `caem/routing/router.py` — NOT a simple u_internal > τ threshold.
+
+---
+
+### 2026-05-17 02:30 BDT  `[NOTE]` + `[DECISION]`  RUC design + RAG failure-mode analysis — deferred to post-exams
+
+**Empirical finding (B1 vs CAEM C3, all 5 benchmarks):**
+
+Full per-benchmark comparison computed from eval JSONs:
+
+| Benchmark | B1 EM | C3 EM | ΔEM | B1 CHM | C3 CHM | ΔCHM% | Verdict |
+|---|---|---|---|---|---|---|---|
+| FEVER | 0.453 | 0.503 | +5.0pp | 0.158 | 0.117 | −26% | WIN |
+| TriviaQA | 0.293 | 0.437 | +14.3pp | 0.172 | 0.123 | −28% | WIN |
+| CommonsenseQA | 0.703 | 0.603 | −10.0pp | 0.098 | 0.131 | +34% | LOSE |
+| StrategyQA | 0.650 | 0.617 | −3.3pp | 0.114 | 0.119 | +4% | LOSE |
+| TruthfulQA | 0.433 | 0.210 | −22.3pp | 0.048 | 0.116 | +140% | LOSE |
+| Pooled | 0.507 | 0.474 | −3.3pp | 0.118 | 0.121 | +2.7% | LOSE |
+
+**Root cause of RAG regression (mechanistic, not corpus-size/quality):**
+
+Three distinct failure mechanisms, one per failing benchmark type:
+
+1. **TruthfulQA** — the corpus contains popular misconceptions. Wikipedia articles describe myths even while debunking them. The FAISS retriever finds these passages (high cosine similarity), the model treats the mention as evidence, and generates myth-grounded wrong answers. Confirmed: 100% of wrong T3 TruthfulQA predictions explicitly say "The context mentions..." vs 0% of T2 predictions. The correct answer ("nothing happens") is a negation-of-claim that no corpus passage contains as a positive fact. No retrieval quality improvement fixes this — it is a task-type mismatch.
+
+2. **CommonsenseQA** — commonsense inference ("tired dog was just walked") has no canonical Wikipedia passage. The retriever returns topically adjacent but wrong passages (e.g., classical conditioning research on dogs). Model grounds to the irrelevant passage and overrides its correct parametric commonsense. Again 100% of wrong T3 CSQA predictions reference "The context mentions…". Fix: route commonsense MCQs to T2, not T3.
+
+3. **StrategyQA** — boolean factual reasoning is already in Qwen's parametric memory. Any retrieved passage adds noise. Fix: confidence gate — if u_pre is already high, do not escalate to T3.
+
+**The decomposition (already in data, no new experiments needed):**
+
+- B1→C0: RAG+architecture damage (TruthfulQA −15.3pp, CSQA −10pp) — before SIL even runs
+- C0→C3: SIL amplification (TruthfulQA −7pp more) — SIL reinforces T3-grounded reasoning patterns
+- Architecture alone is the primary driver of regression, not SIL
+
+**Decision: report as-is, framed as a scope finding:**
+
+> CAEM's RAG component improves performance on retrieval-grounded fact verification tasks and degrades it on commonsense inference and myth-resistance tasks. The three-way B1/C0/C3 decomposition cleanly isolates the architecture-only effect from the SIL effect and is already fully measured in existing data. This is reported as a task-type scope boundary, not a system failure. Fix pathway (retrieval-quality gate + task-type router) is proposed as future work.
+
+**Thesis framing:** Lead with per-benchmark stratification (FEVER/TriviaQA WIN, others LOSE with mechanistic explanation). Do NOT lead with pooled numbers, which hide the coherent story. The 100% context-mention diagnostic is the strongest evidence — quote it directly.
+
+---
+
+**Retrieval Utility Classifier (RUC) — design in progress, deferred to post-exams:**
+
+Goal: predict whether T3 RAG generation succeeded, using only offline-trainable signals (no inference-time API calls — would violate the calibration-supervised claim).
+
+Experiment results on C3 T3 samples (~1,334 samples, 5 benchmarks):
+
+| Setup | Pooled AUC |
+|---|---|
+| 6 non-grounding signals, LOBO-CV, LogReg | 0.594 |
+| 11 signals (all incl. grounding + u_stored), LOBO-CV, LogReg | 0.642 |
+| 11 signals, within-benchmark 80/20, GBM | ~0.57 avg |
+| u_stored alone | ~0.61 avg |
+
+Ceiling: ~0.75 (TriviaQA) across all setups. Fundamental limit: self-consistency signals measure generation *process*, not factual *outcome*. A model can be confident + grounded + consistent while being factually wrong (TruthfulQA myth case). Feature space cannot separate "confident-correct" from "confident-wrong-due-to-misleading-passage."
+
+**Why LLM judge at inference-time breaks the calibration-supervised claim:**
+Using an LLM judge per sample at inference = per-sample ground truth oracle = the entire conformal calibration scheme becomes redundant. The system reduces to "generate then ask LLM if correct" — no verifier composite needed. This invalidates CAEM's core theoretical contribution.
+
+**Clean design (LLM judge offline only):**
+1. Run LLM judge once on existing C3 T3 samples → cleaner binary labels than strict EM
+2. Train logistic regression on those labels using literature-motivated features + existing 11 signals
+3. Deploy as lightweight sklearn model at inference — no API call, no oracle dependency
+4. Preserves "calibration supervised" claim: finite label cost at training, free at inference
+
+**Literature research needed (deferred):**
+Key papers to survey: Self-RAG (Asai 2023), FLARE (Jiang 2023), Adaptive-RAG (Jeong 2024), Shi et al. 2023, Mallen et al. 2022. Key questions: (a) what signals predict retrieval utility? (b) what AUROC do they achieve? (c) does contrastive self-consistency (generate with vs without passage, measure agreement) provide signal?
+
+**Artefacts on disk:**
+- `scripts/retrieval_utility_classifier.py` — working LOBO-CV script (LogReg + GBM, all 11 signals, LOBO-CV and i.i.d. modes)
+- `outputs/full_run/ruc_lobo_results.json` — LOBO-CV results
+- `thesis_report/figures/auto/tab_ruc_lobo.tex` — LaTeX table
+- `outputs/research/ruc_literature_research.md` — empty scaffold for literature notes
+
+**Next step (post-exams):** Paste literature research into scaffold → design final feature set → re-run classifier → draft Ch6 §future-work RUC section.
+
+---
+
 ## 2026-05-14 (BDT — date rolls based on activity)
 
 ### 2026-05-15 08:30 BDT  `[BUG]` + `[IMPL]`  B1-B7 baseline implementation audit + 6 fixes shipped
