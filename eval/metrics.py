@@ -554,6 +554,53 @@ CHM_DEFAULT_MEASURED_SUBTYPES: Tuple[str, ...] = (
 )
 
 
+def per_sample_chm(
+    sample: Dict[str, Any],
+    *,
+    u_threshold: float = 0.50,
+    p_ground_atomic_threshold: float = 0.30,
+    p_entail_threshold: float = 0.30,
+    q_a_relevance_threshold: float = 0.50,
+    long_prediction_chars: int = 600,
+) -> float:
+    """Per-sample analogue of :func:`composite_hallucination_metric`.
+
+    Returns the equal-weighted mean of the 8 boolean failure-mode flags
+    measured under the CAEM-default MiniCheck backend (matches the
+    document-level CHM denominator). Same thresholds and same regex
+    constants as :func:`hallucination_subtypes`.
+
+    Invariant: ``mean(per_sample_chm(s) for s in samples) ==
+    composite_hallucination_metric(samples)["chm"]`` (up to numerical
+    precision).
+
+    Used by the Retrieval Utility Classifier (RUC) training pipeline as
+    a per-sample hallucination intensity for the bi-criteria empirical
+    label (EM primary, CHM tiebreaker on EM ties).
+    """
+    em = sample.get("em") or 0.0
+    is_wrong = em == 0.0
+    is_correct = em == 1.0
+    u_stored = sample.get("u_stored") or 0.0
+    p_ga = sample.get("p_ground_atomic")
+    p_pe = sample.get("p_entail")
+    q_ar = sample.get("q_a_relevance")
+    decision = sample.get("decision")
+    pred = sample.get("prediction") or ""
+
+    flags = [
+        is_wrong and u_stored >= u_threshold,
+        is_wrong and p_ga is not None and p_ga < p_ground_atomic_threshold,
+        is_wrong and p_pe is not None and p_pe < p_entail_threshold,
+        is_wrong and q_ar is not None and q_ar < q_a_relevance_threshold,
+        is_wrong and bool(_EVASIVE_RX.search(pred)),
+        bool(_TEMPLATE_LEAK_RX.search(pred)),
+        is_correct and decision in ("ABSTAIN", "DISCARD"),
+        is_wrong and len(pred) > long_prediction_chars,
+    ]
+    return sum(1.0 for f in flags if f) / 8.0
+
+
 def composite_hallucination_metric(
     samples: Sequence[Dict[str, Any]],
     *,

@@ -514,9 +514,14 @@ class CAEMPipeline:
             # -- Stage 3b: Route --------------------------------------------- #
             # v2 Fix 12: source_benchmark dispatches per-benchmark
             # safety_u_pre_min_b for the OR-condition.
+            # Branch D (RUC): question is passed so the router can consult the
+            # frozen RUC at the two Tier-3 entry points (safety-veto fall-through
+            # and score-formula fall-through). The router falls back to the
+            # pre-RUC default tier when self.router.ruc is None.
             routing = self.router.route(
                 pre_conf, search_with_ids,
                 source_benchmark=source_benchmark,
+                question=query,
             )
 
         logger.debug(

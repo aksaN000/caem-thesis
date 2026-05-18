@@ -80,14 +80,39 @@ class AdaptiveRouter:
     >>> decision.safety_override   # True if u_pre OR-condition fired
     """
 
-    def __init__(self, config: Optional[CAEMConfig] = None) -> None:
+    def __init__(
+        self,
+        config: Optional[CAEMConfig] = None,
+        ruc: Optional["LRRetrievalUtilityClassifier"] = None,
+    ) -> None:
+        """Initialise the router.
+
+        Parameters
+        ----------
+        config : CAEMConfig or None
+            Threshold container. Defaults to a fresh CAEMConfig.
+        ruc : LRRetrievalUtilityClassifier or None
+            Optional frozen Retrieval Utility Classifier. When provided, the
+            router consults it at the two Tier-3 entry points (safety veto +
+            score-formula fall-through) and re-routes a fraction of those
+            queries to Tier 2 based on the RUC's verdict. Tier 1 and the
+            Tier-2-via-similarity path are unaffected. When None (default),
+            the router behaves exactly as before this commit.
+        """
         self.config = config or CAEMConfig()
+        self.ruc = ruc
 
     def route(
         self,
         pre_confidence: PreRoutingConfidence,
         search_results: Sequence[Union[Tuple[EpisodicEntry, float], Tuple[EpisodicEntry, int, float]]],
         source_benchmark: Optional[str] = None,
+        question: Optional[str] = None,
+        *,
+        top1_passage_text: Optional[str] = None,
+        top1_passage_sim: Optional[float] = None,
+        top1_passage_entity_overlap: Optional[float] = None,
+        p_ik: Optional[float] = None,
     ) -> RoutingDecision:
         """Compute a routing decision for one query.
 
@@ -104,12 +129,28 @@ class AdaptiveRouter:
             ``CAEMConfig.safety_u_pre_min_per_benchmark``, the per-benchmark
             safety threshold is used for the OR-condition check; otherwise
             the pooled ``safety_u_pre_min`` is used.
+        question : str or None
+            Raw query text. Required for the RUC to fire; without it the
+            router falls back to pre-RUC default Tier 3 at both fire
+            points.
+        top1_passage_text, top1_passage_sim, top1_passage_entity_overlap : optional
+            Pre-computed top-1 FAISS retrieval features against CAEM's
+            21M-passage index. The pipeline supplies these; the router
+            does not touch FAISS itself. If any is ``None``, the RUC
+            silently substitutes the training-time stub (``""`` for text,
+            ``0.0`` for the floats) — which degrades the RUC's signal but
+            preserves correctness.
+        p_ik : float or None
+            Pre-computed Kadavath-style direct-correctness probe value
+            on the question's Qwen hidden state. ``None`` falls back to
+            ``0.5`` (no-information prior), again preserving correctness
+            at the cost of one feature.
 
         Returns
         -------
         RoutingDecision
             tier, similarity, u_stored_retrieved, u_pre, routing_score,
-            safety_override, retrieved_entry_id.
+            safety_override, retrieved_entry_id, ruc_output.
         """
         cfg = self.config
         u_pre = pre_confidence.u_pre
@@ -138,18 +179,32 @@ class AdaptiveRouter:
         # -- Mechanism 1 -- OR-condition (MUST be evaluated first) ---------- #
         if u_pre < safety_thr:
             routing_score = cfg.routing_lambda * similarity + (1 - cfg.routing_lambda) * u_stored_retrieved
+            tier, ruc_out = self._consult_ruc(
+                question=question,
+                top1_passage_text=top1_passage_text,
+                top1_passage_sim=top1_passage_sim,
+                top1_passage_entity_overlap=top1_passage_entity_overlap,
+                p_ik=p_ik,
+                source_benchmark=source_benchmark,
+                entry_point="safety_veto",
+                default_tier=3,
+            )
             decision = RoutingDecision(
-                tier=3,
+                tier=tier,
                 similarity=similarity,
                 u_stored_retrieved=u_stored_retrieved,
                 u_pre=u_pre,
                 routing_score=routing_score,
                 safety_override=True,
                 retrieved_entry_id=retrieved_entry_id,
+                ruc_output=ruc_out,
             )
             logger.debug(
-                "OR-condition fired: u_pre=%.4f < %.2f (bench=%s) -> Tier 3 (safety override).",
-                u_pre, safety_thr, source_benchmark,
+                "OR-condition fired: u_pre=%.4f < %.2f (bench=%s) -> Tier %d "
+                "(safety override; RUC=%s).",
+                u_pre, safety_thr, source_benchmark, tier,
+                "DIRECT" if (ruc_out and ruc_out.get("decision") == "DIRECT") else
+                ("RAG" if ruc_out else "n/a"),
             )
             return decision
 
@@ -159,12 +214,25 @@ class AdaptiveRouter:
             + (1.0 - cfg.routing_lambda) * u_stored_retrieved
         )
 
+        ruc_out: Optional[dict] = None
         if routing_score >= cfg.tier1_combined_threshold:
             tier = 1
         elif similarity > cfg.tier2_similarity_threshold:
             tier = 2
         else:
-            tier = 3
+            # Fall-through case: previously forced Tier 3. Consult the RUC if
+            # one is wired in; the RUC re-routes a fraction of these queries
+            # to Tier 2 (parametric CoT) when retrieval is predicted to hurt.
+            tier, ruc_out = self._consult_ruc(
+                question=question,
+                top1_passage_text=top1_passage_text,
+                top1_passage_sim=top1_passage_sim,
+                top1_passage_entity_overlap=top1_passage_entity_overlap,
+                p_ik=p_ik,
+                source_benchmark=source_benchmark,
+                entry_point="fall_through",
+                default_tier=3,
+            )
 
         decision = RoutingDecision(
             tier=tier,
@@ -174,6 +242,7 @@ class AdaptiveRouter:
             routing_score=routing_score,
             safety_override=False,
             retrieved_entry_id=retrieved_entry_id,
+            ruc_output=ruc_out,
         )
 
         logger.debug(
@@ -183,6 +252,68 @@ class AdaptiveRouter:
             cfg.tier1_combined_threshold, cfg.tier2_similarity_threshold,
         )
         return decision
+
+    # ------------------------------------------------------------------ #
+    # RUC consultation helper                                             #
+    # ------------------------------------------------------------------ #
+
+    def _consult_ruc(
+        self,
+        *,
+        question: Optional[str],
+        top1_passage_text: Optional[str],
+        top1_passage_sim: Optional[float],
+        top1_passage_entity_overlap: Optional[float],
+        p_ik: Optional[float],
+        source_benchmark: Optional[str],
+        entry_point: str,
+        default_tier: int,
+    ) -> Tuple[int, Optional[dict]]:
+        """Ask the RUC whether to route to RAG (T3) or DIRECT (T2).
+
+        Returns ``(tier, ruc_output_dict)``. When no RUC is wired in, or the
+        question text is unavailable, falls back to ``default_tier`` and
+        returns ``(default_tier, None)`` — behaviour identical to the pre-RUC
+        router.
+
+        Retrieval features (``top1_passage_*``) and ``p_ik`` are supplied by
+        the pipeline. The router does not touch FAISS or the Qwen model. When
+        any of these are ``None``, the LR RUC silently substitutes the
+        training-time stub — the classifier still produces a probability, but
+        on a degraded feature set.
+        """
+        if self.ruc is None or question is None:
+            return default_tier, None
+        try:
+            kwargs = dict(
+                question=question,
+                source_benchmark=source_benchmark,
+            )
+            if top1_passage_text is not None:
+                kwargs["top1_passage_text"] = top1_passage_text
+            if top1_passage_sim is not None:
+                kwargs["top1_passage_sim"] = top1_passage_sim
+            if top1_passage_entity_overlap is not None:
+                kwargs["top1_passage_entity_overlap"] = top1_passage_entity_overlap
+            if p_ik is not None:
+                kwargs["p_ik"] = p_ik
+            res = self.ruc.predict(**kwargs)
+            ruc_out = {
+                "decision": res.decision,
+                "p_rag": res.p_rag,
+                "threshold": res.threshold,
+                "features": res.features,
+                "flavour": res.flavour,
+                "entry_point": entry_point,
+            }
+            tier = 3 if res.decision == "RAG" else 2
+            return tier, ruc_out
+        except Exception as exc:
+            logger.warning(
+                "RUC.predict raised at entry_point=%s; falling back to tier=%d. "
+                "Error: %s", entry_point, default_tier, exc,
+            )
+            return default_tier, None
 
     # ------------------------------------------------------------------ #
     # Convenience: explain a routing decision in plain English            #

@@ -1,0 +1,5002 @@
+[
+ {
+  "question": "Question: Which is likely to cause changing weather in a specific location? Choices: (A) delogging (B) human campers (C) rabbit mating (D) pet hamsters\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "12-916",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: You can experiment with seeing evaporation by using Choices: (A) magic (B) uncovered mason jars (C) nothing (D) time travel\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "13-204",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Nectar is used to attract pollinators to what? Choices: (A) flora (B) animals (C) soil (D) hives\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "13-762",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Why is acid rain unhealthy? Choices: (A) because it causes drought (B) because it evaporates too quickly (C) It contains various detrimental particles from the air (D) because it causes algae growth\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "8-117",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: If an environment experiences a long drought Choices: (A) animals will experience a boom in reproduction (B) ponds may dry up and kill off the fish population (C) tadpoles will mature faster into frogs (D) plants will continue to flourish\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "14-980",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Which of the following would be a reason you are sick? Choices: (A) a cut on your thumb allowed bacteria inside (B) your hair follicles get dirt on them (C) your stomach digested a delicious breakfast (D) your nose allowed water inside\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "11-210",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Which would an ecologically minded individual most support? Choices: (A) windmills (B) oil (C) fracking (D) gas\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "14-862",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: What is the effect of erosion on a river? Choices: (A) More Volume (B) unchanged (C) Dries up (D) Less Volume\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "14-554",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Other than sight bloodhounds can find a meal by Choices: (A) social media (B) their phone (C) the internet (D) stench\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "14-1112",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Certain moths are able to experience incomplete metamorphosis by Choices: (A) skipping cocooning (B) eating more fruit (C) flying further (D) breeding quickly\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "7-1111",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: This would be associated with a lack of sunlight: Choices: (A) a wide sandy desert (B) carbonic acid in groundwater (C) a tropical beach scene (D) a rice plantation in the North\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "14-959",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: As watering holes dry up more animals will Choices: (A) die (B) move in (C) join together (D) dig wells\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "13-250",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: The moon has Choices: (A) Narwhales (B) Fairies (C) dead volcanoes (D) Unicorns\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "12-353",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Where do grass snakes live? Choices: (A) icebergs (B) a field (C) grass fed cattle (D) amphibians on Uranus\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "12-277",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: The closest thing in the sky to our globe is Choices: (A) a dwarf star (B) a satellite (C) a black hole (D) a planet\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "11-123",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: positively impact your bodies strength by Choices: (A) dead-lifting (B) thinking (C) sleeping (D) singing\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "10-449",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: A thing which has great physical capacity is most likely Choices: (A) hardly healthy (B) in poor health (C) in fantastic health (D) rarely healthy\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "14-1042",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Water solidifies in crevices in the asphalt and splits it apart by Choices: (A) making happy faces (B) occupying more space (C) cheerleaders (D) banana ice cream\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "13-133",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: A person is going to explore in the ocean and sees that when they get down to a darker part, Choices: (A) there is more sunlight (B) there is more weight on them (C) there is more salt (D) there is more booze\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "10-428",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Big flowers have more nectar than small flowers do. Because of this, which flowers will get the most bees? Choices: (A) space cadet (B) smaller ones (C) bigger ones (D) dead ones\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "12-359",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Which would be most useful in determining an areas climate? Choices: (A) Average daily temperatures for five years (B) A flood report from three years ago (C) Last year's rainfall totals (D) A report of a tornado\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "14-1175",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: A person wants to conduct thermal energy through his house, so when deciding on construction materials, he chooses Choices: (A) bits of nickel (B) a wooden beam (C) a plastic shelf (D) a rubber mat\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "8-6",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: A guy wants to figure out how fast makes it to work every day so he looks up Choices: (A) how wide the road is (B) how tall the building is (C) how the weather is (D) the space between destinations\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "10-463",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Freezing point is best represented by Choices: (A) ice sculpture (B) glass of water (C) flowing rivers (D) water falls\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "12-687",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Several batteries placed into a radio will make sound after first using Choices: (A) solar energy (B) wind energy (C) chemical energy (D) elbow grease\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "10-549",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Oil platforms originating from a number of oceanic placements can be related to an unintentional release of what? Choices: (A) oil pumps (B) nuclear fission (C) biological created fuel (D) solar energy\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "12-917",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: How can you safely look at a solar eclipse? Choices: (A) mirror (B) pinhole onto a screen (C) look directly at it (D) you can't look safely at a solar eclipse.\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "19",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: What requires soil to grow? Choices: (A) lakes (B) car engine (C) daffodils (D) cows\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "14-1329",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Jupiter's larger mass and orbit contribute to the formation of this area of debris: Choices: (A) Inner Solar System (B) Oort Cloud (C) Kuiper Belt (D) Asteroid Belt\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "11-446",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Which are likeliest to rely on nonrenewable resources? Choices: (A) windmills (B) dams (C) solar panels (D) cell phones\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "13-662",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Some fields house incredible creatures such as Choices: (A) large rabbits (B) lions (C) wolves (D) mackerel\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "7-1083",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: A river is moving along a path and a piece of paper falls in it. The paper Choices: (A) screams (B) flies (C) sinks (D) relocates\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "10-651",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: All of the following might be found on the natural satellite orbiting our planet excluding what? Choices: (A) H2O (B) rocks (C) dust (D) footprints\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "12-259",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Joe used a flame torch against the side of a bucket and the entire barrel heated up, but didn't burn. What material could the bucket have been made of? Choices: (A) walnut (B) aluminum (C) ice (D) ceramic\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "10-636",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Two rabbits frequently copulate. The result for the rabbits will likely be Choices: (A) broods (B) snacks (C) teeth (D) burrows\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "11-323",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Which would one most likely run into when crossing a stream? Choices: (A) a fire (B) a piranha (C) a painful death (D) a scorpion\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "12-794",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Chlorophyll is good for allowing plants to absorb energy and Choices: (A) is dry (B) is dead (C) is clear (D) is healthy\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "10-235",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Which would be considered exhaustible? Choices: (A) solar (B) oil (C) wind (D) water\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "14-1490",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: During an earthquake, piles of earth can Choices: (A) crash through car windows (B) shift on top of one another (C) pile up on houses (D) kill small animals and birds\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "7-641",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Smoking causes direct damage to what? Choices: (A) feet (B) breathing organ (C) stomach (D) skin\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "13-341",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Renewable resources are Choices: (A) provided by the largest star and wind (B) provided by solar and petroleum reserves (C) provided by the sun and fossils (D) provided by the sun and coal\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "1658",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: A tree must depend upon, for its support Choices: (A) A large fibrous mass (B) plants on the forest floor (C) the wooden welfare state (D) massive redwoods on the backs of turtles\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "10-461",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: What will increase as the animal eats more food? Choices: (A) starvation (B) trees (C) belly size (D) hunger\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "12-84",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: A phase change happens Choices: (A) when onions are chopped (B) when food is digested by the stomach (C) when water is added to a glass (D) when flowers bloom in full\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "7-413",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Which organism uses xylem for materials transport? Choices: (A) saguaro cactus (B) liverwort (C) green algae (D) sphagnum moss\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "1652",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: If a field is planted with something that will be sold later in the refrigerated section, then that something was intended to be consumed by Choices: (A) elephants (B) toddlers (C) bears (D) bees\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "13-500",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: A seismometer will be able to tell someone Choices: (A) how wet a storm made the ground (B) how badly things were shaking (C) how loud a siren was (D) how fast a cheetah is\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "10-296",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: A woman looking through binoculars is watching something Choices: (A) distant (B) near (C) close (D) beside her\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "12-614",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Thee dominant trait will always be visible when Choices: (A) either are missing (B) both are missing (C) both are present (D) the recessives present\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "10-28",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: An example of a ferromagnetic metals could be Choices: (A) wood (B) a coin (C) plastic (D) china plates\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "12-1102",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Mineral graphite could be found in places such as Choices: (A) happy kittens (B) pink candles (C) wild oats (D) office supplies\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "11-509",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: all animals Choices: (A) fly (B) are telepathic (C) dig (D) intake gaseous elements\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "13-320",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Which animal emits something that many autistic people would be extra sensitive to? Choices: (A) cow (B) dog (C) cat (D) skunk\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "9-1116",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: The outer shell of our planet is made of Choices: (A) sedimentary formations (B) plastic (C) foam (D) cheese\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "14-199",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: What does a seismograph measure? Choices: (A) the motion produced by underground collisions (B) the quaking of a man in fear (C) how strong the earth quakes beneath a stampeding herd (D) how strong waves can break plates\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "1826",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: some humans live in Choices: (A) volcanoes (B) bombs (C) constructed environment repellents (D) leaves\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "13-814",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: After a whiteout you need to Choices: (A) remove snow (B) login to Warcraft (C) wish for snow (D) apply suntan lotion\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "13-807",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: A person needing to last a long time in an arid space with limited water sources will Choices: (A) drink sparingly (B) drink frequently (C) drink greedily (D) drink liberally\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "11-720",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: What causes erosion? Choices: (A) salads (B) concrete (C) gales (D) cars\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "14-581",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Putting a cardboard box in a bin instead of the trash can Choices: (A) conserve energy for later (B) save wild animal species (C) keep it from the trash (D) reduce the height of landfills\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "7-950",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Arctic animals often live on Choices: (A) ice (B) soil (C) liquid water (D) plants\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "144",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Peat may be beneficial to Choices: (A) cats (B) birds (C) tomatoes (D) dolphins\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "10-816",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: A woman leaves some meat on the counter, and bacteria begins to quickly grow on the surface. This bacteria may cause Choices: (A) turned food (B) growing beans (C) sticky toffee (D) pocked oranges\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "9-17",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: What does planting native plants has a positive impact on? Choices: (A) markets (B) territory (C) winds (D) economies\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "10-582",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Why might you want to wear safety goggles while working in a lab? Choices: (A) Safety goggle give you x-ray vision (B) Caustic liquid man-made substances can fly up (C) They protect your eyes from the sun (D) Mosquitoes are a problem\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "10-342",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Plate shifting likely directly created Choices: (A) oxygen (B) the Alps (C) human life (D) ocean spray\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "14-1355",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Ligers are less likely to thrive when there is Choices: (A) massive antelope herds (B) famine (C) abundant food (D) readily available prey\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "14-881",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: When the sun rises, there is light and it is daytime. When is it night time? Choices: (A) when its blue and Pink (B) when its down and lightless (C) when its seven and eight. (D) when its dead and gone\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "14-489",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: A bird species may decide to relocate to hotter areas when weather Choices: (A) sears (B) cools (C) warms (D) burns\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "11-392",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Maggots eat flesh turning it into Choices: (A) dryer (B) nourishment for soil (C) rancid (D) deadlier\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "13-717",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Who can hear sounds? Choices: (A) boulders (B) giraffes (C) rocks (D) stone statues\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "13-1058",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: A cloud gets fat and heavy and dark. The sky gets darker. The next step to expect is Choices: (A) ice (B) precipitation (C) sunshine (D) flowers\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "10-1151",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: A breeze is blowing across a field, growing stronger and stronger. The breeze becomes a storm of wind, moving rocks and breaking trees. This wind is likely the cause of Choices: (A) evenly heated spaces (B) unevenly distributed heat (C) heated earth spaces (D) space heaters\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "9-236",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: If someone wants to see the celestial bodies clearly they would use Choices: (A) a freshly printed magazine (B) a dirty old sneaker (C) a paper towel tube (D) a lengthened glass tube\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "12-208",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: What is a unit for measuring heat energy? Choices: (A) kg (B) m (C) s (D) F\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "768",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Which is likeliest to harm an organism? Choices: (A) a naval mine (B) a short drizzle (C) eating a meal (D) a light breeze\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "11-327",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: A metal rod is sitting outside and soaks up a lot of energy from a star, so the metal Choices: (A) cries (B) wiggles (C) sears (D) dies\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "10-777",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: The population of rabbits in an area increases. That could have been caused by Choices: (A) More predators have been moving into the area (B) The rabbits are becoming infertile (C) Hunters are trapping the rabbits (D) More precipitation falling lately\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "9-388",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Winning a race requires you to be reach the finish line in a before your opponents, so using what will measure how much faster you win or lose by? Choices: (A) a rabbit (B) a cup (C) a cotton swab (D) a stopwatch\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "11-190",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Mechanical weathering is a end result of a Choices: (A) wind turbines (B) solar panel (C) shad tree mechanic (D) giant ice river\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "12-619",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: A person who is paid to learn about scientific things would spend most of their time Choices: (A) at home (B) sight seeing (C) viewing things (D) on vacation\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "11-128",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: which of these would get bigger and recover from injuries better? Choices: (A) a child who eats thrice a day (B) a malnourished little child (C) a child who gets insufficient diet (D) a child who eats six times a week\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "13-1061",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: A cup of cold coffee will warm up when heat is applied such as through Choices: (A) a metal chair (B) a flat napkin (C) an electrical plate (D) a wood table\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "11-272",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Depressions in building materials that fill with frozen water will Choices: (A) decompose (B) collapse (C) contract (D) expand\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "10-1219",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: On a morning when the weather is clear, the sky is Choices: (A) bright (B) cloudy (C) stormy (D) dark\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "10-115",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: he sun rising and setting causes cycles of Choices: (A) evolution (B) available luminance (C) dancing (D) cooking\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "13-329",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: If you viewed an eclipse from the moon Choices: (A) You would transport to another dimension (B) It would change time (C) You would be thrown off the moon (D) it would go in reverse\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "8-87",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Death begins for a leaf the second it Choices: (A) is released (B) is eaten (C) is born (D) is burned\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "12-14",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: moist means high in what? Choices: (A) rock (B) solids (C) watery (D) heat\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "14-456",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: A storm is covering a town in sleet, which means that things Choices: (A) will be dry (B) will be burning (C) will be slick (D) will be toasty\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "11-369",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Why animal may use a rock as shelter Choices: (A) Centipede (B) Dolphin (C) Seagull (D) Dog\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "9-541",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: What might I be doing during the day cycle on earth? Choices: (A) using magic (B) having a picnic (C) time traveling (D) driving flying cars\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "12-160",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: If a thing experiences a burning combustion, then it is Choices: (A) damaged (B) fine (C) great (D) safe\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "12-777",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: A horse in a field under the summer sun was glistening wet even though it hadn't rained. Choices: (A) the other horses were licking that horse (B) sweat glands released liquid to cool off the horse (C) sweat glands dried up (D) The horse needed a shower and was getting oily\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "10-920",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Which is the correct relationship? Choices: (A) the moon orbits the sun which orbits the Earth (B) the moon orbits the Earth which orbits the sun (C) Earth orbits the moon which orbits the Earth (D) Earth orbits the sun which orbits the moon\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "11-594",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: In order for crops to grow food safely pesticides are used on them. When it floods, this can cause what to be poisonous? Choices: (A) Corn (B) air (C) Runoff (D) farmers\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "12-297",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Which organism likely contains chlorophyll? Choices: (A) bamboo (B) pandas (C) protozoa (D) humans\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "11-489",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Which of the following would have best aided a vessel at sea in crossing the sea in the 18th century? Choices: (A) A radar system (B) An old soothsayer (C) An experienced navigator (D) A crow's nest\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "13-407",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: A person wants to play a song out yet lacks an instrument, so they can Choices: (A) think about a piano (B) hold a paper towel tube (C) flick a taut rubber band (D) look at a table\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "11-38",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: What usually occurs over a period of many years? Choices: (A) tides (B) lightning (C) rock breaking (D) floods\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "14-58",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Just a few days ago, Beth waded into her family's pond. Now when she stepped off the bank the pond was hard and she could walk on the surface. What happened? Choices: (A) a cold front had moved into the area (B) The pond had drained into an underground river (C) There was a lot of algae on the pond's surface (D) It had rained the night before\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "11-144",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: If a house burns down, the goldfish inside may do what? Choices: (A) quit swimming (B) be hungry (C) grow (D) get smarter\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "13-881",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: It's hard to manage a truck where there's Choices: (A) a slight breeze (B) foggy conditions (C) some small clouds (D) diffused sunlight\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "13-401",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: do all insects have to undergo every stage of change before becoming full grown? Choices: (A) all of these (B) insects are born live (C) pupa stage is sometimes skipped (D) pupa is a required stage\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "9-649",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: If a person has an unwanted raccoon rifling thru their trash they should Choices: (A) be sure to keep their trashcan tightly closed and secured (B) leave more scraps out for the raccoon (C) be sure to put out some water so the raccoon is super healthy (D) put loose food scraps in the trashcan\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "13-720",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Which type of vegetation could you find in areas with low rainfall? Choices: (A) sunflowers (B) cacti (C) rose bushes (D) palm trees\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "14-166",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: If an area of land is sloped to the right and a body of water is on that slope, then the river will flow Choices: (A) pollution (B) to the right (C) species (D) to the left\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "10-573",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Converting electricity into different types of energy may be done by Choices: (A) rocks (B) folding chairs (C) squirrels (D) DVD players\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "11-476",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: a student notices a large number of hawks in the playground, what will likely happen to the lizards? Choices: (A) they will flourish and thrive (B) their kind will dwindle (C) they will become predators (D) all of these\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "9-357",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Eric is pushing a box up a ramp. He notices that it is much more difficult than it was a couple of hours earlier. This could be due to Choices: (A) The box is a lot lighter than it was earlier (B) the box being grey (C) his box being more voluminous (D) the ramp is more high angle then it was earlier\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "12-88",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Coal and oil directly removed from the ground are Choices: (A) directly consumed (B) thrown away (C) made into products (D) stored underground\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "722",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: If you want to bottle your own pop, you should invest in Choices: (A) Andy Warhol paintings (B) an aluminum mine (C) blonde dye bottles (D) a telescope\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "10-868",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: When the population of an organism decreases to the point that it is considered very likely it will soon reach zero, the organism is considered Choices: (A) Extinct (B) Near-threatened (C) Vulnerable (D) Endangered\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "13-168",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Breath includes which of the following? Choices: (A) Energy (B) Chemical (C) Vapor (D) Cells\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "14-1423",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Tiny particles of moisture may be found Choices: (A) in what we all breathe (B) under the ocean waves (C) exclusively in hot steam (D) only in cumulus clouds\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "7-354",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Which animal is likely hotter than it should be if its tongue is sticking out? Choices: (A) a lizard (B) a golden retriever (C) a rabbit (D) a human\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "12-1004",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: To positively impact an ecosystem Choices: (A) smoke (B) litter (C) burn plastic (D) sow seeds\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "13-413",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: When the moon, sun, and earth line up, tides are at their Choices: (A) Happy (B) Max (C) Min (D) Middle\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "12-123",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: If you place a piece of paper on a hot object it will leave a Choices: (A) damp spot (B) a curl (C) some ice (D) a singe mark\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "14-349",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Many animals entered the city because of Choices: (A) global warming (B) buildings (C) warm streets (D) logging\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "7-335",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: An omnivore, such as a bear, will have many animals that are Choices: (A) cuddling with it (B) hungry for it (C) consuming it (D) fearful of it\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "11-326",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: What can you see yourself in? Choices: (A) a tar pit (B) a deep cave (C) clear mountain lake (D) an abyss\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "13-1033",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: What provides the energy to open a doorknob? Choices: (A) you (B) a ghost's hand (C) alloys (D) electricity\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "13-1004",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: The main reason people want to use wind as an energy source is because there is Choices: (A) make cookies (B) Sing songs (C) smile (D) an everlasting supply\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "14-1259",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Dinosaur carcasses are a form of Choices: (A) car parts (B) fuel (C) fun (D) food\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "12-279",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Who'd be able to see a rose is pink at night? Choices: (A) rocks (B) the Rio Grande (C) a beeping sound (D) lemurs\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "14-712",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: torrential downpours can cause the side of a hill to become Choices: (A) depressed (B) rock hard (C) greener (D) unstable\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "10-18",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: An example of pollution might be Choices: (A) recycling old glass to make a house (B) throwing plastic in the ocean (C) donating clothes to a thrift shop (D) Using old shirts to make a blanket\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "13-11",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: A bear that has great strength, when compared to a bear with little strength, will likely be Choices: (A) sickly (B) objectively fit (C) malnourished (D) in poor health\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "11-571",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: The Earth may lose a million parts of energy each day but Choices: (A) it loses more (B) it has less (C) it gains more (D) it is soft\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "10-347",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: What do plants do after they use their chlorophyll to make energy from sunlight? Choices: (A) use it right away (B) sell it to someone (C) save it for future use (D) give it to a friend\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "12-310",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: if a driver drove by a corn field and tossed out his lit cigarette, what could happen? Choices: (A) the corn will grow stouter (B) the corn would experience conflagration (C) the corn would grow bigger than normal (D) the corn will be more tasty\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "12-724",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Taking shorter hot showers Choices: (A) will increase water usage (B) will aid in preserving the water supply (C) will aid in consumption of the water supply (D) will overwork the water heater\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "8-356",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: A consumer must locate it's own Choices: (A) tools (B) nutrition (C) soul (D) clothes\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "10-1006",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: If all the water in the Atlantic ocean evaporated, the Atlantic ocean will Choices: (A) get bigger (B) become a lake (C) cease to exist (D) get smaller\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "13-1043",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Which would likely reproduce? Choices: (A) copiers (B) waterfowl (C) rocks (D) rivers\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "14-891",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: If a tree is being discussed and those talking want to know its age, they will Choices: (A) think about it (B) bury it (C) look at leaves (D) look inside it\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "12-303",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: On what surface does a braking car have the most trouble? Choices: (A) gravel (B) oil slick (C) sand (D) asphalt\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "13-330",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Which is the least massive? Choices: (A) the Earth (B) the moon (C) the sun (D) the solar system\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "11-8",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: These would likely be broken down and recycled Choices: (A) waste helium (B) waste hydrogen (C) pallets (D) waste oil\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "13-880",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: What material can be used to transmit power to a light bulb? Choices: (A) plastic (B) metal (C) wood (D) cloth\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "14-118",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: A thing that disperses will Choices: (A) gather things (B) build things (C) relocate things (D) destroy things\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "10-989",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Like humans, when some animals get hot, they do what in order to lower their body temperature Choices: (A) spend money (B) raise blood temperature (C) fly away (D) perspire\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "14-1336",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: If a person is blind and needs to know the color of a sign, they Choices: (A) have someone describe it (B) fill out a form (C) are out of luck (D) make a best guess\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "12-929",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Why would happen if the screw was loose on a bicycle's tire? Choices: (A) it would need to be repaired (B) you could tape it (C) it might fall off (D) it might get flat\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "1413",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: A person is cooled by a liquid coming from the Choices: (A) clothes (B) eyes (C) hair (D) skin\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "7-1049",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: What is an example of predators eating prey? Choices: (A) a boa constrictor devouring a monkey (B) a horse trampling a mouse (C) a cat eating a piece of grass (D) a whale eating tons of algae\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "1529",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: A scale is used to measure what? Choices: (A) location (B) heaviness (C) length (D) height\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "13-757",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Playing music at a certain frequency may Choices: (A) shatter a glass (B) send sound outside (C) hurt your teeth (D) crack a mirror\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "7-109",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: John's dog seemed to be getting chubby. He concluded that Choices: (A) the dog was sleepwalking. (B) the dog was getting more exercise (C) the dog was overindulging in meals and snacks (D) the dog was refusing to eat\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "14-100",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: What can be used more than one time? Choices: (A) coal (B) soda bottle (C) gas (D) oil\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "8-319",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: The pine farms experience destruction yearly due to Choices: (A) a water bottle (B) rubbing two sticks (C) abrupt electric discharge (D) loose gas cans\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "12-1006",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Which would likely occur in nature? Choices: (A) a horse hatches from an egg (B) a bird comes directly from the womb (C) a frog comes from its mother indirectly in the form of an egg (D) a fish comes on land to give birth\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "11-453",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Which would an alligator eat Choices: (A) spider (B) crab (C) squid (D) tilapia\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "9-1074",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: if a river ran through a region, what would be found close by? Choices: (A) land mass susceptible to water encroachment (B) active life coral reef (C) acid rain susceptible area (D) very active volcanic mountains\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "12-1012",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Which requires an outlet? Choices: (A) cold iced tea (B) usb tape player (C) frothy beer (D) blowing leaves\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "13-1050",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Clouds are made up of moisture particles that are held in the sky until Choices: (A) weight works against it (B) the storm starts to approach (C) the weather starts to change (D) winter arrives sooner than later\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "7-560",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: a plant needs this to survive Choices: (A) bugs to eat (B) liquid food (C) finger food (D) nutritional material\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "9-1064",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: A river can push tin cans down the path of the water because Choices: (A) it has motion (B) it is wet (C) it is loud (D) it is strong\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "7-1156",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Sound can be used for communication by Choices: (A) creatures (B) plants (C) water (D) planets\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "9-536",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: When car is close to the runner the illumination of the motorized entity is at a higher level because? Choices: (A) moons gravity (B) motion (C) it is closer (D) sun rotation\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "9-1079",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Sycamores have the worlds largest Choices: (A) trunk (B) friends (C) leaves (D) location\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "14-828",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: All the plants in an area have died from a fire. Why would carnivores like foxes be less abundant as a result? Choices: (A) the wolves left the area (B) the foxes were bored without any live trees to climb (C) the foxes normally eat only plants (D) the rabbits and mice in the area needed the plants\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "14-551",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: If a person is lacking a skeletal system they are Choices: (A) thrilled (B) muscular (C) kind (D) spineless\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "12-899",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Powdered substances such as oregano and pepper that are used to add flavor to foods come from Choices: (A) beef (B) petroleum (C) cheese (D) producers\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "14-12",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: A day that is cloudy will Choices: (A) be likely to precipitate (B) have only bright sunshine (C) have empty blue skies (D) be sunny and clear\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "11-599",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: A cousin to the mole survives on Choices: (A) plants (B) rocks (C) rats (D) rabbits\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "14-836",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Living things all require energy for what? Choices: (A) dying (B) observing (C) staying perky (D) decaying\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "14-466",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: If an ice cube that weighs 2 ounces melts, in liquid form, it will Choices: (A) fly away (B) be 11 ounces (C) 8 ounces (D) weigh the same\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "14-988",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: When a cell takes in in oxygen an use cellular respiration it will then expire Choices: (A) water (B) smoke (C) CO2 (D) sunlight\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "14-1048",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: A person can eat a seed if they are consuming raw Choices: (A) soup (B) elk (C) fish (D) duku\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "12-455",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: If a hog is going to eat dinner it can Choices: (A) produce fresh food (B) make a reservation (C) search for it (D) make its own\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "12-969",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: In saltwater, a squid's method of locomotion results in water being Choices: (A) pushed in front of it (B) sung about by Jethro Tull (C) displaced in the Great Lakes (D) displaced directly behind it\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "12-501",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Which is most reliant on nonrenewable resources? Choices: (A) a solar panel (B) an electric car (C) an 1800s train (D) a modern bus\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "12-1091",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: A person wants to make some tomato plants grow, so they get Choices: (A) older (B) dirt (C) corn (D) married\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "10-673",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Which of the following would be considered nonliving? Choices: (A) a hair still on your head (B) a rabbit hopping along (C) a fallen palm leaf (D) a human jogging down a track\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "11-703",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: changes in an environment cause plants to Choices: (A) morph for continuation (B) boogie (C) bake cakes (D) take long naps\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "13-26",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: What substance covers more than sixty nine percent of the third rock from the sun? Choices: (A) Desert (B) Cities (C) Ocean (D) Forest\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "8-492",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: To be a friend of the environment Choices: (A) buy products that can be reused (B) drive a gas guzzling car (C) throw aluminum cans in the trash (D) litter in public parks\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "10-949",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: what kind of changes in an environment will cause a plant to adapt to survive? Choices: (A) new laws (B) lack of light (C) new poetry (D) loud music\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "10-14",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: If someone wants to walk towards the magnetic north pole they should Choices: (A) walk to the east (B) walk parallel to the way their compass is pointing (C) walk perpendicular to the way a compass is pointing (D) catch a bus ride\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "13-325",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Which is most accurate? Choices: (A) dams can capture powerful gusts and harness their power (B) windmills can capture lightning bolts and harness their power (C) dams can capture lightning bolts and harness their power (D) windmills can capture powerful gusts and harness their power\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "12-1137",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Which number is likely an inherited characteristic of a human? Choices: (A) 5 favorite shirts (B) 5'10 (C) 10 dogs (D) 15 friends\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "14-858",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: A storm moving over the earth will dump more rain on a Choices: (A) meadow (B) sandy area (C) arctic (D) desert\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "14-553",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: An acquired characteristic is Choices: (A) a jagged raised welt you've had since you fell down the stairs 6 years ago (B) freckles from your mom's genes (C) brown, curly hair that resembles your sister's (D) a large nose just like your dad's\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "10-290",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: what celestial body is after the 8th one in this solar system? Choices: (A) earth (B) venus (C) pluto (D) jupiter\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "10-687",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: A person finishes drinking a bottle of water and notices that at the bottom of the bottle is a small symbol, consisting of three arrows in a triangular shape. This symbol tells the person that they should Choices: (A) have it reprocessed (B) burn the bottle (C) reuse the bottle (D) remake the bottle\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "9-599",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Which of these can you use as much as you'd like of without diminishing it at all? Choices: (A) natural gas (B) sunlight (C) good will (D) fossil fuels\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "13-967",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Carnivores' only source of what comes from other animals Choices: (A) flying (B) money (C) restaurants (D) sustenance\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "14-587",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Rain can damage Choices: (A) happiness (B) the carpet (C) love (D) Space\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "12-888",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: If one is hitting ebony and ivory and making sound Choices: (A) that is a kitchen utensil (B) that is an instrument of pain (C) that is a scientific instrument (D) that is playing Chop sticks\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "14-1030",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: A substance that has two hydrogen atoms and an oxygen atom is Choices: (A) green (B) renewable (C) alive (D) radioactive\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "13-403",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: If a thing is residing in a hollowed out part of a tree, then it is probably Choices: (A) a whale (B) an antelope (C) a person (D) a scavenger\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "13-799",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Omnivores would dine on Choices: (A) leafy greens and steak (B) only that which inhabits the sea (C) only steaks or burgers (D) only that which grows from the ground\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "12-250",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Over a period of years in direct heat and sunlight, a large boulder may be Choices: (A) frozen (B) catapulted (C) ravaged (D) rotted\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "9-697",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Compared to a regular swimmer, a scuba diver deals with more Choices: (A) heat (B) pressure (C) water (D) air\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "172",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Flashlights require batteries Choices: (A) to properly illuminate objects (B) to illuminate alien creatures (C) to be used as a weapon (D) to meet height values\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "13-640",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Which of the following likely make up a path for electrical energy to travel to a device? Choices: (A) steel or copper (B) rice or beans (C) peaches or cream (D) cotton and solar\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "14-79",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: What does a salamander eat? Choices: (A) mice (B) Venus flytraps (C) fleas (D) bats\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "13-349",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: A deer created a rose garden by Choices: (A) pooping (B) feelings (C) time travel (D) screaming\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "12-779",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: If milk is going to be measured, it can be measured in Choices: (A) only a thin tube (B) only a round dish (C) any kind of shape container (D) only a square container\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "12-136",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: if a student asked a teacher about the size of a certain item, what could be an indicator? Choices: (A) the volume of the item (B) the color of the item (C) the luster of the item (D) the depth of the item\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "13-23",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: As the flower size increases, what will it attract more of? Choices: (A) monarchs (B) grass (C) carnivores (D) toy butterfly\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "10-283",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: A seismometer would be ineffective Choices: (A) on dry land (B) on a star (C) on the coast (D) on a continent\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "14-496",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Hummingbirds gather nectar using their Choices: (A) bills (B) wings (C) hands (D) feet\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "10-40",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Which of these could be separated with a sifter Choices: (A) a cup of coffee (B) a bowl of melted ice cream (C) a bottle of water (D) a bowl of cereal\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "13-949",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: When being pursued by a lion Choices: (A) a ram will leap (B) a mouse will hide (C) a cheetah will fight (D) a giraffe will dash\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "7-752",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Which of these allows humans to walk around? Choices: (A) luck (B) glucose (C) magic (D) sand\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "13-647",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Which is true? Choices: (A) the equator has winter and summer at the same time (B) humans on the equator celebrate Christmas in May (C) the equator is always cold (D) humans on the equator can go either north or south to change season\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "12-706",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: The more often wildfires take place on a space of land, the more often we will see Choices: (A) animal groups in decline (B) animal populations growing larger (C) more birds moving in (D) larger deer starting families\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "12-370",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: A suit of armor pulls which of these to it easily? Choices: (A) a stick (B) a paper leaflet (C) a fridge decoration (D) a wooden cog\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "14-815",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: if a cloud deposits its contents to the earth, which of these may be true? Choices: (A) the moon will shine brighter (B) the open fair will be a success (C) the river will dry up (D) the farmers would rejoice\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "12-512",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Thirteen times a year, roughly, the moon Choices: (A) crashes into the Earth (B) is orbited by the Earth (C) lights up the Earth (D) completely rotates the Earth\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "8-311",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: To discover how durable a certain mineral may be, one could Choices: (A) crush it in a vise (B) view the atomic weight of it (C) attempt to leave a mark on it (D) melt it down and pour\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "10-877",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: If we cut down trees from the rainforest what will suffer more? Choices: (A) Buildings (B) Cars (C) Space (D) Cats\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "12-406",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: A glacier moves like a Choices: (A) crocodile (B) tortoise (C) Komodo dragon (D) rattlesnake\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "12-1147",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Twenty four hours contains one Choices: (A) high tide (B) 4 million seconds (C) solar cycle (D) week\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "10-391",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Why would a bear eat so much that his fat wobbles when he walks? Choices: (A) so that other animals can have fun jumping on his belly (B) because he feels depressed (C) to be a bigger target for hunters (D) to prepare for the snowy season\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "14-457",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: A creature with ability to lose hair is the Choices: (A) clam (B) fly (C) fish (D) dalmatian\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "12-1170",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: A mouse is made up of Choices: (A) straw (B) organic material (C) dairy (D) buttons\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "10-1163",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: a force acting on an object in the opposite direction that the object is moving can cause that object 's speed to decrease in what motion? Choices: (A) frontward (B) backward (C) downward (D) upward\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "10-159",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Tectonic plates are like a large Choices: (A) pizza (B) jenga (C) marshmallow (D) candy cane\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "13-798",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: What requires energy to move? Choices: (A) a rock (B) a cloud (C) a monkey (D) a leaf\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "13-680",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Which of these animals could keep itself warmest? Choices: (A) a squirrel (B) a whale (C) a chihuahua (D) a cat\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "14-458",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Treated water is unlikely to have Choices: (A) drinkable fluid in the system (B) a clear color throughout (C) harmful contaminants flowing within it (D) better water then pretreatment\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "12-1078",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Leaving remain oil supplies alone is a form of Choices: (A) conservation (B) deliberation (C) transportation (D) pollution\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "10-258",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Which is true? Choices: (A) balloons and stars are composed of exactly the same materials (B) balloons and stars are the same size (C) stars and balloons share some of the same gases (D) balloons and stars contain sodium\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "13-581",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: If a living animal is going to be in an ideal situation, at a minimum it will have Choices: (A) a residence (B) a beating (C) a sled (D) a liver transplant\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "14-71",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Squirrels stay busy in the autumn Choices: (A) storing water (B) amassing pecans (C) planting flowers (D) sleeping late\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "9-581",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Driving during a snow storm or strong thunderstorm is a bad idea because bad weather makes it Choices: (A) harder to see (B) Easier to see (C) able to fly (D) glasses\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "14-701",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: A person has a restaurant where they have a salad bar. The salad bar is packed with ice to keep food cold. The ice may last longer if Choices: (A) the room is warm (B) salt is heavily applied (C) people eat the food (D) food is already warm\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "11-192",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: What requires nutrients to grow and heal? Choices: (A) birds (B) computers (C) dirt (D) metals\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "12-230",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: A compass' needle points north the same way that geese know to fly south in winter, because of Choices: (A) unknown circumstances (B) magnetic pants (C) Earth's pull (D) magnetic shoes\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "11-269",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: A producer produces it's own Choices: (A) nourishment (B) plays (C) rhythm (D) heartbeat\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "14-290",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: the earth revolves around the sun in Choices: (A) a day (B) a year (C) a week (D) a month\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "13-410",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: The condor screamed in pain as its wing was singed by the Choices: (A) ice (B) water (C) electricity (D) campfire\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "7-118",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Hotter blood is rarely found Choices: (A) in horny toads (B) in rats (C) in humans (D) in bears\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "12-953",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: An animal would have its inner parts better protected if it had which of these? Choices: (A) a backpack on its back (B) a calcium fortified internal structure (C) none of these (D) a shell of cotton\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "8-408",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: A prickly pear absorbs nutrients from Choices: (A) below it (B) far from it (C) beside it (D) above it\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "7-1009",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: After being driven, a car's hood feels Choices: (A) furry (B) hotter (C) soft (D) cold\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "14-57",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Warm weather organisms live in what kind of climates? Choices: (A) icey (B) summerlike (C) frosty (D) frigid\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "14-948",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Which of the following could make more people want to wear masks? Choices: (A) A bicycle race with hundreds of participants (B) the use of electric lawn mowers (C) contaminated hamburger meat from the grocery store (D) a bus that uses a petroleum product for fuel\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "9-722",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: An example of an instinctive behavior is a baby bird pecking at its shell to what? Choices: (A) emerge (B) hide (C) eat (D) remain\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "14-781",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: A knife refuses to stick to a blanket due to Choices: (A) luck (B) gravity (C) lack of magnetism (D) tension.\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "1210",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: If you need something to mix kool-aid, what would you avoid? Choices: (A) faucet water (B) well water (C) seawater (D) bottled water\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "14-259",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: The wheels of a skateboard spin around a Choices: (A) shaft (B) street (C) person (D) board\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "12-987",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: An electrical conductor is a vehicle for what? Choices: (A) people (B) water (C) sunlight (D) zapping energy\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "12-966",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: What best explains a muddy road becoming dry later? Choices: (A) alien heat rays (B) evaporation (C) precipitation (D) torrential rain\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "14-1459",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: For it to survive, the horse relied on its owner to bring it Choices: (A) a harness (B) a lead. (C) grain (D) a saddle\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "684",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: If an scientist is stationed in the south pole during their winter, what season is it in the arctic region Choices: (A) Fall (B) Winter (C) Summer (D) Spring\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "14-1038",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: if a human-like entity was spotted breathing normally under water, it might have developed which of these to make that happen? Choices: (A) eyes for seeing things (B) wings for flying around (C) limbs for walking upright (D) special parts for underwater respiration\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "13-63",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: A body needs fiber to make healthy bowel movements and this can be absorbed by consuming Choices: (A) water (B) cheese (C) eggs (D) broccoli\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "10-603",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: If a person has a respiratory system then they are able to remove from a room Choices: (A) time of day (B) all warmth (C) the paint color (D) breathable gas\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "11-294",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: A woman visits the same beach year after year, and begins to notice a change to a large wall of stone. Where the water touches the rock, she notices that the rock shows signs of being dissolved. After two year, there is an indent in the rock. After fifty years, the woman discovers that the rock Choices: (A) is now an underground chamber (B) is now solid gold (C) is now about to explode (D) is now much bigger\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "8-357",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: What United States unit of measurement would be most comparable to a meter stick Choices: (A) Mile Marker (B) ruler (C) Tape Measurer (D) Yardstick\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "9-721",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Some birds have adapted to their cold environment by over time evolving to have thicker feathers in order to Choices: (A) go to space (B) avoid freezing (C) eat dinosaurs (D) nothing\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "14-1025",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: A lack of water has a direct connection on the amount of available Choices: (A) shelters (B) sustenance (C) rainy days (D) mates\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "10-297",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: If I am out in the sun all day I should Choices: (A) go naked (B) drink wine (C) avoid it occasionally (D) wear a coat\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "10-1042",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: What is most impervious to an ax? Choices: (A) a thin branch (B) a neck (C) a twig (D) a boulder\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "13-796",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Which of the following would push water out of its body to evade an orca? Choices: (A) a squid (B) a shark (C) a flounder (D) a lobster\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "13-438",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: An animal's brain Choices: (A) acts as a conduit for the lungs (B) acts as a command base for the body (C) lacks the ability to use spacial reasoning (D) only assists in movements\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "1432",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Which creature is built to move though wet currents? Choices: (A) a human (B) a porpoise (C) a cat (D) a bird\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "12-1084",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: The wolf raises his family near a Choices: (A) den (B) field (C) tree (D) mother.\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "7-874",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: dry wood easily Choices: (A) grows (B) freezes (C) shrinks (D) incinerates\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "10-778",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: To aid in keeping your outdoor animals warm in the winter Choices: (A) put their shelters directly in the way of the wind (B) put their shelters on top of cement (C) attach thermal insulators to their shelters (D) attach shingles to their shelters\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "1877",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: what sheds fur in warm weather? Choices: (A) A Great Dane (B) a lizard (C) a bird (D) a fish\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "10-365",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Weather is getting a little more chilly, so a flock makes their way Choices: (A) elsewhere (B) north (C) Narnia (D) the moon\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "10-298",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: What is an example of the Earth rotating on its axis? Choices: (A) constellations are only visible in some parts of the world during certain months (B) cloud coverage varies depending on the season (C) it is always cold in Antarctica (D) the equator moves up and down around the Earth\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "1237",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Pushing on a pedal is an example of Choices: (A) force (B) patching (C) practice (D) speed\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "297",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Metamorphosis is complete at Choices: (A) adulthood (B) embryo (C) hatching egg (D) larva\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "14-886",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Glaciers doing what has a negative impact on the glacial environment? Choices: (A) liquifying (B) growing (C) freezing (D) cooling\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "10-658",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Adding force to a moving train will: Choices: (A) cause it to travel further in the same time (B) cause the structure to take up less space (C) cause it to travel less distance in the same time (D) increase the mass of the structure\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "9-231",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Which is likeliest to let a spark pass through? Choices: (A) a wool sweater (B) a t shirt (C) a rubber eraser (D) a soda can\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "12-169",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Thunder clouds are Choices: (A) filled with beautiful music (B) of a significant weight (C) the color light pink (D) take 10 years to form\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "8-212",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: You are shivering and see flurries; you remember that you are in the Northern Hemisphere. What day is it most likely? Choices: (A) the autumnal equinox (B) the vernal equinox (C) the summer solstice (D) the winter solstice\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "12-32",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: A pile of mulch is broken down and when searching for the culprit, a gardener notes Choices: (A) wriggling organisms (B) writing organisms (C) large trees (D) wild fires\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "10-321",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: an animal that moves quickly through the water is a Choices: (A) swordfish (B) snail (C) tadpole (D) sea horses\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "10-1093",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Force causes the speed of an object to do what? Choices: (A) lessen (B) uptick (C) decrease (D) lower\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "13-256",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: If a ruler is going to measure something, it will most likely be used to measure a Choices: (A) gram of salt (B) liter of gasoline (C) curtain (D) ounce of milk\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "12-1093",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: The sun causes what to happen to water at a more rapid pace when heat is added? Choices: (A) water volume maintains exactly (B) water levels rise as moisture is held in the water (C) the heat makes the water boil as it reaches higher temperatures (D) heat causes the water to lose volume as moisture is pulled into the air\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "1286",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: What have a negative impact on the environment? Choices: (A) plants (B) trees (C) recycling (D) dumpyards\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "13-441",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: A plant photosynthesizing will do a more efficient job it it has Choices: (A) thirty leaves (B) ten leaves (C) six leaves (D) one leaf\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "11-752",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Pollution is Choices: (A) Fish swimming in the sea (B) The wind carrying seeds (C) trees in a forest (D) throwing a gum wrapper in the ocean\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "9-237",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: An example of thermal conductivity is Choices: (A) Leaving a fire log poker in the fire place (B) Sitting down on a bed (C) Throwing a large ball (D) Yelling into a megaphone at a crowd\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "8-452",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Some lizards can live in Choices: (A) environments lacking oxygen (B) moisture deficient environments (C) zero gravity environments (D) food barren environments\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "7-733",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: As Ethanol burns it expels what into the ozone Choices: (A) radiation (B) lightning (C) CO2 (D) nitrogen\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "14-518",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Mountains exist on a planet next to Choices: (A) Saturn (B) Mars (C) Neptune (D) Uranus\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "7-889",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Which is the source of a nonrenewable resource? Choices: (A) rain (B) the wind (C) the Sun (D) oil deposits\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "38",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: If I wanted to use a tree as inspiration to make a house more sturdy what part would I use? Choices: (A) the leaves (B) the pine cones (C) the fruit (D) the roots\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "13-458",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: To move electrical energy around a field, a person would use Choices: (A) tin pipes (B) glass tubing (C) plastic wires (D) wood barrels\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "11-595",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: What requires photosynthesis to grow? Choices: (A) sunlight (B) local flora (C) power plants (D) plant toys\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "12-296",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: if a man's new car can be charged at a charging station, what is this termed? Choices: (A) all of these (B) battery operated (C) getting energy (D) alternative fueling\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "9-166",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: All organism require food to satiate themselves, grow big and strong, and also Choices: (A) heal (B) make money (C) have fun (D) cry\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "10-1137",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: when light hits a reflective object , that light Choices: (A) never reaches it (B) illuminates the backside (C) goes above it (D) redirected from it\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "8-406",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Pollination is required for what reproduction? Choices: (A) elephant (B) bug (C) bird (D) flora\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "14-718",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: A camera can take an image and Choices: (A) preserve it (B) edit it (C) lock it in (D) produce it\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "7-813",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Soil is an example of what type of resource for growing plants? Choices: (A) Recycled Resource (B) Natural Resource (C) Renewable Resource (D) Abundant Resource\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "14-1340",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Cooking a burger on a grill does what to the burger? Choices: (A) makes the burger alive (B) turns the burger into groceries (C) transfers energy from the charcoal to the burger (D) freezes the burger solid\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "12-822",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Sandbars are a part of most seas because there are Choices: (A) waves which adjust silt (B) lots of stones in seas (C) places where fish eat (D) sand that needs to be piled\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "7-293",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Blocking a river creates homes for Choices: (A) satellites (B) fish (C) rocks (D) mermaids\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "14-25",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Wind can be used to Choices: (A) make pasta (B) turn back time (C) make magic (D) time travel\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "12-1058",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Which is likely born via hatching? Choices: (A) a raven (B) a goat (C) a horse (D) a cat\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "13-161",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Why might owning a house on an ocean be an issue after a few decades? Choices: (A) beachfront property shrinking (B) increased seagull populations (C) Prone to snowstorms (D) Food shortage\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "13-380",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: If a leaf falls off a tree then the leaf is what? Choices: (A) vibrant (B) decisive (C) unliving (D) flowering\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "13-5",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: which form of transportation has zero emissions? Choices: (A) motorbikes (B) speed boats (C) hybrid cars (D) pedal bikes\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "14-450",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: When the acid spilled on the plant, the plant began to Choices: (A) smoke. (B) sing (C) flower (D) grow\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "9-516",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Which would be a source of pollutants? Choices: (A) cars (B) oceans (C) glaciers (D) storms\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "11-389",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Which of these use a womb instead of eggs for fetal development? Choices: (A) chickens (B) falcons (C) lemurs (D) hawks\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "10-199",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: It is easiest to get a clear photo of the moon by Choices: (A) using a large magnifying glass (B) using a telephoto lens (C) using a telescopic lens (D) looking through a microscope\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "7-13",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: An Afghan Hound get all its hair from Choices: (A) its parents (B) the water (C) the sun (D) its siblings\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "14-342",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: The sidewalk next to a house having a crack in it and having vegetation growing from it is considered? Choices: (A) insects (B) weathering (C) erosion (D) lava\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "13-536",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: In a forest without anyone around, a fire may be started by Choices: (A) electricty (B) a bird (C) a landslide (D) a flash flood\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "7-826",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: if a solid piece stands out in the elements, and reduces in size over time, what might have happened? Choices: (A) it is moving away (B) it has been depressed (C) it has been stolen (D) it has been weathered down\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "13-513",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: which one of these activities can lead to animal gathering seeds Choices: (A) Bees making nectar (B) bees making honey. (C) bees stinging human (D) Bees collecting nectar\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "1558",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: What does a squirrel not eat? Choices: (A) plants (B) seeds (C) fruits (D) animals\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "196",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: What does girth in a flower do? Choices: (A) makes it smell better (B) makes it more beautiful (C) decreases the stigma size (D) increases the pollenator amount\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "9-425",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Which would block the most sunlight? Choices: (A) a mighty oak (B) a lowly bush (C) an eagle's nest (D) a mail box\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "11-447",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: If a thing is electrically insulated, then it is Choices: (A) wood inside, metal inside (B) a random mixture of materials (C) metal inside, metal outside (D) metal inside, other material outside\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "12-884",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Friction is used to stop what using brakes? Choices: (A) dogs (B) birds (C) pickups (D) car toys\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "10-871",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Genes are a vehicle that can pass Choices: (A) hairstyle (B) hand size (C) nail polish (D) vocabulary\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "9-10",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: What location that had a disaster in 2017 was caused by heavy rains? Choices: (A) San Francisco (B) Houston (C) Mexico City (D) Tokyo\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "148",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: An example of an offspring receiving a gene is Choices: (A) cooking (B) driving (C) cartwheels (D) moles\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "14-1104",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: food is a source of energy for what? Choices: (A) waterfalls (B) fires (C) grass snakes (D) mountains\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "14-1501",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: A heavier object Choices: (A) requires less force to move (B) requires minimal effort to move (C) requires more muscle power to shift (D) requires a light touch to move\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "1091",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: When dirt has eroded, it takes on this pattern Choices: (A) circular (B) grooved (C) hydration (D) folding\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "9-651",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: A pot of cold water, with heat now applied, may be noted to have reached its boiling point when Choices: (A) bubbles are seen (B) food is cold (C) water is warm (D) salt is added\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "11-521",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: A person wants to take their dog to the park as long as there is a lack of precipitation that day. After checking the weather channel, plans are canceled when it is announced that it will Choices: (A) be sunny (B) sprinkle (C) be humid (D) be windy\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "10-415",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Which of the following would likely use a compass to reach their destination? Choices: (A) a taxi driver (B) a middle-schooler (C) a dog (D) a 1700's pirate\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "11-531",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: A bear in the arctic can go a long time without eating Choices: (A) if it is focused (B) if it is determined (C) if it is working (D) if it has excess chub\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "12-883",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: A cougar eats Choices: (A) unwary dandelions (B) clouds (C) carrots (D) voles\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "14-1141",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Where does a lightbulb send electricity to generate heat? Choices: (A) glass sphere (B) plastic circle (C) block of metal (D) metal thread\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "9-912",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: How can you get your hands on white blood cells? Choices: (A) paint a fence (B) join a gang (C) tour a jail (D) pop a pustule\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "10-1199",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Which of the following relies on vibrating matter to work? Choices: (A) soda cans (B) dog food (C) baseball caps (D) violas\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "12-346",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Imagine astronauts traveling to a distant asteroid as it passes near Earth. During their mission they leave behind boot prints. How long will these potentially last? Choices: (A) several months (B) 5 years (C) thousands of years (D) 2 weeks\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "13-913",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: A dead body will become what if exposed to the air Choices: (A) hot remains (B) fresh remains (C) wet remains (D) skeletal remains\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "10-1118",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: After exiting the gym, the man's heart rate was most likely? Choices: (A) higher (B) lower (C) normal (D) fluctuating\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "1927",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: A tuna would prefer to consume Choices: (A) An Apple (B) beef (C) Nemo (D) dogs\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "13-261",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: 35 percent of what depends on pollination? Choices: (A) flowers (B) people (C) crops (D) bees\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "9-628",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Which of the following would you use to most efficiently transport heat? Choices: (A) empty water bottle (B) cotton T-Shirt (C) baseball cap (D) empty soda can\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "11-218",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Which of the following results from a chemical reaction involving baking soda? Choices: (A) Mixing play-doh (B) Making cereal (C) A dog's saliva (D) Science fair volcanoes\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "11-358",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: A bunny is desperate for food and happily chows down when offered Choices: (A) a meatball (B) some oregano (C) cat food (D) a steak\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "10-571",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: You may need a raft after a Choices: (A) television broadcast (B) drought (C) meteor shower (D) deluge\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "13-743",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: A way in which sound may be heard is Choices: (A) eating out of a bowl (B) moving pots and pans (C) moving a cardboard box (D) a small plastic cup\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "7-298",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Which of the following make sustainable, long term energy? Choices: (A) fossil fuels (B) windmills (C) coal mining (D) fracking\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "11-634",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Which animal will eat only plants? Choices: (A) snake (B) fish (C) slug (D) deer\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "13-425",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Conserving water can be used for survival where? Choices: (A) seas (B) oceans (C) sandy land (D) towns\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "13-885",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: In order to play with a beach ball, you need to fill it with Choices: (A) with ice (B) with water (C) a gaseous substance (D) with oil\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "14-752",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Which is required for a sedan to run? Choices: (A) vapor of ghosts (B) an oxidizer (C) Pistons Basketball Team (D) orange juice mixture\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "12-171",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Scraping the side of a cliff may result in Choices: (A) ice (B) snow (C) sand (D) wood chips\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "10-978",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: A coal mine is what? Choices: (A) a person who mines for coal (B) a rare type of stone (C) a place where coal is processed (D) a mine that is beneath the earth where coal is found\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "1228",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: If I wanted to make something move faster I could Choices: (A) slow it down (B) stomp on it (C) stop it (D) roll it\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "13-642",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: In a strong tempest, a large boulder may be Choices: (A) broken (B) smoothed (C) sharpened (D) stained\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "7-340",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Which would likely spread the fastest? Choices: (A) exhaust from a car (B) windshield fluid from a car (C) metal from a car (D) water from a car\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "12-705",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: If a thing is going to be a planet, it must orbit in a certain amount of time, which can exclude Choices: (A) mercury (B) the ninth planet (C) the third planet (D) venus\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "13-383",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: What will be more available in an area when rain is common? Choices: (A) dirt (B) air (C) h2o (D) fire\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "10-105",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Which orbits a star? Choices: (A) Neptune (B) a galaxy (C) the sun (D) the moon\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "13-898",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: The count of rings in a pine has a one to one relationship with the number of years it has Choices: (A) shrunk (B) produced pine cones (C) had mistletoe (D) grown\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "13-177",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: We can help a plant by Choices: (A) Telling it a story (B) Cutting it from the roots (C) Storing it in the dark (D) Refusing to water it\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "9-1146",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Food is a source of energy for what? Choices: (A) anteaters (B) sand (C) water (D) plastic\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "14-1500",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Peat is an important factor when Choices: (A) Driving a new car (B) Putting a fresh raspberry seed in soil (C) Taking the temperature for the day (D) Having a large breakfast\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "8-339",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Who is most likely to get a job at a lumber yard? Choices: (A) deep sea divers (B) liberal art majors (C) sawyers (D) astronauts\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "12-935",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: A thing which is measured, such as a bucket of salt, needs to first be Choices: (A) evaded (B) burned (C) gathered (D) lost\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "14-1278",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: What do steam and ice have in common? Choices: (A) intensive properties (B) form (C) temperature (D) appearance\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "8-233",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: if a person needed two objects to be more alike in appearance, they could Choices: (A) burn both objects in fire (B) dip both objects in water (C) apply identical layers of pigmentation (D) destroy both the objects\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "12-458",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Stars are Choices: (A) warm lights that float (B) made out of nitrate (C) great balls of gas burning billions of miles away (D) lights in the sky\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "7-321",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: If an object is close then how will that object appear? Choices: (A) gigantic (B) minute (C) small (D) tiny\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "10-257",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Sharks live in a liquid deluged with sodium chloride because it allows them to Choices: (A) form sharknadoes (B) have increased buoyancy (C) eat people (D) star in films\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "10-175",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Where is the best place to shoot animals? Choices: (A) national park (B) sky (C) forest (D) sea\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "9-973",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: An early example of harnessing wind power would be Choices: (A) unicorns (B) santas flying reindeer (C) trumps windy speeches (D) cloth on masts\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "10-1196",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: The moon's surface Choices: (A) is smooth on the entire surface (B) contains large cavities cause by explosions (C) contains an internal core of cheese (D) is filled with lakes\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "7-30",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: By finding the distance of something you are Choices: (A) totally clueless (B) gathering data (C) playing around (D) wasting time\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "12-1011",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Friction might be Choices: (A) Breathing (B) rubbing knees (C) Running (D) Rainbows\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "13-557",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: If a kitten is unable to nurse from birth Choices: (A) it will cry (B) it will expire (C) it will sleep (D) it will vomit\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "7-622",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Comparing an arid acre to a jungle acre, the jungle acre will host Choices: (A) less moisture (B) excesses of moisture (C) fewer water droplets (D) less fluid\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "11-420",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: A man plugs his television into an outlet behind a cabinet. He sees that the television may now be turned on so that he can watch his favorite show. The man knows that by hooking the t.v. cord into the outlet Choices: (A) he completed a lap (B) he made a good deal (C) he invented new circuits (D) he completed a circuit\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "9-97",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: A plant needing to photosynthesize will want to be placed nearest to a Choices: (A) fridge (B) bed (C) skylight (D) basement\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "11-199",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: kinetics change stored energy into motion and Choices: (A) snacks (B) naps (C) kites (D) warmth\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "13-897",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: A cat is laying outdoors in the sunlight. Suddenly, a large, dark cloud blocks the sun and the temperature drops several degrees. The cat's physical reaction to this abrupt change will most likely be Choices: (A) finding someone to dye them pink (B) involuntary body tremors and shudders (C) creating a new telephone system (D) hopping a plane to warmer climates\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "10-589",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: a person bought a reptile at a store and it laid some eggs once they got home, why is this? Choices: (A) it is a mammal (B) it is under pressure (C) it is offering egg gifts (D) it is incapable of live birth\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "12-166",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: What is the source of cooling that turns lava into land? Choices: (A) seawater (B) refrigerators (C) air conditioning (D) glaciers\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "12-386",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Folding up rocks can happen when Choices: (A) deer shiver (B) snakes rattle (C) birds quiver (D) bunkers shake\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "12-142",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Which of these animals might eat a steak? Choices: (A) Chicken (B) Lion (C) Cow (D) Buffalo\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "241",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: which of these can be considered a stage in the water cycle? Choices: (A) all of these (B) the combination of nails and hammers (C) the presence of H20 (D) the combination of chlorine and gas\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "9-836",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Which is most likely a pollinating animal? Choices: (A) bear (B) spider (C) Anthophila (D) crocodile\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "1011",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: which of these eventually form crude oil after millions of years in the earth? Choices: (A) a plastic set of cups (B) a family of dogs (C) a twelve pack of beer cans (D) a set of silverware\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "12-1166",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: If peas and carrots are planted alternately, Choices: (A) fields are useless (B) dirt is refreshed (C) sand is dried (D) water is poisoned\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "12-379",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Cooking food requires Choices: (A) higher temps to be applied (B) a stove to be used (C) an oven to be used (D) a fire to be built\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "7-64",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: What does harming an organism cause? Choices: (A) change in appearance (B) nothing (C) population increase (D) population decrease\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "7-1075",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: A space exists where there is room for things with cells to propagate, so it is most likely Choices: (A) habitable (B) desolate (C) a vacuum (D) harsh\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "14-723",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: specialized tissues at the ends of plant stems are used for growing taller by what? Choices: (A) boots (B) people (C) animals (D) flora\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "14-673",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: On the list of a flower's goals would be to Choices: (A) produce carbon dioxide (B) deroot and die (C) produce offspring (D) remain sterile\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "9-128",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Guavas with many leaves Choices: (A) are mature (B) haven't grown (C) are immature (D) are birds\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "13-579",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: If someone wants you to stop, they want you to Choices: (A) be fast (B) eat cheese (C) be slow (D) be still\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "14-475",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: If a person is dehydrated in a desert without water sources like rivers or ponds, they can hydrate by Choices: (A) cracking open peyote (B) staring at sand (C) eating a pebble (D) licking a rock\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "12-938",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: To get a lab experiment right you need to Choices: (A) use all dirty equipment (B) fully comprehend the instructions before starting (C) do the opposite of what you're supposed to do (D) instead of measuring things, make guesses\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "12-301",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Animals eat food for the taste but also because without it, they would Choices: (A) Smile (B) TV (C) Shoes (D) expire\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "12-462",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: What changes an ecosystem? Choices: (A) sunbathing (B) rock climbing (C) extracting coal (D) swimming\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "14-938",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: A person notes that the moon goes through various phases and eventually repeats these phases over the course of Choices: (A) every other new month (B) about six more days (C) just over a month (D) just under a month\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "10-922",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: A warm glass place in the fridge will Choices: (A) glow (B) condensate (C) shrink (D) crack\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "14-622",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: What is oil likely comprised of? Choices: (A) homo sapiens (B) air (C) soil (D) brontosaurus\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "12-960",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: When animals need to recharge, they are unable to use electricity, and therefore Choices: (A) take naps (B) rely on fat (C) use fuel sources (D) rely on calories\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "7-94",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: If you want to avoid death you will need to Choices: (A) jump into volcanoes (B) hit something (C) fly (D) take in air\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "13-114",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: If a person looks at the night sky in February and then again in June, the stars will be Choices: (A) unchanged (B) gone (C) unmoved (D) differently placed\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "13-170",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Which is likely to be in a zoo exhibit? Choices: (A) an osprey (B) bacteria (C) a human (D) a dinosaur\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "13-996",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: High humidity can damage materials which Choices: (A) must remain dry to function (B) will dry out unless they are soaked in water (C) depend on abundance amounts of water vapor (D) need to be kept wet\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "10-1094",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Removing the tree an owl makes it's home in Choices: (A) demolishes the owl's home (B) means the owl will go with the tree (C) allows the owl to remodel (D) causes the owl to perish\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "8-291",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Fog is formed by water vapor condensing in what? Choices: (A) plants (B) air heads (C) empty space (D) animals\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "10-964",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: If you are having trouble seeing the TV, what can you do to see it more clearly? Choices: (A) closing your eyes (B) moving closer (C) eating (D) dying\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "13-445",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: When syrup is added to vodka, the flammable portion of the mixture will Choices: (A) raise (B) fall (C) sink (D) settle\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "11-467",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Which is most likely to occur? Choices: (A) a female fly lays eggs while it is a larvae (B) a male fly lays eggs while it is a larvae (C) a male fly lays eggs while it is an adult (D) a female fly lays eggs while it is an adult\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "14-67",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: If Paul is playing basketball and finds that his skin is becoming wet and smelly, it might be because Choices: (A) His body is trying to lower its temperature (B) His heart is pumping too fast (C) His body is too cold (D) The girls watching him play think he looks hot\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "9-972",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: some countries can be in bed and other are in the middle of the day enjoying the outdoors, why? Choices: (A) animals (B) rotation of sun (C) planet rotation (D) ocean tides\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "12-131",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Which of the following crops was the first staple in the human diet? Choices: (A) wheat (B) barley (C) corn (D) rice\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "8-21",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Which can best be described as hibernation for most amphibians? Choices: (A) a brain dead frog in mud (B) a frog napping for an hour in mud (C) a frog burying itself in mud for months (D) a frog sleeping for the night in mud\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "13-236",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: What do some animals do to adjust to hot temperatures? Choices: (A) they run (B) they hunt (C) they perspire (D) they fly\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "1879",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: As a flower becomes more aromatic it will bring in a growing crowd of Choices: (A) lazy tourists (B) leaf miners (C) pollinators (D) caterpillars\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "10-438",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Which of these items contains a fat soluble vitamin? Choices: (A) dog (B) yogurt (C) cat (D) water\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "12-145",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Solar energy is adsorbed by Choices: (A) planted flowers under the moonlight (B) potted flowers in a windowless room (C) planted flowers on a bright, clear day (D) seeds that have just been planted in the ground\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "10-630",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Bobby had a new toy. It had lots of buttons on it. One of the buttons had a picture of a cow on it and every time Bobby pushed that button the toy would make a mooing noise. That's because Choices: (A) a circuit was opened up when he pressed the button (B) His new toy was possessed (C) a cow was inside of the toy (D) a circuit was made intact when the button was pressed\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "14-324",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: This object in your pocket is the most likely to shock you Choices: (A) your phone (B) your credit card (C) your library card (D) your wallet\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "14-659",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: The elements changed America's tallest peaks into Choices: (A) marble blocks (B) ivory castles (C) towers of gold (D) loose rocks\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "14-600",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: An item placed on a balance will be Choices: (A) broken (B) measured (C) sorted (D) classified\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "12-1028",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: coral lives in the Choices: (A) wet depths (B) cupcakes (C) trees (D) sky\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "13-284",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: A stereo can run on converted energy through Choices: (A) wires (B) coins (C) AAAs (D) hope\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "12-85",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: The property of fur that is a result of the way that it reflects or emits light is Choices: (A) an inherited characteristic (B) a fabricated characteristic (C) a manufacturing characteristic (D) an age characteristic\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "246",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Decomposition results in the production of which element? Choices: (A) Silicon (B) Phosphorus (C) Carbon (D) Hydrogen\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "1062",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: A dead giant sequoia Choices: (A) turns into mistletoe (B) flies away (C) drops pine needles (D) falls down\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "13-1057",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: of one misses the surf tide in the morning, will they get another chance? Choices: (A) they have zero chance (B) they are still in luck (C) it is too late (D) all of these\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "9-1176",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: What is a radio used for? Choices: (A) radiation (B) human contact (C) energy (D) water\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "12-251",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: A person in the woods who accidentally runs into a wild wolf will have little to fear because Choices: (A) wolves love people (B) wolves carry people (C) wolves evade people (D) wolves smoke people\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "10-15",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: What breaks down food to produce energy? Choices: (A) life forms (B) food packaging (C) refrigerators (D) the sun\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "10-714",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: If soil is loose, it makes it what for oxygen to get in? Choices: (A) seven (B) boring (C) harder (D) simpler\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "14-636",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: A fixed wing aircraft can fly Choices: (A) high in space (B) in the troposphere (C) inside an amoeba (D) deep underwater\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "14-1363",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: An insect may pose as bird poop to Choices: (A) make social commentary (B) film fetish smut (C) blend with surroundings (D) attract birds\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "14-390",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Light enters what through the pupil? Choices: (A) skin (B) visual organ (C) eye spy (D) eye diagram\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "13-903",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: What time are you most likely to see a rainbow Choices: (A) 10:00 A.M. (B) 9:00 P.M. (C) 3 A.M. (D) Midnight\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "14-649",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: In order for a species to continue, constant mating is required to Choices: (A) Make TVs (B) ice cream (C) make a cake (D) make babies\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "12-856",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Which activity involves exerting force on an object with a foot? Choices: (A) basketball (B) kickball (C) softball (D) volleyball\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "10-386",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: A scale is used to measure what? Choices: (A) tallness (B) height (C) length (D) fatness\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "14-1106",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Thermal conduction is Choices: (A) room temperature water sitting on a counter (B) a dog's paws touching summer scorched pavement (C) cake pans stacked in an oven (D) ice touching ice in a freezer\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "712",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: How many revolutions does the moon make around the Earth during spring? Choices: (A) twelve (B) three (C) one (D) six\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "12-335",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: What scratches glass easily? Choices: (A) a rubber pencil eraser (B) a crystal that regulates electronic oscillators in watches (C) a soft linen towel (D) a round piece of ice\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "13-669",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Wood can be reused to make a Choices: (A) dresser (B) plastic bottle (C) candy cane (D) glass bottle\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "12-1033",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: riding a bike helps prevent Choices: (A) music (B) inflation (C) environment harm (D) economic stability\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "13-355",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Annelida aide the earth by redepositing Choices: (A) trees (B) nutrients (C) air (D) real estate\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "12-655",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Birds will have different kinds of beaks depending on the Choices: (A) organisms they hunt (B) computer (C) groceries (D) seven\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "14-1511",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: A person wants to dry pips from sunflowers and then can plant those pips knowing that they have enough Choices: (A) financing (B) nutriment (C) grain (D) solar wind\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "11-357",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: What might have more closely packed matter Choices: (A) air (B) wood (C) gold (D) water\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "13-1027",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: What rock is likely to be more mechanically weathered? Choices: (A) a rock used to make fires (B) a rock traveling through space (C) a rock far below the ground (D) a rock is hit by the sun's rays\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "206",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: To attract birds to your yard Choices: (A) erect a large menacing scarecrow (B) destroy all your flowers (C) cut down all trees big and small (D) put out seeds in an easily accessible dish\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "1118",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: What body covering does the animal that clucks have? Choices: (A) Skin (B) Feathers (C) Scales (D) Fur\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "579",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Which is likeliest to make light pass through the pupil? Choices: (A) the taste of food (B) the sound of silence (C) the smell of tree (D) any kind of tangible object\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "13-42",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Pelicans have an affinity for Choices: (A) Sushi (B) Cats (C) Trash (D) Mackerel\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "8-300",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: A stopwatch is helpful Choices: (A) when ascertaining what time it is (B) when tracking split times on runs (C) when setting an alarm clock (D) when ascertaining answers on a times table test\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "8-131",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: cooking food requires adding what? Choices: (A) frozen water (B) scorching power (C) coldness (D) air\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "14-1303",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: A producer makes its own: Choices: (A) sustenance (B) air (C) shelter (D) body\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "14-744",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Some monkey babies may be Choices: (A) turned into canned meat (B) taken to a hospital (C) run out of the pact (D) taken care with two parents\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "10-1018",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: What do humans do to poison the air? Choices: (A) tailoring old clothing items (B) using a plastic bottle to create a self water for a plant (C) placing plastic into big lakes (D) using old T-shirts to make a blanket\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "13-84",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Thicker layers of skin would best suit Choices: (A) a bird (B) a scorpion (C) a lizard (D) a leopard seal\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "14-1022",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: if a person rips up their notebook, what happens? Choices: (A) all the mentioned options (B) the shape becomes different (C) it takes a new structure (D) it loses its original form\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "8-120",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Which would likely lessen the impact of climate change the most? Choices: (A) Earth Day (B) hurricanes (C) tsunamis (D) wildfires\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "14-614",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: To create paper you will first have to acquire a supply of Choices: (A) stardust (B) sand (C) pens (D) pulp\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "14-1297",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: You can see further from which of these locations on the moon? Choices: (A) mountains (B) crater (C) buildings (D) surface\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "1388",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Herbivores like to dine on Choices: (A) gravel (B) other herbivores (C) crustaceans (D) chlorophyll\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "10-852",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: When a bear eats berries he will be contributing to what process? Choices: (A) food for young (B) hunters (C) seed propagation (D) hunger\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "9-1118",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: What environment has low rainfall? Choices: (A) tropics (B) sandy zone (C) sandbox (D) forests\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "14-165",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: What would be a source of the smoothest rocks? Choices: (A) a riverbank (B) the cliffs (C) the desert (D) the mountains\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "11-88",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: If the source of a bean is very far away, and the bean becomes a source for another, separate bean, then the original bean was Choices: (A) a bad seed (B) a dispersed seed (C) a fresh shell (D) a meaty liver\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "14-97",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: What is an example of hunting? Choices: (A) Cats eating cat food (B) sea otter cracking open clams with a rock (C) Humans going to restaurants (D) A dog eating dog food\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "8-10",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: School children often play a musical instrument by Choices: (A) sweeping thumb across elastic band over a beverage carton (B) making rubber band chain bracelets (C) wearing rubber bands with braces (D) shooting rubber band with one hand\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "9-1095",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: A person buys a cheap hammer and it breaks a month later. The person invests in an expensive hammer and Choices: (A) it endures (B) died (C) baked it (D) ate it\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "10-918",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: When rain falls for two solid weeks, flooding will be evident Choices: (A) at the middle of a mountain (B) inside of the mountain (C) at the base of a mountain (D) at the top of a mountain\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "11-309",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: If a head is exceptionally round Choices: (A) that is an unusual feature (B) most heads are round (C) a parent probably had a round head (D) there is fluid on the brain\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "7-1168",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Which area would be brightest, if you woke up there? Choices: (A) rainy environments (B) underwater environments (C) forest areas (D) frozen areas\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "14-1252",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: A person has a hot dish from the oven that they have left on the counter. After a few minutes, they place that dish into a sink full of cold water. The dish Choices: (A) warms (B) freezes (C) dies (D) chills\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "11-41",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: A boy leaves a circuit in the wall open, then when he goes to turn on the lights Choices: (A) it fails (B) it succeeds (C) it shines (D) it works\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "10-532",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: A boy smacks another child in the face. The child cries because Choices: (A) it was harmed (B) it was sitting (C) it was happy (D) it was lonely\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "8-243",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Magma is sourced in volcanoes and Choices: (A) is high enough kelvin to melt steel (B) on the desert plains (C) is beneath the aliens (D) can freeze water at all times\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "14-270",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Many of our traits are unable to be naturally changeable, so we are stuck with them they way they are unless we opt for surgery. One of those traits is Choices: (A) language (B) money (C) color (D) home\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "11-247",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Slurping down your urine shows you're Choices: (A) bed-wetting (B) recycling (C) menstruating (D) preserving wetlands\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "13-520",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Calculating a short distance can be accomplished with a Choices: (A) yard stick (B) thought (C) touch (D) a penny\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "12-792",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: An example of being a predator is Choices: (A) an eagle landing on a branch (B) a mouse taking shelter in a hole (C) a wolf having a litter of pups (D) a bird catching worms in its mouth\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "13-989",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: a student leaves a bag of acorns on the playground, which one of these will most likely take it? Choices: (A) a fish in the pond (B) a dog in the house (C) a stray local chipmunk (D) a tiger in the zoo\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "13-969",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: A place becomes chilly and then animals in that space Choices: (A) sweat more often (B) lose more water (C) need more hydration (D) retain more water\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "13-928",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Which would likely transfer special heat via waves? Choices: (A) a cat (B) a rocket (C) a car (D) an atom bomb\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "14-966",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: If a large boulder is kept in direct sunlight it can Choices: (A) become powerful (B) grow larger (C) gain chill (D) lose portions\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "14-963",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: A ferromagnetic metal, such as in paper clips, can stick to other paper clips without hooking together Choices: (A) when outside (B) when iron touches (C) when floating (D) when burned\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "10-1014",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: The source of a type of energy we use is a Choices: (A) planet (B) star (C) meteor (D) rock\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "9-1040",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Cells can make up components of prisons, jails, holding areas and Choices: (A) lifeforms (B) space stone (C) blue jeans (D) filtered water\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "14-176",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: A person may bring harm to the environment by Choices: (A) burning shoes (B) recycling (C) filtering water (D) burning sticks\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "11-307",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: if the temperature gauge on a dashboard goes up while vehicle is motion, what could be responsible? Choices: (A) the snow falling outside (B) the rubbing of the mechanical parts (C) the car sales man (D) the anger of the driver\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "9-551",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: moist means high in what? Choices: (A) wetness (B) warmth (C) depth (D) temperature\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "13-253",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: An example of instinctive behavior is Choices: (A) southern winter flight (B) foreging (C) climbing (D) relocation\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "9-136",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Which is most helpful to a constipated Elephant? Choices: (A) cheese (B) bubblegum (C) oats (D) empty promises\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "C"
+  ],
+  "gold_label": "C",
+  "id": "14-850",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: You can use plants like star anise for Choices: (A) hugging (B) running (C) swimming (D) sustenance seasoning\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "D"
+  ],
+  "gold_label": "D",
+  "id": "14-13",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: A consequence of creating thousands of notebooks is Choices: (A) longer days (B) habitat change (C) lush landscapes (D) shorter days.\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "14-1298",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: A person drops a bean in the dirt, and kicks some dirt over it. If the person goes to dig up that bean a month later, it is likely to have Choices: (A) shrunk (B) sprouted (C) burned (D) flown\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "11-388",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: A good example of a mixture is Choices: (A) dry wood and dry beans (B) ocean and lake water (C) rabbits and young hares (D) old bread and buns\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "B"
+  ],
+  "gold_label": "B",
+  "id": "12-735",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: Peat is made by decaying vegetation compacted by soil in a Choices: (A) uncultivated swamp or marsh (B) river that flows with freshwater (C) geographically separated saltwater ocean (D) lake surrounded by land with a basin\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "299",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ },
+ {
+  "question": "Question: two females are incapable of Choices: (A) conjuring kin (B) talk (C) dance (D) jog together\nAnswer with just the multiple choice letter.",
+  "answers": [
+   "A"
+  ],
+  "gold_label": "A",
+  "id": "13-655",
+  "benchmark": "openbookqa",
+  "_pool": "fresh_raw"
+ }
+]
