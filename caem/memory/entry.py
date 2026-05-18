@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
-from typing import Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 import numpy as np
 
@@ -287,3 +287,20 @@ class RoutingDecision:
 
     retrieved_entry_id: Optional[int] = None
     """FAISS entry ID of the retrieved episode (None if memory was empty)."""
+
+    ruc_output: Optional[Dict[str, Any]] = None
+    """Retrieval Utility Classifier output, set when the RUC fires.
+
+    Populated by AdaptiveRouter when a RUC instance is wired into the router
+    and one of the two Tier-3 entry paths is reached. Contains keys:
+
+    - ``decision`` (str): "RAG" or "DIRECT"
+    - ``p_rag`` (float): calibrated probability RAG helps
+    - ``threshold`` (float): tau_RUC used to binarise
+    - ``features`` (dict): the feature vector fed to the classifier
+    - ``flavour`` (str): A1/A2/A3/A4 shipping flavour
+    - ``entry_point`` (str): "safety_veto" or "fall_through"
+
+    None when the RUC did not fire (Tier 1, Tier 2-via-similarity, or no RUC
+    instance loaded into the router).
+    """

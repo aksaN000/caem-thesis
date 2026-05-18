@@ -286,7 +286,7 @@ def _vout_to_dict(vout: Any) -> Dict[str, Any]:
 
 
 def _rescore_rows(verifier: Any, rows: Sequence[Dict[str, Any]],
-                  batch_size: int = 16) -> List[Dict[str, Any]]:
+                  batch_size: int = 32) -> List[Dict[str, Any]]:
     """Run verifier.verify_batch over (question, prediction) pairs in
     chunks and annotate each row with the 9 signals + decision. The
     verifier owns its own retrieval + rerank under the locked
@@ -407,11 +407,42 @@ def _rescore_one(
     verifier: Any,
     src_path: Path,
     dst_path: Path,
-    batch_size: int = 16,
+    batch_size: int = 32,
+    skip_if_exists: bool = True,
 ) -> Dict[str, Any]:
     """Read one baseline JSON, rescore through the verifier, write sidecar
     JSON with the 9 signals + decision + CHM aggregate, return summary.
+
+    2026-05-18: when ``skip_if_exists=True`` (default), an already-existing
+    output JSON with non-empty rescored samples is treated as a completed
+    rescore — load its existing CHM summary and return without re-running
+    the verifier. Makes the rescore harness safely resumable after
+    interrupts. Pass ``--force`` at the CLI to override.
     """
+    if skip_if_exists and dst_path.exists():
+        try:
+            with open(dst_path) as f:
+                existing = json.load(f)
+            ex_rows = existing.get("samples") or existing.get("results") or []
+            has_signals = ex_rows and ex_rows[0].get("u_stored") is not None
+            if has_signals:
+                existing_summary = _aggregate_chm(ex_rows)
+                logger.info(
+                    "Skipping %s (already rescored, n=%d, chm=%.4f)",
+                    dst_path, existing_summary["n"], existing_summary["chm"],
+                )
+                return existing_summary
+            else:
+                logger.warning(
+                    "Output %s exists but has no signals; rescoring anyway.",
+                    dst_path,
+                )
+        except Exception as exc:
+            logger.warning(
+                "Could not read existing %s (%s); rescoring fresh.",
+                dst_path, exc,
+            )
+
     with open(src_path) as f:
         doc = json.load(f)
     rows = doc.get("samples") or doc.get("results") or []
@@ -554,7 +585,27 @@ def _parse_args() -> argparse.Namespace:
                    default=Path("data/passage_index"),
                    help="Pre-built dense passage index for verifier retrieval.")
     p.add_argument("--device", default="cuda")
-    p.add_argument("--batch_size", type=int, default=16)
+    p.add_argument("--force", action="store_true",
+                   help=("Override the default skip-if-exists behaviour and "
+                         "re-rescore every (baseline, bench) pair even if "
+                         "its output JSON already exists. Default off: "
+                         "completed (baseline, bench) outputs are detected "
+                         "by checking that dst_path exists AND the first "
+                         "sample has u_stored populated, then skipped. "
+                         "Use --force after intentionally changing the "
+                         "verifier or composite weights."))
+    p.add_argument("--batch_size", type=int, default=32,
+                   help=("Outer verify_batch chunk size. Bumped 16 -> 32 on "
+                         "2026-05-17 (RUC v2) after a per-signal isotonic-"
+                         "swing audit showed all 9 active composite signals "
+                         "are row-independent at the kernel level, so a "
+                         "larger batch only amortises rerank/MiniCheck/Qwen-"
+                         "NLI kernel launches without changing per-row "
+                         "outputs. Bf16 reduction-order noise on a 5090 is "
+                         "<<1e-3 absolute, well inside the equivalence-test "
+                         "gate (r >= 0.999 per signal). Drop back to 16 only "
+                         "if a 5090 OOM is observed; the rerank + atomic "
+                         "pools fit comfortably at 32 on 32 GB HBM."))
     p.add_argument("--caem_eval_dir", type=Path,
                    default=Path("outputs/full_run/eval"),
                    help="Directory holding CAEM cycle-N eval JSONs for the "
@@ -620,7 +671,8 @@ def main() -> int:
                            / f"{bench}_cycle{cyc}_with_chm.json")
                     key = baseline
                 summary = _rescore_one(verifier, src, dst,
-                                       batch_size=ns.batch_size)
+                                       batch_size=ns.batch_size,
+                                       skip_if_exists=not ns.force)
                 comparison.setdefault(key, {})[bench] = summary
 
     # Add the CAEM cycle-N row by aggregating the live eval JSONs that

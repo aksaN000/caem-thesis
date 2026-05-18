@@ -1,0 +1,1872 @@
+[
+ {
+  "question": "Answer yes or no. Question: Would a goblin shark eat at Crossroads Kitchen?",
+  "answers": [
+   "no"
+  ],
+  "gold_label": "no",
+  "id": "ecd7594494e88099aeac",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Is Benjamin Franklin a prime candidate to have his statues removed by Black Lives Matter movement?",
+  "answers": [
+   "yes"
+  ],
+  "gold_label": "yes",
+  "id": "9422300529f87f9917bf",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: If it socially acceptable to wear an icon depicting crucifixion? ",
+  "answers": [
+   "yes"
+  ],
+  "gold_label": "yes",
+  "id": "8b9f3835041b7bbc30a3",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Will Futurama surpass the number of episodes of The Simpsons by the end of 2020?",
+  "answers": [
+   "no"
+  ],
+  "gold_label": "no",
+  "id": "e26a5601edb90a738d56",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Could the endowment of Johns Hopkins University pay off the MBTA debt?",
+  "answers": [
+   "no"
+  ],
+  "gold_label": "no",
+  "id": "122724772ba385a713a6",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Is nickel dominant material in US 2020 nickels?",
+  "answers": [
+   "no"
+  ],
+  "gold_label": "no",
+  "id": "a0ab5b0fc9bb188bcc99",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Can a Bengal cat survive eating only pancakes?",
+  "answers": [
+   "no"
+  ],
+  "gold_label": "no",
+  "id": "f7d66ea2a1fcc7473f48",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Is MIX a word and a roman numeral?",
+  "answers": [
+   "yes"
+  ],
+  "gold_label": "yes",
+  "id": "d57b4438cf31f3ca05fe",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Would menu at Chinese Starbucks be familiar to an American?",
+  "answers": [
+   "no"
+  ],
+  "gold_label": "no",
+  "id": "cac049d9ec0b86a7f911",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Does the anatomy of a camel lend itself to jokes on Wednesdays?",
+  "answers": [
+   "yes"
+  ],
+  "gold_label": "yes",
+  "id": "d4546cb00bd8a7f0e041",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Do any video games about the end of civilization have slot machines?",
+  "answers": [
+   "yes"
+  ],
+  "gold_label": "yes",
+  "id": "0992c14cfd410f2d5c1e",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Did eggs need to be kept cold in the middle ages?",
+  "answers": [
+   "no"
+  ],
+  "gold_label": "no",
+  "id": "3bd276ea5db4f37dc983",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Can photography be considered abstract art?",
+  "answers": [
+   "no"
+  ],
+  "gold_label": "no",
+  "id": "2787ada17c12601bcd0c",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Did Julia Roberts practice blast beats as a child?",
+  "answers": [
+   "no"
+  ],
+  "gold_label": "no",
+  "id": "9d445747557bf9d8786e",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Is Fiat Chrysler gaining a new overall corporate identity?",
+  "answers": [
+   "yes"
+  ],
+  "gold_label": "yes",
+  "id": "99e34b51538c03fcd8bb",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Is it more expensive to run for President of India than to buy a new iPhone 11?",
+  "answers": [
+   "no"
+  ],
+  "gold_label": "no",
+  "id": "30b5a9505949caa3c4cd",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Can a snake swallow an M60 Patton?",
+  "answers": [
+   "no"
+  ],
+  "gold_label": "no",
+  "id": "19c069cf9329b5dc7764",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Do drummers need spare strings?",
+  "answers": [
+   "no"
+  ],
+  "gold_label": "no",
+  "id": "d15a33b8f88dc5ce32b0",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Was Iggy Pop named after his father?",
+  "answers": [
+   "yes"
+  ],
+  "gold_label": "yes",
+  "id": "01c3faf4915a44133f60",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: During the pandemic, is door to door advertising considered inconsiderate?",
+  "answers": [
+   "yes"
+  ],
+  "gold_label": "yes",
+  "id": "8b41a17e65ef7f6e22b5",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Would human race go extinct without chlorophyll?",
+  "answers": [
+   "yes"
+  ],
+  "gold_label": "yes",
+  "id": "acb7edac010554509519",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Are monks forbidden from engaging in warfare?",
+  "answers": [
+   "no"
+  ],
+  "gold_label": "no",
+  "id": "a8bbf2e84d0649b1c52c",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Is someone more likely to survive having breast cancer in Japan than in Sweden?",
+  "answers": [
+   "no"
+  ],
+  "gold_label": "no",
+  "id": "71691ae5050e621c9b4c",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: In a hypothetical race between a Swallow and an American Woodcock, would the Swallow win?",
+  "answers": [
+   "yes"
+  ],
+  "gold_label": "yes",
+  "id": "6497da19a2bb3f0dfcbb",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Can Hulk's alter ego explain atomic events?",
+  "answers": [
+   "yes"
+  ],
+  "gold_label": "yes",
+  "id": "e91ba24305ae9f8850ed",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Are Durian fruits an olfactory delight?",
+  "answers": [
+   "no"
+  ],
+  "gold_label": "no",
+  "id": "b77170e15c0b1bd72340",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Does Adam Sandler skip celebrating Easter?",
+  "answers": [
+   "yes"
+  ],
+  "gold_label": "yes",
+  "id": "cdc41c9bae19c441248d",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Will a Holstein cow and the Liberty Bell balance out a giant scale?",
+  "answers": [
+   "no"
+  ],
+  "gold_label": "no",
+  "id": "56b31f6fe1e5163d2382",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Can a martyr saint have been excommunicated?",
+  "answers": [
+   "yes"
+  ],
+  "gold_label": "yes",
+  "id": "cbc489c97e6797962787",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Were weather phenomena avoided when naming minor league baseball teams?",
+  "answers": [
+   "no"
+  ],
+  "gold_label": "no",
+  "id": "01786fe2b099fd7fb504",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Were Depeche Mode heavily influenced by blues music?",
+  "answers": [
+   "no"
+  ],
+  "gold_label": "no",
+  "id": "7bb579fa94d5f0d58ae1",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Do Sweet Potatoes prevent other plants from growing in their place?",
+  "answers": [
+   "yes"
+  ],
+  "gold_label": "yes",
+  "id": "87c07cc6b730abde6d76",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Would a Jehovah's witness approve of Alice's Adventures in Wonderland?",
+  "answers": [
+   "no"
+  ],
+  "gold_label": "no",
+  "id": "78f2f99d04b9acd8bada",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Are Aldi's foods discounted due to being out of date?",
+  "answers": [
+   "no"
+  ],
+  "gold_label": "no",
+  "id": "b978c4051673fd21035b",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Could John Key issue an executive order in the USA?",
+  "answers": [
+   "no"
+  ],
+  "gold_label": "no",
+  "id": "e32511f311bfd294ebf1",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Can you order an Alfa Romeo at Starbucks?",
+  "answers": [
+   "no"
+  ],
+  "gold_label": "no",
+  "id": "d7bac31bafedfe9de6ee",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Was  Godfrey of Bouillon an Islamaphobe?",
+  "answers": [
+   "yes"
+  ],
+  "gold_label": "yes",
+  "id": "425683ababbbc31c733c",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Would a Yeti be likely to have prehensile limbs?",
+  "answers": [
+   "yes"
+  ],
+  "gold_label": "yes",
+  "id": "8ce466f6f1430a309edf",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Were items released from Pandora's box at least two of the names of Four Horsemen?",
+  "answers": [
+   "yes"
+  ],
+  "gold_label": "yes",
+  "id": "48648780e56f136fdae5",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Would a nickel fit inside a koala pouch?",
+  "answers": [
+   "yes"
+  ],
+  "gold_label": "yes",
+  "id": "b7ee54ccf00c2de84abb",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Can pancreas removal cause bankruptcy?",
+  "answers": [
+   "yes"
+  ],
+  "gold_label": "yes",
+  "id": "e9b635db671e0c1be8d9",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Is Alistair Darling in favor of Scottish independence?",
+  "answers": [
+   "no"
+  ],
+  "gold_label": "no",
+  "id": "72277c0ba2a0bcdaf739",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Does Linus Torvalds make money off of DirectX?",
+  "answers": [
+   "no"
+  ],
+  "gold_label": "no",
+  "id": "2c6955a5381253c1067c",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Is Cookie Monster's diet Paleo friendly?",
+  "answers": [
+   "no"
+  ],
+  "gold_label": "no",
+  "id": "03065f31c1a550a97107",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Was the subject of Parsifal taken from British folklore?",
+  "answers": [
+   "yes"
+  ],
+  "gold_label": "yes",
+  "id": "a0eb63776f7720ec0bcc",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Is the Louvre's pyramid known for being unbreakable? ",
+  "answers": [
+   "no"
+  ],
+  "gold_label": "no",
+  "id": "bc8bcfe04e4b026e9c96",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Did Snoop Dogg refuse to make music with rival gang members?",
+  "answers": [
+   "no"
+  ],
+  "gold_label": "no",
+  "id": "377427ca79b717bdcb83",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Should children be kept from \"special brownies\"?",
+  "answers": [
+   "yes"
+  ],
+  "gold_label": "yes",
+  "id": "55c54e04a9446aaf6b45",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Would Tony Stark be considered a polymath?",
+  "answers": [
+   "yes"
+  ],
+  "gold_label": "yes",
+  "id": "dd3cb87f907f758229ec",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Do some home remedies result in your skin color turning blue?",
+  "answers": [
+   "yes"
+  ],
+  "gold_label": "yes",
+  "id": "a18c59e77cc176f748b2",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Did Naruto escape the Temple of Doom?",
+  "answers": [
+   "no"
+  ],
+  "gold_label": "no",
+  "id": "959fb200fccf056f00d7",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Would a sophist use an \u00e9p\u00e9e?",
+  "answers": [
+   "no"
+  ],
+  "gold_label": "no",
+  "id": "db6ede282f42b088fef7",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Would a Monoamine Oxidase candy bar cheer up a depressed friend?",
+  "answers": [
+   "no"
+  ],
+  "gold_label": "no",
+  "id": "41450dbd623437269f8f",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Could a Porsche 992 Turbo S defeat Usain Bolt in a 100 meter sprint?",
+  "answers": [
+   "yes"
+  ],
+  "gold_label": "yes",
+  "id": "848941fb02c8818a4e1f",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Was John George Bice's birthplace near Cornwall?",
+  "answers": [
+   "yes"
+  ],
+  "gold_label": "yes",
+  "id": "7f435c65e98ee7f07b85",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Could R. Kelly write a college thesis?",
+  "answers": [
+   "no"
+  ],
+  "gold_label": "no",
+  "id": "4ab77024b00c43ab7445",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Would Bugs Bunny harm an olive tree in the real world?",
+  "answers": [
+   "yes"
+  ],
+  "gold_label": "yes",
+  "id": "3f7daff5574045d7b737",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Does water have viscosity?",
+  "answers": [
+   "no"
+  ],
+  "gold_label": "no",
+  "id": "b8de21dae500bfa66b7b",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Is zoology unconcerned with strigoi?",
+  "answers": [
+   "yes"
+  ],
+  "gold_label": "yes",
+  "id": "9d72d2a919f84ce9c597",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Can telescopes hear noise?",
+  "answers": [
+   "no"
+  ],
+  "gold_label": "no",
+  "id": "f353cbd3286ea1e452aa",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Could one Amazon share ever buy twenty year Netflix subscription?",
+  "answers": [
+   "yes"
+  ],
+  "gold_label": "yes",
+  "id": "06724dc213e0dae715f5",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Is number of different US President's in 1800s a lucky number in Hong Kong?",
+  "answers": [
+   "no"
+  ],
+  "gold_label": "no",
+  "id": "cac8e6300a98cf6128af",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Was Eve involved in an incestuous relationship?",
+  "answers": [
+   "yes"
+  ],
+  "gold_label": "yes",
+  "id": "517614ab4adf946dbe20",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Can a grey seal swim in the same water as the subject of Moby Dick?",
+  "answers": [
+   "yes"
+  ],
+  "gold_label": "yes",
+  "id": "1ffe6c11a37f8e4e2542",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Will Communion be denied to Wednesday name origin followers?",
+  "answers": [
+   "yes"
+  ],
+  "gold_label": "yes",
+  "id": "48cac3b98391f6da285f",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Is it possible to get killed walking to the Very Large Telescope?",
+  "answers": [
+   "yes"
+  ],
+  "gold_label": "yes",
+  "id": "8cfde6ee28d059a5aff6",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Can eating grapefruit kill besides allergies or choking?",
+  "answers": [
+   "yes"
+  ],
+  "gold_label": "yes",
+  "id": "25a088d9d2ce674e639a",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Would Quiet from Metal Gear be a poor hypothetical choice for lecturer at Haub?",
+  "answers": [
+   "yes"
+  ],
+  "gold_label": "yes",
+  "id": "979b4b0fa0a8606bfcae",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Can Reiki be stored in a bottle?",
+  "answers": [
+   "no"
+  ],
+  "gold_label": "no",
+  "id": "7b0a9a729b42f74e95aa",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Are right wing Amreicans opposed to marxism?",
+  "answers": [
+   "yes"
+  ],
+  "gold_label": "yes",
+  "id": "2da278a3d315ec89e21c",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Is B's place in alphabet same as Prince Harry's birth order?",
+  "answers": [
+   "yes"
+  ],
+  "gold_label": "yes",
+  "id": "5633fa480c01d39119ee",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Would Snowdon mountain be a piece of cake for Tenzing Norgay?",
+  "answers": [
+   "yes"
+  ],
+  "gold_label": "yes",
+  "id": "e3f5b70bb16f336cc7fc",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Would three newborn kittens fit on a standard Amtrak coach seat?",
+  "answers": [
+   "yes"
+  ],
+  "gold_label": "yes",
+  "id": "653e7f9907cc581803b6",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Did Polar Bears roam around in Ancient Greece?",
+  "answers": [
+   "no"
+  ],
+  "gold_label": "no",
+  "id": "cd1e50e79d07a0320120",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Could ancient Tony Bennett have a baby in 2020?",
+  "answers": [
+   "yes"
+  ],
+  "gold_label": "yes",
+  "id": "f8e6087cd52c925fedad",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Are all limbs required for jujutsu?",
+  "answers": [
+   "no"
+  ],
+  "gold_label": "no",
+  "id": "07bcc6301dae2a7b038f",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Would a tool used for Martin Luther's Reformation opening salvo aid in a crucifixion?",
+  "answers": [
+   "yes"
+  ],
+  "gold_label": "yes",
+  "id": "9c0111d03557271a54fc",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Did Christopher Columbus sail representing a different country than his original home?",
+  "answers": [
+   "yes"
+  ],
+  "gold_label": "yes",
+  "id": "38b57970d1b2ba8279b8",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Does taking ukemi halt kinetic energy?",
+  "answers": [
+   "no"
+  ],
+  "gold_label": "no",
+  "id": "085b0b414514ce251e76",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Can petroleum jelly be used as fuel in a car?",
+  "answers": [
+   "no"
+  ],
+  "gold_label": "no",
+  "id": "f6c3094dbf7cb1f21b2a",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Do salmon mate in the Caspian Sea?",
+  "answers": [
+   "no"
+  ],
+  "gold_label": "no",
+  "id": "2b0900c25deff445e6b1",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Do most high school head coaches make as much as the Head Coach at NCSU?",
+  "answers": [
+   "no"
+  ],
+  "gold_label": "no",
+  "id": "71ca1a8a75c5c582ab3f",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Can the Moscow Kremlin fit inside Disney Land?",
+  "answers": [
+   "yes"
+  ],
+  "gold_label": "yes",
+  "id": "088e22a7b1b40fd2d95b",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Can citrus grow in Ulaanbaatar?",
+  "answers": [
+   "no"
+  ],
+  "gold_label": "no",
+  "id": "3b62e4e18ce9ec7015c0",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Does ABBA have similar gender configuration to The Mamas & The Papas?",
+  "answers": [
+   "yes"
+  ],
+  "gold_label": "yes",
+  "id": "3428fcbe9ffdcd50d234",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Is Samsung accountable to shareholders?",
+  "answers": [
+   "yes"
+  ],
+  "gold_label": "yes",
+  "id": "91bb99711affe05abe7b",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Was animal in You're a Good Sport, Charlie Brown, hypothetically a hound?",
+  "answers": [
+   "yes"
+  ],
+  "gold_label": "yes",
+  "id": "ae54adce616125cc6ddd",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Are raw carrots better for maximizing vitamin A intake?",
+  "answers": [
+   "no"
+  ],
+  "gold_label": "no",
+  "id": "c497b4a83bc55a840e6c",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Did Jerry Seinfeld have reason to cheer in 1986?",
+  "answers": [
+   "yes"
+  ],
+  "gold_label": "yes",
+  "id": "e40cbe4b89942e256377",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Can actress Danica McKellar skip astronaut education requirements?",
+  "answers": [
+   "yes"
+  ],
+  "gold_label": "yes",
+  "id": "3e9e3ccc9fc4d44a3eb4",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Could a Jujutsu expert hypothetically defeat a Janissary?",
+  "answers": [
+   "no"
+  ],
+  "gold_label": "no",
+  "id": "c027d949f7b4a6af5869",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Are most mall Santa Claus actors white?",
+  "answers": [
+   "yes"
+  ],
+  "gold_label": "yes",
+  "id": "2bec732d14cf2b289435",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Do citizens of Cheshire sing La Marseillaise?",
+  "answers": [
+   "no"
+  ],
+  "gold_label": "no",
+  "id": "46a30058a6a81a3b08df",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Would a Wolverine and a Lynx be hard to tell apart?",
+  "answers": [
+   "no"
+  ],
+  "gold_label": "no",
+  "id": "85300febfe21ecdcc5b1",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Would Modafinil be effective in completing a suicide?",
+  "answers": [
+   "no"
+  ],
+  "gold_label": "no",
+  "id": "46b3927a42ca343d71c3",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Could the Powepuff Girls make the background to the Azerbaijani flag?",
+  "answers": [
+   "yes"
+  ],
+  "gold_label": "yes",
+  "id": "06b9ed3f803e3d5796ed",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Would it be impossible to keep an ocean sunfish and a goldfish in the same tank?",
+  "answers": [
+   "yes"
+  ],
+  "gold_label": "yes",
+  "id": "557b6230413fc65f6a16",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: If your electric stove has a glass top, should you use cast iron skillets?",
+  "answers": [
+   "no"
+  ],
+  "gold_label": "no",
+  "id": "b3522ea1e8d0a95dd0b3",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Would Bruce Gandy be an odd choice for Messiah (Handel)?",
+  "answers": [
+   "yes"
+  ],
+  "gold_label": "yes",
+  "id": "798252398fa282fa38e6",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Does Amtrak run from NYC directly to the Moai location?",
+  "answers": [
+   "no"
+  ],
+  "gold_label": "no",
+  "id": "dc3310bf2a61d1a9f2cf",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Could a monolingual American read Lenovo's native name?",
+  "answers": [
+   "no"
+  ],
+  "gold_label": "no",
+  "id": "e5b8fb5f2431ac1396ec",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Was Los Angeles Memorial Sports Arena hypothetically inadequate for hosting Coachella?",
+  "answers": [
+   "yes"
+  ],
+  "gold_label": "yes",
+  "id": "7459eacff621fe539afc",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Does the Taco Bell kitchen contain cinnamon?",
+  "answers": [
+   "yes"
+  ],
+  "gold_label": "yes",
+  "id": "ec77d443ba555a906316",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Are those incapable of reproduction incapable of parenthood?",
+  "answers": [
+   "no"
+  ],
+  "gold_label": "no",
+  "id": "722dc38bd849d8b6ec0f",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Was the father of social security system serving in the white house during the Panic of 1907?",
+  "answers": [
+   "no"
+  ],
+  "gold_label": "no",
+  "id": "6a8f77c62222517534f5",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Did earth complete at least one orbit around the sun during the Napoleonic Wars?",
+  "answers": [
+   "yes"
+  ],
+  "gold_label": "yes",
+  "id": "fa6c3c6b8471d6489f43",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Phileas Fogg's around the world would be difficult to achieve during Pope John Paul I's reign?",
+  "answers": [
+   "yes"
+  ],
+  "gold_label": "yes",
+  "id": "9fe0a73c0db0f034f859",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Does Dragon Ball shows and movies fall short of Friday 13th number of projects?",
+  "answers": [
+   "yes"
+  ],
+  "gold_label": "yes",
+  "id": "ad9bf53d84f83ebc9822",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Does Rusev have to worry about human overpopulation in his homeland?",
+  "answers": [
+   "no"
+  ],
+  "gold_label": "no",
+  "id": "b257b34db67a10038f18",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Would the fastest tortoise win a race against a Chicago \"L\"?",
+  "answers": [
+   "no"
+  ],
+  "gold_label": "no",
+  "id": "8ab0f34f407608dbd2b3",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: At Christmastime, do some films remind us that groundhog day is approaching?",
+  "answers": [
+   "yes"
+  ],
+  "gold_label": "yes",
+  "id": "d6ab89d323e040b5a28a",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Does Jason have anything in common with Dr. Disrespect?",
+  "answers": [
+   "yes"
+  ],
+  "gold_label": "yes",
+  "id": "b418ba4e11aee26faabc",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Was Achilles a direct descendent of Gaia?",
+  "answers": [
+   "yes"
+  ],
+  "gold_label": "yes",
+  "id": "4a8361174e3f01cf8c2e",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Could Marco Rubio ride the Candymonium roller coaster at Hershey Park?",
+  "answers": [
+   "yes"
+  ],
+  "gold_label": "yes",
+  "id": "debac3970a4fc11774fd",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Is Bucharest located south of Egypt?",
+  "answers": [
+   "no"
+  ],
+  "gold_label": "no",
+  "id": "5a5ccd78ba4d4af27bc6",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Does New Year's Day always occur on a Wednesday?",
+  "answers": [
+   "no"
+  ],
+  "gold_label": "no",
+  "id": "6ced5b6cea1bf1d35435",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Would the crew of Apollo 15 have difficulty riding a unicycle?",
+  "answers": [
+   "yes"
+  ],
+  "gold_label": "yes",
+  "id": "064d8faaa8f164b55270",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Is Eid al-Fitr holiday inappropriate to watch entire US Office?",
+  "answers": [
+   "yes"
+  ],
+  "gold_label": "yes",
+  "id": "280da2485d6504022d34",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: If Goofy were a pet, would he need heartworm prevention?",
+  "answers": [
+   "yes"
+  ],
+  "gold_label": "yes",
+  "id": "363a55b705110a878be1",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Would a fungal life-form be threatened by a pigment from copper?",
+  "answers": [
+   "yes"
+  ],
+  "gold_label": "yes",
+  "id": "93264708b0d600fb9650",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Was Augustus his real name?",
+  "answers": [
+   "no"
+  ],
+  "gold_label": "no",
+  "id": "3d55b2ce338f4e2cdcf4",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Can I hold Bing in a basket?",
+  "answers": [
+   "no"
+  ],
+  "gold_label": "no",
+  "id": "73cc8dadbae6bc0eb433",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Was Alexander the Great baptized?",
+  "answers": [
+   "no"
+  ],
+  "gold_label": "no",
+  "id": "027a7b964c31a0540f9c",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Is University of Pittsburgh easier to enter than FBI?",
+  "answers": [
+   "yes"
+  ],
+  "gold_label": "yes",
+  "id": "0782cde19737531d14fe",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Do all of the African regions that participated in the Portugese Colonial War share an official language?",
+  "answers": [
+   "yes"
+  ],
+  "gold_label": "yes",
+  "id": "e374088f76c6618c3459",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Is blonde hair green eyed Sara Paxton considered a Latino?",
+  "answers": [
+   "yes"
+  ],
+  "gold_label": "yes",
+  "id": "38ef97eb7cdd4200fd00",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Did the Space Race use relay batons?",
+  "answers": [
+   "no"
+  ],
+  "gold_label": "no",
+  "id": "b77d2efee37741e44c32",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Is Supreme Court of the United States analogous to High Courts of Justice of Spain?",
+  "answers": [
+   "no"
+  ],
+  "gold_label": "no",
+  "id": "50bf347c2a05b645a0f9",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Is it safe to eat hair?",
+  "answers": [
+   "yes"
+  ],
+  "gold_label": "yes",
+  "id": "c664e847b957da434f15",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Does chlorine inhibit photosynthesis?",
+  "answers": [
+   "yes"
+  ],
+  "gold_label": "yes",
+  "id": "65d216ee031d7c2a376f",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Was United Airlines blameless in worst crash in history?",
+  "answers": [
+   "yes"
+  ],
+  "gold_label": "yes",
+  "id": "be5ba924348f83b5df96",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Do Bing (search engine) searches earn the searcher more than competitors do?",
+  "answers": [
+   "yes"
+  ],
+  "gold_label": "yes",
+  "id": "18586794a7000980c6a8",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Could the Toyota Stadium sit a tenth of the population of Gotheburg?",
+  "answers": [
+   "no"
+  ],
+  "gold_label": "no",
+  "id": "e2608700f4055492cdc3",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Is sunscreen unhelpful for the condition that killed Bob Marley?",
+  "answers": [
+   "yes"
+  ],
+  "gold_label": "yes",
+  "id": "fee20d28322885672ccf",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Is the title of Shirley Bassey's 1971 diamond song a true statement?",
+  "answers": [
+   "no"
+  ],
+  "gold_label": "no",
+  "id": "8d06b619a7045ed02f51",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Is a northern fur seal needing emergency surgery in July likely a safe anesthesia candidate?",
+  "answers": [
+   "yes"
+  ],
+  "gold_label": "yes",
+  "id": "f4a336168f5165de7f0d",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Are selfies more dangerous than plague in modern times?",
+  "answers": [
+   "yes"
+  ],
+  "gold_label": "yes",
+  "id": "79595ffe6b93c5e84056",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Did Spiderman fight against Falcon in the MCU?",
+  "answers": [
+   "yes"
+  ],
+  "gold_label": "yes",
+  "id": "bdc60c16ac8d47491464",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Can fish get Tonsillitis?",
+  "answers": [
+   "no"
+  ],
+  "gold_label": "no",
+  "id": "721d168ff5cc0b18c31b",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Did Supernatural break 2001 CW debuting shows seasons record?",
+  "answers": [
+   "yes"
+  ],
+  "gold_label": "yes",
+  "id": "01c27885cede6741bc53",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Are sables related to wolverines?",
+  "answers": [
+   "yes"
+  ],
+  "gold_label": "yes",
+  "id": "80aa769f55b14c1e4d8d",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Does March begin on the same day of the week as February during leap years?",
+  "answers": [
+   "no"
+  ],
+  "gold_label": "no",
+  "id": "1f9b1e6e299a9da962fe",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Are you likely to find a crucifix in Karachi?",
+  "answers": [
+   "no"
+  ],
+  "gold_label": "no",
+  "id": "fdeec181aeee06303113",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Would Gomer Pyle salute a lieutenant?",
+  "answers": [
+   "yes"
+  ],
+  "gold_label": "yes",
+  "id": "5b0a4c75f55575ae7e83",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Did Al Unser Jr. win the Space Race?",
+  "answers": [
+   "no"
+  ],
+  "gold_label": "no",
+  "id": "0e2f272f72871428cc90",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Is the Matrix a standalone movie?",
+  "answers": [
+   "no"
+  ],
+  "gold_label": "no",
+  "id": "ba04b5ebc2edd682c4dd",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Did Dr. Seuss live a tragedy free life?",
+  "answers": [
+   "no"
+  ],
+  "gold_label": "no",
+  "id": "115dd3102b245bdbc737",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Was Harry Potter a better investment than The Matrix for Warner Bros.?",
+  "answers": [
+   "yes"
+  ],
+  "gold_label": "yes",
+  "id": "3295844627a9bd1b9135",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Did Jon Brower Minnoch suffer from anorexia nervosa?",
+  "answers": [
+   "no"
+  ],
+  "gold_label": "no",
+  "id": "05e69c19a536222d90db",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Did the Nazis use the Hammer and sickle flag?",
+  "answers": [
+   "no"
+  ],
+  "gold_label": "no",
+  "id": "250d2ecf5f5bc889a863",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Would John Muir not likely have a vitamin D deficiency?",
+  "answers": [
+   "yes"
+  ],
+  "gold_label": "yes",
+  "id": "ea9b3204830068115fcb",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Does the judo rank system reach the triple digits?",
+  "answers": [
+   "no"
+  ],
+  "gold_label": "no",
+  "id": "9467c294f175d06473c3",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Is menthol associated with Christmas?",
+  "answers": [
+   "yes"
+  ],
+  "gold_label": "yes",
+  "id": "d47120efd0f09badd848",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Do most middle class families have butlers?",
+  "answers": [
+   "no"
+  ],
+  "gold_label": "no",
+  "id": "424ecb3dd6c64b6da4cc",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Could Palm Beach be held in the palm of your hand?",
+  "answers": [
+   "no"
+  ],
+  "gold_label": "no",
+  "id": "ec13093ea857962c647f",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Could you read The Atlantic magazine during the Games of the XXII Olympiad?",
+  "answers": [
+   "yes"
+  ],
+  "gold_label": "yes",
+  "id": "80ba3ad84b318f16f34c",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Will Chuck Norris be a nonagenarian by time next leap year after 2020 happens?",
+  "answers": [
+   "no"
+  ],
+  "gold_label": "no",
+  "id": "976710eb9fff4ed94fd8",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Would ISIS agree with Al-Farabi's religious sect?",
+  "answers": [
+   "no"
+  ],
+  "gold_label": "no",
+  "id": "0e2302c5416dbec922e6",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Does menthol make cigarettes less addictive?",
+  "answers": [
+   "no"
+  ],
+  "gold_label": "no",
+  "id": "378ccb7bc29c9ce4eea0",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Are classic nintendo games for emulator legal?",
+  "answers": [
+   "no"
+  ],
+  "gold_label": "no",
+  "id": "b01c95ce0b47590fd29a",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Does Post Malone have a fear of needles?",
+  "answers": [
+   "no"
+  ],
+  "gold_label": "no",
+  "id": "acb372237880dc80c4a1",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Could modern Brazilian Navy have hypothetically turned the tide in Battle of Actium?",
+  "answers": [
+   "yes"
+  ],
+  "gold_label": "yes",
+  "id": "c4a9e56df5b83e483769",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Were Beauty and the Beast adaptations devoid of Kurt Sutter collaborators?",
+  "answers": [
+   "no"
+  ],
+  "gold_label": "no",
+  "id": "5f267b7c20090236a2fb",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Are ground bell peppers the main ingredient of black pepper?",
+  "answers": [
+   "no"
+  ],
+  "gold_label": "no",
+  "id": "d825d90c0c4d555b3bea",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Are Scottish people descended from Mary, Queen of Scots part French?",
+  "answers": [
+   "yes"
+  ],
+  "gold_label": "yes",
+  "id": "089b0eb6cdf0fe53a863",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Does the Constitution of the Philippines copy text from the British constitution?",
+  "answers": [
+   "no"
+  ],
+  "gold_label": "no",
+  "id": "b172aea303690917153e",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Is there a jukebox musical about a sweet transvestite from Transexual, Transylvania?",
+  "answers": [
+   "no"
+  ],
+  "gold_label": "no",
+  "id": "784d37fe54b0ad49c49a",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Did Monty Python write the Who's on First sketch?",
+  "answers": [
+   "no"
+  ],
+  "gold_label": "no",
+  "id": "dfe89f86d25ea26ab85d",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Do giraffes require special facilities at zoos?",
+  "answers": [
+   "yes"
+  ],
+  "gold_label": "yes",
+  "id": "363e5889466d85bba2ca",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Does United Airlines have a perfect operation record?",
+  "answers": [
+   "no"
+  ],
+  "gold_label": "no",
+  "id": "ea3f5363f250cb9c9969",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Can parachuting amateurs ignore hurricane force winds bulletins?",
+  "answers": [
+   "no"
+  ],
+  "gold_label": "no",
+  "id": "990bc1e418fff10f8d51",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Can a Goblin shark hypothetically ride a bike if it had limbs?",
+  "answers": [
+   "no"
+  ],
+  "gold_label": "no",
+  "id": "32c562173099f5c2345f",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Can an adult human skull hypothetically pass through the birth canal?",
+  "answers": [
+   "yes"
+  ],
+  "gold_label": "yes",
+  "id": "93029b0b5b4f19ab150a",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Did DARPA influence Albert Einstein? ",
+  "answers": [
+   "no"
+  ],
+  "gold_label": "no",
+  "id": "55bcf8e81e775bac5a4e",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Would a Nike shoebox be too small to fit a swan in?",
+  "answers": [
+   "yes"
+  ],
+  "gold_label": "yes",
+  "id": "e9689243222e7afa28ad",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Can the Very Large Telescope observe the largest mountain on Earth?",
+  "answers": [
+   "no"
+  ],
+  "gold_label": "no",
+  "id": "70e7c1ad517f7f78d21d",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Do people with mood disorders need permanent institutionalization?",
+  "answers": [
+   "no"
+  ],
+  "gold_label": "no",
+  "id": "05ab64dd540d095d9c62",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Can a quarter fit inside of a human kidney?",
+  "answers": [
+   "yes"
+  ],
+  "gold_label": "yes",
+  "id": "9224ee338a77834434c9",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Is the Mona Lisa in the same museum as the Venus de Milo?",
+  "answers": [
+   "yes"
+  ],
+  "gold_label": "yes",
+  "id": "05046d2981f68118f047",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Would a customer be happy if their grocery store meat tasted like game?",
+  "answers": [
+   "no"
+  ],
+  "gold_label": "no",
+  "id": "1051df8b6730dcd1b34f",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Are Leopard cats in less dire straits than Bornean Orangutan?",
+  "answers": [
+   "yes"
+  ],
+  "gold_label": "yes",
+  "id": "0a4fa11abccd8dd84dc8",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Is Metallica protective over their music?",
+  "answers": [
+   "yes"
+  ],
+  "gold_label": "yes",
+  "id": "4c72798de7aca9e0954e",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Does title of Van Morrison's most played song apply to a minority of women worldwide?",
+  "answers": [
+   "no"
+  ],
+  "gold_label": "no",
+  "id": "2ea15e27e5d94fd82471",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Did Japanese serfdom have higher status than English counterpart?",
+  "answers": [
+   "yes"
+  ],
+  "gold_label": "yes",
+  "id": "4a915ea5d025292cd7ec",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Did Johnny Carson win enough Emmy's to fill a carton if Emmy's were eggs?",
+  "answers": [
+   "no"
+  ],
+  "gold_label": "no",
+  "id": "d258695ba910ec875522",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Can COVID-19 spread to maritime pilots?",
+  "answers": [
+   "yes"
+  ],
+  "gold_label": "yes",
+  "id": "86f9275b46d101656634",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ },
+ {
+  "question": "Answer yes or no. Question: Could Carl Friedrich Gauss speak to someone 100 miles away?",
+  "answers": [
+   "no"
+  ],
+  "gold_label": "no",
+  "id": "b5cdf7f8a6b440cdd451",
+  "benchmark": "strategyqa",
+  "_pool": "test_pool"
+ }
+]

@@ -212,6 +212,21 @@ def _parse_args() -> argparse.Namespace:
     # (same rng_seed=42 as run_experiment.py). External splits file no longer
     # needed — baseline eval pool is byte-identical to CAEM's cycle-N eval
     # by construction.
+    p.add_argument(
+        "--questions_jsons",
+        nargs="+",
+        default=None,
+        help=(
+            "Optional list-of-dicts JSON files that REPLACE the auto-built "
+            "benchmark eval pool. Each JSON file is a list of "
+            "{question, answers, gold_label, id, benchmark}. Per-benchmark "
+            "routing is by the 'benchmark' field on each row. Used by RUC "
+            "v2 to run baselines on caem/ruc/fresh_pool/*_v2.json (content-"
+            "hash disjoint from CAEM's eval / calib / purity / sil / seed / "
+            "test pools by construction). Mutually exclusive in spirit with "
+            "--n_questions, which is ignored when this flag is set."
+        ),
+    )
     return p.parse_args()
 
 
@@ -365,23 +380,50 @@ def main() -> None:
     # without needing an external splits file. The pool builder uses the
     # SAME seed (42) as CAEM's run_experiment.py, so baseline and CAEM see
     # byte-identical eval samples.
-    from caem.benchmark_splits import (
-        build_all_benchmark_pools, ALL_BENCHMARKS,
-    )
-    requested_benchmarks = [bm.strip().lower() for bm in ns.benchmarks]
-    panel = [bm for bm in ALL_BENCHMARKS if bm in requested_benchmarks] or requested_benchmarks
-    logger.info("Building deterministic pool splits for baseline eval: %s", panel)
-    # 2026-05-07 audit fix: drop the v1-era train_chunk_size=5000 override
-    # so build_benchmark_pools consults PER_BENCHMARK_TRAIN_CHUNK_SIZE per
-    # benchmark (CSQA at 700, others at 1000). With chunk=5000 explicit,
-    # CSQA failed with InsufficientBenchmarkDataError because 1000+500+500+
-    # 10×5000 = 52000 needed vs 9741 available.
-    benchmark_pools = build_all_benchmark_pools(
-        benchmarks=panel,
-        n_cycles=10,  # same cycles count as CAEM for chunk consistency
-        eval_size=int(getattr(ns, "n_questions", 500) or 500),
-        rng_seed=int(getattr(ns, "seed", 42)),
-    )
+    #
+    # 2026-05-17 (RUC v2): when --questions_jsons is supplied, the auto-pool
+    # build is bypassed entirely — we use the fresh-pool slices that are
+    # content-hash disjoint from CAEM's pools (caem/ruc/fresh_pool/*_v2.json).
+    benchmark_pools: Dict[str, Any] = {}
+    fresh_pool_by_bench: Dict[str, List[Dict[str, Any]]] = {}
+    if ns.questions_jsons:
+        logger.info(
+            "Fresh-pool override active: loading %d JSON file(s); "
+            "auto eval-pool build SKIPPED.",
+            len(ns.questions_jsons),
+        )
+        for jp in ns.questions_jsons:
+            jp_path = Path(jp)
+            if not jp_path.exists():
+                logger.warning("missing JSON %s; skipped", jp_path)
+                continue
+            with open(jp_path) as f:
+                data = _json.load(f)
+            for row in data:
+                b = (row.get("benchmark") or "").strip().lower()
+                if not b:
+                    continue
+                fresh_pool_by_bench.setdefault(b, []).append(row)
+        for b, rows in fresh_pool_by_bench.items():
+            logger.info("fresh-pool bench=%s -> %d samples", b, len(rows))
+    else:
+        from caem.benchmark_splits import (
+            build_all_benchmark_pools, ALL_BENCHMARKS,
+        )
+        requested_benchmarks = [bm.strip().lower() for bm in ns.benchmarks]
+        panel = [bm for bm in ALL_BENCHMARKS if bm in requested_benchmarks] or requested_benchmarks
+        logger.info("Building deterministic pool splits for baseline eval: %s", panel)
+        # 2026-05-07 audit fix: drop the v1-era train_chunk_size=5000 override
+        # so build_benchmark_pools consults PER_BENCHMARK_TRAIN_CHUNK_SIZE per
+        # benchmark (CSQA at 700, others at 1000). With chunk=5000 explicit,
+        # CSQA failed with InsufficientBenchmarkDataError because 1000+500+500+
+        # 10×5000 = 52000 needed vs 9741 available.
+        benchmark_pools = build_all_benchmark_pools(
+            benchmarks=panel,
+            n_cycles=10,  # same cycles count as CAEM for chunk consistency
+            eval_size=int(getattr(ns, "n_questions", 500) or 500),
+            rng_seed=int(getattr(ns, "seed", 42)),
+        )
 
     baseline = _build_baseline(ns)
 
@@ -400,8 +442,23 @@ def main() -> None:
         logger.info("BASELINE=%s | BENCHMARK=%s | N=%d",
                     ns.baseline, bench, ns.n_questions)
         logger.info("=" * 72)
-        # Branch C: draw from the deterministic eval pool matching CAEM's split.
-        if bench in benchmark_pools:
+        # 2026-05-18: fresh-pool dispatch (--questions_jsons) overrides the
+        # auto-built benchmark_pools. The fresh-pool slices in
+        # caem/ruc/fresh_pool/ are content-hash disjoint from EVERY CAEM
+        # pool (seed/purity/calibration/sil_train/eval/test) by construction,
+        # so the resulting baseline outputs can train a downstream RUC
+        # without leakage when CAEM is later evaluated on the standard
+        # eval pool. The legacy branch_C build_all_benchmark_pools path
+        # still drives the default behaviour when --questions_jsons is
+        # not supplied.
+        if bench in fresh_pool_by_bench:
+            samples = list(fresh_pool_by_bench[bench])
+            logger.info(
+                "Loaded %d fresh-pool samples for %s (content-hash disjoint "
+                "from all CAEM pools by --questions_jsons).",
+                len(samples), bench,
+            )
+        elif bench in benchmark_pools:
             samples = list(benchmark_pools[bench].eval)
             logger.info(
                 "Loaded %d eval samples for %s from benchmark_pools "
@@ -410,7 +467,8 @@ def main() -> None:
             )
         else:
             logger.warning(
-                "%s not in benchmark_pools; falling back to legacy load_benchmark.",
+                "%s not in fresh_pool_by_bench and not in benchmark_pools; "
+                "falling back to legacy load_benchmark.",
                 bench,
             )
             if bench == "fever":
