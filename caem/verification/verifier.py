@@ -134,6 +134,22 @@ import logging
 import math
 import os
 import re
+import warnings as _warnings
+
+# Suppress the cosmetic transformers warnings that fire on every model.generate
+# call when do_sample=False is paired with non-default temperature/top_p/top_k.
+# Qwen-2.5-3B-Instruct's factory generation_config sets temperature=0.7,
+# top_p=0.8, top_k=20 — CAEM overrides do_sample=False (greedy, reproducible)
+# but doesn't clear the sampling params; they're inherited metadata and have
+# zero functional effect in greedy mode. The warning fires every call in
+# transformers 4.46+, producing thousands of redundant log lines per
+# trajectory cycle. Filter only the do_sample-paired-with-sampling-param
+# warnings; all other UserWarnings pass through unchanged.
+_warnings.filterwarnings(
+    "ignore",
+    message=r".*`do_sample` is set to `False`.*",
+    category=UserWarning,
+)
 from dataclasses import dataclass, field
 from typing import Any, Callable, List, Optional, Sequence, Tuple
 

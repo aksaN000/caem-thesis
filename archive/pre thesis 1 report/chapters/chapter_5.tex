@@ -1,0 +1,870 @@
+% ============================================================
+% Chapter 5 -- Results and Analysis
+% ============================================================
+% Writing-suggestions entries applied: C5-01 (calib/purity split),
+%   C5-MMLU-01 (dual forgetting instruments), C5-12 (existing McNemar +
+%   bootstrap helpers), GEN-12 (significance required), GEN-03
+%   (projected post-calibration weights).
+%
+% Phase 4m.2: This is the first committed content for Chapter 5 --
+% the evaluation-protocol preface for Section~5.1 that defines the
+% seven metric tables (5.1 Headline, 5.2 Calibration, 5.3 Hallucination
+% Decomposition, 5.4 Grounding, 5.5 Data Purity, 5.6 Continual
+% Learning, 5.7 Statistical Significance) before any result is
+% reported. Subsequent sections (§§5.2--5.9) are populated from live
+% experiment outputs and are not drafted in this phase.
+%
+% Note: citation keys lopezpaz2017gradient (Lopez-Paz \& Ranzato 2017,
+% NeurIPS, ``Gradient Episodic Memory for Continual Learning''),
+% brier1950verification (Brier 1950, Monthly Weather Review), and
+% mcnemar1947note (McNemar 1947, Psychometrika) are now present in
+% bibliography/references.bib alongside the 2026-04-17 Ch~2 benchmark
+% additions (joshi-etal-2017-triviaqa, kwiatkowski-etal-2019-natural,
+% clark2018think, hendrycks2021measuring).
+% ============================================================
+
+% ---------------------------------------------------------------
+\section*{Note on reported data}
+\label{sec:data-note}
+\addcontentsline{toc}{section}{Note on reported data}
+% ---------------------------------------------------------------
+
+Every numerical result in this chapter is drawn from a single ten-cycle training run of the CAEM architecture specified in Chapter~\ref{ch:methodology}, evaluated on the benchmarks introduced in Section~\ref{sec:benchmarks}. The run executes the reference implementation on the Qwen-2.5-3B-Instruct decoder-only backbone with the nine-signal verifier of Section~\ref{sec:verifier}, the four-outcome decision tree of Section~\ref{sec:decision}, and the three cycle-boundary memory passes --- retroactive re-verification (Section~\ref{sec:retroverify}), deferred-entry reconsideration (Section~\ref{sec:deferred-reconsider}), and memory consolidation (Section~\ref{sec:self-improvement}). Tables are produced by \texttt{scripts/make\_tables.py} from the per-cycle CSV artefacts written by \texttt{eval.reporting}; the significance panel is produced separately by \texttt{scripts/baseline\_sig\_tests.py}; figures are rendered by \texttt{scripts/make\_figures.py} from those CSVs together with the per-sample signal stream in \texttt{per\_sample\_signals.jsonl}. Baselines B1--B7 share the seed, benchmark manifest, and generator prompt template of the CAEM run on every overlapping benchmark; the matched-protocol convention is specified in Section~\ref{sec:baselines}.
+
+Reproducibility is enforced at three levels. The integer seed is $42$ throughout (passed to Python \texttt{random}, NumPy, and PyTorch's CPU and CUDA generators with \texttt{torch.backends.cudnn.deterministic = True}); the per-cycle benchmark manifests are frozen to \texttt{dataset\_splits.json} so that re-running any cycle under the same seed reproduces identical per-sample records, and that manifest is the single source of truth \texttt{scripts/baseline\_sig\_tests.py} reads when pairing per-sample outcomes between \caem{} and each baseline; pinned framework versions (Python~$3.10$, PyTorch~$2.10$ with CUDA~$13.1$, Transformers, Datasets, sentence-transformers, \texttt{faiss-cpu}, \texttt{bitsandbytes}) live in \texttt{requirements.txt} alongside the Phase~1a checkpoint. The \texttt{[LIT]/[DES]/[CAL]} provenance tagging that categorises every numeric constant in \texttt{caem.config.CAEMConfig} is specified in Chapter~\ref{ch:methodology} Section~\ref{sec:implementation}.
+
+The main run is budgeted at the $3{,}000$-per-benchmark-per-cycle schedule fixed in Section~\ref{sec:benchmarks}: $3 \times 3{,}000 \times 10 = 90{,}000$ SIL-stream queries across the three ID training benchmarks, plus $7 \times 500 \times 11 = 38{,}500$ evaluation queries across the seven-benchmark panel for Cycles~$0$ through~$10$, plus $200 \times 11 = 2{,}200$ MMLU retention queries --- roughly $130{,}000$ pipeline queries in total. At Chapter~\ref{ch:methodology}'s shipped Profile-v4 per-query latency of $\approx 10.2$\,s cold-start amortising toward $\approx 7$--$8$\,s as Tier-1 memory hits accumulate, this extrapolates to $\approx 260$ GPU-hours end-to-end on the rented NVIDIA RTX~5090 ($32$\,GB VRAM, Vast.ai). The same configuration runs unchanged on an RTX~4090 ($24$\,GB) with the deferred-buffer capacity dropped to $5 \times 10^{3}$ and the static-batch size dropped to $16$.
+
+The run may terminate earlier than Cycle~10 for either of two reasons. First, a convergence-based early-stop gate in \texttt{scripts/run\_experiment.py} (implemented in \texttt{caem/eval/equilibrium.py}) fits an exponential-saturation model to the per-cycle CES history from Cycle~5 onward and stops the cycle loop when the trajectory has visibly saturated; the gate's per-cycle fit and signal state are persisted to \texttt{cycle\_\{N\}/equilibrium\_fit.json} for audit. Second, budget exhaustion on the rented hardware may interrupt the run manually before the gate fires. Whichever termination occurs first determines the reported cycle count, and every downstream section (headline tables, significance tests, ablation results) is populated over exactly that many cycles. Section~\ref{sec:main-results}'s convergence-check paragraph reports the actual cycle count and the reason the run stopped at that cycle.
+
+The external baseline panel of Section~\ref{sec:baselines} adds compute sequentially: the five inference-only baselines (B1--B5) each traverse the seven-benchmark evaluation panel once per cycle of interest, while the two training baselines (B6~Vanilla-FT and B7~EWC-only-FT) each run on matched per-benchmark training budgets ($3{,}000$ per benchmark per cycle, byte-identical to CAEM's per-cycle chunks) and therefore occupy a comparable envelope to \caem{}. The ablation panel of Section~\ref{sec:ablation} runs a three-variant confirmatory sweep at five cycles $\times$ $3{,}000$ SIL samples per benchmark per cycle per variant via \texttt{run\_phase1\_full\_ablations.sh}; there is no screening stage because the registry is pre-committed, and Claims~1, 2, and~5 together with the nine-signal weighting design choice are defended by direct per-cycle diagnostics rather than by ablations. Self-RAG (B8) is a positioning reference and contributes no GPU time.
+
+% ---------------------------------------------------------------
+\section{Experimental Setup}
+\label{sec:exp-setup}
+% ---------------------------------------------------------------
+
+\Cref{sec:exp-setup} defines the evaluation protocol used across the
+remainder of this chapter: the seven benchmarks \caem{} is evaluated on,
+the metric suite applied to each benchmark at each cycle, and the seven
+external baselines against which \caem{} is compared numerically
+(B1--B7), one citation-only positioning reference (B8 Self-RAG, not run
+numerically; see \S\ref{sec:baselines}), plus an optional STaR ceiling
+reference reported when compute permits. The
+metric suite is deliberately broader than prior single-number
+evaluations of hallucination systems: a single exact-match score cannot
+disentangle accuracy from calibration, grounding, confabulation, or
+forgetting, and a thesis claiming an \emph{architectural} intervention
+must demonstrate behaviour on each of these axes separately before any
+aggregate claim is accepted.
+
+% ---------------------------------------------------------------
+\subsection{Benchmarks}
+\label{sec:benchmarks}
+% ---------------------------------------------------------------
+
+\caem{} is evaluated on seven factual-QA benchmarks, partitioned at config load into a three-benchmark \emph{training} panel --- FEVER~\cite{thorne-etal-2018-fever}, TriviaQA~\cite{joshi-etal-2017-triviaqa}, and Natural Questions~\cite{kwiatkowski-etal-2019-natural} --- and a four-benchmark \emph{transfer} panel --- TruthfulQA~\cite{lin-etal-2022-truthfulqa}, StrategyQA~\cite{10.1162/tacl_a_00370}, ARC-Challenge~\cite{clark2018think}, and ASQA~\cite{stelmakh2022asqa}.
+The training panel drives the self-improvement loop's episode pool: its three datasets each supply a train split large enough (FEVER $\sim\!145$k, TriviaQA $\sim\!87$k, Natural Questions $\sim\!87$k) to sustain the ten-cycle stream-mode schedule of $3{,}000$ fresh questions \emph{per benchmark per cycle} without within-run reuse --- $3 \times 3{,}000 = 9{,}000$ SIL-stream samples presented to the CAEM pipeline per cycle across the three ID benchmarks. The transfer panel never enters the training pool; the multi-source ID/OOD gate of Section~\ref{sec:self-improvement} enforces this admission rule even after memory consolidation merges entries across benchmarks at a cycle boundary. Each benchmark contributes a fixed $500$-sample evaluation slice per cycle, drawn from its standard validation or test split and held stable across cycles so that per-cycle deltas are measured on the same questions. The clean ID/OOD split separates each architectural mechanism's in-domain contribution from its zero-shot transfer effect, which the ablation grid of Section~\ref{sec:ablation} exploits.
+
+MMLU~\cite{hendrycks2021measuring} is held out separately as the out-of-distribution retention control for the forgetting-tolerance guard of Section~\ref{sec:self-improvement}: a fixed $200$-sample stratified slice across its $57$ subjects is probed at the first cycle's start to anchor the pristine baseline $m_{0}$, and the same slice is re-probed after each subsequent fine-tune to compute the retention ratio $\rho_{\text{ret}}^{(c)}$ of Equation~\ref{eq:forgetting-guard}. The slice is never added to the episodic memory or the training pool. Per-benchmark split sources, per-cycle sample counts, answer formats, and primary metrics are summarised in Table~\ref{tab:benchmark-overview}.
+
+\begin{table}[t]
+\centering
+\caption{Benchmark panel overview. Split source, sample count per cycle, answer format, and primary metric for each of the seven factual-QA benchmarks plus the MMLU retention control. The ID ($\uparrow$) / OOD ($\downarrow$) tag marks admission into the self-improvement training pool.}
+\label{tab:benchmark-overview}
+\begin{tabular}{llllll}
+\toprule
+Benchmark & Split & $N$ & Answer format & Primary metric & Pool \\
+\midrule
+FEVER               & paper\_dev & 500 & 3-way label    & Label accuracy        & ID $\uparrow$ \\
+TriviaQA            & validation & 500 & Free-form      & EM / F1               & ID $\uparrow$ \\
+Natural Questions   & validation & 500 & Span           & EM / F1               & ID $\uparrow$ \\
+TruthfulQA          & generation & 500 & Free-form      & ROUGE-L $> 0.15$      & OOD $\downarrow$ \\
+StrategyQA          & dev        & 500 & Binary         & Label accuracy        & OOD $\downarrow$ \\
+ARC-Challenge       & test       & 500 & 4-way MCQ      & Label accuracy        & OOD $\downarrow$ \\
+ASQA                & dev        & 500 & Long-form      & ROUGE-L $> 0.20$      & OOD $\downarrow$ \\
+MMLU (retention)    & 57 subjects& 200 & 4-way MCQ      & Retention ratio $\rho$ & --- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Per-cycle sample budgets and source-split disjointness.}
+At every cycle the generator is evaluated on the full seven-benchmark panel with $n_{\text{eval}} = 500$ questions per benchmark. Three additional disjoint folds support the per-cycle diagnostics: $n_{\text{cal}} = 500$ for the temperature re-fit of the next cycle and the reliability-diagram bins, $n_{\text{purity}} = 500$ for the verifier balanced-accuracy estimate $\alpha_{c}$ and the $\lvert P_{\text{theory}} - P_{\text{obs}}\rvert$ comparison that populates Table~\ref{tab:purity}, and $n_{\text{MMLU}} = 200$ for the retention probe of Equation~\ref{eq:forgetting-guard}. All four folds are non-overlapping within a benchmark and the fold assignment is fixed across cycles and across every ablation variant. Source disjointness is additionally enforced at the dataset-split level: the calibration fold, the purity fold, and the training pool for the self-improvement loop are drawn from the \emph{training splits} of the three ID benchmarks through \texttt{split\_calibration\_sets} in \texttt{scripts/run\_experiment.py}, whereas the evaluation fold is drawn from the \emph{dev or test splits} of all seven benchmarks through \texttt{load\_eval\_transfer\_pool}. The two loaders therefore consume disjoint source splits, and the calibration-fold fits for the temperature scalar and for the decision-tree quantile thresholds never observe a question that later feeds evaluation. The four transfer benchmarks contribute zero samples to the calibration or purity folds and are evaluation-only, consistent with their transfer-generalisation role in Chapter~3.
+
+\paragraph{Content-hash stable identity for fold disjointness.}
+\label{par:content-hash-disjointness}
+Sample-level disjointness between folds is enforced by a content-hash stable identifier rather than by the dataset-provided native \texttt{id} field. For every sample drawn from any benchmark loader, a sixteen-character identifier is derived from SHA-256 over the question text (truncated to five hundred characters) at fold-construction time and attached as \texttt{\_content\_id}; downstream disjointness assertions and the filter that removes cross-fold collisions both consume this identifier instead of the native one. The index-based partition happens first via \texttt{split\_calibration\_sets}, which shuffles the training pool deterministically from a benchmark-keyed seed and slices it into five hundred purity, five hundred calibration, and remainder training samples per benchmark; content-hash filtering then (a) removes within-fold duplicates by \texttt{\_content\_id} and (b) drops calibration or purity samples whose content hash collides with the evaluation fold. This guards against two Hugging Face dataset variants whose native IDs are non-unique under the loading assumptions: \texttt{lucadiliello/fever} reuses integer claim IDs between the training and dev splits (so a FEVER training claim and a FEVER dev claim can share a native ID without sharing content), and the \texttt{trivia\_qa} \texttt{rc.nocontext} dump contains within-split duplicate native IDs (multiple training entries sharing a single \texttt{sfq\_*} or \texttt{qw\_*} identifier). Under these conditions native-ID disjointness would produce both false positives and false negatives; content-hash disjointness eliminates both failure modes. The filter drops at most a handful of samples per benchmark from each fold, logged at run time, and is the engineering guarantee that the McNemar and paired-bootstrap tests of Table~\ref{tab:sig-test} depend on when they claim evaluation-pool invariance across cycles and across ablation variants.
+
+% ---------------------------------------------------------------
+\subsection{Metrics}
+\label{sec:metrics}
+% ---------------------------------------------------------------
+
+Every cycle writes a per-benchmark JSON at \texttt{outputs/full\_run/\{benchmark\}\_cycle\{c\}.json}, each file containing a \texttt{meta} aggregate dict and a \texttt{samples} list whose rectangular per-sample records carry the generated answer, the reasoning chain, the routing tier, the wall-clock latency, and the full set of verification signals emitted by the \textsc{UnifiedVerifier} of Section~\ref{sec:verifier}. The helper \texttt{build\_ch5\_tables} in \texttt{eval/reporting.py} reshapes these records into seven publication-ready CSV artefacts that \texttt{scripts/make\_tables.py} renders as the LaTeX tables referenced below (Tables~\ref{tab:headline}--\ref{tab:sig-test}); \texttt{scripts/make\_figures.py} produces the companion figures from the same CSVs together with the per-sample signal stream in \texttt{per\_sample\_signals.jsonl}. The seven tables together answer seven distinct evaluation questions, which this subsection defines before the results chapter populates them.
+
+\paragraph{Accuracy and latency (Table~\ref{tab:headline}).}
+Primary correctness uses the benchmark-appropriate metric: token-F1 and exact match on free-form answers (TriviaQA, Natural Questions), label accuracy on classification benchmarks (FEVER's three-class, StrategyQA's binary, ARC-Challenge's four-way MCQ), ROUGE-L $> 0.15$ on TruthfulQA following Lin et al.~\cite{lin-etal-2022-truthfulqa}, and ROUGE-L $> 0.20$ on ASQA matching the STR score of Stelmakh et al., per Section~\ref{sec:benchmarks}. Because \caem{}'s architectural value is routing selectivity, every benchmark's EM is also reported \emph{stratified by routing tier} ($\mathrm{EM}_{T_{1}}, \mathrm{EM}_{T_{2}}, \mathrm{EM}_{T_{3}}$), so that a rise in the Tier-1 fraction $\tau_{1}(c)$ --- the memory-hit rate whose saturation drives Theorem~\ref{thm:asymptotic-elimination} --- is read alongside per-tier correctness rather than being averaged away. Wall-clock latency is reported per tier for the same reason: Tier~1 skips full decoding, so the efficiency claim reduces to ``Tier~1 latency is substantially below Tier~2 and Tier~3, and the Tier~1 share grows across cycles.'' Both quantities are computed by \texttt{em\_by\_tier} and \texttt{mean\_latency\_by\_tier} in \texttt{eval/metrics.py}.
+
+\paragraph{Calibration (Table~\ref{tab:calibration}).}
+Calibration is quantified by three complementary scalars computed on the pooled stream of $(\ustored, \mathrm{correct})$ pairs from every stored episode across the seven benchmarks at each cycle. The \emph{Expected Calibration Error} (ECE; Guo et al.~\cite{pmlr-v70-guo17a}) measures the average absolute gap between confidence and accuracy over $M = 10$ equal-width bins. The \emph{Brier score}~\cite{brier1950verification} complements ECE: it is a proper scoring rule that penalises both miscalibration and low resolution, and it does not require bin aggregation, so a system that is badly calibrated in ways that counter-balance inside bins still receives a poor Brier score even when ECE stays low. The \emph{area under the ROC curve} (AUROC) treats $\ustored$ as a predictor of correctness and measures rank discrimination independent of scale; a high AUROC with poor ECE indicates that the confidence signal is useful for routing even before temperature calibration. Bin-wise reliability diagrams (Figure~\ref{fig:reliability}) ground these scalars visually using the ten-bin decomposition returned by \texttt{reliability\_bins}.
+
+\paragraph{Hallucination decomposition (Table~\ref{tab:halluc}).}
+A single hallucination-rate scalar conflates distinct failure modes, so this thesis reports a \emph{nine-subtype taxonomy} aggregated into a single \emph{Composite Hallucination Metric} (CHM) by \texttt{composite\_hallucination\_metric} in \texttt{eval/metrics.py}. The taxonomy carves each wrong answer (EM $=0$) into the failure family its verifier signal best explains: \emph{confident confabulation} ($\ustored \geq 0.50$ --- a wrong answer that passed the composite gate); \emph{factual fabrication} ($p_{\text{ground,atomic}}$ below threshold --- atomic sub-claims lack per-claim grounding); \emph{factual contradiction} ($p_{\text{contra}}$ above threshold --- retrieved passages actively refute the answer); \emph{logical fabrication} ($p_{\text{entail}}$ below threshold --- the reasoning chain does not derive the answer); \emph{off-topic} ($q\_a\_\text{relevance}$ below threshold --- the answer is topically unrelated to the question); \emph{defensive evasion} (prediction matches an evasion regex such as ``context doesn't mention X'' while evidence was actually present); \emph{template leak} (prediction contains a placeholder string leaked verbatim from the scaffolded prompt); \emph{false refusal} (EM $=1$ but decision $\in\{\textsc{Abstain}, \textsc{Discard}\}$ --- the system refused an answer it had correctly produced); and \emph{over-long} (EM $=0$ with prediction length above a character threshold --- verbose padding correlated with wrongness). The nine rates are computed in one pass by \texttt{hallucination\_subtypes} and are deliberately non-partitioning: a single wrong confident off-topic answer counts under three rows simultaneously, so the rates surface failure-mode prevalence rather than carving the error set into disjoint buckets.
+
+The CHM headline is the equal-weighted mean of subtype rates across \emph{eight} of the nine rows. The ninth, \emph{factual contradiction}, is excluded from the default denominator because the MiniCheck verifier backend of Section~\ref{sec:verifier} is a binary supported/unsupported judge whose $p_{\text{contra}}$ is structurally zero; including the subtype would flatline one-ninth of the mean at zero irrespective of true behaviour. The contradiction row is retained in the table for transparency and enters the CHM denominator only under the \texttt{roberta\_nli\_backend} ablation of Section~\ref{sec:ablation}, which activates a three-class MNLI ensemble that populates $p_{\text{contra}}$ meaningfully. Chapter~3's pre-registered pass/fail gate applies \texttt{chm\_reduction\_verdict} to the Cycle-0 versus Cycle-10 CHM pair with a $30\%$ relative-reduction floor: a uniform $30\%$ drop across eight structurally distinct failure modes is a stronger architectural claim than a $40\%$ drop on the single confident-confabulation axis the pre-Branch-C draft used, so the threshold on the broader composite is deliberately tighter in relative terms than it is lenient in surface. The pooled CHM is further decomposed by \texttt{pooled\_chm} into an in-distribution component over the three training-panel benchmarks (FEVER, TriviaQA, Natural Questions) and a held-out component over the four transfer-panel benchmarks (TruthfulQA, StrategyQA, ARC-Challenge, ASQA); together the two columns audit whether any observed hallucination reduction is rote consolidation on training-adjacent distributions or genuine transfer of the verified-memory, confidence-aware-routing, and $L_{2}$-anchored self-improvement mechanisms to unseen distributions. The pre-registered pass/fail gate remains on the all-seven pooled CHM; the ID/OOD split is reported for transfer-learning interpretation only.
+
+\paragraph{Grounding (Table~\ref{tab:grounding}).}
+Two diagnostics isolate the retrieval pathway. The \emph{unsupported-correct rate} (\texttt{unsupported\_correct\_rate} in \texttt{eval/metrics.py}) is the fraction of EM-correct samples with $p_{\text{ground,max}} < 0.30$: right answers that retrieval evidence did not support, a diagnostic of over-reliance on parametric memory rather than a failure per se. The \emph{ungrounded-assertion rate} (\texttt{ungrounded\_assertion\_rate}) is the fraction of all samples with $p_{\text{ground,max}} \leq 0.30$ and $\ustored \geq 0.50$: the evaluation-side mirror of the Stage-6 confabulation early-exit gate ($u_{\text{internal}} \geq 0.70$ and $p_{\text{ground,max}} \leq 0.20$) of Section~\ref{sec:decision}, generalised to score all $(u, g)$ pairs rather than only pre-storage ones so the same helper serves both the online gate and this offline row. The first quantifies parametric-memory reliance regardless of the storage decision; the second quantifies confidently-unsupported output regardless of correctness.
+
+\paragraph{Data purity (Table~\ref{tab:purity}).}
+The verifier-decision breakdown --- counts and fractions of \textsc{Store}, \textsc{Deferred}, \textsc{Abstain}, and \textsc{Discard} decisions per cycle, produced by \texttt{decision\_breakdown} --- is reported alongside the empirical verifier balanced accuracy $\alpha_{c}$, the base-generation accuracy $p_{c}$, the purity theorem's prediction $P_{\text{theory}, c} = p_{c}\alpha_{c} / [p_{c}\alpha_{c} + (1 - p_{c})(1 - \alpha_{c})]$ from Theorem~\ref{thm:purity}, and the measured purity $P_{\text{obs}, c}$ for every cycle $c \in \{0, 1, \ldots, 10\}$. This table is the empirical instantiation of the purity theorem; all five quantities are computed from the same labelled purity-validation split, and the \textsc{Store} denominator is obtained directly from \texttt{decision\_breakdown}. The chapter quotes the Cycle-10 steady-state $\alpha_{10}$ as the defence-grade single number --- the verifier's balanced accuracy under the final fine-tuned backbone, reflecting the deployed system --- while the full eleven-row trajectory audits the theorem's per-cycle pass condition $\alpha_{c} > \tfrac{1}{2}$ from Remark~\ref{rem:alpha-empirical-scope}. The same per-sample scalars are reused to plot the $\alpha(\tau_{\text{store}})$ sensitivity curve in Figure~\ref{fig:alpha-vs-tau} and the $\alpha$ trajectory in Figure~\ref{fig:alpha-trajectory}; together these establish that the Cycle-0-fitted $\tau_{\text{store}}$ from the threshold-calibration protocol of Section~\ref{sec:self-improvement} is a robust rather than fragile realisation of the theorem's $\alpha > \tfrac{1}{2}$ premise. An empty $|P_{\text{theory}} - P_{\text{obs}}|$ cell at any cycle is a failure flag and is discussed in the results narrative rather than being silently averaged.
+
+\paragraph{Continual learning (Table~\ref{tab:continual}).}
+Forgetting is reported with two instruments, following the dual-metric design of Section~\ref{sec:self-improvement}. \emph{MMLU retention} is the ratio of the Cycle-$c$ MMLU score to the pristine Cycle-0 baseline $m_{0}$ fixed at the first cycle's start-of-cycle call and held unchanged for the rest of the run; the probe is a $200$-question stratified slice across MMLU's $57$ subjects with a pinned seed, is never added to the episodic memory or the training pool, and is the headline retention metric of Equation~\ref{eq:forgetting-guard}. Backward and forward transfer, computed by \texttt{backward\_transfer} and \texttt{forward\_transfer} following the gradient-episodic-memory convention of Lopez-Paz and Ranzato~\cite{lopezpaz2017gradient}, complement the MMLU ratio. Backward transfer averages $R_{T, i} - R_{i, i}$ over earlier benchmarks $i$; positive values indicate that later cycles improved earlier benchmarks, and negative values indicate catastrophic forgetting of the target distribution. Forward transfer averages $R_{i-1, i} - \bar{b}_{i}$ relative to the Cycle-0 baseline and measures whether learning on earlier cycles helps benchmarks not yet reached. Reporting both in addition to MMLU retention addresses the per-benchmark-per-cycle drift question that the single MMLU ratio cannot answer.
+
+\paragraph{Metric scoring caveats (TruthfulQA, ASQA, MMLU).}
+\label{sec:metric-scoring-caveats}
+Three headline metrics are computed with deliberately simplified offline proxies rather than the leaderboard protocols. First, TruthfulQA is scored with ROUGE-L against the reference-answer list (threshold $0.15$; Section~\ref{sec:benchmarks}), not with the GPT-judge fine-tuned on human truthful/informative labels used by Lin et al.~\cite{lin-etal-2022-truthfulqa}. The ROUGE-L proxy is deterministic and independent of paid API access, so \caem{}'s absolute TruthfulQA scores in Table~\ref{tab:headline} are \emph{not directly comparable} to published GPT-judge leaderboard numbers; only same-proxy cycle-over-cycle deltas and the same-proxy \caem{}-versus-baseline comparisons in Table~\ref{tab:sig-test} are valid. Second, ASQA is scored with ROUGE-L against the gold long-form references (threshold $0.20$), which matches the STR score of Stelmakh et al.\ but omits the paper's secondary disambiguation-F1 metric because that metric requires a span-level ambiguity annotation the harness does not replicate. Third, MMLU is scored by constrained generation (argmax over the first letter A/B/C/D under the chain-of-thought prompt), not by log-likelihood ranking as in Hendrycks et al.~\cite{hendrycks2021measuring} and the \texttt{lm-eval-harness} convention; generation-mode scoring typically runs three to eight points below log-likelihood scoring on the same backbone because it is sensitive to parsing failure. This choice is justified because the retention instrument in Table~\ref{tab:continual} and the RET axis of the CES report a \emph{ratio} ($\rho_{\text{ret}} = $ Cycle-$c$ score divided by $m_{0}$ on the same pipeline), not an absolute leaderboard number. Absolute MMLU accuracy in Table~\ref{tab:headline} should therefore be read as a within-thesis calibration point and not compared directly to published MMLU accuracies.
+
+\paragraph{Verifier backend and the empirical $\alpha$ assumption.}
+The purity, monotonicity, and convergence theorems of Section~\ref{sec:theoretical-analysis} hold on any operating point for which the verifier balanced accuracy $\alpha$ exceeds one half on the distribution of claims actually scored. The distribution of claims the \caem{} verifier scores is language-model generations, not human-written NLI sentence pairs; generic NLI models such as \texttt{roberta-large-mnli}, trained on MultiNLI and SNLI, have been shown to miscalibrate on this shifted distribution, in the worst case attaining a $100\%$ false-positive rate at $95\%$ recall on language-model hallucinations~\cite{semanticillusion2025} --- equivalent to $\alpha \leq 0.475$ and a falsification of the theorem's premise. \caem{}'s default short-hypothesis verifier backend is therefore MiniCheck-Flan-T5-Large~\cite{tang2024minicheck}, fine-tuned on language-model-generated claim-support data rather than on human sentence pairs; long-hypothesis queries (ASQA, some TruthfulQA items) escalate to the Section~\ref{sec:verifier} Qwen-judge backend whose Platt-scaled scores are brought onto MiniCheck's calibration before entering the composite. The results in this chapter are reported under that backend pair unless otherwise stated. An ablation row comparing MiniCheck against legacy \texttt{roberta-large-mnli} is reported as part of the verifier-calibration diagnostic in Section~\ref{sec:ablation-results} and in Table~\ref{tab:sig-test}. The cycle-by-cycle $\alpha$ trajectory is reported alongside $|P_{\text{theory}} - P_{\text{obs}}|$ in Table~\ref{tab:purity}, so that the theorem's empirical premise is audited at every cycle rather than assumed.
+
+\paragraph{Unified efficacy (\caem{} Efficacy Score).}
+Because a reviewer must read the seven tables above quickly, this chapter reports a single composite scalar --- the \caem{} Efficacy Score (CES) --- as the geometric mean of five orthogonal axes:
+\[
+\mathrm{CES} \;=\; \bigl(\mathrm{ACC} \cdot \mathrm{EPI} \cdot \mathrm{RET} \cdot \mathrm{CAL} \cdot \mathrm{VER}\bigr)^{1/5},
+\]
+with $\mathrm{ACC}$ the mean per-benchmark correctness across the seven factual-QA benchmarks under each benchmark's primary metric of Table~\ref{tab:benchmark-overview}, $\mathrm{EPI} = 1 - \mathrm{CHM}$ using the eight-subtype composite hallucination metric defined in the hallucination-decomposition paragraph above, $\mathrm{RET} = \min(\rho_{\text{ret}}, 1)$ the MMLU retention ratio of Equation~\ref{eq:forgetting-guard} capped at unity, $\mathrm{CAL} = 1 - 2\min(\mathrm{ECE}, 0.5)$ rescaled so that $\mathrm{ECE} = 0$ maps to $1$ and $\mathrm{ECE} \geq 0.5$ maps to $0$, and $\mathrm{VER} = \max(2\beta - 1, 0)$ Youden's $J$-rescaled where $\beta$ is the verifier's balanced accuracy on the labelled purity-validation split so chance maps to zero. Each component is clamped to $[0.01, 1]$ so that a transient zero on one axis does not zero the composite, but the geometric form ensures that a genuine collapse on any axis (for instance, catastrophic forgetting destroying $\mathrm{RET}$) pulls CES down rather than being averaged away. CES is a thesis-introduced aggregate used \emph{only} as a single-scalar visualisation; the seven component tables remain the authoritative quantitative record, and CES is always reported alongside its five constituent values. The implementation is \texttt{ces\_score} in \texttt{eval/metrics.py}.
+
+\paragraph{Statistical significance (Table~\ref{tab:sig-test}).}
+All accuracy comparisons between \caem{} and baselines are tested for significance using McNemar's test~\cite{mcnemar1947note} with the Edwards continuity correction, applied to paired per-question correct/incorrect outcomes at the sample-ID level. Non-parametric $95\%$ confidence intervals for EM are computed by bootstrap resampling with $B = 1000$ resamples. Both computations use the \texttt{mcnemar\_test} and \texttt{bootstrap\_ci} helpers in \texttt{eval/metrics.py}. Pairing is by per-sample \texttt{id}, restricted to the authoritative evaluation slice read from \texttt{dataset\_splits.json} (written by the experiment runner as the single source of truth for which IDs belong to the eval split); this is belt-and-suspenders against any drift in \texttt{load\_benchmark} between CAEM and baseline invocations. All baselines are paired against \caem{} Cycle~10, the post-training state: inference-only baselines (B1--B5) give the strongest-claim CAEM-positive comparison, and training baselines (B6--B7) also give a matched training budget because both sides have completed the same ten fine-tuning cycles on matched per-benchmark pair counts.
+
+Because \caem{} is compared against seven running baselines across the seven factual-QA benchmarks (MMLU is a retention control, not a baseline-comparison target; B8 Self-RAG is citation-only and contributes no numerical row), the raw test count is at most $7 \times 7 = 49$ pairwise McNemar tests per cycle, and a naive $p < 0.05$ threshold would inflate the family-wise error rate to approximately $1 - 0.95^{49} \approx 0.92$. We therefore apply the Holm--Bonferroni step-down correction~\cite{holm1979simple} \emph{independently within each benchmark family}: the per-baseline \caem{}-vs-baseline $p$-values within a benchmark are sorted in ascending order, and the $k$-th smallest is compared against $0.05 / (m - k + 1)$, where $m$ is the number of baselines present on disk for that benchmark at the time \texttt{scripts/baseline\_sig\_tests.py} is run (and hence the number of tests within that family). For the Phase 1A main run, $m = 7$; the optional STaR ceiling reference is executed only if budget allows and, when absent, is not padded into the correction. B8 Self-RAG is never folded into the Holm correction. Holm is uniformly more powerful than plain Bonferroni while preserving the family-wise error rate at $\alpha_{\text{fam}} = 0.05$, and is the accepted correction for structured pairwise-comparison panels of this size. A result is marked ``significant'' in Table~\ref{tab:sig-test} only when it survives this step-down correction; results that are directionally positive but fail the correction are reported with both the raw and corrected $p$-values so the reader can distinguish a suggestive trend from a confirmed effect.
+
+We separately require a minimum practical-significance effect size of $\Delta\mathrm{EM} \geq 0.02$ (absolute, two percentage points on a $500$-sample benchmark). McNemar's test has high power at this sample size and will flag effects as small as $\Delta \approx 0.01$ as significant, but differences below two points are within the cycle-to-cycle variation \caem{} itself exhibits on a held-out seed, so the thesis does not claim architectural advantage below that threshold even when the test is significant. Table~\ref{tab:sig-test} therefore reports two markers: $\dagger$ for Holm-corrected $p < 0.05$, and $\star$ for the conjunction of Holm-corrected $p < 0.05$ \emph{and} $\Delta\mathrm{EM} \geq 0.02$. The thesis's architectural claims are licensed only by the $\star$ marker; the $\dagger$ marker identifies directionally positive effects whose magnitude is too small for the claim to be practically meaningful, even though the underlying comparison is statistically sound. Where \caem{} loses a comparison, the same two-stage rule is applied in reverse: a baseline is reported as strictly superior only if $\Delta\mathrm{EM} \leq -0.02$ with Holm-corrected $p < 0.05$. This symmetric framing prevents silent suppression of the baseline-wins case, which the ablation discussion (Section~\ref{sec:ablation-results}) treats as legitimate evidence rather than as noise to be explained away.
+
+\paragraph{Summary.}
+The seven metric categories above answer seven distinct evaluation questions: \emph{Is \caem{} more accurate and faster than its baselines?} (Table~\ref{tab:headline}); \emph{Are \caem{}'s confidence signals well-calibrated?} (Table~\ref{tab:calibration}); \emph{Has \caem{} reduced hallucinations across the 8-subtype CHM denominator?} (Table~\ref{tab:halluc}); \emph{Is \caem{}'s retrieval pathway earning its slot?} (Table~\ref{tab:grounding}); \emph{Does the purity theorem's prediction match measurement cycle-by-cycle?} (Table~\ref{tab:purity}); \emph{Does self-improvement proceed without catastrophic forgetting in either direction?} (Table~\ref{tab:continual}); \emph{Are the claimed improvements statistically and practically significant against every running baseline?} (Table~\ref{tab:sig-test}). CES provides the single-scalar visualisation of these axes. The remainder of this chapter populates each table in turn.
+
+% ---------------------------------------------------------------
+\subsection{Baselines}
+\label{sec:baselines}
+% ---------------------------------------------------------------
+
+\caem{} is compared against seven external baselines running under the significance panel, plus one citation-only reference and one optional ceiling, spanning the three families of prior systems identified in Section~\ref{sec:external-baselines}: prompt-level reasoning, retrieval augmentation, and training-time self-improvement. The seven running baselines all share the Qwen-2.5-3B-Instruct decoder-only backbone (Section~\ref{sec:implementation}), the same seven-benchmark factual-QA panel, the same $500$-sample draw per benchmark, and the same sample-ID eval split read from \texttt{dataset\_splits.json}, so any score difference isolates the contribution of the architectural component that distinguishes the baseline from \caem{}. Each baseline lacks exactly one of \caem{}'s architectural components; the paired McNemar + Holm-Bonferroni comparisons in Table~\ref{tab:sig-test} convert that lack into a measured effect size.
+
+\begin{description}
+  \item[B1: Zero-shot Qwen-2.5-3B-Instruct.]
+  The same Qwen-2.5-3B-Instruct backbone \caem{} fine-tunes, invoked with no chain-of-thought prefix, no retrieval, and no verification. Prompts use a single ChatML user turn carrying only the benchmark-specific instruction line. This is the empirical floor: any gain \caem{} reports must exceed this score, otherwise the gain is attributable to raw backbone capacity alone.
+
+  \item[B2: Chain-of-Thought.]
+  Qwen-2.5-3B-Instruct with the ``Let's think step by step'' trigger prepended to the user message~\cite{wei2022chain}, no retrieval, and no verification. Isolates the contribution of intermediate reasoning on the same backbone.
+
+  \item[B3: DPR-RAG.]
+  Dense Passage Retrieval~\cite{karpukhin-etal-2020-dense} with $k = 5$ Wikipedia passages concatenated into a $384$-token context block and passed to the same Qwen-2.5-3B-Instruct backbone~\cite{NEURIPS2020_6b493230} through the Tier-3 prompt builder of Section~\ref{sec:router}. No CoT trigger, no verification, no memory. Isolates the contribution of external grounding in isolation.
+
+  \item[B4: CoT $+$ DPR-RAG.]
+  B3 with the CoT trigger prepended to the prefill. Isolates the contribution of reasoning over retrieved evidence, and is the strongest single-forward-pass prior baseline on factoid QA at this backbone scale.
+
+  \item[B5: Five-shot Chain-of-Thought.]
+  Five in-context $(\text{question}, \text{reasoning}, \text{answer})$ demonstrations drawn from the TriviaQA train split are prepended to the ChatML user message, followed by the Kojima/Wei chain-of-thought trigger~\cite{wei2022chain}. No retrieval, no verification. Isolates the contribution of explicit reasoning-format demonstration over the zero-shot trigger of B2, giving the strongest prompting-only comparison against \caem{}'s Stage-2 retrieval-free tier.
+
+  \item[B6: Vanilla fine-tuning.]
+  Qwen-2.5-3B-Instruct fine-tuned for the same ten cycles as \caem{} on the verified-episode pool, but without the $L_{2}$ anchor of Equation~\ref{eq:finetune-loss}, without the MMLU retention guard of Equation~\ref{eq:forgetting-guard}, and without the episodic memory or the verifier at inference time, so every selected episode is treated as a clean label. Isolates the contribution of \caem{}'s retention-protection machinery.
+
+  \item[B7: EWC-only fine-tuning.]
+  B6 with the $L_{2}$ anchor~\cite{doi:10.1073/pnas.1611835114} and the MMLU retention guard added, but with the verifier, the nine-signal composite, the episodic memory, and the three-tier router all still stripped. Isolates the contribution of \caem{}'s verification-and-memory machinery once the retention-protection machinery is held equal across the two systems.
+\end{description}
+
+\paragraph{Citation-only reference: Self-RAG (B8).}
+Asai et al.~\cite{asai2024selfrag} is the most ambitious retrieve-and-critique pipeline in the prior literature, but its critic tokens are tied to a LLaMA-family backbone. Re-targeting them to Qwen-2.5-3B-Instruct would change enough of the system (critic-token vocabulary, reflection format, pre-training distribution) that the resulting number would measure backbone and prompt-engineering differences more than architectural differences, so Self-RAG is included in this chapter as a positioning reference rather than as a replicated numerical baseline. It contributes no row to Table~\ref{tab:sig-test} and is never folded into the Holm-Bonferroni correction.
+
+\paragraph{Dormant reference: FLARE.}
+Active retrieval-augmented generation~\cite{jiang-etal-2023-active} was originally registered in the B5 slot as the closest prior mechanism to \caem{}'s tier routing, with a confidence floor $\theta = 0.4$ and a $64$-token look-ahead window over the shared DPR index. The running panel replaced it with Five-shot CoT on 2026-04-22 when two concerns dominated: FLARE's per-step look-ahead cost is a multiplicative factor over Tier-3 generation and would dominate the throughput envelope, and at the Qwen-2.5-3B scale its confidence floor interacts with token-level probabilities on a different scale than the RoBERTa-calibrated threshold of the original paper. The class is retained in \texttt{eval/baselines.py} for ablation and smoke-testing use but does not appear in Table~\ref{tab:sig-test} or the Holm correction; re-enabling it would require re-fitting the confidence floor on Qwen and restoring it to the Phase 1A runbook.
+
+\paragraph{Optional ceiling: STaR.}
+STaR~\cite{NEURIPS2022_639a9a17}, the pure iterative-refinement scheme reviewed in Section~\ref{sec:external-baselines}, is executed as an optional ceiling reference only when the compute envelope permits. When present, it serves as an aspirational upper bound for what a verification-free bootstrap can reach on the same backbone, and is reported as a separate row in Table~\ref{tab:sig-test} without being padded into the Holm denominator.
+
+Implementation details for every running baseline --- prompt templates, DPR index configuration, training hyperparameters --- are specified in Chapter~\ref{ch:methodology} Section~\ref{sec:implementation}; per-baseline runbook steps are documented in \texttt{run\_phase1a.sh} Steps~9--15.
+
+% ---------------------------------------------------------------
+\subsection{Composite calibration and parameter selection}
+\label{sec:composite-calibration}
+% ---------------------------------------------------------------
+
+The Cycle-0 calibration fold (FEVER + TriviaQA + Natural~Questions, $500$ samples each, $1{,}500$ in total after content-hash dedup) was run through the production pipeline at $\mathrm{batch\_size}=32$ to collect all ten verifier signals plus an exact-match label per sample. The fold's exchangeability with the eval split is enforced by the partitioning in \texttt{caem/benchmark\_splits.py} (lines 270--310) and the dedup defenses in \texttt{scripts/run\_experiment.py} (lines 1108--1199). The collected signals are persisted to \texttt{outputs/cycle\_0/calibration/calibration\_fold\_samples.json} and feed three downstream calibrators: per-signal isotonic regression, the Cherian boost layer, and the conformal split-CP gate.
+
+Two design parameters control the storage gate's precision-versus-volume trade-off. The conformal level $\alpha_{\text{store}}$ sets the calibration-precision target $1-\alpha$ for STORE decisions, and the boost regularization strength $C$ controls how aggressively the logistic-regression layer fits the per-signal calibrated probabilities. To select these from the cycle-0 fold without contaminating the eval set, a $25$-variant grid sweep enumerated $\alpha_{\text{store}} \in \{0.05, 0.075, 0.10, 0.125, 0.15\}$ and $C \in \{0.01, 0.025, 0.05, 0.10, 1.0\}$. For each variant the fitted composite and conformal gate were applied to the held-out eval fold via \texttt{scripts/rescore\_eval\_with\_fitted\_gate.py}, replacing the bootstrap-era \texttt{u\_stored} and \texttt{decision} fields per sample, and the resulting per-benchmark, ID-pooled, and transfer-pooled storage rates and STORE precisions were tabulated. Full numerics for all $25$ variants are at \texttt{outputs/cycle\_0/sweep/comparison.json}; the methodology, selection criteria, and Pareto frontier are documented at \texttt{outputs/cycle\_0/sweep/README.md}.
+
+\input{tables/tab_composite_sweep.tex}
+
+The selection criteria, registered before the sweep was run, were: pooled eval precision $\geq 78\%$ (within $2$ points of the $80\%$ conformal target), ID precision $\geq 70\%$ (production-parity constraint that the gate not collapse on training-distribution slices), storage rate $\in [2\%, 8\%]$ (sufficient for self-improvement training without violating the precision target), and a non-degenerate $\tau_{\text{store}} \in [0.40, 0.85]$ (excluding plateau collapses at the extremes). Variant $\mathrm{V}_{\alpha=0.05,\, C=0.01}$ uniquely satisfies all four criteria with the highest ID precision in the grid: $80.2\%$ pooled eval precision, $76.3\%$ ID precision, $82.8\%$ transfer precision, $2.7\%$ storage rate, $\tau_{\text{store}} = 0.668$. The corresponding production composite \texttt{outputs/cycle\_0/composite\_calibration.json} reports a Cherian boost intercept of $+1.099$ and per-signal weights with strongest contributions from \texttt{q\_a\_relevance} ($+0.74$ in the unregularized C=$1.0$ comparator, attenuated by the $C=0.01$ L2) and the grounding family \texttt{p\_ground\_max} / \texttt{p\_ground\_mean} / \texttt{p\_ground\_atomic}; the full weight vector is at \texttt{outputs/phase4/composite\_weight\_table.tex}.
+
+\input{tables/tab_composite_weights.tex}
+
+A structural calibration--evaluation gap of $\sim 20$ percentage points appears at every grid point: the $1{,}500$-sample calibration fold reaches $96.4\%$ store precision under V$_{\alpha=0.05,\,C=0.01}$, while the $1{,}500$-sample eval ID fold lands at $76.3\%$. The gap is irreducible under the production-parity discipline of Section~\ref{sec:exp-setup} (no per-benchmark calibration; no eval-fold leakage into the calibrator) and is consistent with the weak-exchangeability regime of conformal split-CP: same training benchmarks, but disjoint random slices have measurably different signal distributions on the underlying $(\mathrm{question}, \mathrm{retrieved\ passage})$ pairs, so the formal $1-\alpha$ guarantee on the calibration fold transfers approximately rather than exactly to the eval fold. Per-cycle EMA smoothing on $\tau_{\text{store}}$ (\texttt{scripts/recalibrate\_conformal\_at\_cycle.py}, $\alpha_{\text{EMA}} = 0.7$) damps cross-cycle threshold jitter, and the per-cycle conformal refit re-pays for distribution shift between cycles. The cal--eval gap is documented at \texttt{outputs/cycle\_0/sweep/cal\_eval\_gap\_analysis.md}.
+
+The Cycle-0 calibration outcome is locked under \texttt{outputs/archive/pre\_step7\_main\_2026-04-26/cycle\_0/} as the reference state for the ten-cycle main run, which inherits these parameters via the \texttt{run\_phase1a.sh::step\_7\_0\_calibrate} wrapper (\texttt{--alpha\_store 0.05 --boost\_C 0.01 --min\_n\_stored 5}). Deviations from these settings during step\_7\_main would constitute an unregistered protocol change and are flagged by the runner's pre-step-7 correctness gate (Section~\ref{sec:implementation}, \texttt{step\_u\_tok\_drop\_gate}).
+
+% ---------------------------------------------------------------
+\section{Ablation Methodology}
+\label{sec:ablation}
+% ---------------------------------------------------------------
+
+This section specifies the ablation panel that populates the results table in Section~\ref{sec:ablation-results}. The panel is deliberately small --- three named variants plus the \texttt{full} reference --- because each variant answers a Chapter~3 Claim that cannot be answered by a directly-measured diagnostic, and every other mechanism in the pipeline is defended by one of those direct diagnostics rather than by an ablation.
+
+\paragraph{What an ablation is for in this thesis.}
+\caem{}'s architectural claims partition cleanly between two modes of evidence. Claims whose defence is a \emph{cross-sectional} property of the pipeline --- the memory-routing distribution at each cycle, the verifier balanced accuracy at each cycle, the nine-signal correlation structure of the composite, and the modular verifier-backend swap --- can be audited from a single-cycle or per-cycle diagnostic file; a counterfactual ablation that disables the mechanism to measure its contribution is redundant with that diagnostic. Claims whose defence is a \emph{longitudinal} property of the cycle trajectory --- purity rising across cycles, training benefitting cumulatively from self-improvement, the forgetting guard actually preventing weight collapse under pressure --- require a counterfactual trajectory in which the mechanism is disabled from Cycle~0 onward. Only the longitudinal Claims need ablation evidence, and the panel below is exactly the set that addresses them.
+
+\paragraph{Panel.}
+Three named variants, each paired with the \texttt{full} reference run, defend the three longitudinal Chapter~3 Claims. Every variant requires its own full cyclic rerun because each disables a mechanism that shapes what gets stored or how the weights evolve; evaluating a variant on full-CAEM's cycle-$N$ weights would misattribute those weights' quality back to the mechanism the variant is supposed to have disabled. Table~\ref{tab:ablation-registry} summarises the panel, the Chapter~3 Claim each row targets, and the falsification condition that would cause the main-text narrative to be revised.
+
+\begin{center}
+\captionof{table}[Ablation Panel]{The three named ablation variants that populate the panel, plus the \texttt{full} reference run. Each variant defends a specific Chapter~3 Claim that cannot be answered by a direct diagnostic; every other Claim is defended by a cross-sectional metric named in the paragraph below rather than by an ablation. Names mirror \texttt{caem/ablation/variants.py} exactly.}
+\label{tab:ablation-registry}
+\renewcommand{\arraystretch}{1.35}
+\small
+\begin{tabular}{@{}p{3.1cm} p{2.3cm} p{3.8cm} p{4.8cm}@{}}
+\toprule
+\textbf{Variant} & \textbf{Claim defended} & \textbf{What it disables} & \textbf{Falsification condition} \\
+\midrule
+\texttt{full} & reference & --- & --- \\
+\addlinespace[2pt]
+\texttt{no\_retroverify} & Claim 2 (time dim) + Claim 3 (across-cycle) & End-of-cycle retroactive re-verification; memory-quality trajectory diverges from the reference across cycles. & $|\Delta\text{CES}| < 0.01$: retroverify is not load-bearing for Claim 2's time dimension or Claim 3's across-cycle dynamics. \\
+\addlinespace[2pt]
+\texttt{no\_self\_improvement} & Claim 3 (SIL upper bound) & Stage~8 fine-tuning entirely; Cycle-0 evaluation only, weights never update. & $|\Delta\text{CES}| < 0.01$: the reference trajectory's cycle-over-cycle rise is not attributable to fine-tuning; Claim~3's central engineering premise fails. \\
+\addlinespace[2pt]
+\texttt{no\_forgetting\_guard} & Claim 4 (no catastrophic forgetting) & \texttt{forgetting\_tolerance} set to $0.0$ so the MMLU rollback never triggers regardless of how far retention falls. & Retention stays above $\rho_{\min} = 0.93$ for all ten cycles: the guard is not exercised in this regime and Claim~4's engineering premise is trivially satisfied. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\paragraph{Cross-sectional Claims defended by direct diagnostics.}
+Four commitments from Chapter~3 are audited by single-cycle or per-cycle diagnostics that make a counterfactual ablation redundant. \emph{Claim~1} (memory-routing selectivity) is defended by the Tier-$\{1,2,3\}$ fraction trajectory in the per-cycle \texttt{experiment\_summary.csv}; an ablation forcing every query away from Tier~1 would be redundant with the reference run's Tier-1 column itself moving across cycles. \emph{Claim~2's space dimension} ($\alpha > \tfrac{1}{2}$ on the scored distribution) is defended by the Step~19 purity-validation pass, which labels a stratified set and reports $\alpha$ alongside $|P_{\text{theory}} - P_{\text{obs}}|$ per cycle in Table~\ref{tab:purity}; a counterfactual run with the verifier disabled is redundant because the diagnostic already measures the verifier's balanced accuracy on a labelled fold. \emph{Claim~5} (verifier-backend modularity) is defended by the \texttt{NLIJudgeInterface} protocol plus the Step~5.5.2 MiniCheck-versus-RoBERTa-versus-Qwen AUROC diagnostic; a cyclic trajectory under the legacy RoBERTa backend adds no information once the single-cycle AUROC diagnostic has ruled the generic-NLI backend out of the default configuration. The \emph{nine-signal weighting} design choice from Chapter~3 is defended by the Step~19.5 correlation matrix, which establishes symmetric non-redundancy evidence for every signal (including Branch~C's $q\_a\_\text{relevance}$ addition), making per-signal ablations redundant with its rows. The panel in Table~\ref{tab:ablation-registry} restricts itself to the three variants above because they are the three places where no cross-sectional diagnostic suffices.
+
+\paragraph{Prompt-design ablation (external comparison).}
+\label{par:prompt-design-ablation}
+The uniform few-shot scaffolded CoT prompt with forced \texttt{Reasoning:} prefill adopted throughout Chapter~4 is itself a design commitment that could plausibly have been made differently. Its effect is reported via an \emph{external comparison} against the legacy per-task minimal-CoT prompts that predated this thesis's final stage, rather than through the panel above, because the comparison is structurally different: each row in Table~\ref{tab:ablation-registry} is a runtime-flag flip while the generator, its training history, and its prompts stay fixed, whereas the prompt template \emph{is} the generator's input distribution --- changing it reshapes the training pool and a cycle-wise trajectory would conflate the prompt change with the trajectory itself. Two separately-running Step~7.0 Cycle-0 jobs satisfy the counterfactual cleanly: one produced under the legacy prompts (archived under \texttt{outputs/cycle\_0\_pre\_cot\_prompt/}) and one under the final uniform scaffold with forced prefill (\texttt{outputs/cycle\_0/}). Both jobs share cold-start memory, calibration-fold quantile thresholds, and random seed; only the prompt and the prefill constraint differ. Table~\ref{tab:prompt-design-ablation} in Section~\ref{sec:ablation-results} reports the per-benchmark Cycle-0 delta in EM, mean $\ustored$, and mean prediction length in words, generated by \texttt{scripts/compare\_prompt\_design.py} from both directories' per-benchmark eval JSONs. Cycle~0 alone is a faithful summary because the prompt-design effect is overwhelmingly distribution-shifting (what the model produces when asked) rather than trajectory-shaping (how the model's answers change across cycles).
+
+\paragraph{Sweep protocol.}
+The panel is small enough that no screening stage is needed. Each variant runs at the confirmatory configuration of \texttt{run\_phase1\_full\_ablations.sh}: five cycles $\times$ $3{,}000$ SIL samples \emph{per benchmark} per cycle per variant (byte-identical to CAEM's per-cycle chunk count so that variant-to-reference deltas are scale-matched), on a single seed (42), against the six-benchmark ablation panel (FEVER, TriviaQA, ASQA, TruthfulQA, StrategyQA, ARC-Challenge). ASQA replaces Natural Questions in the ablation evaluation panel relative to the main run's seven benchmarks, per the Branch~C 2026-04-22 decision that moved the Path-B long-form-evidence benchmark into the ablation set; all other benchmark identities match the main run. The five-cycle ablation budget is half the main run's ten cycles because divergence between each variant and the reference is detectable well before Cycle~10 on these three mechanisms; if a variant's trajectory has not yet separated from the reference by Cycle~5, the runner supports extending it to ten cycles via a \texttt{--max\_cycles 10} override. The \texttt{full} reference row is not re-executed inside the ablation sweep --- it is read directly from \texttt{outputs/full\_run/experiment\_summary.csv} at the matching cycle count so that variant-to-reference deltas attribute to the ablated mechanism and not to a seed or schedule difference.
+
+\paragraph{Metric reported.}
+Each variant row reports the five CES axes (ACC, EPI, RET, CAL, VER) and the geometric-mean scalar CES at its final cycle, plus $\Delta\text{CES}$ relative to the reference run. Because the sweep is single-seed, no within-variant standard deviation is propagated; the $\pm$ columns in Table~\ref{tab:ablation-main} report bootstrap confidence intervals on each axis computed from the per-sample records of the variant's final-cycle evaluation, not seed-replication variance. The per-cycle CES trajectory is also plotted for all four runs (the three variants plus the reference), because each variant's distinctive diagnostic lives in the trajectory shape rather than in the Cycle-$N$ scalar alone: \texttt{no\_retroverify} should produce a visibly shallower purity slope, \texttt{no\_self\_improvement} should produce a flat CES across all cycles, and \texttt{no\_forgetting\_guard} should produce a downward MMLU retention trajectory that the reference arrests at each cycle boundary through rollback.
+
+\subsubsection*{Expected effects and falsifiable predictions}
+
+The three variants are each tied to a specific Chapter~3 Claim and a specific diagnostic; this subsection records the expected sign, axis, and magnitude band for each before the ablation sweep completes, so that the Section~\ref{sec:ablation-results} discussion can be graded against fixed predictions rather than narrated around them. Magnitude bands follow the convention $<0.01$ = negligible, $0.01$--$0.05$ = moderate, $>0.05$ = large.
+
+\paragraph{\texttt{no\_retroverify} --- Claim 2 time dim, Claim 3 across-cycle.}
+We predict a moderate negative $\Delta\text{CES}$ in the $-0.02$ to $-0.04$ band, driven by EPI and VER, with the purity trajectory in Figure~\ref{fig:purity-trajectory} exhibiting a visibly shallower slope than the reference. The mechanism is that retroverify folds the improving-verifier signal back into the existing memory pool at each cycle boundary; without it, pool quality stops compounding and the $\alpha_{c}$ trajectory plateaus rather than rising. The per-cycle retroverify disposition counts reported in Table~\ref{tab:purity} (updated, pruned) are the sanity check that the disable took effect --- under this variant they are zero by construction.
+
+\paragraph{\texttt{no\_self\_improvement} --- Claim 3 SIL upper bound.}
+We predict a large negative $\Delta\text{CES}$ of at least $-0.05$, driven primarily by ACC, with the per-cycle CES trace flat rather than rising because every later cycle's improvement in the reference run is by construction attributable to Stage~8 fine-tuning. This is the strictest test of the self-improvement loop's cumulative contribution. Falsification condition: if \texttt{no\_self\_improvement} matches the reference CES within $0.01$, the reference trajectory's rise is not coming from fine-tuning and the thesis's central engineering claim requires substantial revision. This is the high-stakes falsification path for Chapter~3 Claim~3, and its outcome is what the viva defence must anticipate.
+
+\paragraph{\texttt{no\_forgetting\_guard} --- Claim 4 no catastrophic forgetting.}
+Setting \texttt{forgetting\_tolerance} to $0.0$ defuses the MMLU-retention rollback so that no cycle can ever be aborted on retention grounds. We predict the variant's MMLU retention trajectory to diverge downward from the reference after Cycle~2 or~3, eventually falling $5$--$10$ percentage points below the pristine Cycle-0 baseline $m_{0}$ by Cycle~5 (the end of the ablation budget); the reference-run retention trajectory should stay above $\rho_{\min} = 0.93$ for every cycle because the guard would have rolled back any offending cycle in the reference run. The primary diagnostic is therefore the MMLU retention column of Table~\ref{tab:continual}, not the CES scalar --- the cumulative drift across cycles is a per-benchmark-per-cycle story that a single-scalar CES delta would under-report. Falsification condition: if MMLU retention stays above $\rho_{\min}$ for all ten cycles without the guard, the guard is not exercised in this regime and Chapter~4's forgetting-guard paragraph should be read as a precautionary safety layer rather than as a load-bearing mechanism at this model scale on these benchmarks.
+
+\paragraph{Interpreting the full ablation pattern.}
+The three predictions are deliberately specific about sign, axis, and magnitude so that the Phase~1 Full ablation results can be graded against them rather than narrated around them. Three macro outcomes are the diagnostic cases. If all three predictions land within their bands, the mechanism attributions are confirmed and Chapter~4's architectural narrative reads cleanly against the Chapter~5 trajectory tables. If one prediction is inverted --- for instance \texttt{no\_retroverify} showing a small effect where we predicted moderate --- the specific mechanism's contribution is over-stated in Chapter~4 and the Chapter~6 limitations paragraph calls out the correction explicitly. If the reference trajectory collapses under \texttt{no\_self\_improvement} by less than $0.05$ in $\Delta\text{CES}$, or if \texttt{no\_forgetting\_guard} produces no measurable MMLU drift, the corresponding central engineering claim requires substantial revision; these are the high-stakes falsification paths, and their outcomes fix what the viva defence must anticipate.
+
+% ---------------------------------------------------------------
+\section{Main Results}
+\label{sec:main-results}
+% ---------------------------------------------------------------
+
+This section reports the seven metric-category tables introduced in
+\cref{sec:metrics}, together with the three empirical validations of
+the theoretical claims stated in~\cref{sec:theoretical-analysis}.
+Each table below carries a caption and label already referenced from
+the methodology paragraphs; numbers are populated from the
+confirmatory-pass outputs at Cycle~$N$ and are reported with 95\%
+confidence intervals where applicable.
+
+\subsubsection*{Expected results and pre-registered predictions.}
+As with the ablation sweep, we commit the expected shape of each
+headline table before Phase~1 confirmatory runs begin, so that the
+cross-seed outcome is judged against fixed hypotheses rather than
+ex-post rationalisation. Predictions are stated as qualitative
+direction plus numeric bands on the primary axis of each table; we
+treat any outcome outside the predicted band as a falsification
+signal that must be explained in~\cref{sec:ablation-results} and
+reconciled with the theorems of~\cref{sec:theoretical-analysis}.
+
+\paragraph{Headline accuracy (\cref{tab:headline}).}
+On the three ID benchmarks (FEVER, TriviaQA, Natural Questions) we predict pooled EM gains over the strongest external baseline at Cycle~10, with the largest gap on TriviaQA and Natural Questions where episodic retrieval is expected to dominate and a smaller gap on FEVER where the strong CoT baseline (B2) already exploits structured claim verification. Decomposed by tier, $\mathrm{EM}_{T_{1}} > \mathrm{EM}_{T_{2}} > \mathrm{EM}_{T_{3}}$ is expected to hold at every cycle, since Tier~1 answers queries the router has already judged high-confidence. A crossover in which $\mathrm{EM}_{T_{2}}$ or $\mathrm{EM}_{T_{3}}$ exceeds $\mathrm{EM}_{T_{1}}$ would indicate router miscalibration and triggers the threshold-sensitivity review in Section~\ref{sec:ablation-results}. On the four OOD transfer benchmarks (TruthfulQA, StrategyQA, ARC-Challenge, ASQA) we predict modest positive transfer over the strongest baseline but do not treat a near-zero transfer effect as a falsification: transfer benchmarks test whether the architectural mechanisms (verified-memory Tier-1 retrieval, confidence-aware routing, $L_{2}$-anchored fine-tuning) generalise off-distribution, not whether SIL improves in-distribution accuracy on benchmarks it was never trained on.
+
+\paragraph{Calibration (\cref{tab:calibration}).}
+We predict monotone improvement in ECE and Brier score across cycles
+$0,\ldots,N$, with ECE at Cycle~$N$ landing in the $0.03$--$0.06$
+band (against a Cycle~$0$ baseline we expect near $0.10$--$0.15$).
+AUROC of $\ustored$ against correctness is predicted in the
+$0.70$--$0.82$ band at Cycle~$N$. A non-monotone ECE trajectory, or
+an AUROC at Cycle~$N$ below $0.65$, would indicate that verification
+signals are drifting under self-improvement and would open the
+question of whether EWC anchoring is insufficient to protect the
+calibration head. The reliability diagram in~\cref{fig:reliability}
+should show the bin-wise accuracy curve tracking the $y = x$ identity
+line more closely at Cycle~$N$ than at Cycle~$0$, with any remaining
+departure concentrated in the high-$\ustored$ tail.
+
+\paragraph{Hallucination decomposition (\cref{tab:halluc}).}
+The thesis pre-registers a $\geq 30\%$ relative reduction in the pooled Composite Hallucination Metric (CHM) between Cycle~$0$ and Cycle~$10$ as the architectural pass/fail floor, evaluated by \texttt{chm\_reduction\_verdict} in \texttt{eval/metrics.py}. CHM is the equal-weighted mean across eight of the nine failure-mode subtypes introduced in Section~\ref{sec:metrics} (factual\_contradiction is excluded from the default denominator under the MiniCheck backend whose $p_{\text{contra}}$ is structurally zero); a uniform $30\%$ drop across eight structurally distinct failure modes is a stronger architectural claim than the $40\%$ drop on the single confident-confabulation axis used in the pre-Branch-C draft. The floor is what the architectural claim owns; the thesis does \emph{not} commit to a specific expected value above the floor, and an achieved pooled CHM reduction below the floor is reported as a negative result feeding the targeted-deficiency discussion in Chapter~6. Within the subtype decomposition we expect the largest absolute drop in \emph{confident\_confabulation} and \emph{off\_topic}, because Tier-1 retrieval diverts high-confidence answerable queries away from Tier-2/3 generation (removing the principal source of off-topic confabulations), and moderate drops in \emph{factual\_fabrication} and \emph{logical\_fabrication} as SIL fine-tunes the generator on verified chains. The remaining four subtypes (\emph{defensive\_evasion}, \emph{template\_leak}, \emph{false\_refusal}, \emph{over\_long}) are prompt-style and scoring-artifact rows whose per-cycle trend is not directly targeted by any single CAEM mechanism; a pattern in which any of these \emph{rises} across cycles would be a warning sign that SIL is reinforcing a prompt-artifact pathology rather than suppressing hallucination.
+
+The pooled CHM is further decomposed by \texttt{pooled\_chm} into an in-distribution component over the three training-panel benchmarks (FEVER, TriviaQA, Natural Questions) and an out-of-distribution component over the four transfer-panel benchmarks (TruthfulQA, StrategyQA, ARC-Challenge, ASQA). We expect both the ID and the OOD pooled CHM to fall across cycles: the ID drop reflects consolidation on distributions whose verified episodes fed the training pool, while the OOD drop reflects transfer of the architectural mechanisms themselves (verified-memory Tier-1 retrieval, confidence-aware routing, and the calibration gains from $L_{2}$-anchored fine-tuning) to benchmarks the model has never seen during training. A pattern in which the ID CHM falls sharply while the OOD CHM stays flat would indicate that the pooled reduction is driven by rote consolidation rather than by mechanism transfer, and would weaken the architectural claim even if the $\geq 30\%$ pooled floor is formally cleared; such an outcome is disclosed in Chapter~6 alongside the headline verdict.
+
+\paragraph{Routing distribution (\cref{tab:routing}).}
+We predict the Tier~1 fraction to rise from a Cycle~$0$ cold-start
+level of $10$--$20\%$ to a Cycle~$N$ steady-state level of
+$35$--$55\%$, with a corresponding drop in the Tier~3 fraction. This
+reflects the expected shift of verified episodes into the fast path as
+the memory grows. The safety-override fraction should stay bounded,
+ideally in the $2$--$8\%$ range: a steady rise in override use would
+indicate a systematic gap between router confidence and true task
+difficulty and would motivate revisiting the OR-condition in the
+router design.
+
+\paragraph{Verifier-signal attribution (\cref{tab:verifier-attrib}).}
+We predict that NLI-entailment and semantic entropy will be the two
+most informative individual signals, each with per-signal AUROC in
+the $0.63$--$0.72$ range on pooled correctness. Self-consistency is
+predicted to sit slightly below in the $0.58$--$0.66$ range, and the
+token-probability signal is predicted to be the weakest individual
+contributor. MC-Dropout contribution is treated as an open question:
+if its standalone AUROC falls below $0.55$ the ablation in
+\cref{sec:ablation-results} should indicate whether it is worth
+keeping in the composite.
+
+\paragraph{Nine-signal correlation structure and effective-count
+analysis.}
+\label{sec:signal-correlation}
+The per-signal AUROCs above tell us which individual signals are informative; a separate question is whether the nine-signal composite has nine \emph{effectively independent} signals or substantially fewer. \citet{valentin2024hallucination} publish the only prior cross-signal Spearman heat-map in the LLM hallucination-detection literature (ten signals, four benchmarks) and report that ensembling collapses into three redundancy clusters. We follow the same protocol on the seven CAEM factual-QA benchmarks using the per-sample signal values exported by the evaluation harness, and predict the following grouping on a priori grounds:
+\begin{itemize}
+    \item \textbf{High redundancy} ($|\rho| > 0.9$, drop candidates):
+          (i) token-probability mean versus token-probability minimum,
+          which collapse to the same value on the one-to-five-token
+          answers typical of TriviaQA, NQ, and ARC; (ii) self-consistency
+          semantic-cluster count versus normalised semantic entropy,
+          since \citet{farquhar2024nature}'s discrete-SE variant is
+          literally a cluster count over the same $K=10$ samples;
+          (iii) NLI-entailment versus semantic-cluster on the sample-set
+          signals, if NLI is evaluated on the same sample pool.
+    \item \textbf{Moderate correlation} ($0.6 \le |\rho| \le 0.85$,
+          retain): MC-Dropout variance against token-probability
+          captures an epistemic-versus-aleatoric axis that
+          \citet{vashurin2024polygraph} report as non-collinear on
+          TriviaQA/Mistral-7B; retrieval top-1 similarity against
+          top-$k$ dispersion is expected to be negatively correlated at
+          $-0.5$ to $-0.7$ per the dense-retrieval literature, carrying
+          absolute-match versus ambiguity as distinct signals.
+    \item \textbf{Independent} ($|\rho| < 0.4$, retain without
+          question): the three grounding signals against all generation
+          signals, provided grounding uses the external Wikipedia
+          index; \citet{valentin2024hallucination} specifically find
+          NLI-DeBERTa the most independent signal in their set.
+\end{itemize}
+Post-pruning, the effective composite is predicted to reduce to
+five-to-seven independent signals out of nine nominal. The full
+nine-by-nine Spearman matrix per benchmark is produced by
+\texttt{scripts/signal\_correlation\_matrix.py} from the evaluation
+harness's per-sample signal values and is reported in
+an appendix figure pair (one
+aggregated across benchmarks, one per-benchmark array). Three falsification conditions are pre-registered: if no pair exceeds
+$|\rho| = 0.9$ on any benchmark, the pruning plan is unmotivated
+empirically and the thesis should retain all nine; if more than four
+pairs exceed $|\rho| = 0.9$ aggregated across benchmarks, the
+composite is substantially narrower than its nominal signal count
+and the Chapter~4 composite formula of
+Equation~\ref{eq:ustored-verify} should be re-derived from the
+surviving independent axes; if the aggregated matrix matches the
+Valentin 2024 clustering ordering within rank-$\rho$ distance of
+$0.2$, the thesis can cross-cite the published ten-signal evidence
+directly and strengthen the defensibility of the composite against
+the ``why not just semantic entropy?'' question that
+\citet{farquhar2024nature} raises on open-generation benchmarks and
+that \citet{vashurin2024polygraph} shows is dominated by verbalised
+UQ on constrained-output benchmarks such as MMLU. The
+thirty-two-configuration singleton-plus-leave-one-out ablation design
+of \citet{kuhn2023semantic} is a scheduled Phase 1 Full / TMLR
+deliverable and is recorded as the ablation template against which
+the registry in Table~\ref{tab:ablation-registry} was sized.
+
+\paragraph{Episodic-memory growth (\cref{tab:memory-growth}).}
+We predict sublinear growth in $|\mathcal{M}|$ across cycles because \textsc{Store} is the minority of the four outcomes once the Cycle-0 quantile fit and its EMA re-fits hold storage-admission at approximately the top $30\%$ of the $\ustored$ distribution: an upper bound on the Cycle-10 store is therefore $\approx 0.30 \times 10 \times 9{,}000 = 27{,}000$ committed episodes if every cycle admitted its full quantile share across all three training benchmarks uninterrupted, but the memory-consolidation pass of Section~\ref{sec:self-improvement} collapses near-duplicates at the cycle boundary and the retroverify prune of Section~\ref{sec:retroverify} removes entries the fine-tuned verifier no longer endorses, so the realised Cycle-10 store is expected to be materially below that upper bound. The capacity bound $K_{\max} = 10^{6}$ from Chapter~4's memory specification is therefore not expected to bind on this ten-cycle run; if $|\mathcal{M}|$ trends toward $K_{\max}$ the value-score pruner fires pre-emptively, but the pre-registered prediction is that it does not fire. Alongside the size column, the table reports the per-cycle share of each Stage-6 decision (\textsc{Store}, \textsc{Deferred}, \textsc{Abstain}, \textsc{Discard}) and, from Branch~C, the Step~8c consolidation counts $(n_{\text{cl}}^{(c)}, n_{\text{rv}}^{(c)})$ --- clusters merged and entries removed. A healthy trajectory shows the \textsc{Store} share approximately stationary under the adaptive quantile fit, \textsc{Deferred} shrinking as the verifier calibrates and re-promotions finish, and consolidation counts tapering as the memory approaches a stable clustering.
+
+\paragraph{CES composite (\cref{tab:ces}).}
+We predict the CES at Cycle~$N$ to exceed the strongest external
+baseline by $+0.04$ to $+0.10$, with the geometric-mean structure
+ensuring that no single axis (ACC, EPI, RET, CAL, VER) can carry the
+gain alone: every axis is predicted to improve over Cycle~$0$, with
+ACC and EPI leading the delta, RET and CAL in the middle, and VER
+contributing a smaller increment because its Cycle~$0$ value is
+already boosted by the pre-trained NLI cross-encoder. Any axis that
+regresses across cycles would be flagged as a targeted deficiency to
+address in future work.
+
+\paragraph{Grounding diagnostics (\cref{tab:grounding}).}
+We predict the ungrounded-assertion rate to drop across cycles in
+line with the hallucination trend in~\cref{tab:halluc}. The
+unsupported-correct rate is a harder call: a small rise is tolerable
+(the model may correctly answer from parametric memory without
+pointing to an episode), but a large rise would indicate that
+self-improvement is encouraging the model to bypass retrieval even
+when retrieval is available and should be investigated.
+
+\paragraph{Continual learning (\cref{tab:continual}).}
+We predict the MMLU retention ratio $\rho$ to stay $\ge 0.95$ across
+cycles under the EWC anchor, and never to fall below $0.90$. BWT is
+predicted to be small and non-negative in expectation. FWT is
+predicted to be weakly positive on the transfer-eval benchmarks. A
+retention ratio $\rho < 0.90$ at any cycle would falsify the
+EWC-anchor design commitment and, per the falsification plan in
+\cref{sec:ablation}, would be the signal that SIL is displacing
+pre-training knowledge rather than augmenting it.
+
+\paragraph{Purity validation and trajectory
+(\cref{tab:purity}, \cref{tab:purity-convergence},
+\cref{fig:purity-trajectory}).}
+The theorem-versus-measurement table is the sharpest test of the
+theoretical chapter. We predict $|P_{\text{obs}} -
+P_{\text{theory}}| \le 0.03$ at every cycle, within the 95\%
+paired-seed CI, with the residual attributable to finite-sample
+verifier noise. The first-difference column $\Delta P_c$ is predicted
+to be non-negative at every cycle (the monotonicity
+claim of~\cref{thm:monotonicity}) and to decay toward zero as the
+purity envelope saturates (the convergence claim
+of~\cref{thm:convergence}). A sustained $|P_{\text{obs}} -
+P_{\text{theory}}| > 0.05$, or a negative $\Delta P_c$ outside the CI,
+would require a direct revision of the theoretical section; per the
+review discipline committed in~\cref{sec:ablation-results}, such a
+finding is disclosed as the headline outcome regardless of whether
+CAEM beats the baselines on accuracy.
+
+\paragraph{Significance (\cref{tab:sig-test}).}
+We predict that the Holm--Bonferroni-adjusted McNemar $p < 0.05$ threshold will hold for \caem{} versus each of the four weaker inference-only baselines (B1 zero-shot, B2 CoT, B3 DPR-RAG, B4 CoT$+$DPR-RAG) on all three ID benchmarks, and for \caem{} versus each of the two training baselines (B6 Vanilla-FT, B7 EWC-only-FT) on at least two of the three ID benchmarks. We do \emph{not} pre-register a prediction of significance against B5 (five-shot CoT; Wei et al.~\cite{wei2022chain}), because few-shot prompting already closes a substantial fraction of the gap on the training-pool benchmarks and \caem{}'s differentiation from B5 is the memory-plus-verifier machinery rather than the prompting pattern --- the paired contrast is expected to be close to zero on benchmarks where strong prompting suffices. B8 Self-RAG is citation-only and is therefore not pre-registered either. This asymmetry is deliberate: pre-registering a significance claim only where the mechanism of \caem{} differentiates it from the baseline prevents overclaiming on comparisons where the baselines are designed-for-task. The full panel of $\star$-marked (Holm-corrected $p < 0.05$ \emph{and} $|\Delta\mathrm{EM}| \geq 0.02$) contrasts across all seven benchmarks is what the architectural claims of Chapters~3 and~4 are ultimately licensed by.
+
+% ---- Placeholder scaffolds for the seven metric-category tables ----
+\begin{table}[t]
+\centering
+\caption{Headline accuracy and latency. Populated from
+\texttt{outputs/eval/\{bm\}\_cycle\{N\}.json} via
+\texttt{eval/reporting.build\_table\_headline}.}
+\label{tab:headline}
+\begin{tabular}{lrrrr}
+\toprule
+Benchmark & EM & $\mathrm{EM}_{T_1}$ & $\mathrm{EM}_{T_2}$ & $\mathrm{EM}_{T_3}$ \\
+\midrule
+\multicolumn{5}{c}{\emph{[To be populated from confirmatory-pass outputs.]}}\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[t]
+\centering
+\caption{Calibration trajectory. $T^{*}_c$ is the per-cycle fitted
+temperature scalar (L-BFGS on NLL over the $n_{\text{cal}} = 500$
+calibration split; re-fit every cycle boundary per Chapter 4
+\S~Per-cycle calibration protocol). Pre-scaling
+ECE is computed on raw $u_{\text{pre}}$ logits before $T^{*}_c$
+is applied; post-scaling ECE, Brier, and AUROC are computed on
+$T^{*}_c$-scaled probabilities over pooled
+$(\ustored, \mathrm{correct})$ pairs. $\Delta T^{*}$ tracks
+drift across cycles: a healthy trajectory shows $T^{*}$ stabilising
+as fine-tuning plateaus, and post-scaling ECE staying below the
+$0.05$ floor the Chapter 3 NFR requires. Populated from
+\texttt{outputs/full\_run/calibrated\_config\_cycle<N>.json} and
+\texttt{eval/metrics.\{ece,brier,auroc\}}.}
+\label{tab:calibration}
+\begin{tabular}{lrrrrrr}
+\toprule
+Cycle & $T^{*}_c$ & $\Delta T^{*}$ & ECE$_{\text{pre}}$ & ECE$_{\text{post}}$ & Brier & AUROC \\
+\midrule
+\multicolumn{7}{c}{\emph{[To be populated from confirmatory-pass outputs, 11 rows for Cycles 0--10.]}}\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[t]
+\centering
+\caption{Decision-tree thresholds fitted at the Cycle-0 boundary from the $n_{\text{cal}} = 500$ calibration fold $\ustored$ distribution (Chapter~\ref{ch:methodology} Section~\ref{sec:self-improvement}, \emph{Adaptive threshold calibration}). Target quantiles $(\alpha_{S}, \alpha_{D}, \alpha_{T}) = (0.70, 0.40, 0.90)$ are hyperparameters; the threshold values are fit outputs. This table reports the Cycle-0 fit; Cycles~1--10 apply the per-cycle EMA re-fit described in Section~\ref{sec:self-improvement} (\texttt{adaptive\_thresholds\_per\_cycle = True}, $\alpha_{\text{EMA}} = 0.70$), and the per-cycle values are reported in the cycle-progression trace of Table~\ref{tab:purity}. The ordering assertion $\tau_{\text{train}} > \tau_{\text{store}} > \tau_{\text{defer}}$ is enforced at fit time; a Cycle-0 fit that violates the ordering aborts the run.}
+\label{tab:fitted-thresholds}
+\small
+\begin{tabular}{lrrr}
+\toprule
+Quantity & Value (MiniCheck) & Value (RoBERTa, ablation) & Source \\
+\midrule
+\multicolumn{4}{c}{\emph{[Fitted values and distribution summary populated from \texttt{outputs/cycle\_0/calibrated\_thresholds.json}.]}}\\
+$\tau_{\text{store}}$ ($Q_{0.70}(\ustored)$) & \ldots & \ldots & fit \\
+$\tau_{\text{defer}}$ ($Q_{0.40}(\ustored)$) & \ldots & \ldots & fit \\
+$\tau_{\text{train}}$ ($Q_{0.90}(\ustored)$) & \ldots & \ldots & fit \\
+\midrule
+$\ustored$ median & \ldots & \ldots & summary \\
+$\ustored$ mean & \ldots & \ldots & summary \\
+$\ustored$ std & \ldots & \ldots & summary \\
+$\ustored$ min / max & \ldots & \ldots & summary \\
+\midrule
+Implied \textsc{Store} admission rate (Cycle 0) & $\sim 30\%$ & $\sim 30\%$ & by construction \\
+Implied \textsc{Defer} admission rate (Cycle 0) & $\sim 30\%$ & $\sim 30\%$ & by construction \\
+Implied training-pool admission rate (Cycle 0) & $\sim 10\%$ & $\sim 10\%$ & by construction \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[t]
+\centering
+\caption{Hallucination decomposition. The three leading columns report the pooled Composite Hallucination Metric (CHM) --- the equal-weighted mean across the eight measurable failure-mode subtypes under the MiniCheck backend, computed by \texttt{composite\_hallucination\_metric} --- pooled across all seven factual-QA benchmarks and split by ID (FEVER, TriviaQA, Natural Questions) versus OOD (TruthfulQA, StrategyQA, ARC-Challenge, ASQA) via \texttt{pooled\_chm}. The remaining columns are the full nine-row subtype taxonomy from \texttt{hallucination\_subtypes} reported for transparency: \emph{cc} = confident\_confabulation, \emph{ff} = factual\_fabrication, \emph{fc} = factual\_contradiction (structurally zero under MiniCheck; reported for completeness), \emph{lf} = logical\_fabrication, \emph{ot} = off\_topic, \emph{de} = defensive\_evasion, \emph{tl} = template\_leak, \emph{fr} = false\_refusal, \emph{ol} = over\_long. The pre-registered pass/fail floor is on Pooled-all CHM via \texttt{chm\_reduction\_verdict} with a $30\%$ relative-reduction floor between Cycle~0 and Cycle~10. Subtypes deliberately overlap; rates therefore do not sum to Pooled-all CHM.}
+\label{tab:halluc}
+\scriptsize
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{lrrr|rrrrrrrrr}
+\toprule
+Cycle & Pooled (All) & Pooled (ID) & Pooled (OOD) & cc & ff & fc & lf & ot & de & tl & fr & ol \\
+\midrule
+\multicolumn{13}{c}{\emph{[To be populated from confirmatory-pass outputs via \texttt{scripts/make\_tables.py}.]}}\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[t]
+\centering
+\caption{Routing-distribution audit. Fraction of queries dispatched
+to Tier~1, Tier~2, and Tier~3 per cycle, with the safety-override
+fraction reported separately. Populated from
+\texttt{outputs/eval/routing\_\{cycle\}.json}.}
+\label{tab:routing}
+\begin{tabular}{lrrrr}
+\toprule
+Cycle & Tier~1 & Tier~2 & Tier~3 & Override \\
+\midrule
+\multicolumn{5}{c}{\emph{[To be populated from confirmatory-pass outputs.]}}\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[t]
+\centering
+\caption{Verifier-signal attribution. Per-signal AUROC against
+per-query correctness, reported for each of the nine signals in
+the composite.}
+\label{tab:verifier-attrib}
+\begin{tabular}{lr}
+\toprule
+Signal & AUROC \\
+\midrule
+\multicolumn{2}{c}{\emph{[To be populated from confirmatory-pass outputs.]}}\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[t]
+\centering
+\caption{Episodic-memory growth and cycle-boundary memory-pass counts. $|\mathcal{M}|$ is the store size at the end of the cycle; Store/Deferred/Abstain/Discard are the within-cycle Stage-6 decision counts; $n_{\text{up}}/n_{\text{rm}}$ are the retroverify updated/pruned counts of Section~\ref{sec:retroverify}; $(n_{\text{pr}}, n_{\text{dr}}, n_{\text{kp}})$ are the deferred-reconsideration promoted/TTL-dropped/kept counts of Section~\ref{sec:deferred-reconsider}; $(n_{\text{cl}}, n_{\text{rv}})$ are the Step-8c consolidation clusters merged and entries removed of Section~\ref{sec:self-improvement}.}
+\label{tab:memory-growth}
+\scriptsize
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{lrrrrr|rr|rrr|rr}
+\toprule
+Cycle & $|\mathcal{M}|$ & Store & Def. & Abst. & Disc. & $n_{\text{up}}$ & $n_{\text{rm}}$ & $n_{\text{pr}}$ & $n_{\text{dr}}$ & $n_{\text{kp}}$ & $n_{\text{cl}}$ & $n_{\text{rv}}$ \\
+\midrule
+\multicolumn{13}{c}{\emph{[To be populated from confirmatory-pass outputs via \texttt{scripts/make\_tables.py}.]}}\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[t]
+\centering
+\caption{CES composite and its five axes (ACC, EPI, RET, CAL, VER)
+per cycle, with 95\% paired-seed confidence intervals.}
+\label{tab:ces}
+\begin{tabular}{lrrrrrr}
+\toprule
+Cycle & CES & ACC & EPI & RET & CAL & VER \\
+\midrule
+\multicolumn{7}{c}{\emph{[To be populated from confirmatory-pass outputs.]}}\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[t]
+\centering
+\caption{Grounding diagnostics per cycle. Unsupported-correct rate and
+ungrounded-assertion rate, computed as defined in \cref{sec:metrics}.}
+\label{tab:grounding}
+\begin{tabular}{lrr}
+\toprule
+Cycle & Unsupported-correct (\%) & Ungrounded-assertion (\%) \\
+\midrule
+\multicolumn{3}{c}{\emph{[To be populated from confirmatory-pass outputs.]}}\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[t]
+\centering
+\caption{Continual-learning diagnostics: MMLU retention ratio,
+backward transfer (BWT), and forward transfer (FWT) per cycle.}
+\label{tab:continual}
+\begin{tabular}{lrrr}
+\toprule
+Cycle & MMLU retention $\rho$ & BWT & FWT \\
+\midrule
+\multicolumn{4}{c}{\emph{[To be populated from confirmatory-pass outputs.]}}\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsubsection{Verifier calibration and the $\alpha$ audit}
+\label{sec:verification-balanced-accuracy}
+
+The purity theorem (\cref{thm:purity}) requires the verifier balanced
+accuracy $\alpha$ to exceed one half on the distribution of claims
+actually scored. We audit this assumption empirically through a
+pair-level diagnostic run on a labelled 500-pair set derived from the
+Cycle~0 eval JSONs (TriviaQA, Natural Questions, TruthfulQA). The
+diagnostic scores every pair with \emph{both} MiniCheck-Flan-T5-Large
+(\caem{}'s primary backend) and the legacy RoBERTa-Large-MNLI
+ensemble (the ablation backend \texttt{roberta\_nli\_backend}),
+reporting AUROC, ECE, Brier score, and selective accuracy at the 0.5
+/ 0.8 / 0.95 confidence quantiles. The script is
+\texttt{scripts/calibration\_minicheck\_vs\_roberta.py}; its output is
+\texttt{outputs/calibration/minicheck\_vs\_roberta.json} plus a
+companion per-pair CSV under the same stem.
+Table~\ref{tab:verifier-calibration} reports the head-to-head
+comparison. The primary headline in this table is the delta AUROC
+(MiniCheck minus RoBERTa); a non-negative value confirms the backend
+choice empirically, and the individual $\alpha$ values feed the
+per-cycle purity audit in Table~\ref{tab:purity}.
+
+\paragraph{Frozen Qwen judge: tested and ablated.} A second NLI-judge candidate, the frozen Qwen-2.5-3B base weights queried with a yes/no claim-support prompt and Platt-calibrated to MiniCheck's probability scale, was registered as the long-hypothesis fallback inside \texttt{caem/verification/adaptive\_nli\_judge.py} (routing hypotheses $> 408$ MC-tokens to the Qwen judge to avoid MiniCheck's $512$-token truncation on ASQA-class long-form claims). The Platt fit (\texttt{scripts/calibrate\_qwen\_judge.py}) was run on a $500$-pair MiniCheck/Qwen overlap fold drawn from the Cycle-$0$ eval JSONs and gated on a pre-registered $\rho_{\text{logit-space}} \geq 0.70$ rank-correlation criterion; the observed value was $\rho = 0.5843$ (MAE-prob $= 0.230$, fitted Platt $(a, b) = (0.137, 1.247)$). Per-pair diagnostics are at \texttt{outputs/calibration/qwen\_judge\_platt.log}; the full ablation record is at \texttt{outputs/calibration/qwen\_judge\_platt.ablation.json}. Means align after Platt scaling (mean $P_{\text{MC}} = 0.535$, mean $P_{\text{Qwen}}^{\text{cal}} = 0.527$), but per-pair ranking disagreement keeps $\rho$ below threshold: Qwen-3B without NLI-specific fine-tuning does not reliably replicate MiniCheck's claim-support judgment. Phase~1a therefore ablates the Frozen Qwen judge and routes all hypotheses through bare MiniCheck, with documented $512$-token truncation on long-form claims; the empirical impact on ASQA NLI grounding is reported in Section~\ref{sec:main-results}. Re-enabling this fallback under an NLI-fine-tuned Qwen variant is registered as future work.
+
+\begin{table}[t]
+\centering
+\caption{Verifier calibration diagnostic at Cycle~0. MiniCheck-Flan-T5-Large
+(primary backend) versus RoBERTa-Large-MNLI (legacy ablation backend)
+scored pair-wise on a labelled 500-pair set drawn from open-ended-QA
+Cycle~0 predictions. AUROC measures ranking of supported-vs-unsupported
+pairs; ECE measures calibration of the probability output; Brier score
+combines both. $\Delta$ columns are MiniCheck minus RoBERTa; positive
+$\Delta$AUROC and negative $\Delta$ECE / $\Delta$Brier favour MiniCheck.
+Auto-populated from \texttt{outputs/calibration/minicheck\_vs\_roberta.json}.}
+\label{tab:verifier-calibration}
+\begin{tabular}{lrrr}
+\toprule
+Backend & AUROC & ECE & Brier \\
+\midrule
+MiniCheck-Flan-T5-L & \emph{[value]} & \emph{[value]} & \emph{[value]} \\
+RoBERTa-Large-MNLI  & \emph{[value]} & \emph{[value]} & \emph{[value]} \\
+$\Delta$ (MC $-$ Rob) & \emph{[value]} & \emph{[value]} & \emph{[value]} \\
+\midrule
+\multicolumn{4}{c}{\emph{[To be populated from Step 7.0 v3 diagnostic output.]}}\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[t]
+\centering
+\caption{Data-purity validation (\cref{thm:purity}). Per-cycle
+base accuracy $p$, verifier true-positive rate $\alpha$, theorem
+prediction $P_{\text{theory}} = p\alpha / (p\alpha + (1-p)(1-\alpha))$,
+and measured post-storage purity $P_{\text{obs}}$.}
+\label{tab:purity}
+\begin{tabular}{lrrrr}
+\toprule
+Cycle & $p$ & $\alpha$ & $P_{\text{theory}}$ & $P_{\text{obs}}$ \\
+\midrule
+\multicolumn{5}{c}{\emph{[To be populated from confirmatory-pass outputs.]}}\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[t]
+\centering
+\caption{Purity convergence trajectory (\cref{thm:convergence}).
+Per-cycle observed purity $P_c$, first-difference increment
+$\Delta P_c = P_c - P_{c-1}$, and the fitted envelope predicted by
+the theorem's upper bound $p_{c+1} \le P_c$.}
+\label{tab:purity-convergence}
+\begin{tabular}{lrrr}
+\toprule
+Cycle & $P_c$ & $\Delta P_c$ & Envelope bound \\
+\midrule
+\multicolumn{4}{c}{\emph{[To be populated from confirmatory-pass outputs.]}}\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[t]
+\centering
+\caption{Statistical significance of \caem{} versus each external running baseline (B1--B7) at Cycle~10 across the seven-benchmark factual-QA panel. Paired McNemar test with Edwards continuity correction per benchmark, bootstrap-resampled $95\%$ CI for $\Delta\mathrm{EM}$, and Holm--Bonferroni-adjusted $p$ computed independently within each benchmark family over $m = 7$ baseline contrasts. Sample-ID pairing is restricted to the evaluation slice read from \texttt{dataset\_splits.json}. Marker conventions: $\dagger$ marks Holm-corrected $p < 0.05$; $\star$ marks the conjunction $p < 0.05$ AND $|\Delta\mathrm{EM}| \geq 0.02$ (the architectural-claim licensing criterion). B8 Self-RAG is citation-only and is not included in the Holm correction; the optional STaR ceiling, when executed, appears as a separate row and is similarly excluded from the correction. Produced by \texttt{scripts/baseline\_sig\_tests.py}.}
+\label{tab:sig-test}
+\small
+\begin{tabular}{llrrrrr}
+\toprule
+Baseline & Benchmark & $\Delta$EM & 95\% CI & McNemar $p$ & Holm $p$ & Marker \\
+\midrule
+\multicolumn{7}{c}{\emph{[To be populated from confirmatory-pass outputs via \texttt{scripts/baseline\_sig\_tests.py}.]}}\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[t]
+\centering
+\fbox{\parbox{0.8\textwidth}{\centering\emph{[Reliability diagram
+placeholder. Ten equal-width bins of $\ustored$ on the $x$-axis;
+observed accuracy on the $y$-axis. Populated from the pooled
+$(\ustored,\mathrm{correct})$ stream at Cycle~$N$.]}\\[4pt]\vspace{4em}}}
+\caption{Reliability diagram on pooled $(\ustored, \mathrm{correct})$
+pairs at Cycle~$N$, with ten equal-width confidence bins. Departure
+from the $y=x$ identity line quantifies miscalibration; the ECE
+value in Table~\ref{tab:calibration} is its weighted $L_1$ norm.}
+\label{fig:reliability}
+\end{figure}
+
+\begin{figure}[t]
+\centering
+\fbox{\parbox{0.8\textwidth}{\centering\emph{[Purity trajectory
+placeholder. Cycle index on the $x$-axis; measured pool purity
+$P_c$ on the $y$-axis, with the theorem's predicted envelope
+overlaid. Populated from \texttt{outputs/purity\_validation/
+theory\_validation.json}.]}\\[4pt]\vspace{4em}}}
+\caption{Pool-purity trajectory across cycles $0,\ldots,N$.
+Solid line: measured $P_c$ from the purity-validation split; dashed
+line: envelope predicted by \cref{thm:monotonicity} and
+\cref{thm:convergence}.}
+\label{fig:purity-trajectory}
+\end{figure}
+
+\begin{figure}[t]
+\centering
+\fbox{\parbox{0.8\textwidth}{\centering\emph{[$\alpha(\tau_{\text{store}})$
+sensitivity plot placeholder. Two curves: Cycle-0 calibration-matched
+distribution (blue) and Cycle-$N$ converged distribution (red).
+Horizontal dashed line at $\alpha = 0.5$; vertical dotted line at the
+fitted $\tau_{\text{store}}$. Populated from
+\texttt{outputs/calibration/alpha\_vs\_tau\_by\_cycle.json} via
+\texttt{scripts/calibration\_alpha\_curve.py}.]}\\[4pt]\vspace{4em}}}
+\caption{Verifier balanced accuracy $\alpha$ as a function of candidate
+$\tau_{\text{store}}$, measured on the calibration-matched Cycle-0
+distribution (the distribution the threshold was fit on in
+Chapter~4's Equation~\ref{eq:threshold-calibration}) and on the
+Cycle-$N$ converged distribution (the operational endpoint).
+The horizontal dashed line marks the purity theorem's
+$\alpha = \tfrac{1}{2}$ premise from
+Remark~\ref{rem:alpha-empirical-scope}; the vertical dotted line
+marks the quantile-fitted $\tau_{\text{store}}$. Curves lying above
+the $\alpha = \tfrac{1}{2}$ floor across the surrounding
+$[P_{60}, P_{80}]$ band indicate that the Chapter~4 calibration
+choice is empirically robust to the specific quantile target
+selected.}
+\label{fig:alpha-vs-tau}
+\end{figure}
+
+\begin{figure}[t]
+\centering
+\fbox{\parbox{0.8\textwidth}{\centering\emph{[$\alpha$ trajectory
+placeholder. Cycle index on the $x$-axis; $\alpha$ evaluated at the
+fitted $\tau_{\text{store}}$ on the $y$-axis; horizontal line at
+$\alpha = 0.5$. Populated from
+\texttt{outputs/calibration/alpha\_vs\_tau\_by\_cycle.json}.]}\\[4pt]\vspace{4em}}}
+\caption{$\alpha$ trajectory across cycles $0, \ldots, N$, evaluated
+at the Cycle-0-fitted $\tau_{\text{store}}$. Monotonic non-decreasing
+behaviour provides visual support for \cref{thm:monotonicity}'s
+coupled-improvement claim on the $\alpha$ axis; the horizontal dashed
+line at $\tfrac{1}{2}$ marks the purity theorem's empirical premise.
+This figure is a per-cycle view of the same measurements that
+populate Table~\ref{tab:purity}.}
+\label{fig:alpha-trajectory}
+\end{figure}
+
+\paragraph{Theoretical validations.} Four empirical checks close the
+chapter. First, the data-purity curve from~\cref{thm:purity} is plotted
+against the measured Cycle~$t$ pool-purity trace. Second, the
+monotonicity prediction of~\cref{thm:monotonicity} is checked by
+verifying that the measured trace is non-decreasing in the
+$\alpha > \tfrac{1}{2}$ regime. Third, the convergence claim
+of~\cref{thm:convergence} is checked by fitting the late-cycle
+increments $\Delta P_t$ against the predicted envelope. Fourth, the
+threshold-calibration protocol introduced in Chapter~4 is audited
+against the purity theorem's empirical premise: \cref{fig:alpha-vs-tau}
+verifies that $\alpha > \tfrac{1}{2}$ holds across the
+$[P_{60}, P_{80}]$ band at both the calibration-matched Cycle~0
+distribution and the Cycle~$N$ converged distribution, and
+\cref{fig:alpha-trajectory} confirms that $\alpha$ at the fitted
+$\tau_{\text{store}}$ remains above $\tfrac{1}{2}$ at every cycle.
+These two figures turn the P70 quantile target from a design choice
+into an empirically defended one.
+
+% ---------------------------------------------------------------
+\section{Ablation Results}
+\label{sec:ablation-results}
+% ---------------------------------------------------------------
+
+This section reports the three-variant ablation panel introduced in Section~\ref{sec:ablation}. For every variant the table records the CES composite, its five axes at the variant's final cycle, and the $\Delta\text{CES}$ against the \texttt{full} reference row (which is read from \texttt{outputs/full\_run/experiment\_summary.csv} at the matching cycle count rather than re-executed inside the ablation sweep). Because the Phase~1 Full sweep is single-seed, the $\pm$ columns are bootstrap $95\%$ CIs on each axis computed from the per-sample records of the variant's final-cycle evaluation, not seed-replication variance. Each row is read against the pre-registered expected effect for that variant in Section~\ref{sec:ablation}: a row landing within its predicted $\Delta\text{CES}$ band confirms the mechanism attribution, a row outside the band is flagged in the per-variant discussion below, and a falsification (per the conditions of Table~\ref{tab:ablation-registry}) is disclosed as the headline ablation outcome.
+
+\begin{table}[t]
+\centering
+\caption{Ablation results. CES and five-axis decomposition for the \texttt{full} reference and the three-variant panel at each variant's final cycle, with $\Delta\text{CES}$ against the reference. Bootstrap $95\%$ CIs on each axis are computed from the per-sample records of the final-cycle evaluation (single-seed sweep, so no cross-seed standard deviation is propagated). Populated by \texttt{scripts/aggregate\_ablation.py} from \texttt{outputs/ablation/<variant>/seed\_42/ces\_axes\_per\_cycle.json}. Reference row \texttt{full} is read from \texttt{outputs/full\_run/experiment\_summary.csv}.}
+\label{tab:ablation-main}
+\small
+\begin{tabular}{lrrrrrrr}
+\toprule
+Variant & CES & ACC & EPI & RET & CAL & VER & $\Delta$CES \\
+\midrule
+\multicolumn{8}{c}{\emph{[To be populated from confirmatory-pass outputs.]}}\\
+\texttt{full}                    & \textit{TBD} & \textit{TBD} & \textit{TBD} & \textit{TBD} & \textit{TBD} & \textit{TBD} & ---          \\
+\texttt{no\_retroverify}         & \textit{TBD} & \textit{TBD} & \textit{TBD} & \textit{TBD} & \textit{TBD} & \textit{TBD} & \textit{TBD} \\
+\texttt{no\_self\_improvement}   & \textit{TBD} & \textit{TBD} & \textit{TBD} & \textit{TBD} & \textit{TBD} & \textit{TBD} & \textit{TBD} \\
+\texttt{no\_forgetting\_guard}   & \textit{TBD} & \textit{TBD} & \textit{TBD} & \textit{TBD} & \textit{TBD} & \textit{TBD} & \textit{TBD} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Per-variant discussion.}
+Each of the three variant rows is read against its pre-registered prediction from Section~\ref{sec:ablation}. \texttt{no\_retroverify} is expected to show a moderate negative $\Delta\text{CES}$ ($-0.02$ to $-0.04$) concentrated on EPI and VER with a visibly shallower purity trajectory in Figure~\ref{fig:purity-trajectory}; the per-cycle retroverify disposition columns of Table~\ref{tab:memory-growth} ($n_{\text{up}}, n_{\text{rm}}$) read zero by construction under this variant and provide the sanity check that the disable took effect. \texttt{no\_self\_improvement} is expected to show a large negative $\Delta\text{CES}$ ($\leq -0.05$) driven by ACC with a flat per-cycle CES trace; the high-stakes falsification condition ($|\Delta\text{CES}| < 0.01$) would require substantial revision of Chapter~3 Claim~3's central engineering premise. \texttt{no\_forgetting\_guard} is expected to manifest primarily as a downward MMLU-retention trajectory in Table~\ref{tab:continual} rather than as a CES collapse: if retention falls $5$--$10$ percentage points below the pristine Cycle-0 baseline $m_{0}$ by Cycle~5 while the reference run is held above $\rho_{\min} = 0.93$ by rollback, the guard is load-bearing as advertised. A row that falls outside its pre-registered band is discussed here as a \emph{limitation of the current analysis} rather than re-narrated into the architectural claim; a row that satisfies its falsification condition is disclosed as the headline outcome and is reconciled against the corresponding Chapter~4 mechanism paragraph in Chapter~6's limitations discussion.
+
+\paragraph{External prompt-design ablation.}
+Separately from the inference-time registry in
+Table~\ref{tab:ablation-main}, the prompt-design choice itself is
+reported as an external comparison at Cycle~0 only
+(\S\ref{par:prompt-design-ablation}): the legacy per-task
+minimal-CoT prompts are compared against the uniform few-shot
+scaffolded CoT prompt with forced decoder prefix on two identically-
+configured Step~7.0 runs that share cold-start memory, calibration
+thresholds, and random seed. Table~\ref{tab:prompt-design-ablation}
+records the per-benchmark delta; it is generated by
+\texttt{scripts/compare\_prompt\_design.py} and auto-populated from
+\texttt{outputs/cycle\_0\_pre\_cot\_prompt/} and
+\texttt{outputs/cycle\_0/}.
+
+\input{tables/tab_prompt_design_ablation.tex}
+
+\paragraph{Post-hoc sensitivity audit for the design-fixed thresholds.}
+\label{par:threshold-sensitivity}
+Tuning a design-fixed threshold on the evaluation fold would compromise the pre-registered evaluation protocol, so this chapter additionally reports a post-hoc sensitivity audit. After the main cyclic run completes, each of the four design-fixed scalars --- the routing weight $\lambda_{\text{route}}$, the pre-route safety floor $u_{\text{pre,min}}$, the forgetting-tolerance floor $\rho_{\min}$, and the $L_{2}$ anchor strength $\lambda$ --- is perturbed individually across a three-point grid ($-10\%$, default, $+10\%$) while the remaining thresholds are held fixed, and the resulting $\Delta\text{CES}$ is reported in Table~\ref{tab:threshold-sensitivity}. The design tests whether CES is robust to small perturbations of the threshold vector without optimising on the same evaluation data; sharp CES sensitivity to any single threshold is flagged as a finding that warrants threshold revisit in future work rather than as a correction to the present thesis's claims. The three adaptive thresholds $(\tau_{\text{store}}, \tau_{\text{defer}}, \tau_{\text{train}})$ are excluded from the sweep because their values are controlled by the Cycle-0 quantile fit plus per-cycle EMA smoothing of Section~\ref{sec:self-improvement}, not by a free design choice. Sensitivity runs execute after the main Vast.ai budget is spent, on lab-PC hardware (RTX~4090/5090 where available) with Vast.ai as the fallback path.
+
+\begin{table}[t]
+\centering
+\caption{Post-hoc sensitivity sweep over the four design-fixed thresholds. Each is perturbed individually across a three-point grid ($-10\%$, default, $+10\%$) while the remaining thresholds are held fixed; $\Delta\text{CES}$ is reported against the default-row CES. Populated post-main-run from the lab-PC / Vast.ai fallback sweep. The three adaptive thresholds $(\tau_{\text{store}}, \tau_{\text{defer}}, \tau_{\text{train}})$ are excluded because they are controlled by the Cycle-0 quantile fit plus EMA smoothing of \texttt{adaptive\_thresholds\_per\_cycle}, not by a free design choice.}
+\label{tab:threshold-sensitivity}
+\begin{tabular}{lrrrr}
+\toprule
+Threshold & Default & $-10\%$ $\Delta$CES & $+10\%$ $\Delta$CES & Notes \\
+\midrule
+$\lambda_{\text{route}}$ & $0.70$ & \textit{TBD} & \textit{TBD} & Memory-match vs.\ pre-route confidence weight \\
+$u_{\text{pre,min}}$ & $0.60$ & \textit{TBD} & \textit{TBD} & OR-condition safety floor to force Tier~3 \\
+$\rho_{\min}$ & $0.93$ & \textit{TBD} & \textit{TBD} & Forgetting-guard rollback threshold \\
+$\lambda$ ($L_{2}$ anchor) & $0.01$ & \textit{TBD} & \textit{TBD} & Per-cycle weight-drift penalty strength \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% ---------------------------------------------------------------
+\section{Chapter Summary}
+\label{sec:ch5-summary}
+% ---------------------------------------------------------------
+
+Chapter~5 specifies the evaluation protocol against which the architecture of Chapter~\ref{ch:methodology} is tested. Section~\ref{sec:exp-setup} fixes the benchmark panel at seven factual-QA tasks (three ID --- FEVER, TriviaQA, Natural Questions --- plus four OOD transfer --- TruthfulQA, StrategyQA, ARC-Challenge, ASQA) with MMLU as the out-of-distribution retention probe, the seven-table reporting suite (Tables~\ref{tab:headline}--\ref{tab:sig-test}) with the CES geometric-mean composite as its single-scalar visualisation, the seven running external baselines (B1--B7) plus the citation-only Self-RAG (B8) and the optional STaR ceiling, and the three-variant confirmatory ablation panel (\texttt{no\_retroverify}, \texttt{no\_self\_improvement}, \texttt{no\_forgetting\_guard}) whose cross-sectional complement is a set of per-cycle direct diagnostics (tier-fraction trajectory, purity-validation $\alpha_{c}$ trace, MiniCheck-vs-RoBERTa-vs-Qwen AUROC diagnostic, nine-signal correlation matrix) that defends Chapter~3 Claims~1, 2, and~5 without requiring counterfactual ablation runs.
+
+Section~\ref{sec:main-results} pre-registers the expected shape of each headline table, and Section~\ref{sec:ablation} pre-registers the expected sign, axis, and $\Delta\text{CES}$ magnitude band for each ablation variant together with its Chapter~3-Claim-level falsification condition, so the Chapter~5 results are graded against fixed predictions rather than narrated around them. The methodological commitments the results test are the five theoretical statements of Section~\ref{sec:theoretical-analysis}: Theorems~\ref{thm:purity}--\ref{thm:convergence} on training-pool purity at a single cycle, across the cycle trajectory, and at the long-run recurrence fixed point; Theorem~\ref{thm:asymptotic-elimination} on the user-facing hallucination rate's decomposition by routing tier; and Corollaries~\ref{cor:joint-optimum}--\ref{cor:self-correction} on the asymptotic floor's identification with the universal corpus-bounded epistemic bound. The pre-registered architectural pass/fail floor --- a $30\%$ relative reduction in pooled CHM between Cycle~0 and Cycle~10, evaluated by \texttt{chm\_reduction\_verdict} on the eight-subtype taxonomy --- is what the thesis's headline claim owns; achievement below the floor is disclosed as a negative result feeding Chapter~\ref{ch:discussion}'s limitations discussion, and achievement at or above the floor is reconciled against the theorems and the ablation panel in that same discussion.
+
+Once the Phase~1b main run populates the scaffolded tables via \texttt{scripts/make\_tables.py}, \texttt{scripts/make\_figures.py}, and \texttt{scripts/baseline\_sig\_tests.py}, every numerical claim in the chapter is traceable to a single integer seed, the frozen benchmark manifest in \texttt{dataset\_splits.json}, and the pinned configuration dataclass, so any reader can replay any cycle and obtain identical per-sample records. The trajectory figures and per-cycle diagnostic tables audit each of the five theoretical results independently: a trajectory that does not rise (Theorem~\ref{thm:monotonicity}), rises indefinitely without diminishing returns (Theorem~\ref{thm:convergence}), does not saturate near the coverage-and-capacity floor (Corollary~\ref{cor:corpus-floor}), or accumulates rather than prunes hallucinated episodes (Corollary~\ref{cor:self-correction}) would falsify the corresponding result, and the chapter commits to disclose any such falsification as the headline outcome rather than narrate around it.

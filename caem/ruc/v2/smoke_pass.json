@@ -1,0 +1,132 @@
+{
+  "checks": [
+    {
+      "name": "model_loadability",
+      "pass": true,
+      "detail": "scaler + lr loaded; model_type=logistic_regression_scaled"
+    },
+    {
+      "name": "schema_lr_vs_spec",
+      "pass": true,
+      "detail": "LR has 36 coefs; spec lists 36 features"
+    },
+    {
+      "name": "schema_features_present_in_parquet",
+      "pass": true,
+      "detail": "all 36 features present"
+    },
+    {
+      "name": "predictions_finite",
+      "pass": true,
+      "detail": "0 NaN/inf in 3208 predictions"
+    },
+    {
+      "name": "auroc_reproducibility",
+      "pass": true,
+      "detail": "in-sample=0.8606 vs OOF=0.8501  (drift=0.0105; expected <0.05)"
+    },
+    {
+      "name": "per_bench_routing_distribution",
+      "pass": false,
+      "detail": "7/8 benches in expected range"
+    },
+    {
+      "name": "net_utility_reproducible",
+      "pass": true,
+      "detail": "in-sample net_utility=2476, expected\u22482477"
+    }
+  ],
+  "summary": {
+    "n_features": 36,
+    "C": 0.5,
+    "tau": 0.375,
+    "expected_pooled_auroc": 0.8501144674439953,
+    "insample_auroc": 0.8606396653955133,
+    "per_bench_routing": {
+      "commonsense_qa": {
+        "n": 158,
+        "t3_share": 0.0886,
+        "expected_range": [
+          0.05,
+          0.55
+        ],
+        "pass": true
+      },
+      "fever": {
+        "n": 958,
+        "t3_share": 0.5919,
+        "expected_range": [
+          0.3,
+          0.75
+        ],
+        "pass": true
+      },
+      "haluevalqa": {
+        "n": 402,
+        "t3_share": 0.602,
+        "expected_range": [
+          0.3,
+          0.75
+        ],
+        "pass": true
+      },
+      "natural_questions": {
+        "n": 537,
+        "t3_share": 0.9702,
+        "expected_range": [
+          0.65,
+          0.99
+        ],
+        "pass": true
+      },
+      "openbookqa": {
+        "n": 139,
+        "t3_share": 0.3381,
+        "expected_range": [
+          0.1,
+          0.55
+        ],
+        "pass": true
+      },
+      "strategyqa": {
+        "n": 43,
+        "t3_share": 0.8605,
+        "expected_range": [
+          0.1,
+          0.65
+        ],
+        "pass": false
+      },
+      "triviaqa": {
+        "n": 837,
+        "t3_share": 0.638,
+        "expected_range": [
+          0.5,
+          0.95
+        ],
+        "pass": true
+      },
+      "truthfulqa": {
+        "n": 134,
+        "t3_share": 0.2687,
+        "expected_range": [
+          0.05,
+          0.55
+        ],
+        "pass": true
+      }
+    },
+    "pooled_routing": {
+      "n_t3": 1998,
+      "n_t2": 1210,
+      "t3_share": 0.6228
+    },
+    "net_utility": {
+      "in_sample": 2476,
+      "a_caught": 1556,
+      "b_caught": 920,
+      "expected_oof": 2477
+    }
+  },
+  "overall_pass": false
+}

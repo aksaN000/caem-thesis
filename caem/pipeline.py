@@ -40,8 +40,20 @@ from __future__ import annotations
 
 import logging
 import time
+import warnings as _warnings
 from dataclasses import dataclass, field
 from typing import Any, List, Optional
+
+# Suppress cosmetic transformers warnings about greedy+sampling-param mismatch.
+# Paired with the same filter in caem/verification/verifier.py. See that
+# module's import block for full rationale. Greedy decoding is intentional
+# (reproducibility); the inherited sampling params from Qwen's factory
+# generation_config have zero functional effect in greedy mode.
+_warnings.filterwarnings(
+    "ignore",
+    message=r".*`do_sample` is set to `False`.*",
+    category=UserWarning,
+)
 
 import numpy as np
 import torch
@@ -443,9 +455,72 @@ class CAEMPipeline:
             device=device,
         )
 
+        # -- RUC runtime-feature components (Phase 1e) ------------------- #
+        # The v2 RUC needs 11 features computed at routing time:
+        #   FAISS top-5 sims + entity overlap on top-1 + 3 top-5 stats
+        #   Cross-encoder rerank (top-1, top-5 mean/std)
+        #   Pairwise NLI agreement (mean/min/std over (5 choose 2) pairs)
+        #   P(IK) probe on Qwen last-token hidden state
+        #   Wikidata entity-binary lookup
+        # All components except the probe are already in self.verifier; we
+        # store explicit references so ``_compute_ruc_features`` doesn't have
+        # to dig into verifier internals.
+        self._ruc_passage_store = passage_store
+        self._ruc_cross_encoder = cross_encoder
+        self._ruc_judge = judge
+        self._ruc_alias_resolver = _alias_resolver
+        # spaCy NER — reused from the verifier's grounded-fact path
+        try:
+            import spacy
+            self._ruc_nlp = spacy.load("en_core_web_sm")
+        except Exception:
+            self._ruc_nlp = None
+
+        # P(IK) probe (Kadavath-style; predicts direct_em from Qwen
+        # last-token hidden state). Loaded lazily when the router has a
+        # RUC wired in. Default path: caem/ruc/v2/pik_probe.joblib.
+        self._ruc_pik_probe = None
+        from pathlib import Path as _Path
+        _pik_path = _Path(__file__).resolve().parent.parent / "caem" / "ruc" / "v2" / "pik_probe.joblib"
+        if _pik_path.is_file():
+            try:
+                import joblib as _joblib
+                self._ruc_pik_probe = _joblib.load(_pik_path)
+                logger.info(
+                    "Loaded P(IK) probe from %s (RUC routing-time feature active).",
+                    _pik_path,
+                )
+            except Exception as _exc:
+                logger.warning(
+                    "P(IK) probe load failed (%s); RUC will use p_ik=0.5 neutral prior.",
+                    _exc,
+                )
+
+        # v2 RUC auto-load. Mirrors the P(IK) probe pattern above: if the
+        # canonical feature spec exists, load and attach to the router so
+        # _consult_ruc fires at Tier 2/3 entry points. Absence keeps the
+        # router on the legacy u_pre-only fallback (Phase 1d behaviour).
+        _ruc_spec_path = _Path(__file__).resolve().parent.parent / "caem" / "ruc" / "v2" / "feature_spec.json"
+        if _ruc_spec_path.is_file():
+            try:
+                from caem.routing.ruc import LRRetrievalUtilityClassifier
+                self.router.ruc = LRRetrievalUtilityClassifier.from_spec(_ruc_spec_path)
+                logger.info(
+                    "Loaded v2 RUC from %s (tau=%.3f, %d features) — Tier 2/3 routing active.",
+                    _ruc_spec_path,
+                    self.router.ruc.threshold,
+                    len(self.router.ruc.feature_order),
+                )
+            except Exception as _exc:
+                logger.warning(
+                    "v2 RUC load failed (%s); router falls back to legacy "
+                    "u_pre-only tier selection.", _exc,
+                )
+
         logger.info(
-            "CAEMPipeline initialised | device=%s | cycle=%d | memory=%d episodes",
+            "CAEMPipeline initialised | device=%s | cycle=%d | memory=%d episodes | ruc=%s",
             self.device, self.current_cycle, self.memory_store.size,
+            "v2" if self.router.ruc is not None else "off",
         )
 
     # ------------------------------------------------------------------ #
@@ -518,10 +593,23 @@ class CAEMPipeline:
             # frozen RUC at the two Tier-3 entry points (safety-veto fall-through
             # and score-formula fall-through). The router falls back to the
             # pre-RUC default tier when self.router.ruc is None.
+            #
+            # Phase 1e: when the RUC is wired in, compute the 13 v2 features
+            # (FAISS top-5 stats + cross-encoder rerank + pairwise NLI +
+            # Wikidata + P(IK)) and thread them through so the LR has the full
+            # feature vector at deployment, matching the training-time signal.
+            ruc_extras = None
+            if self.router.ruc is not None:
+                ruc_extras = self._compute_ruc_features(query, query_embedding)
             routing = self.router.route(
                 pre_conf, search_with_ids,
                 source_benchmark=source_benchmark,
                 question=query,
+                top1_passage_text=(ruc_extras or {}).get("_top1_passage_text"),
+                top1_passage_sim=(ruc_extras or {}).get("top1_passage_sim"),
+                top1_passage_entity_overlap=(ruc_extras or {}).get("top1_passage_entity_overlap"),
+                p_ik=(ruc_extras or {}).get("p_ik"),
+                extra_ruc_features=ruc_extras,
             )
 
         logger.debug(
@@ -677,6 +765,201 @@ class CAEMPipeline:
     # ------------------------------------------------------------------ #
     # Tier handlers                                                         #
     # ------------------------------------------------------------------ #
+
+    def _compute_ruc_features(
+        self, query: str, query_embedding: np.ndarray,
+    ) -> Optional[dict]:
+        """Compute the 13 v2 RUC routing-time features for one query.
+
+        Reuses CAEM's already-loaded retrieval / rerank / NLI components
+        (the same set used by UnifiedVerifier) plus the frozen P(IK) probe.
+        Mirrors the offline extractor at
+        ``scripts/ruc_extract_v2_features.py:extract_features`` so the
+        runtime feature distribution matches training. All failures degrade
+        gracefully: missing values fall back to 0.0 (or 0.5 for ``p_ik``),
+        which is what the LR's training-time stub produces.
+
+        Returns a dict of 13 v2 features plus three "v1 carry-over" features
+        (top1_passage_sim, top1_passage_entity_overlap, p_ik) that the router
+        ``route()`` accepts as explicit kwargs. The internal-use
+        ``_top1_passage_text`` key is included so the LR's
+        ``_answer_type_features`` regex can match against the top-1 passage.
+        Returns ``None`` if no RUC is wired or any catastrophic failure
+        prevents feature computation; the router then falls back to its
+        pre-RUC default tier.
+        """
+        if self.router.ruc is None:
+            return None
+        try:
+            feats: dict = {}
+            # --- FAISS top-5 retrieval ----------------------------------- #
+            top_k = 5
+            emb = query_embedding.astype(np.float32)
+            n = float(np.linalg.norm(emb))
+            if n > 0:
+                emb = emb / n
+            try:
+                results = self._ruc_passage_store.search(emb, k=top_k)
+            except Exception:
+                results = []
+            passages: List[str] = []
+            sims: List[float] = []
+            for r in results:
+                if isinstance(r, (tuple, list)) and r:
+                    t = r[0] if isinstance(r[0], str) else (
+                        r[0].get("text") or r[0].get("passage") or ""
+                        if isinstance(r[0], dict) else ""
+                    )
+                    s = float(r[1]) if len(r) > 1 else 0.0
+                elif isinstance(r, str):
+                    t, s = r, 0.0
+                elif isinstance(r, dict):
+                    t, s = r.get("text") or r.get("passage") or "", 0.0
+                else:
+                    continue
+                if t:
+                    passages.append(t)
+                    sims.append(s)
+
+            if passages:
+                sims_arr = np.asarray(sims, dtype=np.float32)
+                feats["_top1_passage_text"] = passages[0]
+                feats["top1_passage_sim"] = float(sims_arr[0])
+                feats["top5_sim_max"] = float(sims_arr.max())
+                feats["top5_sim_mean"] = float(sims_arr.mean())
+                feats["top5_sim_std"] = float(sims_arr.std())
+
+                # Top-1 entity overlap via spaCy NER
+                if self._ruc_nlp is not None:
+                    try:
+                        doc = self._ruc_nlp(query or "")
+                        ents = [e.text.lower() for e in doc.ents]
+                        p_lower = passages[0].lower()
+                        overlap = sum(1 for e in ents if e in p_lower)
+                        feats["top1_passage_entity_overlap"] = (
+                            float(overlap) / float(len(ents))
+                            if ents else 0.0
+                        )
+                    except Exception:
+                        feats["top1_passage_entity_overlap"] = 0.0
+                else:
+                    feats["top1_passage_entity_overlap"] = 0.0
+
+                # Cross-encoder rerank on top-5
+                if self._ruc_cross_encoder is not None:
+                    try:
+                        pairs = [(query, p) for p in passages]
+                        rerank = self._ruc_cross_encoder.predict(
+                            pairs, show_progress_bar=False,
+                        )
+                        rerank = [float(s) for s in rerank]
+                        feats["rerank_top1"] = float(rerank[0])
+                        feats["rerank_top5_mean"] = float(np.mean(rerank))
+                        feats["rerank_top5_std"] = float(np.std(rerank))
+                    except Exception:
+                        feats["rerank_top1"] = 0.0
+                        feats["rerank_top5_mean"] = 0.0
+                        feats["rerank_top5_std"] = 0.0
+
+                # Pairwise NLI on (5 choose 2) = 10 pairs
+                if self._ruc_judge is not None and len(passages) >= 2:
+                    try:
+                        premises, hyps = [], []
+                        for i in range(len(passages)):
+                            for j in range(i + 1, len(passages)):
+                                premises.append(passages[i])
+                                hyps.append(passages[j])
+                        arr = self._ruc_judge.batch_entail_prob(premises, hyps)
+                        arr = np.asarray([float(x) for x in arr], dtype=np.float32)
+                        feats["nli_pair_mean"] = float(arr.mean())
+                        feats["nli_pair_min"] = float(arr.min())
+                        feats["nli_pair_std"] = float(arr.std())
+                    except Exception:
+                        feats["nli_pair_mean"] = 0.5
+                        feats["nli_pair_min"] = 0.5
+                        feats["nli_pair_std"] = 0.0
+                else:
+                    feats["nli_pair_mean"] = 0.5
+                    feats["nli_pair_min"] = 0.5
+                    feats["nli_pair_std"] = 0.0
+            else:
+                # No retrieval results — neutral defaults across the board.
+                feats.update({
+                    "_top1_passage_text": "",
+                    "top1_passage_sim": 0.0,
+                    "top1_passage_entity_overlap": 0.0,
+                    "top5_sim_max": 0.0,
+                    "top5_sim_mean": 0.0,
+                    "top5_sim_std": 0.0,
+                    "rerank_top1": 0.0,
+                    "rerank_top5_mean": 0.0,
+                    "rerank_top5_std": 0.0,
+                    "nli_pair_mean": 0.5,
+                    "nli_pair_min": 0.5,
+                    "nli_pair_std": 0.0,
+                })
+
+            # --- Wikidata entity-binary --------------------------------- #
+            wikidata = 0.0
+            if self._ruc_alias_resolver is not None and self._ruc_nlp is not None:
+                try:
+                    doc = self._ruc_nlp(query or "")
+                    for ent in doc.ents:
+                        if self._ruc_alias_resolver.resolve(ent.text):
+                            wikidata = 1.0
+                            break
+                except Exception:
+                    pass
+            feats["entity_in_wikidata"] = wikidata
+
+            # --- P(IK) via Qwen last-token hidden state ----------------- #
+            # Disable any active LoRA adapter so the hidden state matches the
+            # base-Qwen distribution the probe was trained on. At cycle 0 the
+            # adapter doesn't exist yet, so disable_adapter is a no-op.
+            p_ik = 0.5
+            if self._ruc_pik_probe is not None:
+                try:
+                    enc = self.tokenizer(
+                        query, return_tensors="pt", truncation=True, max_length=512,
+                    )
+                    input_ids = enc["input_ids"].to(self.device)
+                    attn = enc["attention_mask"].to(self.device)
+                    seq_len = int(attn.sum(dim=1).item()) - 1
+                    self.model.eval()
+                    # peft adapter disable when present; falls back to a no-op
+                    # context for plain HF models.
+                    if hasattr(self.model, "disable_adapter"):
+                        ctx = self.model.disable_adapter()
+                    else:
+                        from contextlib import nullcontext
+                        ctx = nullcontext()
+                    with torch.no_grad(), ctx:
+                        out = self.model(
+                            input_ids=input_ids,
+                            attention_mask=attn,
+                            output_hidden_states=True,
+                            return_dict=True,
+                        )
+                    # Last layer's hidden state at the last non-pad token
+                    hidden = (
+                        out.hidden_states[-1][0, seq_len].float().cpu().numpy()
+                    ).reshape(1, -1)
+                    p_ik = float(self._ruc_pik_probe.predict_proba(hidden)[0, 1])
+                except Exception as _exc:
+                    logger.debug(
+                        "P(IK) compute failed (%s); using 0.5 neutral prior.",
+                        _exc,
+                    )
+                    p_ik = 0.5
+            feats["p_ik"] = p_ik
+
+            return feats
+        except Exception as exc:
+            logger.warning(
+                "_compute_ruc_features raised (%s); returning None and letting "
+                "the router fall back to its default tier.", exc,
+            )
+            return None
 
     def _tier1(self, search_with_ids):
         """Return the stored answer for a Tier 1 hit.

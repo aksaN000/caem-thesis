@@ -2,7 +2,7 @@
 """scripts/ruc_offline_passage_retrieval.py
 ==============================================
 Phase 1.1 of the RUC enrichment chain — compute the two retrieval-quality
-features that were stubbed at 0.0 in the v1 training set:
+features for the training set:
 
 - ``top1_passage_sim``           cosine similarity of the question's BGE-small
                                   embedding to the top-1 retrieved Wikipedia

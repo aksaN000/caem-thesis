@@ -1,0 +1,192 @@
+\documentclass[Times,12pt,oneside,openany,print,index]{report}
+\usepackage[a4paper,width=150mm,top=25mm,bottom=25mm]{geometry}
+\usepackage[english]{babel}
+\usepackage[utf8]{inputenc}
+\usepackage{csquotes} % Provides advanced facilities for in-line and display quotations
+\usepackage{amsmath}   % Mathematical equations
+\usepackage{amsthm}    % Theorem / proof environments
+\usepackage{amssymb}   % Extra math symbols
+\usepackage{enumitem}  % Custom list labels (e.g. (a),(b),(c))
+\usepackage{booktabs}  % Professional table rules (\toprule, \midrule, \bottomrule)
+
+% ---- Theorem environments (must live in preamble) ----------------
+\theoremstyle{plain}
+\newtheorem{theorem}{Theorem}[chapter]
+\newtheorem{corollary}[theorem]{Corollary}
+\newtheorem{lemma}[theorem]{Lemma}
+\theoremstyle{definition}
+\newtheorem{definition}[theorem]{Definition}
+\theoremstyle{remark}
+\newtheorem{remark}[theorem]{Remark}
+% ------------------------------------------------------------------
+
+\pagestyle{plain} % Just a plain page number. For more http://www.emerson.emory.edu/services/latex/latex_129.html
+
+\usepackage[final]{graphicx} % to use the graphicx package (force figures to render)
+\setkeys{Gin}{draft=false}
+\graphicspath{{images/}} % Path to image files (project-local)
+\usepackage{caption} % To use caption with figure and images
+\usepackage{float}   % Required for \newfloat
+\floatstyle{ruled}
+\newfloat{algorithm}{htbp}{loa}[chapter]   % Algorithm float: own counter, own LoA list
+\floatname{algorithm}{Algorithm}
+\restylefloat{algorithm}
+\usepackage{algorithmicx}   % Framework for pseudocode environments
+\usepackage{algpseudocode}
+
+\makeatletter
+\newcommand{\StatePar}[1]{%
+  \State \parbox[t]{\dimexpr\linewidth-\ALG@thistlm}{#1\strut}%
+}
+\makeatother
+  % \State \If \For \While \Require \Ensure \Comment etc.
+\algrenewcommand\algorithmicindent{1.2em}  % tighter indentation
+\usepackage{array} % The array environment is used to make a table of information, with column alignment (left, center, or right) and optional vertical lines separating the columns
+
+% TikZ packages for diagrams
+\usepackage{tikz}
+\usetikzlibrary{shapes.geometric, arrows.meta, positioning, fit, shadows, calc}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.18}
+
+% Styled example / callout boxes
+\usepackage[most]{tcolorbox}
+\tcbuselibrary{skins,breakable}
+
+% Separate counter for worked examples (independent of figure counter).
+% \ref{ex:*} prints "X.Y" matching the box title via \theexample.
+\newcounter{example}[chapter]
+\renewcommand{\theexample}{\thechapter.\arabic{example}}
+
+\usepackage[nottoc]{tocbibind} % The tocbibind package can be used to add the ToC and/or bibliography and/or the index etc., to the Table of Contents listing
+
+\usepackage[normalem]{ulem} % The ulem package provides various types of underlining that can stretch between words and be broken across lines.
+
+\usepackage{hyperref} % Provides LaTeX the ability to create hyperlinks within the document.
+\hypersetup{
+    colorlinks=true,
+    linkcolor=black,
+    filecolor=magenta,      
+    urlcolor=black,
+    citecolor=black,
+}
+\usepackage[capitalize,noabbrev]{cleveref} % \cref / \Cref; must load after hyperref
+\urlstyle{same}
+
+\setlength{\parindent}{0em} % To control Indentation of paragraphs 
+
+% ---- Custom macros for CAEM notation (used in Chapters 3-6) ----
+% \ensuremath wrappers allow these to be used inline in text without
+% breaking spacing or dropping the paragraph into math mode.
+\newcommand{\caem}{CAEM}
+\newcommand{\upre}{\ensuremath{u_{\text{pre}}}}
+\newcommand{\ustored}{\ensuremath{u_{\text{stored}}}}
+\newcommand{\Cconv}{\ensuremath{C_{\text{conv}}}}
+
+\usepackage{nomencl} % The nomenclature package can be used to generate and format a nomenclature using MakeIndex.
+\renewcommand{\nompreamble}{The next list describes several symbols \& abbreviation that will be later used within the body of the document}
+\makenomenclature
+
+\usepackage[backend=biber,style=ieee,sorting=ydnt,natbib=true]{biblatex} % newest to oldest (natbib=true enables \citep / \citet aliases used in chapters)
+
+% --- IEEE link policy ---
+% If DOI exists: print DOI, suppress URL/eprint.
+% If DOI does not exist: print URL.
+\ExecuteBibliographyOptions{doi=true,url=true,isbn=false,eprint=false}
+\AtEveryBibitem{%
+  \iffieldundef{doi}{}{\clearfield{url}\clearfield{urldate}\clearfield{eprint}}%
+}
+\addbibresource{bibliography/references.bib} % Imports bibliography file
+
+
+\let\cleardoublepage=\clearpage % removes unwanted doublepages
+
+\begin{document}
+
+\thispagestyle{empty} % removes page number from title page
+\input{core/titlepage} % Add title page
+\cleardoublepage
+
+\pagenumbering{roman} % Roman numbers to be use all pages before Chapter 1
+
+%*******************************************************************
+% TOC = Table of Contents
+% The hyperref makes Title page No. 1 entry in the TOC
+% In order to properly link  all section in TOC "phantomsection" command used
+%  see below link for details on "addcontentsline"
+% http://www.emerson.emory.edu/services/latex/latex_162.html
+% "input" command to add files
+% "Ethics Statement" & "Dedication" page are Optional; you may omit this two page if you want
+% Please do not change the order of listings in TOC
+%*******************************************************************
+\phantomsection
+\addcontentsline{toc}{chapter}{Declaration}
+\input{core/declaration}
+
+\phantomsection
+\addcontentsline{toc}{chapter}{Approval}
+\input{core/approval}
+
+\phantomsection
+\addcontentsline{toc}{chapter}{Ethics Statement}
+\input{core/ethics_statement}
+
+\phantomsection
+\addcontentsline{toc}{chapter}{Abstract}
+\input{core/abstract}
+
+\phantomsection
+\addcontentsline{toc}{chapter}{Dedication}
+\input{core/dedication}
+
+\phantomsection
+\addcontentsline{toc}{chapter}{Acknowledgment}
+\input{core/acknowledgement}
+
+\renewcommand{\contentsname}{Table of Contents} % Rename TOC name from Contents to Table of Contents
+\cleardoublepage
+\phantomsection
+\addcontentsline{toc}{chapter}{Table of Contents} % Add Table of Contents in TOC
+\tableofcontents % To  generation of the Table of Contents
+
+\listoffigures % To generation of the List of Figures
+\listof{algorithm}{List of Algorithms} % To generation of the List of Algorithms
+
+\printnomenclature % TO  generation of the Nomenclature file
+\addcontentsline{toc}{chapter}{Nomenclature}
+\cleardoublepage
+
+\pagenumbering{arabic} % To use page number 1,2,3 ..
+
+\chapter{Introduction}
+\label{ch:intro}
+\input{chapters/chapter_1.tex}
+
+\chapter{Literature Review}
+\label{ch:litreview}
+\input{chapters/chapter_2.tex}
+
+\chapter{Requirements, Impacts and Constraints}
+\label{ch:requirements}
+\input{chapters/chapter_3.tex}
+
+\chapter{Methodology}
+\label{ch:methodology}
+\input{chapters/chapter_4.tex}
+
+\chapter{Results and Analysis}
+\label{ch:results}
+\input{chapters/chapter_5.tex}
+
+% Chapter 6 (Conclusion) is a pre-thesis stub — uncomment once populated:
+% \chapter{Conclusion}
+% \label{ch:conclusion}
+% \input{chapters/chapter_6.tex}
+
+\cleardoublepage
+\phantomsection
+\nocite{*}
+\printbibliography
+\addcontentsline{toc}{chapter}{Bibliography}
+
+\end{document}

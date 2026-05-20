@@ -1,0 +1,7 @@
+\contentsline {algorithm}{\numberline {4.1}{\ignorespaces Stage~1 pre-route confidence $\ensuremath {u_{\text {pre}}}$.}}{55}{algorithm.4.1}%
+\contentsline {algorithm}{\numberline {4.2}{\ignorespaces Stage~3 three-tier routing decision.}}{62}{algorithm.4.2}%
+\contentsline {algorithm}{\numberline {4.3}{\ignorespaces Stage~5 unified verifier.}}{68}{algorithm.4.3}%
+\contentsline {algorithm}{\numberline {4.4}{\ignorespaces Stage~6 decision tree and Stage~7 action.}}{71}{algorithm.4.4}%
+\contentsline {algorithm}{\numberline {4.5}{\ignorespaces Stage~8 retroactive re-verification (runs once per cycle boundary after successful fine-tuning).}}{74}{algorithm.4.5}%
+\contentsline {algorithm}{\numberline {4.6}{\ignorespaces Stage~8b deferred-entry reconsideration (runs once per cycle boundary, after retroverify, on non-aborted cycles).}}{77}{algorithm.4.6}%
+\contentsline {algorithm}{\numberline {4.7}{\ignorespaces Stage~8 self-improvement cycle (one invocation per cycle boundary).}}{81}{algorithm.4.7}%

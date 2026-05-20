@@ -127,10 +127,21 @@ branch ``level-b-static-batching``. Main remains on serial.
 from __future__ import annotations
 
 import logging
+import warnings as _warnings
 from dataclasses import dataclass
 from typing import List, Optional, Sequence
 
 import torch
+
+# Suppress cosmetic transformers warning on every batched model.generate call
+# (greedy + non-default sampling params from Qwen's factory config; see
+# verifier.py import block for full rationale). Filter only this one
+# message; other UserWarnings pass through.
+_warnings.filterwarnings(
+    "ignore",
+    message=r".*`do_sample` is set to `False`.*",
+    category=UserWarning,
+)
 
 from caem.pipeline import CAEMPipeline, PipelineResult
 from caem.prompts import build_tier2_prompt
@@ -511,6 +522,13 @@ class BatchPipeline:
         ``router.route`` (per-benchmark safety_u_pre_min_b) so the bundle
         threaded back to ``answer`` reflects the same per-benchmark
         dispatch as the serial path.
+
+        Phase 1e: when the v2 RUC is wired into the router, compute the
+        13 routing-time features (FAISS top-5 stats, cross-encoder rerank,
+        pairwise NLI, Wikidata, P(IK)) and thread them into router.route
+        so the RUC fires in batch mode with the same signal set the serial
+        :meth:`CAEMPipeline.answer` path produces. Without this, batch-mode
+        runs would silently bypass the RUC and degrade to vanilla CAEM.
         """
         query_embedding = self.p._encode_query(query)
         pre_conf = self.p.pre_estimator.estimate(
@@ -519,9 +537,18 @@ class BatchPipeline:
         search_with_ids = self.p.memory_store.search_with_ids(
             query_embedding, k=1,
         )
+        ruc_extras = None
+        if self.p.router.ruc is not None:
+            ruc_extras = self.p._compute_ruc_features(query, query_embedding)
         routing = self.p.router.route(
             pre_conf, search_with_ids,
             source_benchmark=source_benchmark,
+            question=query,
+            top1_passage_text=(ruc_extras or {}).get("_top1_passage_text"),
+            top1_passage_sim=(ruc_extras or {}).get("top1_passage_sim"),
+            top1_passage_entity_overlap=(ruc_extras or {}).get("top1_passage_entity_overlap"),
+            p_ik=(ruc_extras or {}).get("p_ik"),
+            extra_ruc_features=ruc_extras,
         )
         return (
             int(routing.tier),

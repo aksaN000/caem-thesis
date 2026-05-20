@@ -53,7 +53,7 @@ If the episodic store is empty (no retrieved episode), similarity = 0.0 and
 from __future__ import annotations
 
 import logging
-from typing import List, Optional, Sequence, Tuple, Union
+from typing import Dict, List, Optional, Sequence, Tuple, Union
 
 from caem.config import CAEMConfig
 from caem.memory.entry import EpisodicEntry, PreRoutingConfidence, RoutingDecision
@@ -113,6 +113,7 @@ class AdaptiveRouter:
         top1_passage_sim: Optional[float] = None,
         top1_passage_entity_overlap: Optional[float] = None,
         p_ik: Optional[float] = None,
+        extra_ruc_features: Optional[Dict[str, float]] = None,
     ) -> RoutingDecision:
         """Compute a routing decision for one query.
 
@@ -188,6 +189,7 @@ class AdaptiveRouter:
                 source_benchmark=source_benchmark,
                 entry_point="safety_veto",
                 default_tier=3,
+                extra_features=extra_ruc_features,
             )
             decision = RoutingDecision(
                 tier=tier,
@@ -232,6 +234,7 @@ class AdaptiveRouter:
                 source_benchmark=source_benchmark,
                 entry_point="fall_through",
                 default_tier=3,
+                extra_features=extra_ruc_features,
             )
 
         decision = RoutingDecision(
@@ -268,6 +271,7 @@ class AdaptiveRouter:
         source_benchmark: Optional[str],
         entry_point: str,
         default_tier: int,
+        extra_features: Optional[Dict[str, float]] = None,
     ) -> Tuple[int, Optional[dict]]:
         """Ask the RUC whether to route to RAG (T3) or DIRECT (T2).
 
@@ -297,6 +301,20 @@ class AdaptiveRouter:
                 kwargs["top1_passage_entity_overlap"] = top1_passage_entity_overlap
             if p_ik is not None:
                 kwargs["p_ik"] = p_ik
+            if extra_features:
+                # v2 features (top5_*, rerank_*, nli_pair_*, entity_in_wikidata,
+                # etc.) — the LRRetrievalUtilityClassifier merges these into
+                # the feature vector before scaling. Pre-merge them as kwargs;
+                # any feature listed in feature_spec.features but not supplied
+                # here defaults to 0.0 (or 0.5 for p_ik) at scoring time.
+                # Underscore-prefixed keys (e.g. _top1_passage_text) are
+                # internal metadata routed via explicit kwargs above, not
+                # numeric features; strip them so _feature_vector's float()
+                # coercion doesn't see strings.
+                kwargs.update({
+                    k: v for k, v in extra_features.items()
+                    if not k.startswith("_")
+                })
             res = self.ruc.predict(**kwargs)
             ruc_out = {
                 "decision": res.decision,
