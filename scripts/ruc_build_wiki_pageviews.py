@@ -6,7 +6,7 @@ lookup table that populates the ``log_pageviews_max`` feature.
 
 Strategy (no Wikimedia dump downloads needed)
 ---------------------------------------------
-1. Scan the v1 RUC training set, extract all unique named entities via
+1. Scan the RUC training set, extract all unique named entities via
    spaCy en_core_web_sm.
 2. For each unique entity, query the Wikimedia REST API:
        https://wikimedia.org/api/rest_v1/metrics/pageviews/per-article/
@@ -205,7 +205,7 @@ def main() -> int:
         in_parquet = args.in_parquet or Path("caem/ruc/training_set.parquet")
         if not in_parquet.exists():
             logger.error("Input parquet missing: %s -- pass --in_jsons or "
-                         "build the v1/v2 training set first.", in_parquet)
+                         "build the training set first.", in_parquet)
             return 1
         import pandas as pd
         df = pd.read_parquet(in_parquet)

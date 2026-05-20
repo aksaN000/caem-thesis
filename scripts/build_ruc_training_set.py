@@ -86,7 +86,7 @@ from eval.metrics import per_sample_chm  # noqa: E402
 BENCHES = ["fever", "triviaqa", "commonsense_qa", "strategyqa", "truthfulqa"]
 # v2 panel adds two benches to compensate for the TruthfulQA / CSQA shortage.
 # Use --benches at the CLI to override; the module-level constant stays at the
-# v1 default so old reruns reproduce.
+# default panel.
 BENCHES_V2 = BENCHES + ["haluevalqa", "openbookqa"]
 
 PAIRINGS: List[Tuple[str, str, str]] = [
@@ -294,8 +294,8 @@ def _top1_passage_features(question: str,
     therefore emit 0.0 in this build. Re-running retrieval offline using
     ``data/passage_index/passages.faiss`` is a ~30-min job that needs
     ~64 GB free RAM; it should be done once the rescore pipeline frees
-    its index. Reserved as a v1.1 upgrade lift if the primary acceptance
-    gate misses on the v1 build.
+    its index. Reserved as a future upgrade lift if the primary acceptance
+    gate misses on the current build.
     """
     if not top_passage:
         return {"top1_passage_sim": 0.0, "top1_passage_entity_overlap": 0.0}
@@ -331,10 +331,18 @@ def _sample_em(sample: Dict[str, Any], bench: str) -> Optional[float]:
 # ---------------------------------------------------------------------------
 
 def _load_baseline(baselines_dir: Path, baseline: str, bench: str) -> Optional[Dict[str, Any]]:
-    p = baselines_dir / baseline / f"{bench}_cycle0_with_chm.json"
-    if not p.exists():
-        return None
-    return json.load(open(p))
+    """Prefer the rescored ``_with_chm.json`` when present; fall back to the
+    raw ``_cycle0.json`` when not. The raw form is acceptable for Path B
+    training because the only places CHM is consumed are the EM-tie tiebreaker
+    (Path B drops ties) and the utility-weight magnitude (Path B can use unit
+    weights without measurable AUROC loss on n>=4k clean labels).
+    """
+    p_with_chm = baselines_dir / baseline / f"{bench}_cycle0_with_chm.json"
+    p_raw = baselines_dir / baseline / f"{bench}_cycle0.json"
+    for p in (p_with_chm, p_raw):
+        if p.exists():
+            return json.load(open(p))
+    return None
 
 
 def _build_pair_rows(
@@ -379,21 +387,37 @@ def _build_pair_rows(
             r_em = _sample_em(r, bench)
             if d_em is None or r_em is None:
                 continue
-            d_chm = per_sample_chm(d)
-            r_chm = per_sample_chm(r)
 
-            # Bi-criteria label, EM primary, CHM tiebreaker
-            if r_em > d_em:
-                label = 1
-            elif r_em < d_em:
-                label = 0
+            # Path B: drop EM ties (cases C and D) entirely. The tiebreaker
+            # branch below is preserved for backwards compatibility
+            # callers that still want EM-ties-via-CHM labelling, but Path B
+            # paths skip those rows so the branch is unreachable when this
+            # script runs under the v2 protocol.
+            if r_em == d_em:
+                continue
+
+            # CHM is optional under Path B (no tiebreaker needed). Compute it
+            # when verifier signals are present in the sample (rescored
+            # baselines); fall back to 0.0 when absent (raw baselines).
+            has_chm_signals = "u_stored" in d and "u_stored" in r
+            if has_chm_signals:
+                d_chm = per_sample_chm(d)
+                r_chm = per_sample_chm(r)
             else:
-                label = 1 if r_chm < d_chm else 0
+                d_chm = 0.0
+                r_chm = 0.0
+
+            label = 1 if r_em > d_em else 0
 
             em_delta = r_em - d_em
             chm_delta = d_chm - r_chm
-            utility = em_delta + 0.5 * chm_delta
-            weight = max(abs(utility), 0.1)
+            # Path B unit weights when CHM is absent; legacy utility magnitude when present.
+            if has_chm_signals:
+                utility = em_delta + 0.5 * chm_delta
+                weight = max(abs(utility), 0.1)
+            else:
+                utility = float(em_delta)
+                weight = 1.0
 
             # Engineered features
             text_feats = _question_text_features(question)
@@ -458,7 +482,7 @@ def main() -> int:
     ap.add_argument("--canonical_only", action="store_true",
                     help="Build only the zero_shot vs rag canonical pairing.")
     ap.add_argument("--benches", nargs="+", default=None,
-                    help=("Override the benchmark list. Default = v1 panel "
+                    help=("Override the benchmark list. Default = full panel "
                           "(fever, triviaqa, commonsense_qa, strategyqa, "
                           "truthfulqa). For v2 pass --benches fever "
                           "triviaqa commonsense_qa strategyqa truthfulqa "

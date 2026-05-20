@@ -648,8 +648,15 @@ step_7_main() {
     # current architecture variant lands at gdrive:caem-phase1a/v2_1_phase1d/
     # full_run/cycle_<n>/, kept separate from gdrive:caem-phase1a/v2/ (pre-
     # Phase-1d cycles) and gdrive:caem-phase1a/archive_v1/ (v1 cycles 0-4).
+    #
+    # Phase 1e fix (2026-05-20): honour caller-supplied CAEM_GDRIVE_BUCKET when
+    # set, falling back to "v2_1_phase1d" only if unset. The original hardcode
+    # overrode the launch-time env var and silently offloaded Phase 1e cycle
+    # artefacts to the Phase 1d bucket, partially overwriting Phase 1d's
+    # cycle_1 adapter before the issue was caught at 05:45 UTC and the
+    # Phase 1d archive was relocated to v2_1_phase1d_archive/ on gdrive.
     CAEM_BATCH_U_TOK_DROP=1 CAEM_GDRIVE_OFFLOAD=1 \
-    CAEM_GDRIVE_BUCKET="v2_1_phase1d" \
+    CAEM_GDRIVE_BUCKET="${CAEM_GDRIVE_BUCKET:-v2_1_phase1d}" \
     python -m scripts.run_experiment \
         --output_dir outputs/full_run \
         --num_cycles 10 \
@@ -1187,10 +1194,17 @@ main() {
     log "Repo: $PWD    Branch: $(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo '?')    Commit: $(git rev-parse --short HEAD 2>/dev/null || echo '?')"
 
     # --- Pre-launch (~10 h) ---
-    step_5_9_prompt_smoke   # 2026-04-24 audit: validate prompt revision before seeding
-    step_5_9_5_alias_dict   # 2026-05-07 audit: build alias dict for Fix 6 alias_overlap
-    step_6_reseed
-    step_6_5_em_prune       # v2.1 2026-05-08: drop confidently-wrong cold-start episodes
+    # 2026-05-19 Phase 1e launch: skip steps 5.9 / 5.9.5 / 6 / 6.5.
+    # alias_dict, cold_start_memory, em_pruning_report are reused from
+    # Phase 1d (same seed, RUC-agnostic). Prompt smoke is regression-only
+    # and not a trajectory gate. Cycle 0 must re-run with the v2 RUC
+    # active so the composite refit at 7.0.1 sees the new tier-share
+    # distribution. Restore the four lines below to resume the full
+    # pre-launch sequence.
+    # step_5_9_prompt_smoke   # 2026-04-24 audit: validate prompt revision before seeding
+    # step_5_9_5_alias_dict   # 2026-05-07 audit: build alias dict for Fix 6 alias_overlap
+    # step_6_reseed
+    # step_6_5_em_prune       # v2.1 2026-05-08: drop confidently-wrong cold-start episodes
     step_7_0_cycle0
     step_7_0_calibrate              # Phase 1c: composite-only fit (no separate gate)
     step_7_0_2_5_rescore_eval       # produces outputs/cycle_0/eval_rescored

@@ -1,0 +1,7 @@
+{
+  "model": "Qwen/Qwen2.5-3B-Instruct",
+  "n_questions": 11980,
+  "n_pos": 3274,
+  "n_neg": 8706,
+  "mean_oof_auroc": 0.7706684883896996
+}

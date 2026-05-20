@@ -2,8 +2,8 @@
 ==========================
 Retrieval Utility Classifier (RUC) — runtime inference module.
 
-The deployed RUC is a Logistic Regression on 24 pre-routing-legal features
-(see :class:`LRRetrievalUtilityClassifier`). It fires at the Tier-2 /
+The deployed RUC is a Logistic Regression on the pre-routing-legal feature
+set (see :class:`LRRetrievalUtilityClassifier`). It fires at the Tier-2 /
 Tier-3 dispatch point: after Tier 1 (memory) misses, after a cheap top-1
 FAISS lookup against the existing CAEM passage index, the classifier
 predicts ``p_rag`` and the router escalates to Tier 3 iff ``p_rag >= τ``.
@@ -14,19 +14,12 @@ untouched.
 Inference cost per call: ~50-70 ms total — dominated by the FAISS top-1
 search on the 21M-passage Wikipedia index (one-shot, page-cached after
 warmup). The classifier itself is ~1 ms: StandardScaler.transform + LR
-predict_proba on 24 floats.
+predict_proba on the feature vector.
 
 Loaded artefacts (all frozen post-training):
-    caem/ruc/v1_shortcut/feature_spec.json
-    caem/ruc/v1_shortcut/models/scaler.joblib
-    caem/ruc/v1_shortcut/models/lr_final.joblib
-
-History note: the v0 LightGBM + BGE + isotonic stack was removed
-2026-05-18 after empirical evidence on the 1500-row canonical pool showed
-LR + StandardScaler on 24 hand-engineered pre-routing features beat the
-LightGBM + BGE-384 (408-dim) configuration by +0.08 pooled AUROC under
-5-fold CV. See ``branch_C_log.md`` (2026-05-18 entry) for the empirical
-receipts; spec retired at ``caem/ruc/v1_archive/``.
+    caem/ruc/v2/feature_spec.json
+    caem/ruc/v2/models/scaler.joblib
+    caem/ruc/v2/models/lr_final.joblib
 """
 from __future__ import annotations
 
@@ -129,12 +122,7 @@ class RUCDecision:
 
 
 # ---------------------------------------------------------------------------
-# Logistic Regression + StandardScaler on the 24-dim pre-routing
-# feature set. Trained 2026-05-18 on caem/ruc/training_set_v1_canonical_shortcut
-# (1500 canonical-pairing rows). Pooled CV AUROC 0.616; TruthfulQA per-bench
-# 0.617, TriviaQA 0.581. Lift over the LightGBM baseline came mostly from the
-# linguistic adversarial-phrasing features + top1 retrieval similarity, not
-# from BGE embeddings (which over-fit at this dataset size under LOBO).
+# Logistic Regression + StandardScaler on the pre-routing feature set.
 #
 # Architectural note: this RUC fires AFTER the cheap top-1 FAISS lookup (which
 # the pipeline can serve from the same PassageStore used by Tier 3). The
@@ -198,7 +186,7 @@ def _answer_type_features(question: str, top1_passage: str) -> Dict[str, float]:
 
 
 class LRRetrievalUtilityClassifier:
-    """v1-shortcut RUC: Logistic Regression on the 24-dim pre-routing features.
+    """Deployed RUC: Logistic Regression on the pre-routing feature set.
 
     Constructor takes pre-loaded dependencies so the pipeline shares them with
     the rest of CAEM (the runtime cost is one StandardScaler.transform + one
@@ -237,7 +225,7 @@ class LRRetrievalUtilityClassifier:
         self.lr = lr
         self.feature_order = list(feature_order)
         self.spec = spec
-        self.flavour = spec.get("ship_flavour", "LR_v1_shortcut")
+        self.flavour = spec.get("ship_flavour", "LR_v2")
         self.threshold = float(spec.get("tau_RUC_default", 0.5))
         self.nlp = nlp
         self.pageview_table = pageview_table or {}
@@ -256,9 +244,7 @@ class LRRetrievalUtilityClassifier:
             raise ValueError(
                 f"Spec at {spec_path} has model_type "
                 f"{spec.get('model_type')!r}; LRRetrievalUtilityClassifier "
-                f"expects 'logistic_regression_scaled'. The legacy LightGBM + "
-                f"BGE flavours (A1-A4) were retired 2026-05-18; if you see one "
-                f"of those specs, point at caem/ruc/v1_shortcut/ instead."
+                f"expects 'logistic_regression_scaled'."
             )
         scaler = joblib.load(spec["model_paths"]["scaler"])
         lr = joblib.load(spec["model_paths"]["lr"])
@@ -291,7 +277,18 @@ class LRRetrievalUtilityClassifier:
         top1_passage_sim: float = 0.0,
         top1_passage_entity_overlap: float = 0.0,
         p_ik: float = 0.5,
+        **extra_features: float,
     ) -> Dict[str, float]:
+        """Build the feature dict for one query.
+
+        Features computed inline from the question text (surface form, NER,
+        pageviews, linguistic patterns, answer-type heuristics) are always
+        produced. Numerical features that require external compute (retrieval
+        statistics, cross-encoder rerank, pairwise NLI, P(IK), Wikidata
+        binary) are passed as keyword arguments by the caller; missing values
+        fall back to the training-time neutral default of 0.0 (or 0.5 for
+        ``p_ik``).
+        """
         feats = _question_text_features(question)
         if self.nlp is not None:
             doc = self.nlp(question or "")
@@ -313,6 +310,10 @@ class LRRetrievalUtilityClassifier:
         feats["top1_passage_entity_overlap"] = float(top1_passage_entity_overlap)
         feats.update(_linguistic_features(question))
         feats.update(_answer_type_features(question, top1_passage_text))
+        # Extra features (v2 additions: top5_*, rerank_*, nli_pair_*,
+        # entity_in_wikidata, etc.) passed by the caller.
+        for k, v in extra_features.items():
+            feats[k] = float(v)
         return feats
 
     def predict(
@@ -324,14 +325,23 @@ class LRRetrievalUtilityClassifier:
         top1_passage_entity_overlap: float = 0.0,
         p_ik: float = 0.5,
         source_benchmark: Optional[str] = None,
+        **extra_features: float,
     ) -> RUCDecision:
-        """Decide RAG vs DIRECT for one query (LR v1 shortcut path)."""
+        """Decide RAG vs DIRECT for one query.
+
+        Required: ``question``. Optional features (``top1_passage_*``, ``p_ik``,
+        and any v2 additions like ``top5_sim_max``, ``rerank_top1``,
+        ``nli_pair_mean``, ``entity_in_wikidata``, etc.) are supplied by the
+        caller. Any feature listed in ``self.feature_order`` but not provided
+        at call time defaults to 0.0 (or 0.5 for ``p_ik``).
+        """
         feats = self._feature_vector(
             question,
             top1_passage_text=top1_passage_text,
             top1_passage_sim=top1_passage_sim,
             top1_passage_entity_overlap=top1_passage_entity_overlap,
             p_ik=p_ik,
+            **extra_features,
         )
         x = np.array(
             [float(feats.get(f, 0.0)) for f in self.feature_order],

@@ -1,0 +1,231 @@
+{
+  "model_type": "logistic_regression_scaled",
+  "ship_flavour": "LR_v2",
+  "model_paths": {
+    "scaler": "caem/ruc/v2/models/scaler.joblib",
+    "lr": "caem/ruc/v2/models/lr_final.joblib"
+  },
+  "features": [
+    "q_token_len",
+    "negation_present",
+    "temporal_cue",
+    "numerical_cue",
+    "myth_regex_hit",
+    "interrog_who",
+    "interrog_what",
+    "interrog_when",
+    "interrog_where",
+    "interrog_why",
+    "interrog_how",
+    "interrog_yesno",
+    "entity_count",
+    "log_pageviews_max",
+    "top1_passage_sim",
+    "top1_passage_entity_overlap",
+    "top5_sim_max",
+    "top5_sim_mean",
+    "top5_sim_std",
+    "rerank_top1",
+    "rerank_top5_mean",
+    "rerank_top5_std",
+    "nli_pair_mean",
+    "nli_pair_min",
+    "nli_pair_std",
+    "p_ik",
+    "entity_in_wikidata",
+    "is_adversarial_phrasing",
+    "is_opinion_seeking",
+    "is_open_ended",
+    "q_expects_year",
+    "passage_has_year",
+    "year_match",
+    "q_expects_number",
+    "passage_has_number",
+    "number_match"
+  ],
+  "C": 0.5,
+  "tau_RUC_default": 0.375,
+  "training": {
+    "in_parquet": "caem/ruc/v2/training_set.parquet",
+    "n_rows": 3208,
+    "n_pos": 1846,
+    "n_neg": 1362,
+    "outer_splits": 5,
+    "inner_splits": 5,
+    "C_grid": [
+      0.005,
+      0.01,
+      0.05,
+      0.1,
+      0.5,
+      1.0,
+      5.0
+    ],
+    "tau_grid": [
+      0.2,
+      0.225,
+      0.25,
+      0.275,
+      0.3,
+      0.32499999999999996,
+      0.35,
+      0.375,
+      0.39999999999999997,
+      0.42499999999999993,
+      0.44999999999999996,
+      0.4749999999999999,
+      0.49999999999999994,
+      0.5249999999999999,
+      0.5499999999999999,
+      0.575,
+      0.5999999999999999,
+      0.625,
+      0.6499999999999999,
+      0.6749999999999998,
+      0.7,
+      0.7249999999999999,
+      0.7499999999999998
+    ],
+    "seed": 42
+  },
+  "validation": {
+    "pooled_oof_auroc": 0.8501144674439953,
+    "per_fold_aurocs": [
+      0.8546115131480985,
+      0.8362667143154948,
+      0.8561108903020669,
+      0.8483779690738085,
+      0.8553722301928902
+    ],
+    "per_fold_best_c": [
+      0.5,
+      0.1,
+      0.1,
+      0.5,
+      0.5
+    ],
+    "per_bench_auroc": {
+      "commonsense_qa": {
+        "n": 158,
+        "auroc": 0.7283333333333334
+      },
+      "fever": {
+        "n": 958,
+        "auroc": 0.7184628492779587
+      },
+      "haluevalqa": {
+        "n": 402,
+        "auroc": 0.8726390573557442
+      },
+      "natural_questions": {
+        "n": 537,
+        "auroc": 0.8057392536608409
+      },
+      "openbookqa": {
+        "n": 139,
+        "auroc": 0.6863636363636364
+      },
+      "strategyqa": {
+        "n": 43,
+        "auroc": 0.8518518518518519
+      },
+      "triviaqa": {
+        "n": 837,
+        "auroc": 0.9355479073197713
+      },
+      "truthfulqa": {
+        "n": 134,
+        "auroc": 0.7321808510638298
+      }
+    }
+  },
+  "threshold_sweep": {
+    "best_tau": 0.375,
+    "best_net_utility": 2477,
+    "best_a_caught": 1554,
+    "best_b_caught": 923
+  },
+  "architectural_intent_receipt": {
+    "p_ik": {
+      "coef": -1.7650036190481662,
+      "expected_sign": -1,
+      "actual_sign": -1,
+      "pass": true
+    },
+    "top1_passage_sim": {
+      "coef": -0.10749402117067441,
+      "expected_sign": 1,
+      "actual_sign": -1,
+      "pass": false
+    },
+    "rerank_top1": {
+      "coef": 0.15359938867641698,
+      "expected_sign": 1,
+      "actual_sign": 1,
+      "pass": true
+    }
+  },
+  "architectural_intent_pass": false,
+  "top_by_abs_coef": [
+    {
+      "feature": "p_ik",
+      "coef": -1.7650036190481662
+    },
+    {
+      "feature": "negation_present",
+      "coef": 0.6958083870959281
+    },
+    {
+      "feature": "rerank_top5_std",
+      "coef": 0.4889494558265492
+    },
+    {
+      "feature": "interrog_yesno",
+      "coef": -0.380929575532059
+    },
+    {
+      "feature": "rerank_top5_mean",
+      "coef": 0.3712552970046905
+    },
+    {
+      "feature": "interrog_when",
+      "coef": -0.35105396187981897
+    },
+    {
+      "feature": "interrog_who",
+      "coef": -0.2833445075994356
+    },
+    {
+      "feature": "top5_sim_std",
+      "coef": 0.2350323273244235
+    },
+    {
+      "feature": "interrog_what",
+      "coef": -0.2326885512074044
+    },
+    {
+      "feature": "numerical_cue",
+      "coef": 0.21931335573398306
+    },
+    {
+      "feature": "is_open_ended",
+      "coef": -0.17532344755507492
+    },
+    {
+      "feature": "entity_count",
+      "coef": -0.1542989944877019
+    },
+    {
+      "feature": "rerank_top1",
+      "coef": 0.15359938867641698
+    },
+    {
+      "feature": "top5_sim_mean",
+      "coef": 0.15197055024772338
+    },
+    {
+      "feature": "temporal_cue",
+      "coef": -0.1379160349811596
+    }
+  ]
+}
