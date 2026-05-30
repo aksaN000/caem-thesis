@@ -68,7 +68,7 @@ fi
 export CAEM_FORCE_GPU_CLEANUP="${CAEM_FORCE_GPU_CLEANUP:-1}"
 export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"
 
-OUTPUT_DIR="outputs/baselines"
+OUTPUT_DIR="${OUTPUT_DIR:-outputs/baselines}"
 COMPOSITE_PIN="outputs/full_run/cycle_3/composite_calibration.json"
 PASSAGE_INDEX="data/passage_index"
 
@@ -146,7 +146,7 @@ rescore_all() {
         --composite_calibration "$COMPOSITE_PIN" \
         --passage_index "$PASSAGE_INDEX" \
         --baselines zero_shot cot rag cot_rag fiveshot_cot flare semantic_entropy self_rag vanilla_ft \
-        --baseline_dir "$OUTPUT_DIR" \
+        --baselines_dir "$OUTPUT_DIR" \
         --output_dir "$OUTPUT_DIR" \
         2>&1 | tee -a "$OUTPUT_DIR/rescore.log"
 }

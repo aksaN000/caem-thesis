@@ -295,6 +295,17 @@ def main() -> int:
     from caem.model_loader import load_base_generator
     cfg = CAEMConfig()
     cfg.use_lora_training = True   # cycle-N artifacts use LoRA
+    # 2026-05-30 patch: load the cycle-N-matching composite so verification is
+    # consistent with the model state being tested. Default CAEMConfig points
+    # to cycle-0 (production canonical bootstrap), but for a cycle-5 diagnostic
+    # we want cycle-5's composite for accurate u_pre / safety-override behaviour.
+    cycle_specific_composite = ns.full_run_dir / f"cycle_{ns.cycle}/composite_calibration.json"
+    if cycle_specific_composite.is_file():
+        cfg.composite_calibration_path = str(cycle_specific_composite)
+        logger.info("Using cycle-%d composite: %s", ns.cycle, cycle_specific_composite)
+    else:
+        logger.warning("Cycle-%d composite not found; falling back to CAEMConfig default (%s)",
+                       ns.cycle, cfg.composite_calibration_path)
     logger.info("Loading base model + cycle-%d adapter ...", ns.cycle)
     model, tok = load_base_generator(cfg.base_model_name, device="cuda")
     # NOTE: this assumes a load helper exists for cycle-N adapter; otherwise we
@@ -308,7 +319,27 @@ def main() -> int:
     except Exception as exc:
         logger.warning("Could not load adapter: %s — running on base model", exc)
 
-    pipeline = CAEMPipeline(model=model, tokenizer=tok, config=cfg, device="cuda")
+    # 2026-05-29 patch: add encoder + passage_store (now required by CAEMPipeline.__init__).
+    from caem.memory.encoder import QueryEncoder
+    encoder = QueryEncoder()
+    passage_store = None
+    try:
+        from caem.retrieval.rag import PassageStore
+        passage_index_dir = Path("/workspace/caem/data/passage_index")
+        if passage_index_dir.is_dir():
+            logger.info("Loading PassageStore from %s ...", passage_index_dir)
+            passage_store = PassageStore.load(str(passage_index_dir))
+    except Exception as exc:
+        logger.warning("PassageStore load failed (%s) — T3 queries will use empty store fallback.", exc)
+
+    pipeline = CAEMPipeline(
+        model=model,
+        tokenizer=tok,
+        encoder=encoder,
+        passage_store=passage_store,
+        config=cfg,
+        device="cuda",
+    )
     # Load cycle-N memory store
     from caem.memory.store import EpisodicMemoryStore
     mem = EpisodicMemoryStore.load(str(ns.full_run_dir / f"memory_store_cycle_{ns.cycle}"))
