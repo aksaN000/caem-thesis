@@ -270,7 +270,7 @@ Every reported number is regenerable from the realised seed plus the published a
 | Realised six-cycle main run | several GPU-days | dominated by per-cycle fine-tune plus cycle-boundary retroactive re-verification |
 | External baseline panel | scales with sample count and decode-pass count | CoT and retrieval-augmented variants are the bulk |
 | Retrieval-utility classifier on/off ablation | single contrast at C3 close | matched-protocol panel |
-| **Realised total** | **~294 GPU-hours over ~40 calendar days** | **~163 USD on a Vast.ai RTX 5090 at ~0.70 USD/on-demand GPU-hour (with spot-pricing windows lower)** |
+| **Realised total** | **~960 GPU-hours over ~40 calendar days (40 × 24)** | **~672 USD on a Vast.ai RTX 5090 at ~0.70 USD/on-demand GPU-hour** |
 
 The verifier-side scoring path (nine-signal extraction across every served answer, the per-cycle composite refit, the cycle-boundary retroactive re-verification pass, and the matched-protocol Haiku-judged TruthfulQA rescore across the baseline panel) is the **dominant wall-clock consumer over the run, exceeding the per-cycle low-rank-adapter fine-tune itself**, because every entry on every cycle and every baseline-arm answer passes through the full verifier ensemble while the adapter touches only the strict training-pool subset.
 
