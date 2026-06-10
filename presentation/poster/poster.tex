@@ -88,7 +88,8 @@
 
 \begin{column}{\colwidth}
 
-  \begin{alertblock}{Headline result (vs.\ matched zero-shot baseline B1)}
+  \begin{block}{Headline result (vs.\ matched zero-shot baseline B1)}
+    \vspace{0.4em}
     \textbf{Training-panel architectural-contribution slice (CAEM C2 vs.\ B1):}
     \[
       \boxed{\Delta\mathrm{EM} = +20.3\%\ \text{rel.}} \qquad
@@ -101,9 +102,10 @@
     \textbf{CommonsenseQA EM by $+14.0$\,pp} and \textbf{TruthfulQA EM by
     $+10.0$\,pp} by re-routing misconception-bait queries away from the
     retrieval-augmented tier.
-  \end{alertblock}
+  \end{block}
 
   \begin{block}{Problem: hallucination as a deployment-safety issue}
+    \vspace{0.4em}
     Modern instruction-tuned language models generate confident-sounding
     answers at deployment-relevant rates that exceed their actual accuracy
     by ten or more percentage points~[1,2]. Single-signal correctness
@@ -126,45 +128,9 @@
   \end{block}
 
   \begin{block}{The architecture: eight-stage pipeline + cycle-boundary loop}
+    \vspace{0.4em}
     \centering
-    \resizebox{0.98\colwidth}{!}{%
-    \begin{tikzpicture}[
-      >=Latex, line width=0.9pt,
-      box/.style={rectangle, rounded corners=3pt, draw=bracnavy, fill=caemTealLight,
-        minimum width=2.0cm, minimum height=1.0cm, align=center, font=\small\bfseries},
-      stage1/.style={box, fill=caemTealLight},
-      stage2/.style={box, fill=caemOrangeLight, draw=caemOrange},
-      stage3/.style={box, fill=caemGreenLight, draw=caemGreen},
-      arrow/.style={->, line width=1pt, draw=bracnavydark}
-    ]
-    % Top row: per-query pipeline
-    \node[stage1]                                  (q)   {Query};
-    \node[stage1, right=0.4cm of q]                (s1)  {S1\\Pre-route};
-    \node[stage1, right=0.4cm of s1]               (s2)  {S2\\Encode \\ memory lookup};
-    \node[stage1, right=0.4cm of s2]               (s3)  {S3\\3-tier router\\ \scriptsize $S{=}0.7\,\mathrm{sim}{+}0.3\,u_{\text{stored}}$};
-    \node[stage2, right=0.4cm of s3]               (s3b) {S3b\\RUC\\\scriptsize 36-feat, $\tau_{\text{RUC}}{=}0.375$};
-    % Tier band
-    \node[stage3, below=0.6cm of s3b, xshift=-2.0cm] (t1) {Tier 1\\memory};
-    \node[stage2, below=0.6cm of s3b]               (t2) {Tier 2\\zero-shot};
-    \node[box,    fill=caemRedLight, draw=caemRed, below=0.6cm of s3b, xshift=2.0cm] (t3) {Tier 3\\RAG};
-    % S5 verifier + S6 decide
-    \node[stage1, fill=caemTealLight, below=0.6cm of t2, minimum width=4.0cm] (s5) {S5\\9-signal verifier $\to$ $u_{\text{stored}}$};
-    \node[stage1, fill=caemRedLight, draw=caemRed, below=0.4cm of s5, minimum width=4.0cm] (s6) {S6\\Decide \scriptsize $\geq 0.60$ STORE \,/\, $\geq 0.45$ DEFER \,/\, ABSTAIN \,/\, DISCARD};
-    % S8 cycle-boundary
-    \node[stage1, fill=caemOrangeLight, draw=caemOrange, below=0.4cm of s6, minimum width=4.0cm] (s8) {S8 \scriptsize Cycle-boundary loop: retroverify $\to$ defer reconsider $\to$ consolidate $\to$ LoRA SIL $\to$ retention guard};
-    % Arrows
-    \draw[arrow] (q)  -- (s1);  \draw[arrow] (s1) -- (s2);
-    \draw[arrow] (s2) -- (s3);  \draw[arrow] (s3) -- (s3b);
-    \draw[arrow] (s3b.south) -- ++(0,-0.2) -| (t1.north);
-    \draw[arrow] (s3b.south) -- ++(0,-0.2) -- (t2.north);
-    \draw[arrow] (s3b.south) -- ++(0,-0.2) -| (t3.north);
-    \draw[arrow] (t1.south) -- ++(0,-0.2) -| (s5.north);
-    \draw[arrow] (t2.south) -- (s5.north);
-    \draw[arrow] (t3.south) -- ++(0,-0.2) -| (s5.north);
-    \draw[arrow] (s5) -- (s6);
-    \draw[arrow] (s6) -- (s8);
-    \draw[arrow, dashed] (s8.east) to[out=0,in=0,looseness=2] (s2.east);
-    \end{tikzpicture}}
+    \includegraphics[width=0.98\colwidth]{figures/architecture_source.pdf}
 
     \vspace{0.4em}
     A query passes through pre-routing confidence, episodic memory lookup,
@@ -179,6 +145,7 @@
   \end{block}
 
   \begin{block}{Locked configuration (every cycle)}
+    \vspace{0.4em}
     \centering
     \footnotesize
     \setlength{\tabcolsep}{8pt}
@@ -211,7 +178,8 @@
 
 \begin{column}{\colwidth}
 
-  \begin{exampleblock}{Nine-signal verifier $+$ calibrated probability composite}
+  \begin{block}{Nine-signal verifier $+$ calibrated probability composite}
+    \vspace{0.4em}
     Four signal families feed the per-benchmark calibrated probability composite:
 
     \begin{itemize}
@@ -237,9 +205,10 @@
     Thresholds are frozen across cycles; only the composite refits per cycle.
     Replaces an earlier split-conformal gate rejected on the registered
     calibration-to-evaluation distribution-shift evidence.
-  \end{exampleblock}
+  \end{block}
 
   \begin{block}{Self-improvement loop with asymmetric-rollback retention guard}
+    \vspace{0.4em}
     At every committed cycle boundary:
     \begin{enumerate}
       \item \textbf{Retroverify} every stored episode under the
@@ -267,6 +236,7 @@
   \end{block}
 
   \begin{block}{Cycle-boundary trajectory: SIL $+$ memory $+$ commit pattern}
+    \vspace{0.4em}
     \centering
     \footnotesize
     \setlength{\tabcolsep}{6pt}
@@ -308,6 +278,7 @@
 \begin{column}{\colwidth}
 
   \begin{block}{Per-cycle pooled trajectory (5-benchmark evaluation panel)}
+    \vspace{0.4em}
     \centering
     \footnotesize
     \setlength{\tabcolsep}{6pt}
@@ -338,6 +309,7 @@
   \end{block}
 
   \begin{block}{External eight-baseline panel (matched protocol)}
+    \vspace{0.4em}
     \centering
     \footnotesize
     \setlength{\tabcolsep}{4pt}
@@ -371,6 +343,7 @@
   \end{block}
 
   \begin{block}{Retrieval-utility-classifier ablation (C3 close)}
+    \vspace{0.4em}
     \centering
     \footnotesize
     \setlength{\tabcolsep}{4pt}
@@ -401,6 +374,7 @@
   \end{block}
 
   \begin{block}{Code, data, and references}
+    \vspace{0.4em}
     \footnotesize
     \textbf{Code:} \texttt{github.com/aksaN000/caem-thesis}\quad
     \textbf{Artefacts (Google Drive):} \texttt{drive.google.com/drive/folders/} \texttt{1xErhsRDYe\_qO0ZgUBn0WXK81eHc5jZCa} \quad
