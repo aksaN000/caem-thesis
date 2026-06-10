@@ -103,13 +103,21 @@ def parse_log(log_path: Path) -> List[Dict]:
                         "worst_ratio": worst_probe[1],
                         "ratios": dict(ratios),
                     })
+                # Defensive cleanup: aborted cycles must not linger in the
+                # commit-attribution pool, or a later cycle's commit could be
+                # misattributed to this aborted cycle.
+                last_probe_for_cycle.pop(cycle, None)
                 continue
             m_commit = COMMIT_CONFIRM.search(line)
             if m_commit:
-                # commit fires once per successful cycle's fine-tune; find which cycle
-                # by looking at most-recent probe reading without a subsequent abort
+                # commit fires once per successful cycle's fine-tune; attribute it
+                # to the most-recent cycle whose outcome has not yet been recorded.
+                # Critical: do NOT attribute commits to already-aborted cycles
+                # (the asymmetric-rollback contract means an aborted cycle's
+                # outcome is final; the next cycle's commit belongs to a fresh
+                # cycle, not a retroactive upgrade of the aborted one).
                 for cycle in list(last_probe_for_cycle.keys()):
-                    if cycle not in by_cycle or by_cycle[cycle][-1]["outcome"] != "COMMIT":
+                    if cycle not in by_cycle:
                         rec = last_probe_for_cycle[cycle]
                         ratios = rec.get("ratios", {})
                         if ratios:
@@ -120,7 +128,6 @@ def parse_log(log_path: Path) -> List[Dict]:
                                 "worst_ratio": worst_probe[1],
                                 "ratios": dict(ratios),
                             })
-                            # mark this cycle as committed so we don't double-count
                             del last_probe_for_cycle[cycle]
                             break
 
