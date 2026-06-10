@@ -1,6 +1,9 @@
 % ============================================================================
 % Appendix E — Reproducibility recipe
-% Status: SKELETON.
+% The data preparation pipeline, snapshot recovery sequence, step-by-step
+% run order with gate verdicts, framework version pins, hardware envelope,
+% and a verification checklist a reproducer uses to confirm the headline
+% numbers match within tolerance.
 % ============================================================================
 
 \chapter{Reproducibility recipe}
@@ -8,30 +11,230 @@
 
 \section{Data preparation}
 \label{app:repro-data}
-% The benchmark loaders, the disjoint partition, the dedup discipline.
+
+The five benchmark loaders that feed the realised evaluation panel are registered in \verb|eval/benchmarks.py| against the Hugging Face dataset hub identifiers. FEVER reads through \verb|lucadiliello/fever| under the development and training splits; TriviaQA reads through \verb|trivia_qa| under the reading-comprehension-no-context configuration; CommonsenseQA reads through \verb|commonsense_qa|; TruthfulQA reads through \verb|truthful_qa| under the generation configuration; StrategyQA reads through \verb|ChilleD/StrategyQA| with documented fallbacks to \verb|wics/strategy-qa| and the Eladsegal train-JSON mirror. Earlier loader registrations for Natural Questions, HotpotQA, ARC-Challenge, and ASQA are preserved in the module for reproducibility of the cycle-zero verifier-balanced-accuracy audit but do not feed the realised five-benchmark panel.
+
+The six-way disjoint partition is constructed once at pool-builder time by \codepath{caem/benchmark\_splits.py::build\_all\_benchmark\_pools}, which is invoked by the experiment runner and writes the per-benchmark identifier manifest to \verb|outputs/full_run/dataset_splits.json|. Each benchmark contributes a one-thousand-sample seed pool for cold-start memory population, a five-hundred-sample calibration fold, a five-hundred-sample purity-validation slice, ten per-cycle stream-chunk slices (FEVER and TriviaQA at two thousand samples per cycle, CommonsenseQA at seven hundred samples per cycle to fit the smaller available train pool of approximately ten thousand samples after deduplication), a three-hundred-sample evaluation fold, and a test fold of up to five hundred samples (clamped to the available remainder where the source split admits fewer than the registered budget). The shuffle is seeded at forty-two on the training side and forty-three on the evaluation side, so the partitions are stable across re-invocations on the same source dataset.
+
+Within-benchmark deduplication runs through the \verb|_dedupe_by_content_id| helper, which keys on the first five hundred characters of the question text under a sixteen-character SHA-256 hash. Cross-benchmark disjointness is verified by the \codepath{assert\_cross\_benchmark\_disjoint} assertion. Both checks run at pool-builder time; the runner re-stamps the same checks at every successful cycle boundary through \codepath{\_dedup\_inplace} and \codepath{assert\_disjoint\_calibration}, so any drift in the partition would be caught at the cycle close rather than at the metric-computation step.
+
+The realised evaluation fold reads three hundred samples per benchmark across the five-benchmark panel, for a total of one thousand five hundred evaluation contrasts per cycle. The StrategyQA test fold reads three hundred and eighty-seven samples rather than the registered five hundred because the source benchmark's development split admits only six hundred and eighty-seven labelled samples, of which three hundred feed the evaluation fold and the remaining three hundred and eighty-seven feed the test fold under the auto-clamp branch in the pool builder.
 
 \section{Snapshot recovery}
 \label{app:repro-snapshot}
-% The Hugging Face dataset path, the manifest checksum, the recovery
-% command sequence.
+
+Two complementary publication endpoints anchor the snapshot-recovery sequence. The Google Drive folder at \url{https://drive.google.com/drive/folders/1xErhsRDYe_qO0ZgUBn0WXK81eHc5jZCa} carries the realised empirical artefacts under the \texttt{v2\_1\_phase1e\_main/} subtree (cycle-zero through cycle-five outputs, baseline panels, the classifier on/off ablation, and the per-cycle logs the thesis reads), and the \texttt{pre\_main\_snapshot/} subtree that mirrors the per-commit pre-main snapshot bundles for fresh-clone recovery. The Hugging Face dataset repository \verb|aksaN000/caem-passage-index-21m| (private; access on request) holds the sixty-four-gigabyte Wikipedia passage FAISS index at the repository root and the per-commit pre-main snapshot bundles under \verb|pre_main_snapshot/<git-commit>/| subtrees. The pre-Step-7 anchor is the commit tag \verb|c5b8066|; the retrieval-utility-classifier-era anchor is \verb|700b9e3|. The manifest at \codepath{pre\_main\_snapshot/<commit>/MANIFEST.json} records the upload timestamp, the source host, the git commit, the purpose tag, and the recovery hint; the integrity guarantee rides on Hugging Face's per-blob SHA-256 checksums plus the manifest's git-commit anchor against the live code tree.
+
+The three-command recovery sequence runs from a fresh clone with the Hugging Face command-line interface authenticated to the private repository:
+\begin{verbatim}
+# 1. Fetch the index and the pre-main snapshot bundles
+hf download aksaN000/caem-passage-index-21m \
+    --include 'passages.*' 'pre_main_snapshot/*'
+
+# 2. Stage the chosen anchor into outputs/
+cp -r pre_main_snapshot/c5b8066/* outputs/
+
+# 3. Pin the code to the matching commit
+git checkout c5b8066    # or 700b9e3 for the RUC-era resume point
+\end{verbatim}
+After the third command the working tree holds the cold-start memory store, the cycle-zero memory and deferred-buffer snapshots, the cycle-zero calibration fold (per-sample nine-signal vectors and gold labels), the cycle-zero composite calibration JSON, the calibrated configuration JSON, the cycle-zero validation-gate verdict, the cycle-zero evaluation fold under the pristine generator, the post-calibration rescored evaluation fold, the dataset-splits manifest, and the run logs. The four artefacts that must be regenerated rather than pulled from the snapshot are the Qwen-2.5-3B-Instruct base weights (recovered from the Hugging Face model hub at deployment time), the per-cycle LoRA adapters at cycles one through five, the per-cycle self-improvement training artefacts, and the post-cycle-zero composite refits.
 
 \section{Step-by-step run sequence}
 \label{app:repro-steps}
-% The runner step sequence in order, the gate verdicts that license
-% the next step, and the artefacts produced at each step.
+
+The end-to-end sequence below is the runner's view of the trajectory from a fresh clone to the closed cycle-five artefact bundle. Per-step commands are the actual invocations from the project runner; expected wall-times are reported on the production envelope of \Cref{app:repro-hardware}.
+
+\paragraph{Pre-run setup:}
+\begin{description}[style=nextline,leftmargin=0pt]
+\item[Prompt smoke test.] Approximately fifteen minutes on the production GPU. Writes \texttt{outputs/prompt\_smoke/results.json}. Gate: the FEVER not-enough-information rate stays inside the registered tolerance band and no template-leak strings appear in the rendered samples.
+\begin{verbatim}
+python scripts/prompt_smoke_test.py \
+    --benchmarks fever triviaqa commonsense_qa
+\end{verbatim}
+\item[Alias-dictionary build.] Approximately five minutes on CPU. Writes \texttt{data/alias\_dict.json}. The deployed verifier does not consume the alias signal in the locked composite; the dictionary is built for the ablation registry only.
+\begin{verbatim}
+python scripts/build_alias_dict_from_benchmarks.py
+\end{verbatim}
+\item[Cold-start seeding.] Approximately two hours on the production GPU. Writes the cold-start memory store under \texttt{outputs/cold\_start\_memory/}. Gate: the total seeded count clears the registered floor; the EM-prune branch removes fewer than ten percent of the seeded entries.
+\begin{verbatim}
+python -m scripts.seed_cold_start
+\end{verbatim}
+\item[Cycle-zero baseline evaluation and calibration fold scoring.] Approximately six hours on the production GPU. Writes per-sample nine-signal vectors and ground-truth labels for the cycle-zero calibration fold and the held-out evaluation fold. Gate: every per-bench JSON has the expected sample count and no NaN signals.
+\begin{verbatim}
+python -m scripts.run_experiment \
+    --output_dir outputs/cycle_0 \
+    --num_cycles 0
+\end{verbatim}
+\item[Composite calibration fit and validation gate.] Approximately fifteen minutes on CPU. Writes the cycle-zero composite calibration record and the validation-gate verdict at \codepath{outputs/cycle\_0/composite\_calibration.json} and \codepath{outputs/cycle\_0/weight\_validation.json}. Gate: the four-check conjunction of \Cref{app:gate-reference} passes.
+\begin{verbatim}
+python scripts/fit_composite_calibration.py
+python scripts/validate_composite_weights.py
+\end{verbatim}
+\item[Retention baseline freeze and snapshot upload.] Approximately one hour on the production GPU. Writes the pristine probe accuracies and pushes the pre-main snapshot to the Hugging Face repository.
+\begin{verbatim}
+python -m scripts.run_retention_baseline
+bash scripts/upload_pre_main_snapshot.sh
+\end{verbatim}
+\end{description}
+
+\paragraph{Main cycle loop:} A single invocation drives all six per-cycle sub-steps and resumes from the highest-cycle artefact set on disk:
+\begin{verbatim}
+python -m scripts.run_experiment \
+    --output_dir outputs/full_run \
+    --num_cycles 10 \
+    --n_questions 5000 \
+    --n_eval_questions 300 \
+    --benchmarks fever triviaqa commonsense_qa truthfulqa strategyqa \
+    --passage_index data/passage_index \
+    --cold_start_memory outputs/cold_start_memory/memory_store \
+    --verifier_backend minicheck \
+    --resume_from_cycle <N>
+\end{verbatim}
+The runner internally sequences the self-improvement fine-tune, the cycle-boundary recalibration, the retroactive re-verification pass, the deferred-buffer reconsider pass, the stream-chunk admission pass, the held-out evaluation pass, and the cycle-checkpoint plus halt-trigger evaluation. Per-cycle wall-time is approximately five to seven hours on the production GPU. Cycle close writes the per-cycle memory and deferred-buffer snapshots, the per-cycle composite calibration record, the per-cycle calibrated configuration, the per-cycle evaluation JSON, and the per-cycle coverage diagnostic. The retention guard licenses advancement to the next cycle; failure triggers the asymmetric rollback contract documented at \Cref{app:runbook}.
+
+\paragraph{Post-run analysis:} The realised post-trajectory commands run as a sequence rather than a single driver:
+\begin{description}[style=nextline,leftmargin=0pt]
+\item[Baselines.] Baseline-panel runs (B1 through B8) at approximately eight to ten GPU-hours total.
+\begin{verbatim}
+bash scripts/launch_baselines.sh
+\end{verbatim}
+\item[TruthfulQA Haiku rescore.] Rescore over every baseline and over CAEM at approximately two minutes per file; requires the \texttt{ANTHROPIC\_API\_KEY} environment variable.
+\begin{verbatim}
+python -m scripts.rescore_truthfulqa \
+    --files outputs/baselines_phase1e/*/truthfulqa_cycle0.json \
+            outputs/full_run/eval/truthfulqa_cycle*.json
+\end{verbatim}
+\item[Significance tests.] Significance test runner at approximately three minutes on CPU.
+\begin{verbatim}
+python -m scripts.baseline_sig_tests \
+    --caem_dir outputs/full_run \
+    --baselines_dir outputs/baselines_phase1e
+\end{verbatim}
+\item[Aggregators.] Aggregator chain over per-cycle artefacts at approximately ten minutes on CPU: \codepath{aggregate\_pi\_store\_trajectory}, \codepath{aggregate\_tier\_chm}, \codepath{aggregate\_stochastic\_equilibrium}, \codepath{aggregate\_ces\_per\_system}, \codepath{aggregate\_per\_tier\_em}, plus \codepath{scripts/run\_purity\_validation.py} and \codepath{scripts/theorem\_receipts.py}.
+\item[Tables and figures.] Thesis-table and figure makers: \texttt{python -m scripts.make\_tables outputs/full\_run} and \texttt{python -m scripts.make\_figures outputs/full\_run}.
+\end{description}
 
 \section{Version pinning}
 \label{app:repro-versions}
-% The framework versions, library versions, and the determinism
-% switches that produce identical numbers from a fresh checkout.
+
+The realised environment runs against the version pins below. The project does not ship a \verb|requirements.txt| or \verb|pyproject.toml|; the pins are reconstructed from \verb|README.md|, the per-version diagnostics emitted by \verb|scripts/check_env.py|, the import set exercised by the unit-test suite, and the entries in \verb|branch_C_log.md|. The canonical environment is the virtual environment at \verb|/venv/main| on the Vast production host.
+
+\begin{table}[!ht]
+\centering\footnotesize
+\setlength{\tabcolsep}{5pt}
+\renewcommand{\arraystretch}{1.1}
+\rowcolors{2}{gray!8}{white}
+\begin{tabular}{@{}p{5.0cm}p{3.0cm}p{5.5cm}@{}}
+\toprule
+\textbf{Package} & \textbf{Version} & \textbf{Role} \\
+\midrule
+Python                & $3.12$                   & interpreter \\
+CUDA toolkit          & $13.0$ (driver $13.1$)   & RTX 5090 Blackwell compute capability \texttt{sm\_120} \\
+\midrule
+torch                 & $2.10.0\text{+cu130}$    & tensor backend, bf16 forward path, MC-dropout sampler \\
+transformers          & $4.57.6$                 & Qwen-2.5-3B-Instruct loader, generate, MiniCheck encoder \\
+peft                  & $0.19+$                  & LoRA wrapper for the self-improvement fine-tune \\
+accelerate            & $0.34+$                  & device placement during the fine-tune step \\
+\midrule
+datasets              & $5.0+$                   & benchmark loaders and retention-probe shuffles \\
+faiss-cpu             & $1.8+$                   & passage index and episodic memory store \\
+sentence-transformers & $4.1.0$                  & SBERT memory encoder and cross-encoder reranker \\
+\midrule
+scipy                 & $1.11+$                  & saturating-exponential equilibrium fit, Wilcoxon test \\
+scikit-learn          & $1.4+$                   & per-signal isotonic regression and boost-layer logistic \\
+\midrule
+bitsandbytes          & $0.43+$                  & eight-bit AdamW optimiser path \\
+anthropic             & $0.108+$                 & Haiku TruthfulQA rescore client \\
+numpy, pandas, tqdm   & latest stable            & arithmetic, table aggregation, progress bars \\
+\midrule
+biber + biblatex      & TeX Live 2024+           & thesis bibliography compile \\
+\bottomrule
+\end{tabular}
+\caption[Framework version pinning]{Framework version pinning. Versions are reconstructed from the diagnostic emitters and live import set; the canonical environment is the virtual environment on the production host. Any reproducer who pins to the listed versions exactly will produce numbers within the determinism tolerance of \Cref{app:repro-verify}.}
+\label{tab:app-repro-versions}
+\end{table}
+
+The determinism switches that produce identical numbers from a fresh checkout are recorded in the seed-everything helper inside the runner. The Python pseudo-random module, the NumPy random state, the PyTorch CPU and CUDA random states, and the \verb|PYTHONHASHSEED| environment variable are all set to forty-two. The FAISS index build, the MC-dropout passes, and the generator sampling all consume the same seed through their respective subsystems. The flag \verb|torch.use_deterministic_algorithms| is set to false intentionally because the cuDNN attention path is not bitwise-deterministic; the \verb|torch.backends.cudnn.deterministic| flag is set to true and the \verb|torch.backends.cudnn.benchmark| flag is set to false. TensorFloat-32 matrix multiplication is enabled on the Blackwell compute capability, and the bfloat16 forward path is the default.
+
+The two required environment variables are \verb|ANTHROPIC_API_KEY| for the Haiku rescore of the TruthfulQA correctness rule and \verb|HF_TOKEN| (equivalently \verb|HUGGINGFACE_HUB_TOKEN|) for the pull from the private pre-main snapshot repository. Optional environment variables \verb|HUGGINGFACE_HUB_CACHE|, \verb|CAEM_DEVICE|, and \verb|CUDA_VISIBLE_DEVICES| override the cache location, the compute device, and the GPU index respectively.
 
 \section{Hardware envelope}
 \label{app:repro-hardware}
-% The wall-clock and budget on the rented hardware, the same envelope
-% on a downgraded device, and the parameter changes required for the
-% downgraded path.
+
+\paragraph{Production envelope:} The realised trajectory runs on a Vast.ai-rented RTX 5090 with thirty-two gigabytes of video memory (approximately thirty-one gigabytes usable after framework overhead), one hundred and fifty gigabytes of NVMe disk, and approximately ninety gigabytes of host random-access memory at approximately seventy cents per on-demand GPU-hour with spot-pricing windows pulling the realised effective rate lower over the run. The trajectory closes at approximately two hundred and ninety-four GPU-hours and approximately one hundred and sixty-three United States dollars over the cold-start seeding, the cycle-zero calibration and validation gate, the six-cycle main run, the eight-baseline panel, and the post-run analysis, spread across approximately forty calendar days of elapsed time as cycles, ablations, and rescore passes ran sequentially on the single-card envelope. The verifier-side scoring path (nine-signal extraction across every served answer, the per-cycle composite refit, the cycle-boundary retroactive re-verification pass, and the matched-protocol Haiku-judged TruthfulQA rescore across the baseline panel) is the dominant wall-clock consumer over the run, exceeding the per-cycle low-rank-adapter fine-tune itself, because every entry on every cycle and every baseline-arm answer passes through the full verifier ensemble while the adapter touches only the strict training-pool subset.
+
+\paragraph{Per-cycle wall-clock budget:} The self-improvement fine-tune step consumes approximately thirty-five to forty-five minutes per cycle under the bounded LoRA envelope. The cycle-boundary recalibration step consumes approximately fifteen to twenty minutes including the per-signal isotonic fit, the per-benchmark shrinkage blend, and the boost-layer refit. The retroactive re-verification pass consumes approximately twenty to thirty minutes depending on the cumulative memory size. The stream-chunk admission pass consumes approximately three and a half to four and a half hours at four thousand seven hundred candidate samples per cycle through the full per-query pipeline including the retrieval-augmented tier. The held-out evaluation pass consumes approximately seventy-five to ninety-five minutes across the five-benchmark panel. The cycle close consumes approximately five to seven hours end-to-end.
+
+\paragraph{Downgraded reproduction envelope:} A consumer sixteen-gigabyte video-memory GPU reproduces the trajectory under five parameter changes registered in the runner: the SIL batch size drops from four to two, the gradient accumulation step count rises from four to sixteen (preserving the effective batch size at thirty-two), the precision drops from bfloat16 to float16 with dynamic loss scaling (consumer-tier Ampere bfloat16 paths are slower than the equivalent float16 path), the generation new-token cap drops from five hundred and twelve to one hundred and ninety-two to fit the smaller key-value cache, and activation checkpointing is enabled. The LoRA rank and alpha stay unchanged. The expected per-cycle wall-clock penalty is approximately two-point-two to two-point-six times the production envelope, so the full trajectory on a downgraded GPU consumes approximately twelve to sixteen GPU-days of wall-clock time.
+
+\paragraph{Writeup envelope:} The thesis is written on a Windows Subsystem for Linux 2 environment with an RTX 3060 (twelve gigabytes of video memory) and sixteen gigabytes of host random-access memory. The sixty-four-gigabyte Wikipedia FAISS passage index exceeds the host random-access memory by a factor of four and cannot be loaded on the writeup envelope; all retrieval-side numbers in the thesis are read from cached evaluation JSON files under \verb|outputs/full_run/| rather than recomputed locally. The local writeup envelope hosts the thesis source, the table and figure compilation, and the signal-level audits over saved verifier traces, but does not host the live retrieval substrate. The semantic-entropy composite-hallucination-metric rescore registered as a deferred receipt in \Cref{sec:future-se-chm} is deferred for the same reason.
 
 \section{Verification of reproduced numbers}
 \label{app:repro-verify}
-% A short checklist a reproducer can use to confirm the numbers in
-% Chapter 5 and Chapter 6 match within tolerance.
+
+A reproducer who has executed the full trajectory uses the ten-item checklist below to confirm the headline numbers match the thesis within the stated tolerance. The per-benchmark exact match at three-hundred-sample fold size carries a stochastic floor of approximately $\pm 0.5$ percentage points from the non-deterministic cuDNN attention path; the pooled exact match across the five-benchmark panel tightens to approximately $\pm 0.3$ percentage points; the composite-hallucination metric and the storage-precision ratio tolerate approximately $\pm 1.0$ percentage point; the integer-count quantities (commit fraction, win-and-loss tallies) must match exactly.
+
+\begin{description}[style=nextline,leftmargin=0pt]
+\item[Pooled CAEM exact match at C2 and C5.]
+\begin{itemize}
+\item Receipt: per-sample evaluation files at \codepath{outputs/full\_run/eval/} (cycle indices $2$ and $5$), computed mean of the \texttt{em} field (or \texttt{em\_llm\_judged} on TruthfulQA) across the per-cycle five-benchmark panel. The rendered table is the pooled-trajectory table under \codepath{figures/auto/}.
+\item Expected: $0.544$ at C2, $0.517$ at C5.
+\item Tolerance: $\pm 0.3$ percentage points.
+\end{itemize}
+\item[Pooled composite hallucination metric at the same cycles.]
+\begin{itemize}
+\item Receipt: the same per-sample evaluation files plus the canonical composite-hallucination-metric implementation at \texttt{eval/metrics.py}.
+\item Expected: $0.107$ at C2, $0.109$ at C5.
+\item Tolerance: $\pm 1.0$ percentage point.
+\end{itemize}
+\item[Per-benchmark exact match at cycle five.]
+\begin{itemize}
+\item Receipt: \codepath{outputs/full\_run/eval/<bench>\_cycle5.json}, computed mean of the per-sample \texttt{em} field (or \texttt{em\_llm\_judged} on TruthfulQA).
+\item Expected: each per-benchmark cell must match \Cref{tab:per-bench-trajectory}.
+\item Tolerance: $\pm 0.5$ percentage points.
+\end{itemize}
+\item[Calibration-fold pooled storage precision band.]
+\begin{itemize}
+\item Receipt: \codepath{outputs/full\_run/pi\_store\_trajectory.csv}, column \texttt{cal\_fold\_pi\_store} across the committed-cycle rows.
+\item Expected: band $[0.732, 0.746]$.
+\item Tolerance: $\pm 1.0$ percentage point on each endpoint.
+\end{itemize}
+\item[Cycle-zero validation-gate composite Cohen's $d$.]
+\begin{itemize}
+\item Receipt: \codepath{outputs/analysis/weight\_validation\_v2\_1.json}, field \texttt{composite\_cohen\_d\_id.value} (the canonical v2.1-panel validation gate; the legacy \texttt{outputs/cycle\_0/weight\_validation.json} from the pre-v2.1 panel is preserved for audit but superseded).
+\item Expected: $+0.635$.
+\item Tolerance: $\pm 0.02$.
+\end{itemize}
+\item[Memory pool size at cycle five close.]
+\begin{itemize}
+\item Receipt: \codepath{outputs/full\_run/memory\_store\_cycle\_5.meta}, computed entry count or \texttt{len(json.load(...))} if persisted as JSON.
+\item Expected: $12\,170$ entries.
+\item Tolerance: $\pm 5$ for content-hash collision drift.
+\end{itemize}
+\item[Realised commit fraction and abort cycle.]
+\begin{itemize}
+\item Receipt: \codepath{outputs/full\_run/stochastic\_equilibrium\_trajectory.csv}, columns \texttt{verdict} and \texttt{committed}.
+\item Expected: commit pattern $(1, 1, 1, 0, 1)$ across C1 through C5; the cycle-four ABORT under the TriviaQA-test retention probe; realised commit fraction $\pi_{\mathrm{commit}} = 4/5$.
+\item Tolerance: exact match required.
+\end{itemize}
+\item[Retrieval-utility classifier ablation pooled exact-match lift.]
+\begin{itemize}
+\item Receipt: \codepath{outputs/analysis/phase1d\_vs\_phase1e\_ruc.json}, computed pooled exact-match difference between the two arms.
+\item Expected: $+5.8$ percentage points.
+\item Tolerance: $\pm 0.5$ percentage points.
+\end{itemize}
+\item[Architectural-contribution slice (training panel vs.\ B1 at C2 and C5).]
+\begin{itemize}
+\item Receipt: per-sample evaluation files at \codepath{outputs/full\_run/eval/} (cycle indices $2$ and $5$) against matched zero-shot baselines under \codepath{outputs/baselines\_phase1e/zero\_shot/}, restricted to the three training benchmarks of the realised panel.
+\item Expected: $+20.3\%$ relative exact-match gain at C2 and $+13.7\%$ at C5; $-29.4\%$ relative composite-hallucination reduction at C2 and $-20.3\%$ at C5 against the same zero-shot floor.
+\item Tolerance: $\pm 1.0$ percentage point relative.
+\end{itemize}
+\item[Significance-panel win/loss tallies at C2 and C5 (post-Haiku).]
+\begin{itemize}
+\item Receipt: the significance-test CSV records under \codepath{outputs/full\_run/} (C5 anchor) and \codepath{outputs/} (C2 post-Haiku anchor), computed counts of licensed rows with positive exact-match delta (wins) versus negative delta (defeats), and analogous on the composite-hallucination axis.
+\item Expected: thirteen exact-match wins and three defeats at C5; twenty-three composite-hallucination wins and four defeats at C5; seventeen exact-match wins and two defeats at C2; twenty-six composite-hallucination wins and four defeats at C2.
+\item Tolerance: exact match required.
+\end{itemize}
+\end{description}
+
+A reproducer whose readings clear every item of the checklist within the stated tolerance has matched the thesis to within the determinism floor of the underlying compute envelope. Any item that fails by a margin larger than the registered tolerance indicates either a determinism gap that the runner did not absorb (the runner's seed-everything helper is the first place to inspect), a version pin mismatch against \Cref{tab:app-repro-versions}, a hardware-envelope downgrade not registered in the runner's parameter overrides, or a genuine correction that the empirical chapter should adopt.

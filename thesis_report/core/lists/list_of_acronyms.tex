@@ -11,7 +11,7 @@
 \begin{longtable}{@{}p{1.7cm}p{5.9cm}@{\hspace{1.2em}}p{1.7cm}p{5.9cm}@{}}
 \multicolumn{4}{@{}l@{}}{\textbf{\normalsize Architecture and methods}}\\
 \textbf{CAEM}    & Confidence-Aware Episodic Memory with Self-Improvement & \textbf{SIL}     & Self-Improvement Loop \\
-\textbf{CP}      & Conformal Prediction (\textbf{split-CP}: split conformal) & \textbf{NLI}     & Natural Language Inference \\
+\textbf{RUC}     & Retrieval-Utility Classifier (Stage 3b) & \textbf{NLI}     & Natural Language Inference \\
 \textbf{RAG}     & Retrieval-Augmented Generation & \textbf{DPR}     & Dense Passage Retrieval \\
 \textbf{CoT}     & Chain-of-Thought prompting & \textbf{EWC}     & Elastic Weight Consolidation \\
 \textbf{LoRA}    & Low-Rank Adaptation & \textbf{MC}      & Monte Carlo (MC-Dropout) \\
@@ -19,24 +19,26 @@
 \textbf{NTM}     & Neural Turing Machine & \textbf{DNC}     & Differentiable Neural Computer \\
 \textbf{A-MEM}   & Agentic Memory & \textbf{FActScore} & Atomic-fact factuality score \\
 \textbf{FLARE}   & Forward-Looking Active Retrieval & \textbf{Self-RAG} & Self-reflective RAG \\
-\textbf{SI / MAS} & Synaptic Intelligence; Memory-Aware Synapses & & \\
+\textbf{SI / MAS} & Synaptic Intelligence; Memory-Aware Synapses & \textbf{CP}      & Conformal Prediction (\textbf{split-CP}; registered then replaced by fixed-threshold storage rule) \\
 \\[-0.5em]
 \multicolumn{4}{@{}l@{}}{\textbf{\normalsize Models and judges}}\\
 \textbf{LLM}     & Large Language Model & \textbf{SBERT}   & Sentence-BERT (cosine encoder) \\
 \textbf{MiniCheck} & Flan-T5-Large NLI judge for claim-support & \textbf{MNLI / SNLI} & Multi-genre / Stanford NLI corpora \\
-\textbf{HaluEval} & Hallucination Evaluation benchmark & & \\
 \\[-0.5em]
 \multicolumn{4}{@{}l@{}}{\textbf{\normalsize Benchmarks}}\\
-\textbf{FEVER}   & Fact Extraction and VERification & \textbf{NQ}      & Natural Questions (NQ-Open) \\
-\textbf{TQA}     & TriviaQA & \textbf{TruthfulQA} & Truthful QA \\
-\textbf{StrategyQA} & Multi-hop strategy QA & \textbf{ARC}     & AI2 Reasoning Challenge (ARC-Challenge) \\
-\textbf{ASQA}    & Answer Summaries for QA & \textbf{MMLU}    & Massive Multitask Language Understanding \\
-\textbf{BIG-bench} & Beyond the Imitation Game & & \\
+\textbf{FEVER}   & Fact Extraction and VERification & \textbf{NQ}      & Natural Questions (NQ-Open; registered then retired) \\
+\textbf{TQA}     & TriviaQA & \textbf{TruthfulQA} & Truthful QA (Haiku-judged EM) \\
+\textbf{CSQA}    & CommonsenseQA & \textbf{StrategyQA} & Multi-hop strategy QA \\
+\textbf{ARC}     & AI2 Reasoning Challenge (registered then retired) & \textbf{HotpotQA} & Multi-hop QA (registered then retired) \\
+\textbf{HaluEval-QA} & Hallucination-Evaluation QA (RUC training only) & \textbf{OpenBookQA} & Open-Book QA (RUC training only) \\
+\textbf{MMLU}    & Massive Multitask Language Understanding (retention probe) & \textbf{HaluEval} & Hallucination Evaluation benchmark \\
+\textbf{ASQA}    & Answer Summaries for QA & \textbf{BIG-bench} & Beyond the Imitation Game \\
+\textbf{SQuAD}   & Stanford Question Answering Dataset & & \\
 \\[-0.5em]
 \multicolumn{4}{@{}l@{}}{\textbf{\normalsize Metrics, statistics, infrastructure}}\\
 \textbf{EM}      & Exact Match & \textbf{F$_1$}   & Token-level F$_1$ \\
 \textbf{ROUGE-L} & Longest-common-subsequence overlap & \textbf{CHM}     & Composite Hallucination Metric \\
-\textbf{CES}     & Composite Evaluation Score (\textbf{CES.EPI}: $1{-}\mathrm{CHM}$) & \textbf{ECE}     & Expected Calibration Error \\
+\textbf{CES}     & Composite Evaluation Score (geometric mean of ACC, EPI, RET, CAL, VER; \textbf{EPI} $=1-\mathrm{CHM}$) & \textbf{ECE}     & Expected Calibration Error \\
 \textbf{AUROC}   & Area Under ROC curve & \textbf{TPR / FPR / TNR} & True / False / True-Negative Rate \\
 \textbf{BCa}     & Bias-Corrected accelerated bootstrap & \textbf{CI}      & Confidence Interval \\
 \textbf{ID / OOD} & In- / Out-of-Distribution & \textbf{EMA}     & Exponential Moving Average \\

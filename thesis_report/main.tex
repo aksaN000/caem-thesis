@@ -32,14 +32,18 @@
 
 % --- Tables and figures -----------------------------------------------------
 \usepackage{graphicx}
+\graphicspath{{./}{./images/}{./figures/}}
 \usepackage{booktabs}
 \usepackage{multirow}
 \usepackage{multicol}
 \usepackage{array}
 \usepackage{tabularx}
 \usepackage{longtable}
+\usepackage{enumitem}
 \usepackage{rotating}
 \usepackage{float}
+\usepackage{placeins}
+\usepackage{needspace}
 \usepackage{caption}
 \usepackage{subcaption}
 \usepackage[table]{xcolor}
@@ -60,6 +64,22 @@
 % --- Bibliography -----------------------------------------------------------
 \usepackage[backend=biber,style=numeric-comp,sorting=none,maxbibnames=99]{biblatex}
 \addbibresource{bibliography/references.bib}
+
+% --- Code-path typesetting --------------------------------------------------
+% \codepath breaks long monospace identifiers (file paths, function names,
+% config keys) at any character so unbreakable underscores and slashes do
+% not cause overfull-hbox bleeds in narrow appendix columns and prose. The
+% sloppy + emergencystretch combination is applied at the paragraph level
+% via an \appendixoverflowsafe declaration loaded inside each appendix.
+\usepackage{seqsplit}
+\newcommand{\codepath}[1]{\texttt{\seqsplit{#1}}}
+% Apply once per appendix paragraph that contains long monospace identifiers
+% to license aggressive whitespace stretching as a last-resort fallback.
+\newcommand{\appendixoverflowsafe}{%
+  \sloppy
+  \emergencystretch=5em
+  \hbadness=10000
+}
 
 % --- Lists and indices ------------------------------------------------------
 \usepackage[intoc]{nomencl}
@@ -128,6 +148,7 @@
 
 % --- Appendices -------------------------------------------------------------
 \appendix
+\appendixoverflowsafe
 \input{appendix/appendix_a.tex}  % Implementation Reference
 \input{appendix/appendix_b.tex}  % Cycle 0 Evidence Catalog
 \input{appendix/appendix_c.tex}  % Per-Cycle Artifact Dictionary

@@ -1,54 +1,377 @@
 % ============================================================================
 % Appendix A — Implementation reference
-% Status: SKELETON. Phase C populates this with the implementation
-% references that body prose deliberately omits.
-%
-% Purpose: body prose in chapters one through nine is concept-only
-% (no module paths, no class or function names, no script names, no
-% folder or file references, no command-line flags, no backend
-% strings). All of those references that a re-implementer needs live
-% here.
+% Body prose in chapters one through nine is concept-only (no module paths,
+% no class or function names, no script names, no folder or file references).
+% All of those references that a re-implementer needs live here.
 % ============================================================================
 
 \chapter{Implementation reference}
 \label{app:implementation}
 
+\section{Code and data availability}
+\label{app:code-data-availability}
+
+The full implementation of the architecture, the cycle runner, the calibration scripts, the baseline and ablation drivers, the verifier ensemble, the retrieval-utility classifier, and the figure and table aggregators is released as the open-source repository at \url{https://github.com/aksaN000/caem-thesis}. The empirical artefact bundle for the realised six-cycle trajectory, the cycle-zero validation gate, the eight-baseline panel, the retrieval-utility-classifier on/off ablation, the per-cycle logs, and the post-trajectory analysis is released as the Google Drive folder at \url{https://drive.google.com/drive/folders/1xErhsRDYe_qO0ZgUBn0WXK81eHc5jZCa}, organised under the subfolder \texttt{v2\_1\_phase1e\_main/} (the realised trajectory) alongside \texttt{pre\_main\_snapshot/} (the cycle-zero anchor for snapshot recovery) and the earlier-phase archives. The sixty-four-gigabyte Wikipedia passage FAISS index and the per-commit pre-main snapshot bundles are additionally mirrored on the Hugging Face dataset repository \texttt{aksaN000/caem-passage-index-21m} (private; access on request), as documented in \Cref{app:repro-snapshot}. The three publication endpoints are intentionally complementary: the GitHub repository carries the executable code and the locked configuration JSONs, the Google Drive folder carries the realised empirical artefacts and the per-cycle JSON/CSV logs that the thesis reads, and the Hugging Face dataset host carries the bulky retrieval substrate and the snapshot bundles that anchor the credit-burnout recovery sequence of \Cref{app:repro-snapshot}.
+
 \section{Repository layout and module map}
 \label{app:repo-layout}
-% Top-level folders, the canonical package paths, and the role of each
-% module.
+
+The repository root is \verb|caem/| at the top of the Vast workspace. Body prose throughout the thesis refers to the architectural components by concept name; the inventory below maps every concept to the file that implements it. Paths are relative to the repository root.
+
+{\scriptsize
+\setlength{\tabcolsep}{4pt}
+\renewcommand{\arraystretch}{1.15}
+\begin{longtable}{@{}>{\ttfamily}p{5.8cm}p{2.2cm}p{6.6cm}@{}}
+\caption[Repository layout]{Repository layout. Body prose throughout the thesis refers to architectural components by their concept names (memory store, three-tier router, verifier ensemble, retrieval-utility classifier, self-improvement loop, retention guard); this table maps each concept to the file that implements it.}
+\label{tab:app-repo-layout}\\
+\toprule
+\textnormal{\textbf{Path}} & \textbf{Role} & \textbf{Description} \\
+\midrule
+\endfirsthead
+\toprule
+\textnormal{\textbf{Path}} & \textbf{Role} & \textbf{Description} \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+\multicolumn{3}{@{}l}{\textnormal{\textit{Top-level directories}}} \\
+caem/              & package root & Core Python package: pipeline, memory, routing, verification, training. \\
+scripts/           & runners      & Cycle runner, calibration scripts, baseline runners, rescore utilities. \\
+eval/              & harness      & Shared per-benchmark eval scaffold (EM, em\_llm\_judged, CHM, CES). \\
+outputs/           & artefacts    & Per-cycle JSON, CSV, PNG, and log evidence (cycle\_0/, full\_run/, baselines/). \\
+data/              & external     & Passage index, calibration pairs, alias dictionary, retention and RUC datasets. \\
+tests/             & test suite   & Pytest suite covering storage gate, deferred buffer, retention probe, SIL, verifier. \\
+docs/              & runbook      & PRODUCTION\_RUNBOOK.md: deployment-mode spec and cycle-trigger policies. \\
+thesis\_report/    & thesis       & LaTeX chapters, bibliography, figures, main.pdf build target. \\
+\midrule
+\multicolumn{3}{@{}l}{\textnormal{\textit{Pipeline entry points}}} \\
+caem/pipeline.py            & per-query  & Pipeline class: serial driver used in production and demo paths. \\
+caem/pipeline\_batch.py     & per-cycle  & BatchPipeline class: batched cycle driver used by the experiment runner. \\
+scripts/run\_experiment.py  & runner     & Canonical cycle driver: invokes BatchPipeline, SIL, retention probe, retroverify. \\
+\midrule
+\multicolumn{3}{@{}l}{\textnormal{\textit{Configuration}}} \\
+caem/config.py                       & registry   & Central CAEMConfig dataclass; every threshold, weight, structural toggle. \\
+caem/ruc/v2/feature\_spec.json       & RUC config & RUC threshold, regulariser, feature order, model paths. \\
+\midrule
+\multicolumn{3}{@{}l}{\textnormal{\textit{Memory module}}} \\
+caem/memory/store.py     & storage gate    & EpisodicMemoryStore: fixed-threshold admission and FAISS-backed retrieval. \\
+caem/memory/deferred.py  & deferred buffer & DeferredBuffer and DeferredEntry: TTL-bounded reconsider queue. \\
+caem/memory/encoder.py   & embeddings      & SBERT-side encoder for memory keys and Tier 1 lookup. \\
+\midrule
+\multicolumn{3}{@{}l}{\textnormal{\textit{Routing}}} \\
+caem/routing/router.py & tier dispatch & Tier 1/2/3 router with safety override and combined-score thresholds. \\
+caem/routing/ruc.py    & RUC head      & LRRetrievalUtilityClassifier: binary head for Tier 2 versus Tier 3 routing. \\
+\midrule
+\multicolumn{3}{@{}l}{\textnormal{\textit{Verification}}} \\
+caem/verification/verifier.py            & verifier ensemble & UnifiedVerifier: nine-signal composite producing $u_{\text{pre}}$ and $u_{\text{stored}}$. \\
+caem/verification/adaptive\_nli\_judge.py & NLI dispatch     & AdaptiveNLIJudge: length-gated routing to MiniCheck or frozen Qwen. \\
+caem/verification/cal\_prob\_composite.py & calibration      & Per-signal isotonic curves plus per-benchmark shrinkage and boost layer. \\
+caem/retrieval/rag.py                    & retrieval         & FAISS-backed passage index reader for Tier 3 grounded generation. \\
+\midrule
+\multicolumn{3}{@{}l}{\textnormal{\textit{Training}}} \\
+caem/training/self\_improvement.py & SIL trainer     & SelfImprovementLoop: LoRA fine-tune and retroverify hook. \\
+caem/training/retention\_probe.py  & retention guard & Per-cycle multi-modal probe panel and ratio-floor check. \\
+caem/training/pool\_reweighting.py & pool balancer   & Per-benchmark temperature-mixed reweighting and share ceiling. \\
+caem/training/loop\_filter.py      & SIL admission   & Per-pair filter at $\tau_{\text{train}} = 0.70$ above the storage cut-point. \\
+\midrule
+\multicolumn{3}{@{}l}{\textnormal{\textit{Evaluation}}} \\
+eval/harness.py            & eval scaffold     & Per-benchmark EM, F1, latency, CHM, and CES. \\
+eval/benchmarks.py         & benchmark loaders & TriviaQA, FEVER, CommonsenseQA, TruthfulQA, StrategyQA, MMLU loaders. \\
+caem/eval/equilibrium.py   & SE metric         & Stochastic-equilibrium computation for the convergence-check table. \\
+\end{longtable}
+}
 
 \section{Configuration registry}
 \label{app:config-registry}
-% Every constant in the configuration object, its provenance tag (literature,
-% design, calibrated), and its source.
+
+Every constant that governs runtime behaviour lives in the \verb|CAEMConfig| dataclass at \verb|caem/config.py|. The exception is the retrieval-utility classifier, whose configuration lives in \verb|caem/ruc/v2/feature_spec.json| at deployment time (the classifier is loaded once at pipeline construction and is not refit at cycle boundaries; see \Cref{sec:ruc}). The registry below groups every field by concept, records the deployed value, and tags the provenance as \emph{literature} (anchored to a cited paper), \emph{design} (architectural decision documented before any run), \emph{calibrated} (selected empirically at cycle zero), or \emph{pre-registered} (chosen before any data is observed).
+
+{\footnotesize
+\setlength{\tabcolsep}{4pt}
+\renewcommand{\arraystretch}{1.1}
+\begin{longtable}{@{}p{4.2cm}p{2.2cm}p{2.0cm}p{6.4cm}@{}}
+\caption[Configuration registry]{Configuration registry. Provenance tags: \emph{literature} (cited paper), \emph{design} (architectural choice documented before any run), \emph{calibrated} (chosen empirically at cycle zero or refit at a cycle boundary), \emph{pre-registered} (registered horizon before any data is observed).}
+\label{tab:app-config-registry}\\
+\toprule
+\textbf{Field} & \textbf{Value} & \textbf{Provenance} & \textbf{Source / rationale} \\
+\midrule
+\endfirsthead
+\toprule
+\textbf{Field} & \textbf{Value} & \textbf{Provenance} & \textbf{Source / rationale} \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+\multicolumn{4}{@{}l}{\textit{Routing thresholds (\Cref{sec:router})}} \\
+\texttt{routing\_lambda}             & $0.70$ & design       & Combined-score weight on similarity. \\
+\texttt{tier1\_combined\_threshold}   & $0.90$ & design       & Tier 1 dispatch floor on combined score. \\
+\texttt{tier2\_similarity\_threshold} & $0.75$ & design       & Tier 2 dispatch floor on similarity alone. \\
+\texttt{safety\_u\_pre\_min}           & $0.38$ & calibrated   & Re-tuned at cycle one from the registered $0.60$; safety-override floor. \\
+\texttt{u\_pre\_token\_weight}         & $0.60$ & design       & Token-probability weight in $u_{\text{pre}}$. \\
+\texttt{u\_pre\_cconv\_weight}         & $0.40$ & design       & Encoder-convergence weight in $u_{\text{pre}}$. \\
+\midrule
+\multicolumn{4}{@{}l}{\textit{Storage gate thresholds (\Cref{sec:decision})}} \\
+\texttt{store\_threshold}            & $0.60$ & design       & STORE if $u_{\text{stored}} \ge$ this. \\
+\texttt{defer\_threshold}            & $0.45$ & design       & DEFER if \texttt{defer\_threshold} $\le u_{\text{stored}} < $ \texttt{store\_threshold}. \\
+\texttt{abstain\_pground\_ceiling}    & $0.20$ & design       & ABSTAIN if $u_{\text{stored}} < $ \texttt{defer\_threshold} and $p_{\text{ground,max}} <$ this. \\
+\texttt{early\_exit\_u\_internal}      & $0.70$ & design       & Confabulation early-exit on internal-uncertainty floor. \\
+\texttt{early\_exit\_p\_ground\_max}    & $0.20$ & design       & Confabulation early-exit on grounding ceiling. \\
+\midrule
+\multicolumn{4}{@{}l}{\textit{Calibration parameters (\Cref{sec:composite})}} \\
+\texttt{composite\_mode}             & \texttt{"auto"}  & design     & Auto-switch to calibrated probability composite when the calibration JSON loads. \\
+\texttt{composite\_shrinkage\_alpha}  & $0.6$  & calibrated   & Per-benchmark child curve shrinkage toward pooled fit. \\
+\texttt{adaptive\_thresholds\_\allowbreak per\_cycle} & \texttt{true} & design   & Refit temperature, isotonic curves, and boost weights at every successful cycle. \\
+\texttt{adaptive\_thresholds\_\allowbreak ema\_alpha} & $0.7$ & design       & Exponential-moving-average smoothing on the per-cycle temperature refit. \\
+\midrule
+\multicolumn{4}{@{}l}{\textit{Retention guard (\Cref{sec:retention})}} \\
+\texttt{forgetting\_tolerance}       & $0.93$  & design       & Worst-probe ratio floor; trigger asymmetric rollback if any probe drops below. \\
+\texttt{retention\_probes}           & 3-probe panel & design & Multi-modal probe panel \texttt{(mmlu,\allowbreak{} triviaqa\_test,\allowbreak{} commonsense\_qa\_test)}; replaces the single-MMLU probe of v1. \\
+\texttt{retention\_probe\_n}          & $200$  & design       & Samples per probe at every cycle. \\
+\midrule
+\multicolumn{4}{@{}l}{\textit{Deferred buffer (\Cref{sec:deferred-reconsider})}} \\
+\texttt{deferred\_buffer\_max\_size}   & $10\,000$ & design     & Bounded FIFO capacity for deferred entries. \\
+\texttt{deferred\_buffer\_ttl\_cycles} & $2$     & design       & Reconsider-invocation TTL; entries dropped after two passes. \\
+\midrule
+\multicolumn{4}{@{}l}{\textit{Retroverify and consolidation (\Cref{sec:retroverify})}} \\
+\texttt{retroverify\_prune\_\allowbreak threshold}        & $0.50$ & design & Prune from memory if recalibrated $u_{\text{stored}}$ drops below. \\
+\texttt{hit\_counter\_force\_\allowbreak retroverify}      & $10$   & design & Per-entry retrieval-hit threshold forcing reverification next cycle. \\
+\texttt{enable\_consolidation}               & \texttt{true} & design & Cycle-boundary SBERT-similarity clustering pass. \\
+\texttt{consolidation\_similarity\_\allowbreak threshold} & $0.92$ & design & Minimum cosine similarity for cluster admission. \\
+\texttt{consolidation\_search\_k}             & $20$   & design & Per-entry FAISS search depth for neighbours. \\
+\texttt{consolidation\_max\_u\_spread}         & $0.15$ & design & Spread guardrail; reject clusters whose $u_{\text{stored}}$ range exceeds this. \\
+\midrule
+\multicolumn{4}{@{}l}{\textit{Self-improvement training (\Cref{sec:sil})}} \\
+\texttt{use\_lora\_training}          & \texttt{true}  & design       & LoRA SIL primary path; replaces the v1 full-fine-tune fallback. \\
+\texttt{lora\_r}                     & $32$         & literature   & Rank, per Biderman et al.\ 2024 audit on Qwen-class backbones. \\
+\texttt{lora\_alpha}                 & $64$         & literature   & Standard $\alpha = 2r$ scaling rule. \\
+\texttt{lora\_dropout}               & $0.05$       & literature   & Hu et al.\ 2021 default. \\
+\texttt{lora\_target\_modules}        & \texttt{(q,k,v,o,\allowbreak{}gate,up,down)\_proj} & literature & All linear projections of the transformer block. \\
+\texttt{lora\_learning\_rate}         & $2\!\times\!10^{-4}$ & literature & Standard LoRA learning rate. \\
+\texttt{use\_8bit\_adamw}             & \texttt{true}  & design       & Fits the bounded GPU envelope at batch $4$ with gradient checkpointing. \\
+\texttt{batch\_size}                 & $4$          & calibrated   & Reduced from $16$ at cycle one after GPU memory pressure. \\
+\texttt{grad\_accum\_steps}           & $4$          & design       & Holds the effective batch at $16$. \\
+\texttt{epochs\_per\_cycle}           & $3$          & design       & SIL training duration per successful cycle. \\
+\texttt{warmup\_steps}               & $500$        & design       & Linear warmup before the standard schedule. \\
+\texttt{min\_u\_stored\_for\_training}  & $0.70$       & calibrated   & $\tau_{\text{train}}$; reduced from $0.75$ at cycle one. \\
+\texttt{pool\_reweighting\_enabled}   & \texttt{true}  & design       & Temperature-mixed reweighting across training benchmarks. \\
+\texttt{pool\_reweighting\_\allowbreak temperature} & $2.0$      & literature   & Mixture temperature; Du et al.\ 2022. \\
+\texttt{pool\_reweighting\_\allowbreak upsample\_cap} & $3.0$     & calibrated   & Upper bound on per-benchmark upsampling factor. \\
+\texttt{pool\_reweighting\_max\_share} & $0.40$       & design       & Per-benchmark hard share ceiling. \\
+\texttt{loop\_distinct4\_threshold}   & $0.25$       & calibrated   & SIL-pool loop filter on token-4-gram distinct ratio. \\
+\midrule
+\multicolumn{4}{@{}l}{\textit{Verifier ensemble (\Cref{sec:verifier})}} \\
+\texttt{verifier\_backend}           & \texttt{"minicheck"} & literature & Short-hypothesis backend; Tang et al.\ 2024. \\
+\texttt{minicheck\_model}            & \texttt{lytang/\allowbreak MiniCheck-\allowbreak Flan-T5-\allowbreak Large} & literature & Verifier checkpoint. \\
+\texttt{cross\_encoder\_model}        & \texttt{BAAI/\allowbreak bge-reranker-\allowbreak v2-m3} & design & Shared reranker; consumed by grounding and question-answer relevance. \\
+\texttt{verifier\_retrieve\_k}        & $20$  & design & Top-$k$ passages retrieved before reranking. \\
+\texttt{verifier\_rerank\_k}          & $3$   & design & Top-$N$ retained after reranking. \\
+\texttt{atomic\_min\_tokens}          & $12$  & calibrated & Length gate below which atomic decomposition is bypassed. \\
+\texttt{mc\_dropout\_k},\allowbreak{} \texttt{mc\_dropout\_rate} & $5$, $0.1$ & literature & Gal and Ghahramani 2016. \\
+\texttt{sc\_chains\_m}                & $3$   & literature & Wang et al.\ 2022 self-consistency. \\
+\texttt{se\_samples\_k},\allowbreak{} \texttt{se\_temperature} & $10$, $1.0$ & literature & Farquhar et al.\ 2024 semantic-entropy protocol. \\
+\texttt{disable\_h\_norm}             & \texttt{true} & calibrated & Retired at cycle zero on cal-fold Cohen's $d$ audit. \\
+\texttt{disable\_p\_contra}           & \texttt{true} & design & Structurally zero under the MiniCheck binary judge. \\
+\midrule
+\multicolumn{4}{@{}l}{\textit{Generation and retrieval}} \\
+\texttt{base\_model\_name}            & \texttt{Qwen/\allowbreak Qwen2.5-3B-\allowbreak Instruct} & design & Apache-licensed three-billion-parameter instruction-tuned backbone. \\
+\texttt{rag\_max\_context\_tokens}     & $384$ & design & Cap on retrieved context tokens. \\
+\texttt{rag\_max\_new\_tokens}         & $512$ & design & Generation budget under retrieval-augmented prompt. \\
+\texttt{rag\_do\_sample}              & \texttt{false} & design & Greedy decoding for reproducibility. \\
+\texttt{rag\_index\_type}             & \texttt{"ivf\_pq"} & design & FAISS index backend. \\
+\texttt{rag\_faiss\_nlist},\allowbreak{} \texttt{nprobe\_tier3},\allowbreak{} \texttt{nprobe\_tier2} & $32768$, $64$, $16$ & design & IVF-PQ density and adaptive probe budget. \\
+\texttt{rag\_top\_k}                  & $5$ & literature & Karpukhin et al.\ 2020 DPR standard. \\
+\midrule
+\multicolumn{4}{@{}l}{\textit{Memory store (\Cref{sec:memory-store})}} \\
+\texttt{sbert\_model}                & \texttt{sentence-\allowbreak transformers/\allowbreak all-mpnet-\allowbreak base-v2} & literature & 768-dimensional sentence encoder. \\
+\texttt{embedding\_dim}              & $768$ & literature & Must match the encoder output dimension. \\
+\texttt{max\_memory\_size}            & $1\,000\,000$ & design & Capacity for thesis-scale and production-scale runs. \\
+\texttt{memory\_index\_type}          & \texttt{"ivf\_pq"} & design & FAISS index backend. \\
+\texttt{novelty\_threshold}          & $0.95$ & design & Skip storage if nearest-neighbour cosine similarity exceeds this. \\
+\texttt{pruning\_trigger}            & $0.95$ & design & Trigger pruning when memory reaches this fraction of capacity. \\
+\texttt{pruning\_amount}             & $0.20$ & design & Remove the bottom fraction by value score. \\
+\texttt{value\_importance\_weight},\allowbreak{} \texttt{value\_recency\_weight} & $0.70$, $0.30$ & design & Value-score decomposition. \\
+\midrule
+\multicolumn{4}{@{}l}{\textit{Experiment scope}} \\
+\texttt{num\_cycles}                 & $10$  & pre-registered & Registered horizon; realised trajectory closed at cycle five under the equilibrium-saturation gate. \\
+\texttt{calibration\_set\_size}       & $500$ & design & Cycle-zero calibration-fold size per training benchmark. \\
+\texttt{purity\_validation\_set\_size} & $500$ & design & Cycle-zero purity-validation slice per training benchmark. \\
+\texttt{questions\_per\_cycle}        & $5\,000$ & design & Stream-chunk question budget per cycle. \\
+\end{longtable}
+}
+
+The retrieval-utility classifier (\Cref{sec:ruc}) has no fields in \verb|caem/config.py|. Its operating point lives in \verb|caem/ruc/v2/feature_spec.json|: the threshold $\tau_{\text{RUC}} = 0.375$, the regularisation strength $C = 0.5$, the thirty-six-feature ordering, the standard-scaler and logistic-head joblib paths, and the model-type guard \codepath{"logistic\_regression\_scaled"}. The classifier is loaded once at pipeline construction from the on-disk specification and is not refit at any cycle boundary; the architectural rationale is documented in \Cref{sec:ruc}.
 
 \section{Hyperparameter listing}
 \label{app:hyperparameters}
-% A consolidated table of every hyperparameter, its value, its source, and the
-% subsection of Chapter 4 that introduces it.
+
+The consolidated hyperparameter table below pairs every quantity that the thesis discusses by symbol with its deployed value, its source file, and the chapter subsection that introduces the symbol. The rightmost column tags whether the cycle-boundary refit moves the quantity (\textit{refit}), whether it stays architecturally frozen across the trajectory (\textit{frozen}), or whether it was calibrated empirically at cycle zero and held constant thereafter (\textit{C0-cal frozen}).
+
+{\footnotesize
+\setlength{\tabcolsep}{4pt}
+\renewcommand{\arraystretch}{1.1}
+\begin{longtable}{@{}p{4.0cm}p{3.8cm}p{4.0cm}p{2.6cm}@{}}
+\caption[Consolidated hyperparameter table]{Consolidated hyperparameter table. The four per-cycle refit quantities are the pooled temperature scalar, the per-benchmark temperature vector, the nine per-signal isotonic curves, and the boost-layer weights plus intercept. Every other quantity is architecturally frozen across the trajectory.}
+\label{tab:app-hyperparameters}\\
+\toprule
+\textbf{Symbol (thesis)} & \textbf{Value} & \textbf{Source} & \textbf{Cycle role} \\
+\midrule
+\endfirsthead
+\toprule
+\textbf{Symbol (thesis)} & \textbf{Value} & \textbf{Source} & \textbf{Cycle role} \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+$\lambda$ (router blend)             & $0.70$ & \texttt{config.py:\allowbreak routing\_lambda} & frozen \\
+$\theta_{1}$ (Tier 1 floor)          & $0.90$ & \texttt{tier1\_combined\_\allowbreak threshold} & frozen \\
+$\theta_{\text{sim}}$ (Tier 2 floor) & $0.75$ & \texttt{tier2\_similarity\_\allowbreak threshold} & frozen \\
+$\phi_{\text{safe}}$ (safety floor)  & $0.38$ & \texttt{safety\_u\_pre\_min} & C0-cal frozen \\
+$\tau_{\text{store}}$                & $0.60$ & \texttt{store\_threshold} & frozen \\
+$\tau_{\text{defer}}$                & $0.45$ & \texttt{defer\_threshold} & frozen \\
+$\tau_{\text{train}}$                & $0.70$ & \texttt{min\_u\_stored\_\allowbreak for\_training} & C0-cal frozen \\
+$\tau_{\text{retro}}$                & $0.50$ & \texttt{retroverify\_prune\_\allowbreak threshold} & frozen \\
+$\tau_{\text{RUC}}$                  & $0.375$ & \texttt{ruc/v2/\allowbreak feature\_spec.json} & frozen \\
+$\rho_{\min}$ (retention floor)      & $0.93$ & \texttt{forgetting\_tolerance} & frozen \\
+$T$ (pooled temperature)             & $20.09 \to 0.74$ band & per-cycle \texttt{calibrated\_\allowbreak config\_cycle*.json} & \textbf{refit} \\
+$T_{b}$ (per-benchmark)              & per-bench tables       & per-cycle \texttt{calibrated\_\allowbreak config\_cycle*.json} & \textbf{refit} \\
+$\alpha_{\text{shrink}}$             & $0.6$  & \texttt{composite\_\allowbreak shrinkage\_alpha} & frozen \\
+$C$ (boost L2)                       & $0.01$ & boost layer fit in composite refit & frozen \\
+Per-signal isotonic curves           & non-parametric step functions & \texttt{composite\_\allowbreak calibration.json} & \textbf{refit} \\
+Boost-layer weights (nine signals)   & per-cycle vectors      & \texttt{composite\_\allowbreak calibration.json} & \textbf{refit} \\
+LoRA $r$, $\alpha$, dropout          & $32$, $64$, $0.05$ & \texttt{lora\_*} & frozen \\
+LoRA learning rate                   & $2 \times 10^{-4}$ & \texttt{lora\_learning\_rate} & frozen \\
+LoRA target modules                  & all-linear seven projections & \texttt{lora\_target\_modules} & frozen \\
+SIL batch $\times$ accum             & $4 \times 4 = 16$ & \texttt{batch\_size},\allowbreak{} \texttt{grad\_accum\_steps} & frozen \\
+SIL epochs per cycle                 & $3$ & \texttt{epochs\_per\_cycle} & frozen \\
+$\alpha_{\text{T-EMA}}$              & $0.7$ & \texttt{adaptive\_thresholds\_\allowbreak ema\_alpha} & frozen \\
+Pool reweighting temperature         & $2.0$ & \texttt{pool\_reweighting\_\allowbreak temperature} & frozen \\
+Pool reweighting upsample cap        & $3.0$ & \texttt{pool\_reweighting\_\allowbreak upsample\_cap} & frozen \\
+Pool reweighting share ceiling       & $0.40$ & \texttt{pool\_reweighting\_\allowbreak max\_share} & frozen \\
+Deferred-buffer TTL                  & $2$ reconsider invocations & \texttt{deferred\_buffer\_\allowbreak ttl\_cycles} & frozen \\
+Consolidation similarity floor       & $0.92$ & \texttt{consolidation\_\allowbreak similarity\_threshold} & frozen \\
+Consolidation FAISS-$k$              & $20$ & \texttt{consolidation\_\allowbreak search\_k} & frozen \\
+Consolidation $u$-spread guard       & $0.15$ & \texttt{consolidation\_\allowbreak max\_u\_spread} & frozen \\
+MC-dropout $K$, $p$                  & $5$, $0.1$ & \texttt{mc\_dropout\_k},\allowbreak{} \texttt{mc\_dropout\_rate} & frozen \\
+Self-consistency chains $M$          & $3$ & \texttt{sc\_chains\_m} & frozen \\
+SE samples $K$, temperature          & $10$, $1.0$ & \texttt{se\_samples\_k},\allowbreak{} \texttt{se\_temperature} & frozen \\
+Verifier retrieve-$k$, rerank-$N$    & $20$, $3$ & \texttt{verifier\_retrieve\_k},\allowbreak{} \texttt{verifier\_rerank\_k} & frozen \\
+Atomic length gate (tokens)          & $12$ & \texttt{atomic\_min\_tokens} & C0-cal frozen \\
+RAG context tokens, new tokens       & $384$, $512$ & \texttt{rag\_max\_*} & frozen \\
+SBERT embedding dimension            & $768$ & \texttt{embedding\_dim} & frozen \\
+Memory FAISS\newline (nlist, nprobe, m, nbits) & $4096$, $32$, $64$, $8$ & \texttt{faiss\_*} & frozen \\
+RAG FAISS\newline (nlist, nprobe$_{T3}$, $T2$) & $32768$, $64$, $16$ & \texttt{rag\_faiss\_*} & frozen \\
+\end{longtable}
+}
 
 \section{Runbook step graph}
 \label{app:runbook}
-% The phase one runner steps in execution order, with input and output
-% artefacts for each step.
+
+The end-to-end execution sequence partitions into a pre-run setup block, a six-step main cycle loop, and a post-run analysis block. The pre-run block runs once before the first cycle; the main cycle loop repeats per cycle; the post-run block runs once after the final cycle closes. Authoritative paths: \verb|run_phase1a.sh| (the top-level driver), \verb|scripts/run_experiment.py| (the in-cycle implementation), and \verb|docs/PRODUCTION_RUNBOOK.md| Section~5 (the production mirror).
+
+\paragraph{Pre-run setup (Steps 1--6):}
+\begin{enumerate}
+\item \textbf{Prompt smoke test} (\verb|step_5_9_prompt_smoke|). Renders five samples per benchmark against the registered prompt templates and asserts the answer-line contract. Gate: every sample renders with a non-empty answer line.
+\item \textbf{Alias dictionary build} (\verb|step_5_9_5_alias_dict|). Builds \verb|data/alias_dict.pkl| from a local Wikidata dump. The alias signal is retired in the deployed composite; the dictionary is preserved for ablation only.
+\item \textbf{Cold-start seeding} (\verb|step_6_reseed| and \verb|step_6_5_em_prune|). Seeds the episodic memory with approximately three thousand verified entries from the training benchmarks' dev splits under a cold-start storage threshold of $0.50$. Gate: deduplication ratio sane; the EM-prune step removes fewer than ten percent of seeded entries.
+\item \textbf{Cycle-zero baseline evaluation and cal-fold scoring} (\verb|step_7_0_cycle0|). Runs the pristine generator against the held-out evaluation fold and the calibration fold (five hundred samples per training benchmark, fifteen hundred pooled). Writes per-sample nine-signal vectors and ground-truth labels. Gate: every JSON has the expected sample count and no NaN signals.
+\item \textbf{Composite calibration and validation gate} (\codepath{step\_7\_0\_calibrate}, \codepath{step\_7\_0\_2\_5\_rescore\_eval}, \codepath{step\_7\_0\_3\_validate\_weights}). Fits the per-signal isotonic curves, the per-benchmark shrinkage-blended children, the boost-layer logistic regression, the per-benchmark temperature scalars, and the per-benchmark safety floors. Runs the cycle-zero validation gate (\Cref{app:gate-reference}). Gate: cycle-zero canonical composite locked at \verb|outputs/cycle_0/composite_calibration.json|; never overwritten by later cycles.
+\item \textbf{Retention baseline freeze and snapshot upload} (\verb|step_19_2_slice| and \verb|step_gdrive_upload_pre_main|). Records the pristine-model probe accuracies on MMLU, TriviaQA-test, and CommonsenseQA-test as the cycle-zero anchor for the $0.93$ retention floor. Pushes the snapshot to Hugging Face for credit-burnout recovery (\Cref{app:snapshot}).
+\end{enumerate}
+
+\paragraph{Main cycle loop (Steps 1--6, repeating per cycle):}
+\begin{enumerate}
+\item \textbf{Self-improvement fine-tune:} Draws the SIL training pool from memory entries above $\tau_{\text{train}} = 0.70$, applies the pool-reweighting layer, runs the LoRA fine-tune for three epochs, and probes the retention panel. Gate: every probe ratio against the cycle-zero baseline clears $0.93$. On failure, the adapter is rolled back to the previous cycle's checkpoint, the memory is preserved, and Steps 2.1--2.5 are skipped under the asymmetric-rollback contract.
+\item \textbf{Cycle-boundary recalibration:} Re-scores the calibration fold under the post-fine-tune model, refits the per-benchmark temperature scalars, refits the per-signal isotonic curves under the shrinkage prior, and runs the retroactive re-verification pass against the stored memory under the recalibrated verifier. Skipped on aborted cycles.
+\item \textbf{Stream-chunk pre-routing pass:} Runs the per-query pipeline on the cycle's stream chunk (two thousand FEVER, two thousand TriviaQA, seven hundred CommonsenseQA samples), accumulating storage admissions, deferred entries, abstentions, and discards.
+\item \textbf{Stream-chunk verification and storage:} Applies the calibrated probability composite, the four-outcome decision tree, and the storage admission. Writes \verb|memory_store_cycle_N.{faiss,meta}| and \verb|deferred_buffer_cycle_N.pkl|.
+\item \textbf{Held-out evaluation:} Runs the per-query pipeline on the held-out evaluation fold (three hundred samples per benchmark across the five-benchmark panel) under \verb|store_to_memory=False| so the eval fold does not contaminate the memory pool.
+\item \textbf{Checkpoint and halt-trigger evaluation:} Writes the cycle's coverage diagnostic, the per-tier hit-rate roll-up, and the per-cycle composite calibration snapshot. Evaluates the halt trigger (storage saturation, retention floor failures, or the equilibrium-saturation gate).
+\end{enumerate}
+
+\paragraph{Post-run analysis (Steps P-1 through P-7):}
+\begin{enumerate}
+\item Run the seven-baseline panel (\verb|step_baselines_all|) under the matched-protocol contract.
+\item Rescore the baseline outputs through the locked cycle-three composite (\codepath{step\_rescore\_baselines\_through\_verifier}).
+\item Run the TruthfulQA Haiku rescore (\verb|scripts/rescore_truthfulqa.py|) on every baseline plus CAEM so that the TruthfulQA exact-match cells are scored under a uniform rule.
+\item Run the significance panel (\verb|step_15_5_sig|): paired McNemar on exact match, paired Wilcoxon on the composite hallucination metric, bootstrap confidence intervals, and the Holm correction within each benchmark family.
+\item Aggregate the six decomposition tables (three-headline contrast, per-tier exact match, composite evaluation score, memory-store trajectory, survival distribution, decision diagnostics).
+\item Run the theorem-receipt aggregators that populate the convergence-check, monotonicity-check, asymptotic-elimination, and self-correction tables of \Cref{ch:evaluation}.
+\item Push the post-trajectory artefact bundle to the Hugging Face snapshot under the post-main commit tag.
+\end{enumerate}
+
+\paragraph{Asymmetric-rollback contract:} Triggered when any retention probe drops below $0.93$ of its cycle-zero baseline during Step 1 of the main cycle loop. The adapter reverts to the previous successful cycle's checkpoint, but the memory state does not revert; storage admissions from the failed cycle's stream-chunk pass are preserved. Steps 2.1--2.5 are skipped on the aborted cycle (the cycle-boundary recalibration, retroactive re-verification, and deferred-buffer reconsider all become provable no-ops under unchanged weights). The retroverify log records \verb|"skipped": "aborted_cycle"| so downstream readers distinguish the skip from a genuine zero-delta reverify. Steps 3--6 of the main cycle loop continue to run on aborted cycles: the stream-chunk grows memory unconditionally, the held-out evaluation runs under the rolled-back model so the empirical chapter can compare the aborted cycle's exact match to the previous successful cycle's, and the checkpoint and halt-trigger step records the abort cleanly. The empirical receipt for the contract is the cycle-four firing on the realised trajectory: the TriviaQA-test probe ratio of $0.886$ crossed below the floor and triggered the rollback, the cycle-five reconsider pass recovered the C4-pushed deferred entries that the skipped cycle-four pass had preserved, and the realised commit fraction closed at $\pi_{\mathrm{commit}} = 4/5$.
 
 \section{Snapshot reference}
 \label{app:snapshot}
-% The Hugging Face dataset path that holds the pre-step-7 snapshot. The
-% manifest, the recovery command, and the version tag.
+
+The pre-main snapshot is hosted at the private Hugging Face dataset repository \verb|aksaN000/caem-passage-index-21m|. The repository holds both the sixty-four-gigabyte Wikipedia passage FAISS index at the repository root (\verb|passages.{faiss,meta}|) and the per-commit pre-main artefact bundles under \verb|pre_main_snapshot/<git-commit>/| subtrees. The canonical pre-Step-7 anchor is the commit tag \verb|c5b8066/|; the later RUC-era anchor is \verb|700b9e3/|. The manifest \verb|pre_main_snapshot/c5b8066/MANIFEST.json| records the upload timestamp, source host, git commit, purpose tag, and recovery hint; it is written by the \verb|step_gdrive_upload_pre_main| stage.
+
+The recovery sequence for a re-implementer is the following three commands run from a fresh repository clone with the Hugging Face CLI authenticated to the private repository:
+\begin{verbatim}
+hf download aksaN000/caem-passage-index-21m \
+    --include 'passages.*' 'pre_main_snapshot/*'
+cp -r pre_main_snapshot/c5b8066/* outputs/
+bash run_phase1a.sh
+\end{verbatim}
+The runner picks up at the highest-cycle artefact set on disk.
+
+The snapshot contains the cold-start memory store (approximately three thousand seeded episodes), the cycle-zero memory and deferred-buffer snapshots, the cycle-zero calibration fold (per-sample nine-signal vectors and gold labels), the cycle-zero composite calibration JSON (per-signal isotonic curves, per-benchmark shrinkage children, boost-layer weights), the calibrated configuration JSON (per-benchmark temperature scalars and safety floors), the cycle-zero validation-gate verdict, the cycle-zero evaluation fold (pristine model), the post-calibration rescored evaluation fold, the dataset-splits manifest, the MiniCheck-versus-RoBERTa head-to-head calibration record, the long-hypothesis judge Platt-ablation diagnostic, the cycle-zero retention slice baseline, the phase-four artefact bundle, and the run logs. Items that must be regenerated rather than pulled from the snapshot are the Qwen-2.5-3B-Instruct base weights (recovered from the Hugging Face model hub at deployment time), the per-cycle LoRA adapters at cycles one through five, the per-cycle SIL training artefacts, and the post-cycle-zero composite refits.
 
 \section{Hardware and software profile}
 \label{app:hardware}
-% The rented hardware envelope, the framework versions, the determinism
-% switches, and the seed convention.
+
+\paragraph{Production hardware:} The trajectory ran on a Vast.ai-rented RTX 5090 with thirty-two gigabytes of video memory (approximately thirty-one gigabytes usable after framework overhead), one hundred and fifty gigabytes of disk, and approximately ninety gigabytes of host random-access memory. The rental rate sat at approximately seventy cents per on-demand GPU-hour with spot-pricing windows pulling the realised effective rate lower over the run. The realised six-cycle trajectory plus cycle-zero calibration plus post-run analysis consumed approximately two hundred and ninety-four GPU-hours at a total billed cost of approximately one hundred and sixty-three United States dollars, spread across approximately forty calendar days of elapsed time as cycles, ablations, and rescore passes ran sequentially on the single-card envelope. The verifier-side scoring path (nine-signal extraction, composite refit, retroactive re-verification, and the matched-protocol Haiku-judged TruthfulQA rescore across the baseline panel) is the dominant wall-clock consumer over the run, exceeding the per-cycle low-rank-adapter fine-tune itself, because every entry on every cycle and every baseline-arm answer passes through the full verifier ensemble while the adapter touches only the strict training-pool subset.
+
+\paragraph{Backbone model:} The base generator is Qwen2.5-3B-Instruct (\verb|Qwen/Qwen2.5-3B-Instruct| on the Hugging Face model hub), a three-billion-parameter decoder-only transformer with instruction tuning. The model is held in bfloat16 precision throughout the trajectory. The LoRA adapter sits on top with rank thirty-two, alpha sixty-four, dropout zero point zero five, all seven linear projections targeted (query, key, value, output, gate, up, down), at learning rate two times ten to the minus four under an eight-bit AdamW optimiser.
+
+\paragraph{Framework versions:} The Python environment is pinned at version 3.12. PyTorch is version 2.10 with CUDA 13.0 and CUDA toolkit 13.1; the GPU compute capability target is \verb|sm_120|. The transformers library is version 4.57.6. The remaining dependencies are the peft library for LoRA, the accelerate library for distributed-training scaffolding, the datasets library for benchmark loaders, the faiss-cpu library for the passage and memory indices, the sentence-transformers library for SBERT embeddings, the scikit-learn library for isotonic regression and logistic boost layer, the scipy library for statistical tests, the bitsandbytes library for the eight-bit optimiser, and the Anthropic SDK for the Haiku-judged TruthfulQA correctness rule.
+
+\paragraph{Determinism:} A single seed (\verb|seed=42|) propagates through the generator sampling, the FAISS index construction, and the MC-Dropout passes. The seed-everything routine in \verb|scripts/run_cyclic_ablation.py| sets the Python \verb|random| module, the \verb|PYTHONHASHSEED| environment variable, the NumPy random state, the PyTorch CPU random state, and the PyTorch CUDA random state on every device. The flag \verb|torch.use_deterministic_algorithms| is set to false deliberately because the cuDNN attention path is not bitwise-deterministic; determinism is enforced at the metric level (exact match and F1) rather than at the bit level.
+
+\paragraph{Writeup envelope:} The thesis itself was written on a Windows Subsystem for Linux 2 environment running Linux kernel 6.6, with twelve gigabytes of video memory on an RTX 3060 and sixteen gigabytes of host random-access memory. The twenty-one-million-passage FAISS index is sixty-four gigabytes on disk and requires approximately ninety gigabytes of resident page cache to mmap; the writeup hardware cannot host the index, so all retrieval-side numbers in the thesis are read from the Vast-side evaluation JSONs rather than recomputed locally. The composite hallucination metric rescore for the semantic-entropy baseline (\Cref{sec:future-se-chm}) is deferred for the same reason.
 
 \section{Calibration script reference}
 \label{app:calibration-scripts}
-% The three calibration entry points, their inputs and outputs, and the
-% sample-count and dedup discipline that each enforces.
+
+The three calibration entry points are run in sequence at cycle zero and the second and third are rerun at every successful cycle boundary as part of Step~2 of the main cycle loop.
+
+\paragraph{Temperature scaling and per-benchmark calibration (\texttt{scripts/run\_calibration.py}).} Fits the pooled temperature scalar $T$ and the per-benchmark temperature vector $T_{b}$ under a limited-memory BFGS optimiser against the expected-calibration-error objective on the cycle's calibration fold. The fold loads through the \verb|calib_ids| field of \codepath{outputs/checkpoints/dataset\_splits.json}; the default size is five hundred samples per training benchmark, which gives the canonical fifteen-hundred-sample pooled fold across FEVER, TriviaQA, and CommonsenseQA. Within-benchmark content-hash deduplication runs through the \verb|_dedupe_by_content_id| helper, and cross-pool disjointness against the SIL-train and eval folds is asserted by \verb|assert_disjoint_calibration|. The script writes \codepath{outputs/calibration/calibrated\_config.json} and the per-cycle \verb|calibrated_config_cycle*.json|, plus the per-sample dump \verb|calibration_fold_samples.json| that the composite fitter consumes. Approximate runtime is one hour standalone for a cold cycle-zero fit and three and a half hours when invoked as part of the per-cycle composite-refit chain.
+
+\paragraph{Composite fit (\texttt{scripts/fit\_composite\_calibration.py}).} Consumes the nine verifier signals and the exact-match labels from \verb|calibration_fold_samples.json| and fits the per-benchmark calibrated-probability composite. The fit chain is per-signal isotonic regression, per-benchmark shrinkage blend toward the pooled fit under $\alpha_{\text{shrink}} = 0.6$, and an L2-regularised logistic boost layer under \verb|--boost_C 0.01|. The fit aborts if fewer than two hundred labelled samples are available. Cross-benchmark content-hash deduplication is inherited from the upstream calibration-fold writer. Approximate runtime is two minutes on CPU. The script writes \codepath{outputs/cycle\_0/composite\_calibration.json} at cycle zero and is invoked again at every cycle boundary against the cycle's own labelled fold to write \verb|outputs/cycle_N/composite_calibration.json|.
+
+\paragraph{Per-cycle composite refit:} The cycle-boundary refit is implemented inside \codepath{scripts/run\_experiment.py} as the \verb|run_per_cycle_composite_refit| helper. The helper shells out to \verb|fit_composite_calibration.py| under the same \verb|--cherian_boost --boost_C 0.01 --shrinkage_alpha 0.6| flags as the cycle-zero fit, but against the cycle's own fold under \codepath{outputs/cycle\_\{N\}/calibration/*.json}. Deduplication is inherited from \verb|_dedup_inplace| inside the runner. The canonical cycle-zero composite calibration path is intentionally not overwritten by the per-cycle refit; later-cycle composites live at their own per-cycle paths and the cycle-three composite is what the post-run baseline rescore reads. Approximate runtime is two minutes per cycle.
 
 \section{Validation gate reference}
 \label{app:gate-reference}
-% The validation gate command, its four checks, and the threshold values it
-% enforces.
+
+The cycle-zero validation gate licenses the deployed configuration to enter the main run. The gate is implemented at \verb|scripts/validate_composite_weights.py| and runs automatically as the \verb|step_7_0_3_validate_weights| stage of the pre-run setup block. The gate is a conjunction of four pre-registered checks; the verdict is recorded at \verb|outputs/cycle_0/weight_validation.json|.
+
+\begin{verbatim}
+python scripts/validate_composite_weights.py \
+    --eval_dir outputs/cycle_0/eval \
+    --output  outputs/cycle_0/weight_validation.json \
+    --cohen_d_threshold 0.20 \
+    --store_discard_gap 0.05 \
+    --max_poisoning_rate 0.50
+\end{verbatim}
+
+\begin{description}
+\item[Check 1: composite Cohen's $d$ on the training-pooled evaluation fold.]\
+  \par\textit{Rationale.} Audits the precondition of \Cref{thm:purity} that the verifier discriminates correct from incorrect outputs strictly above chance.
+  \par\textit{Threshold.} $d_{\text{id}} \ge 0.20$.
+  \par\textit{Realised.} $d_{\text{id}} = +0.635$, clearing the floor by more than three times the registered margin. The transfer-pooled Cohen's $d$ reads $+0.173$ and is reported alongside as an out-of-distribution diagnostic; it is not gated.
+\item[Check 2: per-benchmark store-versus-discard mean-composite gap.]\
+  \par\textit{Rationale.} Audits that the storage rule behaves consistently across training benchmarks rather than being driven by a single dominating subset.
+  \par\textit{Threshold.} $\Delta \ge 0.05$ on every training benchmark.
+  \par\textit{Realised.} $0.282$ on FEVER, $0.320$ on TriviaQA, $0.258$ on CommonsenseQA.
+\item[Check 3: per-benchmark memory-poisoning rate.]\
+  \par\textit{Rationale.} Audits that the storage gate does not admit wrong-confident entries at a rate that would compromise the verified pool. Defined as the share of stored entries whose stored answer is wrong against the gold label.
+  \par\textit{Threshold.} rate $\le 0.50$ on every training benchmark.
+  \par\textit{Realised.} $0.206$ on FEVER, $0.179$ on TriviaQA, $0.247$ on CommonsenseQA.
+\item[Check 4: no strong-signal inversion.]\
+  \par\textit{Rationale.} Audits that no signal carries a strongly negative Cohen's $d$ against its registered direction.
+  \par\textit{Threshold.} no signal (except the registered-inverse $u_{\text{dropout}}$) reports $d < -0.20$ on the cal fold.
+  \par\textit{Realised.} no inversion observed.
+\end{description}
+
+The overall verdict is \textsc{pass}: the conjunction holds and the deployed configuration is licensed to enter the main run. The verdict is reported in \Cref{sec:adj-gate} with the same numbers; the canonical v2.1-panel artefact path is \codepath{outputs/analysis/weight\_validation\_v2\_1.json}, whose store-versus-discard gap is keyed against the three training benchmarks of the realised panel (FEVER, TriviaQA, CommonsenseQA). The legacy pre-v2.1 artefact at \verb|outputs/cycle_0/weight_validation.json| reads a different benchmark trio (FEVER, StrategyQA, TruthfulQA) under the earlier panel registration and is preserved for audit but is superseded by the v2.1-panel reading.

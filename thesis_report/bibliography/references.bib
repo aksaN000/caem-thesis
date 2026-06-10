@@ -884,7 +884,7 @@ eprint = {https://arxiv.org/abs/2305.14975}
     author = "Kuhn, Lorenz and Gal, Yarin and Farquhar, Sebastian",
     booktitle = "International Conference on Learning Representations (ICLR)",
     year = "2023",
-    note = "Bidirectional-NLI-clustering definition of semantic entropy used in CAEM's h\\_norm signal; Chapter~5 cites this as the definitive comparison against length-normalised predictive entropy, P(True), and lexical-similarity baselines on OPT-30B TriviaQA / CoQA.",
+    note = "Bidirectional-NLI-clustering definition of semantic entropy used in CAEM's h{\textunderscore}norm signal; Chapter~5 cites this as the definitive comparison against length-normalised predictive entropy, P(True), and lexical-similarity baselines on OPT-30B TriviaQA / CoQA.",
 }
 
 @misc{qwen25,
@@ -894,7 +894,7 @@ eprint = {https://arxiv.org/abs/2305.14975}
     year = {2024},
     doi = {10.48550/arXiv.2412.15115},
     url = {https://arxiv.org/abs/2412.15115},
-    note = {Release note for the Qwen2.5 family including the 3B-Instruct checkpoint used as CAEM's decoder-only base generator (Table~\\ref{tab:pretrained-components}); Branch~C 2026-04-22 backbone adoption.},
+    note = {Release note for the Qwen2.5 family including the 3B-Instruct checkpoint used as CAEM's decoder-only base generator; Branch~C 2026-04-22 backbone adoption.},
 }
 
 @inproceedings{stelmakh2022asqa,
@@ -904,7 +904,7 @@ eprint = {https://arxiv.org/abs/2305.14975}
     year = {2022},
     doi = {10.18653/v1/2022.emnlp-main.566},
     url = {https://aclanthology.org/2022.emnlp-main.566/},
-    note = {Long-form open-ended QA benchmark; CAEM evaluates on ASQA's \\texttt{dev} split (Section~\\ref{sec:benchmarks}) using the paper's STR (ROUGE-L) score at threshold $0.20$ as the offline EM proxy. Path-B long-form-evidence eval adopted by Branch~C 2026-04-22.},
+    note = {Long-form open-ended QA benchmark; CAEM evaluates on ASQA's \texttt{dev} split (Section~\ref{sec:setup-benchmarks}) using the paper's STR (ROUGE-L) score at threshold $0.20$ as the offline EM proxy. Path-B long-form-evidence eval adopted by Branch~C 2026-04-22.},
 }
 
 
@@ -918,7 +918,7 @@ eprint = {https://arxiv.org/abs/2305.14975}
     year = {2021},
     doi = {10.1162/tacl_a_00370},
     url = {https://aclanthology.org/2021.tacl-1.21/},
-    note = {StrategyQA benchmark used as a transfer-only evaluation in CAEM (Section~\ref{sec:benchmarks}).},
+    note = {StrategyQA benchmark used as a transfer-only evaluation in CAEM (Section~\ref{sec:setup-benchmarks}).},
 }
 
 @inproceedings{strubell2019energy,
@@ -952,7 +952,7 @@ eprint = {https://arxiv.org/abs/2305.14975}
 }
 
 @inproceedings{cherian2024conformal,
-    author = {Cherian, John J.\ and Gibbs, Isaac and Cand{\`e}s, Emmanuel J.},
+    author = {Cherian, John J. and Gibbs, Isaac and Cand{\`e}s, Emmanuel J.},
     title = {Enhanced Conformal Prediction with Boosted Logistic Regression},
     booktitle = {Advances in Neural Information Processing Systems (NeurIPS 2024)},
     year = {2024},
@@ -978,7 +978,7 @@ eprint = {https://arxiv.org/abs/2305.14975}
 }
 
 @inproceedings{quach2024conformal,
-    author = {Quach, Victor and Fisch, Adam and Schuster, Tal and Yala, Adam and Sohn, Jae Ho and Jaakkola, Tommi S.\ and Barzilay, Regina},
+    author = {Quach, Victor and Fisch, Adam and Schuster, Tal and Yala, Adam and Sohn, Jae Ho and Jaakkola, Tommi S. and Barzilay, Regina},
     title = {Conformal Language Modeling},
     booktitle = {International Conference on Learning Representations (ICLR 2024)},
     year = {2024},
@@ -1014,7 +1014,7 @@ eprint = {https://arxiv.org/abs/2305.14975}
 }
 
 @inproceedings{das2025retraining,
-    author = {Das, Rudrajit and Dhillon, Inderjit S.\ and Epasto, Alessandro and Javanmard, Adel and Mirrokni, Vahab},
+    author = {Das, Rudrajit and Dhillon, Inderjit S. and Epasto, Alessandro and Javanmard, Adel and Mirrokni, Vahab},
     title = {Retraining with Predicted Hard Labels Provably Increases Model Accuracy},
     booktitle = {Proceedings of the 42nd International Conference on Machine Learning (ICML 2025)},
     year = {2025},
@@ -1023,7 +1023,7 @@ eprint = {https://arxiv.org/abs/2305.14975}
 }
 
 @inproceedings{huang2025sharpening,
-    author = {Huang, Audrey and Block, Adam and Foster, Dean and Rohatgi, Dhruv and Zhang, Cyril and Simchowitz, Max and Ash, Jordan T.\ and Krishnamurthy, Akshay},
+    author = {Huang, Audrey and Block, Adam and Foster, Dean and Rohatgi, Dhruv and Zhang, Cyril and Simchowitz, Max and Ash, Jordan T. and Krishnamurthy, Akshay},
     title = {Self-Improvement in Language Models: The Sharpening Mechanism},
     booktitle = {International Conference on Learning Representations (ICLR 2025)},
     year = {2025},
@@ -1199,5 +1199,46 @@ eprint = {https://arxiv.org/abs/2305.14975}
     publisher = {Association for Computational Linguistics},
     doi       = {10.18653/v1/N19-1421},
     url       = {https://aclanthology.org/N19-1421/},
-    note      = {Multiple-choice commonsense reasoning benchmark over five-option items keyed by relations from ConceptNet. Used in CAEM as one of the three training-panel benchmarks (Section~\ref{sec:scope}) and as the source of the held-out test fold contributing the commonsense MCQ surface to the multi-modal retention probe panel of Section~\ref{sec:sil}.},
+    note      = {Multiple-choice commonsense reasoning benchmark over five-option items keyed by relations from ConceptNet. Used in CAEM as one of the three training-panel benchmarks (Section~\ref{sec:setup-benchmarks}) and as the source of the held-out test fold contributing the commonsense MCQ surface to the multi-modal retention probe panel of Section~\ref{sec:sil}.},
+}
+
+@inproceedings{mallen2023whennot,
+    author    = {Mallen, Alex and Asai, Akari and Zhong, Victor and Das, Rajarshi and Khashabi, Daniel and Hajishirzi, Hannaneh},
+    title     = {When Not to Trust Language Models: Investigating Effectiveness of Parametric and Non-Parametric Memories},
+    booktitle = {Proceedings of the 61st Annual Meeting of the Association for Computational Linguistics (ACL 2023)},
+    year      = {2023},
+    pages     = {9802--9822},
+    publisher = {Association for Computational Linguistics},
+    doi       = {10.18653/v1/2023.acl-long.546},
+    url       = {https://aclanthology.org/2023.acl-long.546/},
+    note      = {Introduces PopQA (14k entity-centric questions) and the popularity-thresholded selective-retrieval rule that dispatches a query to retrieval-augmented generation only when the subject entity's Wikipedia pageview rank falls below a per-relation threshold; reaches 46.5\% on PopQA with GPT-3 davinci-003 (versus approximately 36\% non-adaptive baseline). Cited at \Cref{sec:lit-selective-retrieval} as the empirical anchor that retrieval-utility prediction is feasible from cheap question-side features alone and as the conceptual ancestor of \Cref{sec:ruc}.},
+}
+
+@inproceedings{wang2023skr,
+    author    = {Wang, Yile and Li, Peng and Sun, Maosong and Liu, Yang},
+    title     = {Self-Knowledge Guided Retrieval Augmentation for Large Language Models},
+    booktitle = {Findings of EMNLP 2023},
+    year      = {2023},
+    pages     = {10303--10315},
+    publisher = {Association for Computational Linguistics},
+    doi       = {10.18653/v1/2023.findings-emnlp.691},
+    url       = {https://aclanthology.org/2023.findings-emnlp.691/},
+    note      = {Introduces self-knowledge routing (SKR): collects retrieval-helpful versus retrieval-hurt labels by running each training question with and without retrieval, then trains either a BERT binary classifier or a kNN head over self-knowledge embeddings to make the per-query routing decision at inference. The training-label rule (compare exact match with retrieval against exact match without retrieval) is the direct precedent for the Path-B label rule used in \Cref{sec:ruc}.},
+}
+
+@inproceedings{baek2025probing,
+    author    = {Baek, Jinheon and Chandrasekaran, Akshay and Lin, Silvio and Hwang, Sung Ju and Carbonell, Jaime},
+    title     = {Probing-{RAG}: Self-Probing to Guide Language Models in Selective Document Retrieval},
+    booktitle = {Findings of the Association for Computational Linguistics: NAACL 2025},
+    year      = {2025},
+    note      = {Trains a linear prober on intermediate hidden states of the generator to predict whether retrieval-augmented generation will improve the answer over zero-shot generation; uses balanced positive/negative training (a 50/50 ratio enforced at construction). Outperforms FLARE, Self-RAG, and Adaptive-RAG on five open-domain QA datasets with fewer retrieval steps. Cited at \Cref{sec:lit-selective-retrieval} as the closest architectural cousin of \Cref{sec:ruc} on the feature axis: both consume hidden-state self-knowledge signals from the base model, though Probing-RAG uses intermediate layers and CAEM uses the last-token probe under the disable-adapter context.},
+}
+
+@misc{moskvoretskii2025llm,
+    author    = {Moskvoretskii, Viktor and Lazichny, Maria and Klimov, Egor and Vlasova, Anastasia and Tikhomirov, Sergey and Zharikov, Alexander and Loyola, Pablo},
+    title     = {{LLM}-Independent Adaptive {RAG}: Let the Question Speak for Itself},
+    howpublished = {arXiv preprint arXiv:2505.04253},
+    year      = {2025},
+    url       = {https://arxiv.org/abs/2505.04253},
+    note      = {Argues that an external classifier with no language-model forward pass at routing time can match the routing accuracy of language-model-based selective retrievers (Adaptive-RAG, Self-RAG, Probing-RAG) on the standard suite. Establishes the lightweight-classifier-only operating point that \Cref{sec:ruc} adopts: the routing decision is taken before any tier-side language-model call, and the only base-model dependency is the offline self-knowledge probe trained once at cycle zero.},
 }

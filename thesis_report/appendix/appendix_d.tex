@@ -1,7 +1,8 @@
 % ============================================================================
 % Appendix D — Significance test details
-% Status: SKELETON. Populates after the baseline panel and the
-% McNemar plus bootstrap plus Holm computation.
+% The pairing rule, the McNemar contingency construction, the bootstrap
+% protocol, the Holm sequence on the realised eight-baseline panel, and
+% the architectural-claim licensing rule.
 % ============================================================================
 
 \chapter{Significance test details}
@@ -9,26 +10,146 @@
 
 \section{Pairing rule and sample identifiers}
 \label{app:sig-pairing}
-% The benchmark sample identifier convention, how the architecture
-% and each baseline are paired query by query, and the null sample
-% rule.
+
+The pairing rule is implemented in the panel significance-test driver (\texttt{scripts/baseline\allowbreak/baseline\_sig\_tests.py}) and runs in four stages, listed below by their conceptual roles.
+
+\begin{description}
+\setlength{\itemsep}{2pt}
+\item[Manifest restriction.] The authoritative evaluation manifest is read from the per-benchmark dataset-splits record (\texttt{outputs/full\_run/\allowbreak dataset\_splits.json}), whose per-benchmark evaluation-identifier field is assembled into a string-keyed set of sample identifiers. If the manifest is absent or unreadable the driver emits a warning and falls back to the raw identifier intersection between the architecture's and the baseline's evaluation JSONs.
+\item[Vector load.] Per-sample correctness vectors are loaded from each side's evaluation JSON. The architecture's vector comes from the per-cycle eval record under the full-run output tree (\texttt{outputs/full\_run/eval/\allowbreak \textit{bench}\_cycle\textit{N}.json}, with $N$ set to the registered anchor cycle), and the baseline's vector comes from the per-baseline eval record under the Phase~1e baselines tree (\texttt{outputs/\allowbreak baselines\_phase1e/\allowbreak \textit{baseline}/\allowbreak \textit{bench}\_cycle0.json}) or the corresponding nested fallback.
+\item[Identifier intersection.] Each loader keys on the sample's identifier field and drops rows whose identifier is null or empty.
+\item[Fallback rule.] The contrast set per cell is the sorted intersection of the two identifier maps after restriction to the eval-fold manifest; if the manifest read failed, the fallback intersection is used in its place and the contrast is flagged in the log.
+\end{description}
+
+The contrast set per (baseline, benchmark) cell is the sorted intersection of the two identifier maps after restriction to the eval-fold manifest. Identifiers present on only one side are excluded from the test for that contrast; there is no zero-imputation. Contrasts whose paired-identifier intersection has fewer than ten entries are skipped with an informational log entry and recorded as not run rather than as a null result. The same skip-with-warning path covers missing evaluation JSONs and empty post-filter identifier maps.
+
+The TruthfulQA exact-match cell is read under the project's uniform Haiku-judged correctness rule. The loader detects TruthfulQA samples by a filename substring match on the source JSON and dispatches to the Haiku-judged correctness field of each sample; the legacy ROUGE-thresholded correctness field is used as a fallback only when the Haiku-judged field is absent. The legacy field overestimates exact match on TruthfulQA by approximately a factor of two on the high-EM retrieval-free baselines (the documented receipt is the zero-shot prompt scoring $0.803$ under the ROUGE rule against $0.433$ under the Haiku-judged rule), so reading the legacy field would inflate the baseline counts and produce a methodologically unsound contingency table. The strict-ROUGE correctness field is never read.
+
+The matched-protocol contract is enforced at the harness level rather than by hard assertion in the significance-test script: mismatched manifests cause individual contrasts to be skipped with a warning, but the eval-fold manifest is the single source of truth for which identifiers belong to the evaluation slice on each benchmark.
 
 \section{Contingency tables}
 \label{app:sig-tables}
-% Per benchmark per baseline contingency table for the McNemar test
-% with the continuity correction.
+
+For each (baseline, benchmark) contrast the script builds two aligned binary correctness vectors over the matched-identifier set, then constructs the paired McNemar two-by-two contingency table. The two diagonal cells are the concordant pairs: $a$ is the count of identifiers on which both systems answer correctly, and $d$ is the count on which both answer incorrectly. The two off-diagonal cells are the discordant pairs: $b$ is the count on which the architecture is correct and the baseline is wrong, and $c$ is the count on which the architecture is wrong and the baseline is correct. The paired McNemar test reads only the two discordant cells; the concordant cells are tallied implicitly through $n_{\text{paired}} = a + b + c + d$ but are never materialised in the persisted output schema. The reported test statistic is the continuity-corrected chi-squared at one degree of freedom,
+\[
+\chi^{2} \;=\; \frac{\bigl(\lvert b - c \rvert - 1\bigr)^{2}}{b + c},
+\]
+which returns the pair $(0, 1)$ when $b + c = 0$ to avoid a divide-by-zero on contrasts where the architecture and the baseline agree on every paired sample.
+
+\Cref{tab:app-sig-tables} reports four representative contingency contrasts at the cycle-five close. The B6 vanilla-fine-tune cell on TriviaQA records the largest single contingency gap in the panel ($\chi^{2} = 56.9$ at $n = 300$). The B7 FLARE cell on StrategyQA records a similarly large gap because FLARE's active-retrieval profile is poorly suited to StrategyQA's implicit multi-hop boolean surface. The B8 semantic-entropy cell on TruthfulQA records the tightest contrast in the panel under the corrected Haiku-judged scoring rule ($\chi^{2} = 0.010$, $p_{\text{raw}} = 0.92$, $n_{\text{paired}} = 300$); the two systems agree on every TruthfulQA correctness pattern at the per-sample level.
+
+\begin{table}[H]
+\centering\footnotesize
+\setlength{\tabcolsep}{4pt}
+\renewcommand{\arraystretch}{1.1}
+\resizebox{\linewidth}{!}{%
+\begin{tabular}{@{}lrrrrrr@{}}
+\toprule
+\textbf{Contrast} & $\boldsymbol{n}$ & \textbf{EM (CAEM)} & \textbf{EM (baseline)} & $\boldsymbol{\Delta_{\text{EM}}}$ & $\boldsymbol{\chi^{2}}$ & $\boldsymbol{p_{\text{raw}}}$ \\
+\midrule
+B1 zero-shot $\cdot$ FEVER         & $300$ & $0.477$ & $0.453$ & $+0.023$ & $0.232$  & $0.630$ \\
+\midrule
+B6 vanilla-FT $\cdot$ TriviaQA     & $300$ & $0.453$ & $0.190$ & $+0.263$ & $56.860$ & $< 10^{-12}$ \\
+B7 FLARE $\cdot$ StrategyQA        & $300$ & $0.640$ & $0.250$ & $+0.390$ & $76.891$ & $< 10^{-12}$ \\
+\midrule
+B8 semantic-entropy $\cdot$ TruthfulQA & $300$ & $0.300$ & $0.307$ & $-0.007$ & $0.010$  & $0.920$ \\
+\bottomrule
+\end{tabular}%
+}
+\caption[Four representative McNemar contingency contrasts at the cycle-five anchor]{Four representative McNemar contingency contrasts at the cycle-five anchor on the eight-baseline panel. The B6 TriviaQA cell is the architecture's largest single-contrast lift in the panel; the B7 StrategyQA cell is the next-largest. The B8 TruthfulQA cell records the corrected post-Haiku-rescore contrast and is essentially tied at the per-sample level. Discordant cell counts $b$ and $c$ are not persisted directly in the output schema but are recoverable by re-pairing the eval JSONs on the sample identifier and counting the $(1,0)$ and $(0,1)$ patterns; the closure rule $a = n \cdot \text{EM}_{\text{CAEM}} - b$ and $d = n - a - b - c$ completes the table. Source: the post-Haiku-rescore significance-test record.}
+\label{tab:app-sig-tables}
+\end{table}
+
+The composite-hallucination-metric axis runs the paired Wilcoxon signed-rank test on the same matched-identifier set. The signed-difference vector is the per-sample architecture-minus-baseline composite-hallucination-metric value; the test statistic is the standard signed-rank sum with the two-sided continuity correction, computed by the scipy implementation. The same matched-identifier set feeds the bootstrap interval below, so the McNemar significance, the Wilcoxon significance, and the bootstrap interval are all read off a single per-contrast paired-difference vector.
 
 \section{Bootstrap protocol}
 \label{app:sig-bootstrap}
-% Resampling distribution, replicate count, the percentile-based
-% confidence-interval rule.
+
+The bootstrap is the standard percentile method on the per-paired-sample exact-match-difference vector. Bootstrap replicates: one thousand. Random seed: forty-two, threaded through a deterministic Python pseudo-random generator. Resampling unit: per-paired-sample with replacement, on the matched-identifier vector of length $n_{\text{paired}}$. The bootstrap statistic per replicate is the mean of the per-sample exact-match difference; the confidence interval is the two-sided ninety-five-percent percentile, with the lower bound read from the empirical $\alpha/2$ quantile and the upper bound read from the empirical $1 - \alpha/2$ quantile of the sorted replicate means.
+
+The percentile method is preferred over the bias-corrected-and-accelerated method because the per-sample exact-match-difference is a bounded discrete random variable in $\{-1, 0, +1\}$ for every contrast; the bias-corrected-and-accelerated method's analytic acceleration estimate is unstable on bounded-discrete samples at the realised per-contrast sample size of three hundred, and the percentile method's coverage on bounded-discrete samples at this size is within the registered tolerance against a normal-theory baseline.
+
+Three representative confidence intervals on the exact-match difference at the cycle-five anchor are summarised in \Cref{tab:app-sig-boot-intervals}: a contrast that does not clear the licensing rule of \Cref{sec:sig-licensing} on the exact-match axis, a contrast that marginally contains zero at the lower bound, and the architecture's largest single-contrast bootstrap interval in the panel.
+
+\begin{table}[H]
+\centering\footnotesize
+\setlength{\tabcolsep}{6pt}
+\renewcommand{\arraystretch}{1.1}
+\begin{tabular}{@{}lrrl@{}}
+\toprule
+\textbf{Contrast} & $\boldsymbol{\Delta_{\text{EM}}}$ & \textbf{95\% CI} & \textbf{Licensing verdict} \\
+\midrule
+B1 zero-shot $\cdot$ FEVER             & $+0.023$ & $[-0.060,\, +0.110]$ & unsupported (CI contains zero) \\
+B3 RAG $\cdot$ TruthfulQA              & $+0.057$ & $[-0.003,\, +0.117]$ & marginal (lower bound at zero) \\
+B6 vanilla-FT $\cdot$ CommonsenseQA    & $+0.717$ & $[+0.663,\, +0.767]$ & supported (largest panel lift) \\
+\bottomrule
+\end{tabular}
+\caption[Three representative bootstrap intervals on exact-match difference at the cycle-five anchor]{Three representative bootstrap intervals on the per-paired-sample exact-match difference at the cycle-five anchor under the percentile method with one thousand replicates. The B1 FEVER contrast does not clear the licensing rule on the exact-match axis. The B3 TruthfulQA contrast is marginal at the lower bound. The B6 CommonsenseQA contrast is the architecture's largest single-contrast bootstrap interval in the panel.}
+\label{tab:app-sig-boot-intervals}
+\end{table}
+
+The same protocol on the composite-hallucination-metric axis substitutes the per-sample architecture-minus-baseline composite-hallucination-metric value into the resampled mean; the bootstrap implementation is shared and the seed is identical, so the composite-hallucination-metric intervals are reproducible from the same matched-identifier pairs that feed the exact-match intervals.
 
 \section{Holm sequence}
 \label{app:sig-holm}
-% Per benchmark family, the seven baseline contrasts in their sorted
-% order with the Holm-adjusted p-values.
+
+The Holm-Bonferroni step-down correction is applied independently within each benchmark family of size $m = 8$ on each metric axis. The raw $p$-values from the eight per-baseline contingency tables (or paired Wilcoxon statistics on the composite-hallucination-metric axis) are sorted in ascending order; the $k$-th smallest raw $p$-value is multiplied by $m - k$ (equivalently the textbook $m + 1 - i$ for the one-indexed rank), a running maximum is applied to enforce monotonicity along the sorted order, and the adjusted values are clipped at one. Adjusted $p$-values are then re-aligned to the original baseline order for reporting. The family-wise error-rate target is $\alpha = 0.05$.
+
+\Cref{tab:app-sig-holm-tqa} and \Cref{tab:app-sig-holm-fever} report the realised Holm sequences on the two benchmark families at the cycle-five anchor that surface the two regime endpoints: TruthfulQA carries the four composite-hallucination defeats discussed in \Cref{sec:disc-prior}, and FEVER is the cleanest single-bench win regime in the panel.
+
+\begin{table}[H]
+\centering\footnotesize
+\setlength{\tabcolsep}{6pt}
+\renewcommand{\arraystretch}{1.1}
+\begin{tabular}{@{}llrrl@{}}
+\toprule
+\textbf{Rank} & \textbf{Baseline} & \textbf{Raw $p$} & \textbf{Holm $p$} & \textbf{Sig} \\
+\midrule
+1 & B5 five-shot CoT    & $2.4 \times 10^{-5}$ & $1.9 \times 10^{-4}$ & yes \\
+2 & B2 chain-of-thought & $2.77 \times 10^{-4}$ & $1.94 \times 10^{-3}$ & yes \\
+3 & B1 zero-shot        & $6.25 \times 10^{-4}$ & $3.75 \times 10^{-3}$ & yes \\
+4 & B3 RAG              & $0.079$ & $0.395$ & no \\
+5 & B4 CoT $+$ RAG      & $0.083$ & $0.395$ & no \\
+6 & B6 vanilla-FT       & $0.347$ & $1.000$ & no \\
+7 & B8 semantic-entropy & $0.920$ & $1.000$ & no \\
+8 & B7 FLARE            & $0.923$ & $1.000$ & no \\
+\bottomrule
+\end{tabular}
+\caption[Holm sequence on the TruthfulQA family at the cycle-five anchor]{Holm sequence on the TruthfulQA family at the cycle-five anchor under the uniform Haiku-judged exact-match rule. Three of eight baselines clear the corrected threshold; the two CAEM defeats on TruthfulQA exact match (B1 zero-shot and B2 chain-of-thought, the high-exact-match retrieval-free baselines whose confidently-stated answers exploit the false-refusal subtype of the composite-hallucination metric) sit at ranks two and three. B5 five-shot CoT is the lone CAEM win in the family. B8 semantic-entropy is no longer separable from CAEM under the Haiku-judged rule after the rescore landed (raw $p \approx 0.92$, Holm $\approx 1.0$); the contrast that the pre-rescore strict-EM scoring had registered as a CAEM win on TruthfulQA collapsed to a tie under the corrected scoring rule. The four CAEM defeats on the composite-hallucination-metric axis discussed in \Cref{sec:disc-prior} use the analogous Wilcoxon procedure on the same matched-identifier set.}
+\label{tab:app-sig-holm-tqa}
+\end{table}
+
+\begin{table}[!t]
+\centering\footnotesize
+\setlength{\tabcolsep}{6pt}
+\renewcommand{\arraystretch}{1.1}
+\begin{tabular}{@{}llrrl@{}}
+\toprule
+\textbf{Rank} & \textbf{Baseline} & \textbf{Raw $p$} & \textbf{Holm $p$} & \textbf{Sig} \\
+\midrule
+1 & B7 FLARE            & $< 10^{-6}$ & $< 10^{-6}$ & yes \\
+2 & B6 vanilla-FT       & $6.93 \times 10^{-3}$ & $0.0485$ & yes \\
+3 & B2 chain-of-thought & $0.210$ & $1.000$ & no \\
+4 & B3 RAG              & $0.425$ & $1.000$ & no \\
+5 & B4 CoT $+$ RAG      & $0.441$ & $1.000$ & no \\
+6 & B1 zero-shot        & $0.630$ & $1.000$ & no \\
+7 & B5 five-shot CoT    & $0.798$ & $1.000$ & no \\
+8 & B8 semantic-entropy & $0.935$ & $1.000$ & no \\
+\bottomrule
+\end{tabular}
+\caption[Holm sequence on the FEVER family at the cycle-five anchor]{Holm sequence on the FEVER family at the cycle-five anchor. Two of eight baselines clear the corrected threshold: B7 FLARE (CAEM win by a large exact-match margin) and B6 vanilla-fine-tune (CAEM loss by approximately eight percentage points; the matched-scale fine-tune contrast is the registered defeat). The remaining six baselines sit at adjusted $p$-values of one, the empirical receipt that the cycle-five trained architecture and the prompt-only baselines do not separate on FEVER under the matched-protocol contract.}
+\label{tab:app-sig-holm-fever}
+\end{table}
+
+The star annotations on every cell of \Cref{tab:sig-test} and \Cref{tab:sig-test-c2} correspond one-to-one to contrasts whose Holm-adjusted $p$-value clears $0.05$ \emph{and} whose absolute exact-match difference clears the two-percentage-point effect-size floor of the licensing rule below. The auditor can verify the correspondence by reading the licensing-rule flag column of the per-contrast significance-test record (\texttt{outputs/full\_run/\allowbreak tab\_sig\_test.csv}) and the analogous best-cycle record: every row flagged as licensed satisfies both conditions jointly, and every row flagged as unlicensed fails at least one.
 
 \section{Architectural-claim licensing rule}
 \label{app:sig-licensing}
-% The pre-registered conjunction (significance and effect-size floor)
-% under which an architectural claim is licensed.
+
+The pre-registered architectural-claim licensing rule is a conjunction of two conditions on every per-benchmark contrast. The first condition is the Holm-adjusted $p$-value within the benchmark family must clear the family-wise error-rate target of $0.05$. The second condition is the absolute exact-match difference (or absolute composite-hallucination-metric difference, depending on the axis) must clear the two-percentage-point effect-size floor of $0.02$. A contrast that satisfies both conditions is reported as supporting the corresponding hypothesis from \Cref{sec:hypotheses}; a contrast that satisfies one but not the other is reported as partially supporting; a contrast that satisfies neither is reported as unsupported.
+
+The conjunction is necessary because statistical significance at the realised per-contrast sample size of three hundred can be cleared by a strictly-positive-but-arbitrarily-small mean lift: with the matched-protocol pairing the McNemar test has substantial power even on a sub-one-percentage-point exact-match difference, and reporting every such contrast as supporting an architectural claim would mistake measurement precision for architectural value. The two-percentage-point floor screens these out so that a star annotation marks contrasts that are both reliably non-zero and large enough to license an architectural claim. The floor itself was registered in advance of any baseline run and is held fixed across the trajectory.
+
+The implementation closes the loop in the panel significance-test driver through two flag columns on the per-contrast output schema. The statistical-significance flag (the dagger column) is set true when the Holm-adjusted $p$-value clears $0.05$ regardless of effect size; the licensing-rule flag (the star column) is set true only when the statistical-significance flag is true \emph{and} the absolute exact-match difference clears the two-percentage-point floor. Both flags are persisted to the per-contrast row alongside the raw $p$-value, the Holm-adjusted $p$-value, the bootstrap interval endpoints, and the exact-match difference, so the licensing-rule verdict on every contrast is recoverable from the persisted output without re-running the test.
+
+The realised receipts at the cycle-five close after the Haiku rescore are thirteen exact-match wins and three defeats and twenty-three composite-hallucination wins and four defeats; at the within-trajectory best cycle the receipts are seventeen exact-match wins and two defeats and twenty-six composite-hallucination wins and four defeats. The four composite-hallucination defeats at both anchors are confined to TruthfulQA against the high-exact-match retrieval-free baselines (B1 zero-shot, B2 chain-of-thought, B7 FLARE, B8 semantic-entropy), where the architecture's elevated abstention rate inflates the false-refusal subtype of the composite-hallucination metric while the baselines pay the exact-match penalty on the same misconception-bait surface. The retrieval-utility classifier ablation of \Cref{sec:ruc-ablation} reports the architectural fix that lifts TruthfulQA exact match from $0.210$ to $0.310$ by re-routing misconception-bait queries away from the retrieval-augmented tier.

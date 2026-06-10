@@ -17,13 +17,13 @@ $p_{\text{entail}}$ & Chain-to-answer NLI entailment & $h_{\text{norm}}$ & Norma
 $p_{\text{ground,max}}$ & Top-$1$ passage entailment & $p_{\text{ground,mean}}$ & Mean entailment over top-$3$ \\
 $p_{\text{ground,atomic}}$ & Length-gated atomic-fact entailment & $q_{\text{a,rel}}$ & Question-answer relevance \\
 \multicolumn{4}{@{}p{16cm}@{}}{\footnotesize $h_{\text{norm}}$ (normalised semantic entropy, $K{=}10$) was registered then retired post Cycle-0 audit (boost weight $\approx -5\times10^{-4}$); deployed verifier consumes nine signals.} \\
-$\taustore,\taudefer$ & Conformal store / defer thresholds & $\tautrain$ & Strict training-pool threshold \\
+$\taustore,\taudefer$ & Fixed store / defer cut-points on $\ustored$ ($0.60$ / $0.45$) & $\tautrain$ & Strict training-pool threshold ($0.70$) \\
 $\tau_{\text{retro}}$ & Retroactive prune threshold ($0.50$) & $\tau_{\text{ttl}}$ & Deferred-buffer TTL (cycles) \\
 $\tau_{\text{cons}}$ & Memory consolidation cosine & $\phi_{\text{pg}}$ & Pre-routing safety floor \\
-$\eta_u,\eta_g$ & Early-exit thresholds & $\tau_{\text{new/prev/fit}}$ & EMA refit trajectory \\
+$\eta_u,\eta_g$ & Early-exit thresholds & $\tau_{\text{RUC}}$ & Retrieval-utility classifier threshold ($0.375$) \\
 \\[-0.5em]
-\multicolumn{4}{@{}l@{}}{\textbf{\normalsize Conformal split-CP and composite}}\\
-$\alphastore,\alphadefer$ & Storage / deferral miscoverage & $\alpha_{\text{ema}}$ & EMA factor for $\tau$ refit ($0.7$) \\
+\multicolumn{4}{@{}l@{}}{\textbf{\normalsize Calibrated probability composite}}\\
+\multicolumn{4}{@{}p{16cm}@{}}{\footnotesize $\alphastore,\alphadefer$ (split-CP miscoverage targets) and $\alpha_{\text{ema}}$ (EMA refit factor) were registered in the conformal storage gate then retired when the gate was replaced by the fixed-threshold rule above; the calibration-versus-evaluation distribution shift broke the marginal-coverage premise of split-CP on the five-benchmark panel. The composite refit absorbs distribution drift through the per-signal isotonic curves and the per-benchmark boost coefficients on a fresh per-cycle fold.} \\
 $n_{\min}$ & Minimum top-$k$ for fit ($20$) & $n_{\text{cal}},n_{\text{eval}}$ & Calibration / evaluation fold sizes \\
 $\pi_{\text{store}},\pi_{\text{defer}}$ & Calibration-fold empirical precision & $\pi_{\text{retro}}$ & Retroactive-survivor precision \\
 $\pi_t,\pi_\infty$ & Pool purity at cycle $t$, asymptote & $P_c,P_c^{\text{theory}}$ & Empirical / Bayes pool purity \\
@@ -40,6 +40,7 @@ $\mathcal{M}_t^{\text{kept}},\mathcal{N}_{t+1}$ & Survivors; new admissions & $\
 $\lambda$ & Routing similarity weight ($0.70$) & $s,\mathcal{S}$ & Cosine; dispatch score $\lambda s{+}(1{-}\lambda)\ustored$ \\
 $\tau_1(t),\tau_1^{*}(D)$ & Tier-$1$ hit rate; asymptote & $\varepsilon_{\text{arch}}$ & Architectural false-negative rate \\
 $H_{\text{mem}}(t),H_t,H_\infty$ & Memory / total / asymptotic hallucination & $M,K$ & Chain count ($3$); answer count ($10$) \\
+$p_{\text{RAG}}$ & RUC retrieval-helpfulness score & $p_{\text{IK}}$ & Self-knowledge probe (Kadavath-style) \\
 \\[-0.5em]
 \multicolumn{4}{@{}l@{}}{\textbf{\normalsize Theorem trajectory and statistics}}\\
 $d,d_t$ & Cohen's $d$ at cycle $t$ & $d_{\text{id}},d_{\text{transfer}}$ & ID and transfer Cohen's $d$ \\
@@ -51,6 +52,6 @@ $\mathrm{TPR}_c,\mathrm{FPR}_c,\mathrm{TNR}_c$ & Storage-gate rates at cycle $c$
 $x(\lvert\theta\rvert,C),K(C)$ & Asymptotic correctness; supportable set & $\chi^{2}_{\text{McN}},b,c$ & McNemar; discordant pair counts \\
 $B$ & Bootstrap replicates ($10\,000$) & $\alpha$ & Significance level (overloaded) \\
 $\mathrm{EM},\mathrm{F}_1,\mathrm{ROUGE\text{-}L}$ & Per-task correctness & $\mathrm{CHM},\mathrm{CES},\mathrm{ECE}$ & Composite hallucination / eval / cal. error \\
-$N,T_{\text{cycles}}$ & Cycle index; horizon ($10$) & $\lvert\theta\rvert$ & Backbone parameters ($3.086{\times}10^{9}$) \\
+$N,T_{\text{cycles}}$ & Cycle index; registered cap ($10$); realised closure at $6$ & $\lvert\theta\rvert$ & Backbone parameters ($3.086{\times}10^{9}$) \\
 \end{longtable}
 }
