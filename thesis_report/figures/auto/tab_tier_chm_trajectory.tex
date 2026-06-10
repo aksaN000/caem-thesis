@@ -8,8 +8,12 @@
 \textbf{Cycle} & \multicolumn{2}{c|}{\textbf{Tier 1 (memory)}} & \multicolumn{2}{c|}{\textbf{Tier 2 (zero-shot)}} & \multicolumn{2}{c|}{\textbf{Tier 3 (RAG)}} & \multicolumn{2}{c}{\textbf{Pooled}} \\
   & EM & CHM & EM & CHM & EM & CHM & EM & CHM \\
 \midrule
-C0 & -- & -- & $0.606$ & $0.111$ & $0.493$ & $0.158$ & $0.548$ & $0.135$ \\
-C1 & -- & -- & $0.671$ & $0.090$ & $0.483$ & $0.120$ & $0.584$ & $0.104$ \\
+C0 & -- & -- & $0.602$ & $0.111$ & $0.482$ & $0.158$ & $0.541$ & $0.135$ \\
+C1 & -- & -- & $0.585$ & $0.101$ & $0.502$ & $0.122$ & $0.543$ & $0.112$ \\
+C2 & $1.000$ & $0.000$ & $0.568$ & $0.103$ & $0.514$ & $0.113$ & $0.544$ & $0.107$ \\
+C3 & $1.000$ & $0.000$ & $0.566$ & $0.105$ & $0.503$ & $0.123$ & $0.532$ & $0.115$ \\
+C4 & $1.000$ & $0.000$ & $0.564$ & $0.107$ & $0.504$ & $0.121$ & $0.532$ & $0.115$ \\
+C5 & $1.000$ & $0.000$ & $0.537$ & $0.102$ & $0.497$ & $0.116$ & $0.517$ & $0.109$ \\
 \bottomrule
 \end{tabular}
 \caption{Per-cycle per-tier EM and composite hallucination metric (CHM). Tier 1 (memory-direct), Tier 2 (zero-shot parametric), Tier 3 (retrieval-augmented). The CHM column directly evidences \Cref{cor:tier1-floor}: $\mathrm{CHM}_1(t)$ should stay bounded by $1-\pi_{\text{store}}$. Tier 2 EM at the parametric high-water mark exceeding Tier 3 EM at cycle zero is the self-improvement-as-distillation empirical receipt.}

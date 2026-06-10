@@ -1,0 +1,32 @@
+% Auto-generated from outputs/analysis/phase1d_vs_phase1e_ruc.json
+% Phase 1d (classifier-off) vs Phase 1e (classifier-on) at the cycle-three
+% close. Both arms share the matched-protocol contract: same five-benchmark
+% evaluation panel, same Qwen-2.5-3B-Instruct backbone, composite calibration
+% pinned at the cycle-three anchor; TruthfulQA EM under the Haiku-judged
+% correctness rule. CHM via canonical composite_hallucination_metric.
+\begin{table}[H]
+\centering\footnotesize
+\setlength{\tabcolsep}{3.5pt}
+\renewcommand{\arraystretch}{1.15}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{@{}l|rrr|rrr|rrr@{}}
+\toprule
+ & \multicolumn{3}{c|}{\textbf{Exact match}} & \multicolumn{3}{c|}{\textbf{Composite hallucination}} & \multicolumn{3}{c}{\textbf{Tier 3 share}} \\
+\textbf{Benchmark} & \textbf{Off} & \textbf{On} & $\boldsymbol{\Delta}$\,(pp) & \textbf{Off} & \textbf{On} & $\boldsymbol{\Delta}$\,(\% rel) & \textbf{Off} & \textbf{On} & $\boldsymbol{\Delta}$\,(pp) \\
+\midrule
+\multicolumn{10}{@{}l}{\textit{Training panel}} \\
+FEVER          & $0.503$ & $0.503$ & $\phantom{+}0.0$  & $0.117$ & $0.120$ & $+2.5\%$  & $92.3\%$ & $70.7\%$ & $-21.7$ \\
+TriviaQA       & $0.437$ & $0.463$ & $+2.7$            & $0.123$ & $0.121$ & $-2.0\%$  & $95.7\%$ & $68.0\%$ & $-27.7$ \\
+CommonsenseQA  & $0.603$ & $\mathbf{0.743}$ & $\mathbf{+14.0}$ & $0.131$ & $\mathbf{0.086}$ & $\mathbf{-34.4\%}$ & $57.7\%$ & $20.3\%$ & $-37.3$ \\
+\midrule
+\multicolumn{10}{@{}l}{\textit{Transfer panel}} \\
+StrategyQA     & $0.617$ & $0.640$ & $+2.3$            & $0.119$ & $0.128$ & $+8.1\%$  & $100.0\%$ & $76.7\%$ & $-23.3$ \\
+TruthfulQA     & $0.210$ & $\mathbf{0.310}$ & $\mathbf{+10.0}$ & $0.116$ & $0.119$ & $+2.9\%$  & $99.0\%$ & $40.0\%$ & $\mathbf{-59.0}$ \\
+\midrule
+\textbf{Pooled (all five)} & $\mathbf{0.474}$ & $\mathbf{0.532}$ & $\mathbf{+5.8}$ & $\mathbf{0.121}$ & $\mathbf{0.115}$ & $\mathbf{-5.2\%}$ & $\mathbf{88.9\%}$ & $\mathbf{55.1\%}$ & $\mathbf{-33.8}$ \\
+\bottomrule
+\end{tabular}%
+}
+\caption[Head-to-head ablation of the retrieval-utility classifier at cycle three]{Head-to-head ablation of the retrieval-utility classifier (\Cref{sec:ruc}) at the cycle-three close under the matched-protocol contract. The \emph{Off} columns are the classifier-off arm in which queries that fail the Tier~1 combined-score gate and the Tier~2 similarity gate route unconditionally to the retrieval-augmented tier; the \emph{On} columns are the classifier-on arm in which the same queries consult the retrieval-utility classifier and route to Tier~3 only when $p_{\text{RAG}} \ge \tau_{\text{RUC}} = 0.375$ per \Cref{alg:ruc}. The exact match column for TruthfulQA uses the Haiku-judged correctness rule; the composite hallucination metric uses the canonical eight-axis composite of \Cref{tab:halluc-subtypes}. Both arms share the same five-benchmark evaluation panel, the same Qwen-2.5-3B-Instruct backbone, and the same composite calibration pinned at the cycle-three anchor. The asymmetric-rescue pattern is read off the bold cells: the largest exact-match gains land on CommonsenseQA ($+14.0$ percentage points) and TruthfulQA ($+10.0$ percentage points), the two benchmarks where retrieval was hurting in the classifier-off arm; FEVER exact match is flat, the empirical receipt that the classifier correctly preserves the retrieval-helpful regime on the textbook fact-verification benchmark; the pooled retrieval-augmented tier share collapses by $-33.8$ percentage points, with the largest individual collapse on TruthfulQA at $-59.0$ percentage points. The composite hallucination reduction is concentrated on CommonsenseQA rather than uniform across the panel, consistent with the heterogeneous per-benchmark AUROC band of the classifier reported in \Cref{sec:ruc}. The contrast bundles the classifier with the pipeline corrections shipped in the same iteration; the bundled-confound disclosure and the registered acceptance gates are discussed in the surrounding prose.}
+\label{tab:ruc-ablation}
+\end{table}

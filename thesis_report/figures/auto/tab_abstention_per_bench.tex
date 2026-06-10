@@ -1,0 +1,21 @@
+% Auto-generated from outputs/full_run/eval/{bench}_cycle{c}.json
+% Per-benchmark abstention rate (eval fold, n=300/bench).
+% Abstention = decision == ABSTAIN OR prediction starts with <abstain>.
+\begin{table}[H]
+\centering\footnotesize
+\setlength{\tabcolsep}{6pt}
+\begin{tabular}{@{}lrrrrr@{}}
+\toprule
+\textbf{Cycle} & \textbf{FEVER} & \textbf{TriviaQA} & \textbf{CSQA} & \textbf{TruthfulQA} & \textbf{StrategyQA} \\
+\midrule
+C0 & $64.3\%$ & $29.0\%$ & $0.0\%$ & $33.3\%$ & $43.0\%$ \\
+C1 & $24.3\%$ & $17.7\%$ & $0.3\%$ & $27.3\%$ & $2.3\%$ \\
+C2 & $5.7\%$ & $17.3\%$ & $1.0\%$ & $29.3\%$ & $8.0\%$ \\
+C3 & $10.7\%$ & $20.0\%$ & $0.0\%$ & $25.0\%$ & $4.0\%$ \\
+C4 & $10.0\%$ & $21.0\%$ & $0.0\%$ & $25.3\%$ & $2.3\%$ \\
+C5 & $5.3\%$ & $26.0\%$ & $0.3\%$ & $23.0\%$ & $30.3\%$ \\
+\bottomrule
+\end{tabular}
+\caption{Per-benchmark abstention rate across the realised six-cycle trajectory on the evaluation fold ($n=300$ per benchmark). Abstention is the share of queries on which the pipeline returned an explicit abstention token (\texttt{decision = ABSTAIN} under the four-outcome registered tree, or a prediction string prefixed by the abstention marker). The pattern is benchmark-dependent: FEVER abstention collapses from $64.3\%$ at the cold-start cycle to $5.3\%$ at the trajectory-end cycle as the per-cycle composite refit sharpens the pre-routing confidence and the early-exit filter on the supports/refutes/not-enough-info surface; CommonsenseQA abstention is near-zero at every cycle ($\le 1\%$) because the five-option multiple-choice surface forces a committed answer; TruthfulQA abstention is high and stable in the band $[23\%, 33\%]$ across the trajectory, the empirical receipt that the calibrated-probability composite triggers the abstention branch on misconception-bait probes where pre-routing confidence is low, and the abstention behaviour interacts with the Haiku-judged correctness rule discussed in \Cref{sec:disc-prior}. The cycle-five StrategyQA reading is anomalous (returns from $2.3\%$ at C4 to $30.3\%$ at C5); the cycle-five composite refit re-tightened the abstention branch after the C4 rollback re-anchored the adapter at the cycle-three checkpoint.}
+\label{tab:abstention-per-bench}
+\end{table}
