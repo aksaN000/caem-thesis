@@ -110,3 +110,6 @@ htmlcov/
 # caem-implementation-log.md  ← tracked (decision record)
 # hyperparameter-reference.md ← tracked
 # writing-suggestions.md      ← tracked
+
+# ── Claude project anchor (private, not for public repo) ─────────────────────
+CLAUDE.md
