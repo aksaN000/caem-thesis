@@ -1108,6 +1108,110 @@ class SemanticEntropyBaseline(BaselineBase):
             return "<abstain>", self.tier_value, False
         return mode_sample, self.tier_value, False
 
+    def answer_batch(self, queries: List[str], store_to_memory: bool = False) -> List[PipelineResult]:
+        """Properly-batched SE.
+
+        The default ``BaselineBase.answer_batch`` runs one greedy generation per
+        query, which collapses the SE sampling step. Override here to sample
+        ``self.n_samples`` completions per query at temperature ``self.temp``,
+        batched across queries: ``n_samples`` batched calls, each producing one
+        completion per query, then cluster + entropy + mode selection per query.
+        """
+        if not queries:
+            return []
+        from collections import Counter
+        from eval.metrics import normalise
+
+        t0 = time.perf_counter()
+        prompts = [self._build_prompt(q) for q in queries]
+        # samples_per_query[i] = list of self.n_samples completions for queries[i]
+        samples_per_query: List[List[str]] = [[] for _ in queries]
+        try:
+            for s_idx in range(self.n_samples):
+                # One batched stochastic generation: do_sample=True at self.temp
+                # Inline a temperature-aware variant of _run_generation_batch.
+                original_padding_side = getattr(self.tokenizer, "padding_side", "right")
+                self.tokenizer.padding_side = "left"
+                try:
+                    enc = self.tokenizer(
+                        prompts,
+                        return_tensors="pt",
+                        truncation=True,
+                        max_length=self.max_input_tokens,
+                        add_special_tokens=False,
+                        padding=True,
+                    )
+                finally:
+                    self.tokenizer.padding_side = original_padding_side
+                input_ids = enc["input_ids"].to(self.device)
+                attention_mask = enc["attention_mask"].to(self.device)
+                max_input_len = int(input_ids.shape[1])
+                with torch.no_grad():
+                    output_ids = self.model.generate(
+                        input_ids,
+                        attention_mask=attention_mask,
+                        max_new_tokens=self.max_new_tokens,
+                        do_sample=True,
+                        temperature=self.temp,
+                        pad_token_id=self.tokenizer.pad_token_id,
+                    )
+                for i in range(output_ids.shape[0]):
+                    if output_ids.shape[1] > max_input_len:
+                        gen_ids = output_ids[i, max_input_len:]
+                    else:
+                        gen_ids = output_ids[i]
+                    text = self.tokenizer.decode(gen_ids, skip_special_tokens=True).strip()
+                    samples_per_query[i].append(text)
+        except Exception as exc:
+            logger.error("[%s] batched SE generation failed (%d queries): %s",
+                         self.name, len(queries), exc)
+            for i in range(len(queries)):
+                while len(samples_per_query[i]) < self.n_samples:
+                    samples_per_query[i].append("")
+
+        # Cluster + entropy + mode per query
+        finalized_modes: List[str] = []
+        for i, raw_samples in enumerate(samples_per_query):
+            finalized = [self._finalize_answer(s) for s in raw_samples]
+            extracted = [extract_cot_answer(s) for s in finalized]
+            canonical = [normalise(e) for e in extracted]
+            counts = Counter(canonical)
+            if not counts:
+                finalized_modes.append("")
+                continue
+            import math as _math
+            total = sum(counts.values())
+            probs = [c / total for c in counts.values()]
+            entropy = -sum(p * _math.log(p) for p in probs if p > 0)
+            mode_canonical = counts.most_common(1)[0][0]
+            mode_sample = next(
+                (s for s, c in zip(finalized, canonical) if c == mode_canonical),
+                finalized[0],
+            )
+            abstained = entropy >= self.tau_se
+            finalized_modes.append("<abstain>" if abstained else mode_sample)
+
+        batch_ms = (time.perf_counter() - t0) * 1000.0
+        per_sample_ms = batch_ms / max(len(queries), 1)
+        return [
+            PipelineResult(
+                query=q,
+                answer=ans,
+                display_answer=extract_cot_answer(ans) if ans != "<abstain>" else "<abstain>",
+                tier=self.tier_value,
+                stored=False,
+                latency_ms=per_sample_ms,
+                routing_decision=None,
+                pre_confidence=None,
+                post_confidence=None,
+                verifier_output=None,
+                u_stored=None,
+                entry_id=None,
+                escalated=False,
+            )
+            for q, ans in zip(queries, finalized_modes)
+        ]
+
 
 # =============================================================================
 # B10 -- Self-RAG (full FT — published Asai et al. ICLR 2024 protocol)
