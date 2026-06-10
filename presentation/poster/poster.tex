@@ -50,27 +50,11 @@
 
 \title{CAEM: Confidence-Aware Episodic Memory with Self-Improvement}
 
-\author{%
-  Md. Aksan Gony Alif \and
-  Maliha Binte Shamim \and
-  Md. Mahmudur Rahman
-}
-
-\institute[BRAC CSE]{%
-  Department of Computer Science and Engineering, BRAC University \\[0.25em]
-  \textit{Supervisor:} Dr.\ Md.\ Golam Rabiul Alam, Professor \quad
-  \textit{Co-supervisor:} Md.\ Tanzim Reza, Senior Lecturer
-}
-
-% ====================
-% Footer
-% ====================
-
-\footercontent{%
-  \href{https://github.com/aksaN000/caem-thesis}{github.com/aksaN000/caem-thesis} \hfill
-  CSE400 Pre-Thesis 2 Defence Poster \hfill
-  BRAC University, 2026%
-}
+% Authors, institute, and footer content are rendered directly by the
+% overridden headline / footline templates in beamercolorthemecaem.sty.
+% The previous \author / \institute / \footercontent commands have been
+% removed because the BRAC Pre-Thesis 2 sample layout hardcodes the names,
+% the department line, and the four footer segments inside the templates.
 
 % ====================
 % Body
@@ -89,7 +73,6 @@
 \begin{column}{\colwidth}
 
   \begin{block}{Headline result (vs.\ matched zero-shot baseline B1)}
-    \vspace{0.4em}
     \textbf{Training-panel architectural-contribution slice (CAEM C2 vs.\ B1):}
     \[
       \boxed{\Delta\mathrm{EM} = +20.3\%\ \text{rel.}} \qquad
@@ -105,7 +88,6 @@
   \end{block}
 
   \begin{block}{Problem: hallucination as a deployment-safety issue}
-    \vspace{0.4em}
     Modern instruction-tuned language models generate confident-sounding
     answers at deployment-relevant rates that exceed their actual accuracy
     by ten or more percentage points~[1,2]. Single-signal correctness
@@ -128,7 +110,6 @@
   \end{block}
 
   \begin{block}{The architecture: eight-stage pipeline + cycle-boundary loop}
-    \vspace{0.4em}
     \centering
     \includegraphics[width=0.98\colwidth]{figures/architecture_source.pdf}
 
@@ -145,7 +126,6 @@
   \end{block}
 
   \begin{block}{Locked configuration (every cycle)}
-    \vspace{0.4em}
     \centering
     \footnotesize
     \setlength{\tabcolsep}{8pt}
@@ -179,7 +159,6 @@
 \begin{column}{\colwidth}
 
   \begin{block}{Nine-signal verifier $+$ calibrated probability composite}
-    \vspace{0.4em}
     Four signal families feed the per-benchmark calibrated probability composite:
 
     \begin{itemize}
@@ -208,7 +187,6 @@
   \end{block}
 
   \begin{block}{Self-improvement loop with asymmetric-rollback retention guard}
-    \vspace{0.4em}
     At every committed cycle boundary:
     \begin{enumerate}
       \item \textbf{Retroverify} every stored episode under the
@@ -236,7 +214,6 @@
   \end{block}
 
   \begin{block}{Cycle-boundary trajectory: SIL $+$ memory $+$ commit pattern}
-    \vspace{0.4em}
     \centering
     \footnotesize
     \setlength{\tabcolsep}{6pt}
@@ -278,7 +255,6 @@
 \begin{column}{\colwidth}
 
   \begin{block}{Per-cycle pooled trajectory (5-benchmark evaluation panel)}
-    \vspace{0.4em}
     \centering
     \footnotesize
     \setlength{\tabcolsep}{6pt}
@@ -309,7 +285,6 @@
   \end{block}
 
   \begin{block}{External eight-baseline panel (matched protocol)}
-    \vspace{0.4em}
     \centering
     \footnotesize
     \setlength{\tabcolsep}{4pt}
@@ -343,7 +318,6 @@
   \end{block}
 
   \begin{block}{Retrieval-utility-classifier ablation (C3 close)}
-    \vspace{0.4em}
     \centering
     \footnotesize
     \setlength{\tabcolsep}{4pt}
@@ -374,7 +348,6 @@
   \end{block}
 
   \begin{block}{Code, data, and references}
-    \vspace{0.4em}
     \footnotesize
     \textbf{Code:} \texttt{github.com/aksaN000/caem-thesis}\quad
     \textbf{Artefacts (Google Drive):} \texttt{drive.google.com/drive/folders/} \texttt{1xErhsRDYe\_qO0ZgUBn0WXK81eHc5jZCa} \quad
