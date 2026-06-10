@@ -5,9 +5,19 @@
 % accents pulled from the thesis architecture diagram (teal-700 for verifier /
 % storage gate, orange-500 for RUC, green-600 for memory tier, red-500 for
 % retention-guard alerts).
+%
+% This version restyles the headline, footline, and block templates to match
+% the BRAC Pre-Thesis 2 sample poster layout:
+%   - Navy header bar with BRAC logo (left), title centred, thesis ID +
+%     department line beneath in white.
+%   - Navy footer bar with four white-text segments separated by hboxes.
+%   - Block titles render as bold navy text with a thin horizontal rule
+%     beneath (no coloured background bar).
 % ============================================================================
 
 \ProvidesPackage{beamercolorthemecaem}
+
+\RequirePackage{graphicx}
 
 \selectcolormodel{RGB}
 
@@ -36,32 +46,17 @@
 % --- Beamer palette --------------------------------------------------------
 \setbeamercolor{background canvas}{bg=bg}
 \setbeamercolor{headline}{fg=bg,bg=bracnavy}
-\setbeamercolor{headline rule}{bg=bracred}
 \setbeamercolor{footline}{fg=bg,bg=bracnavy}
 
-% Section title (block headers)
-\setbeamercolor{block title}{fg=bg,bg=bracnavy}
+% The block-title beamer colour is now used only for the title TEXT colour
+% (no background bar). Keep fg=bracnavy so \usebeamercolor[fg]{block title}
+% inside the overridden template gives the right text colour.
+\setbeamercolor{block title}{fg=bracnavy,bg=bg}
 \setbeamercolor{block body}{fg=fg,bg=bg}
-
-% Highlight (alert) block: title bar unified to BRAC navy (was bracred); body
-% retains the soft-red tint so the block still reads as an alert in content.
-% bracred is still defined above for in-content highlighting use.
-\setbeamercolor{block alerted title}{fg=bg,bg=bracnavy}
-\setbeamercolor{block alerted body}{fg=fg,bg=caemRedLight}
-
-% Example block (used for theorems / formal statements): title bar unified to
-% BRAC navy (was caemTeal); body retains the soft-teal tint for visual variety.
-% caemTeal is still defined above for in-content highlighting use.
-\setbeamercolor{block example title}{fg=bg,bg=bracnavy}
-\setbeamercolor{block example body}{fg=fg,bg=caemTealLight}
-
-% --- Block title <-> body breathing room -----------------------------------
-% Gemini packs the block title flush against the body. Insert a small vertical
-% gap after every block-title bar so headings don't collide with body prose.
-% Applied uniformly to regular, alerted, and example blocks.
-\addtobeamertemplate{block begin}{}{\vspace{0.4em}}
-\addtobeamertemplate{block alerted begin}{}{\vspace{0.4em}}
-\addtobeamertemplate{block example begin}{}{\vspace{0.4em}}
+\setbeamercolor{block alerted title}{fg=bracnavy,bg=bg}
+\setbeamercolor{block alerted body}{fg=fg,bg=bg}
+\setbeamercolor{block example title}{fg=bracnavy,bg=bg}
+\setbeamercolor{block example body}{fg=fg,bg=bg}
 
 % Itemize / enumerate markers
 \setbeamercolor{itemize item}{fg=bracnavy}
@@ -73,3 +68,121 @@
 
 % Caption labels
 \setbeamercolor{caption name}{fg=bracnavy}
+
+% ============================================================================
+% HEADLINE TEMPLATE
+% ============================================================================
+% Full-width navy bar (~10cm tall) containing:
+%   - BRAC University logo on the left
+%   - Bold white title centred in the remaining width
+%   - "Md. Aksan Gony Alif | Maliha Binte Shamim | Md. Mahmudur Rahman" line
+%     in white below the title
+%   - "Department of Computer Science & Engineering, BRAC University" line
+%     in white below the authors
+% ============================================================================
+
+\setbeamertemplate{headline}{%
+  \begin{beamercolorbox}[wd=\paperwidth,ht=10cm,dp=0pt,leftskip=1.5cm,rightskip=1.5cm]{headline}%
+    \vbox to 10cm{%
+      \vfill
+      \begin{minipage}[c]{7cm}
+        \includegraphics[height=7cm,keepaspectratio]{/workspace/caem/presentation/poster/logos/brac_university.pdf}%
+      \end{minipage}\hfill
+      \begin{minipage}[c]{\dimexpr\paperwidth-3cm-9cm\relax}
+        \centering
+        {\color{white}\bfseries\fontsize{44}{52}\selectfont \inserttitle\par}
+        \vspace{0.5cm}
+        {\color{white}\fontsize{22}{26}\selectfont Md.\ Aksan Gony Alif \quad|\quad Maliha Binte Shamim \quad|\quad Md.\ Mahmudur Rahman\par}
+        \vspace{0.25cm}
+        {\color{white}\fontsize{20}{24}\selectfont Department of Computer Science \& Engineering, BRAC University\par}
+      \end{minipage}\hfill
+      \begin{minipage}[c]{2cm}\hfill\end{minipage}%
+      \vfill
+    }%
+  \end{beamercolorbox}%
+}
+
+% ============================================================================
+% FOOTLINE TEMPLATE
+% ============================================================================
+% Full-width navy bar with four white-text segments separated by hboxes:
+%   "Pre Thesis 2"  |  "Supervisor : Dr. Md. Golam Rabiul Alam"
+%                   |  "Co-Supervisor : Md. Tanzim Reza"
+%                   |  "BRAC University"
+% ============================================================================
+
+\setbeamertemplate{footline}{%
+  \begin{beamercolorbox}[wd=\paperwidth,ht=2.2cm,dp=0pt,leftskip=1.5cm,rightskip=1.5cm]{footline}%
+    \vbox to 2.2cm{%
+      \vfill
+      {\color{white}\bfseries\fontsize{22}{26}\selectfont Pre Thesis 2}%
+      \hfill
+      {\color{white}\fontsize{22}{26}\selectfont Supervisor : Dr.\ Md.\ Golam Rabiul Alam}%
+      \hfill
+      {\color{white}\fontsize{22}{26}\selectfont Co-Supervisor : Md.\ Tanzim Reza}%
+      \hfill
+      {\color{white}\bfseries\fontsize{22}{26}\selectfont BRAC University}%
+      \vfill
+    }%
+  \end{beamercolorbox}%
+}
+
+% ============================================================================
+% BLOCK TEMPLATES
+% ============================================================================
+% Block titles render as bold navy text with a thin horizontal rule beneath,
+% NOT a navy background bar. Body content begins directly under the rule.
+% Same treatment applied to regular, alerted, and example blocks for uniform
+% style across the poster.
+% ============================================================================
+
+\setbeamertemplate{block begin}{%
+  \vskip0.5ex
+  {\usebeamerfont{block title}\color{bracnavy}\bfseries\large\insertblocktitle\par}%
+  \vskip-0.4ex
+  {\color{bracnavy}\noindent\rule{\linewidth}{0.5pt}}%
+  \vskip0.6ex
+  \begin{beamercolorbox}[colsep*=0ex]{block body}%
+    \usebeamerfont{block body}%
+    \justifying
+    \setlength{\parskip}{1ex}%
+}
+\setbeamertemplate{block end}{%
+  \end{beamercolorbox}%
+  \vskip0pt
+  \vspace*{1.5ex}%
+}
+
+\setbeamertemplate{block alerted begin}{%
+  \vskip0.5ex
+  {\usebeamerfont{block title}\color{bracnavy}\bfseries\large\insertblocktitle\par}%
+  \vskip-0.4ex
+  {\color{bracnavy}\noindent\rule{\linewidth}{0.5pt}}%
+  \vskip0.6ex
+  \begin{beamercolorbox}[colsep*=0ex]{block alerted body}%
+    \usebeamerfont{block body}%
+    \justifying
+    \setlength{\parskip}{1ex}%
+}
+\setbeamertemplate{block alerted end}{%
+  \end{beamercolorbox}%
+  \vskip0pt
+  \vspace*{1.5ex}%
+}
+
+\setbeamertemplate{block example begin}{%
+  \vskip0.5ex
+  {\usebeamerfont{block title}\color{bracnavy}\bfseries\large\insertblocktitle\par}%
+  \vskip-0.4ex
+  {\color{bracnavy}\noindent\rule{\linewidth}{0.5pt}}%
+  \vskip0.6ex
+  \begin{beamercolorbox}[colsep*=0ex]{block example body}%
+    \usebeamerfont{block body}%
+    \justifying
+    \setlength{\parskip}{1ex}%
+}
+\setbeamertemplate{block example end}{%
+  \end{beamercolorbox}%
+  \vskip0pt
+  \vspace*{1.5ex}%
+}
