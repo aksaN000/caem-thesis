@@ -153,35 +153,22 @@
 \begin{column}{\colwidth}
 
   \begin{block}{Proposed Model Architecture}
+    \centering
     \includegraphics[width=0.95\colwidth,keepaspectratio]{figures/architecture_source.pdf}
 
+    \vspace{0.3em}
+    \footnotesize
     The eight-stage pipeline routes each query through pre-routing
     confidence, memory lookup, three-tier dispatch with the Stage 3b
-    retrieval-utility classifier, tier execution, nine-signal verification,
-    the four-outcome decision, and output; Stage 8 closes every cycle
-    boundary with retroverify, deferred reconsider, consolidate, LoRA
-    fine-tune, and the multi-modal retention probe.
-  \end{block}
-
-  \begin{block}{Locked Configuration}
-    \footnotesize
-    \setlength{\tabcolsep}{8pt}
-    \renewcommand{\arraystretch}{1.05}
-    \begin{tabular}{@{}l l@{}}
-      \toprule
-      \textbf{Component} & \textbf{Value} \\
-      \midrule
-      Storage cut $\tau_{\text{store}}$ \,/\, $\tau_{\text{defer}}$ & $0.60$ \,/\, $0.45$ \\
-      SIL admission $\tau_{\text{train}}$ & $0.70$ \\
-      Retrieval-utility classifier $\tau_{\text{RUC}}$ & $0.375$ \\
-      Retention floor $\rho_{\min}$ & $0.93$ \\
-      Router $\lambda$ \,/\, safety $\phi_{\text{pg}}$ & $0.70$ \,/\, $0.38$ \\
-      Backbone & Qwen-2.5-3B-Instruct (frozen) \\
-      LoRA & $r{=}32$, $\alpha{=}64$, 7 projections \\
-      Active verifier signals & $9$ \\
-      Trajectory & registered $10$ \,/\, realised $6$ cycles \\
-      \bottomrule
-    \end{tabular}
+    retrieval-utility classifier ($\tau_{\text{RUC}} = 0.375$), tier
+    execution, nine-signal verification, the four-outcome decision under
+    fixed cut-points $\tau_{\text{store}} = 0.60$ / $\tau_{\text{defer}} = 0.45$,
+    and output; Stage 8 closes every cycle boundary with retroverify
+    ($\tau_{\text{retro}} = 0.50$), deferred reconsider (TTL $= 2$),
+    consolidate, LoRA fine-tune ($r = 32$, $\alpha = 64$, $\tau_{\text{train}} = 0.70$),
+    and the multi-modal retention probe under floor $\rho_{\min} = 0.93$
+    with asymmetric rollback (adapter reverted, memory preserved).
+    Backbone Qwen-2.5-3B-Instruct, frozen across the cycle.
   \end{block}
 
   \begin{block}{Per-Cycle Trajectory}
@@ -234,49 +221,32 @@
   \end{block}
 
   \begin{block}{External Baseline Comparison}
-    % Two side-by-side mini-tables save vertical space. CAEM reference cycles
-    % + B1-B4 (closer baselines) on the left; B5-B8 (deeper deficits) on the
-    % right. Same Delta-vs-C2 columns and bold-highlight pattern as the RUC
-    % ablation table below for visual consistency.
-    \begin{minipage}[t]{0.49\colwidth}
-      \scriptsize
-      \setlength{\tabcolsep}{3pt}
-      \renewcommand{\arraystretch}{1.05}
-      \begin{tabular}{@{}l r r r r@{}}
-        \toprule
-        \textbf{System} & \textbf{EM} & \textbf{CHM} & $\boldsymbol{\Delta}$\textbf{EM} & $\boldsymbol{\Delta}$\textbf{CHM} \\
-        \midrule
-        \rowcolor{caemTealLight}
-        \textbf{CAEM C2 $\star$} & $\mathbf{0.544}$ & $\mathbf{0.107}$ & --- & --- \\
-        CAEM C5 (final) & $0.517$ & $0.109$ & $-0.027$ & $+0.002$ \\
-        \midrule
-        B1 zero-shot & $0.507$ & $0.120$ & $+7.4\%$ & $-11.0\%$ \\
-        B2 chain-of-thought & $0.500$ & $0.123$ & $+8.8\%$ & $-12.7\%$ \\
-        B3 DPR-RAG & $0.458$ & $0.148$ & $+18.8\%$ & $-27.7\%$ \\
-        B4 CoT$+$DPR-RAG & $0.461$ & $0.142$ & $+17.9\%$ & $-24.6\%$ \\
-        \bottomrule
-      \end{tabular}
-    \end{minipage}\hfill
-    \begin{minipage}[t]{0.49\colwidth}
-      \scriptsize
-      \setlength{\tabcolsep}{3pt}
-      \renewcommand{\arraystretch}{1.05}
-      \begin{tabular}{@{}l r r r r@{}}
-        \toprule
-        \textbf{System} & \textbf{EM} & \textbf{CHM} & $\boldsymbol{\Delta}$\textbf{EM} & $\boldsymbol{\Delta}$\textbf{CHM} \\
-        \midrule
-        B5 five-shot CoT & $0.405$ & $0.136$ & $+34.2\%$ & $-21.4\%$ \\
-        B6 vanilla FT (C5) & $0.325$ & $0.144$ & $+67.2\%$ & $-25.5\%$ \\
-        B7 FLARE & $0.292$ & $0.153$ & $+86.3\%$ & $-29.9\%$ \\
-        B8 semantic entropy & $0.505$ & $0.120$ & $+7.7\%$ & $-10.5\%$ \\
-        \midrule
-        \rowcolor{caemOrangeLight}
-        \multicolumn{5}{@{}l}{\textbf{Wins-against (joint $\Delta$EM \& $\Delta$CHM):}} \\
-        \rowcolor{caemOrangeLight}
-        \multicolumn{5}{@{}l}{\textbf{CAEM C2 beats $8/8$; CAEM C5 beats $8/8$.}} \\
-        \bottomrule
-      \end{tabular}
-    \end{minipage}
+    \footnotesize
+    \setlength{\tabcolsep}{4pt}
+    \renewcommand{\arraystretch}{1.05}
+    \resizebox{\colwidth}{!}{%
+    \begin{tabular}{@{}l c c c c@{}}
+      \toprule
+      \textbf{System} & \textbf{EM} & \textbf{CHM} & $\boldsymbol{\Delta}$\textbf{EM vs C2} & $\boldsymbol{\Delta}$\textbf{CHM vs C2} \\
+      \midrule
+      \rowcolor{caemTealLight}
+      \textbf{CAEM C2 (best) $\star$} & $\mathbf{0.544}$ & $\mathbf{0.107}$ & --- & --- \\
+      CAEM C5 (final) & $0.517$ & $0.109$ & $-0.027$ & $+0.002$ \\
+      \midrule
+      B1 zero-shot & $0.507$ & $0.120$ & $+7.4\%$ & $-11.0\%$ \\
+      B2 chain-of-thought & $0.500$ & $0.123$ & $+8.8\%$ & $-12.7\%$ \\
+      B3 DPR-RAG & $0.458$ & $0.148$ & $+18.8\%$ & $-27.7\%$ \\
+      B4 CoT $+$ DPR-RAG & $0.461$ & $0.142$ & $+17.9\%$ & $-24.6\%$ \\
+      B5 five-shot CoT & $0.405$ & $0.136$ & $+34.2\%$ & $-21.4\%$ \\
+      B6 vanilla fine-tune (C5) & $0.325$ & $0.144$ & $+67.2\%$ & $-25.5\%$ \\
+      B7 FLARE & $0.292$ & $0.153$ & $+86.3\%$ & $-29.9\%$ \\
+      B8 semantic entropy & $0.505$ & $0.120$ & $+7.7\%$ & $-10.5\%$ \\
+      \midrule
+      \rowcolor{caemOrangeLight}
+      \multicolumn{5}{@{}c@{}}{\textbf{Wins-against (joint $\Delta$EM \& $\Delta$CHM): CAEM C2 beats $8/8$; CAEM C5 beats $8/8$.}} \\
+      \bottomrule
+    \end{tabular}%
+    }
   \end{block}
 
   \begin{block}{Retrieval-Utility Classifier Ablation}
@@ -304,14 +274,16 @@
 
   \begin{block}{References}
     \scriptsize
-    [1] Guo et al. \emph{ICML 2017} (calibration). \,
-    [2] Lin et al. \emph{ACL 2022} (TruthfulQA). \,
-    [3] Thorne et al. \emph{NAACL 2018} (FEVER). \,
-    [4] Joshi et al. \emph{ACL 2017} (TriviaQA). \,
-    [5] Talmor et al. \emph{NAACL 2019} (CommonsenseQA). \,
-    [6] Hu et al. \emph{ICLR 2022} (LoRA). \,
-    [7] Tang et al. \emph{ACL 2024} (MiniCheck). \,
-    [8] Cherian et al. \emph{NeurIPS 2024} (boost layer).
+    \begin{enumerate}\setlength{\itemsep}{0.05em}\setlength{\parskip}{0pt}
+      \item Guo et al. On calibration of modern neural networks. \emph{ICML 2017}.
+      \item Kadavath et al. Language models (mostly) know what they know. \emph{arXiv 2022}.
+      \item Lin et al. TruthfulQA: measuring how models mimic human falsehoods. \emph{ACL 2022}.
+      \item Lewis et al. Retrieval-augmented generation for knowledge-intensive NLP tasks. \emph{NeurIPS 2020}.
+      \item Wang et al. Self-consistency improves chain-of-thought reasoning. \emph{ICLR 2023}.
+      \item Hu et al. LoRA: low-rank adaptation of large language models. \emph{ICLR 2022}.
+      \item Tang et al. MiniCheck: efficient fact-checking on grounding documents. \emph{ACL 2024}.
+      \item Cherian et al. Enhanced conformal prediction with boosted logistic regression. \emph{NeurIPS 2024}.
+    \end{enumerate}
   \end{block}
 
 \end{column}
