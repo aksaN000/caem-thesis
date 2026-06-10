@@ -172,22 +172,35 @@
   \end{block}
 
   \begin{block}{Per-Cycle Trajectory}
-    \footnotesize
-    \setlength{\tabcolsep}{5pt}
+    % Source: thesis_report/figures/auto/tab_pooled_trajectory.tex
+    % Structure preserved verbatim from the canonical thesis table; only the
+    % poster colour-scheme overrides are applied (caemTealLight on the C2
+    % headline row in place of gray!18, caemRedLight on the C4 retention
+    % abort row).
+    \scriptsize
+    \setlength{\tabcolsep}{3pt}
     \renewcommand{\arraystretch}{1.05}
     \resizebox{\colwidth}{!}{%
-    \begin{tabular}{@{}l r r c c c l@{}}
+    \begin{tabular}{lcccccccc}
       \toprule
-      \textbf{Cycle} & \textbf{Pooled EM} & \textbf{Pooled CHM} & \textbf{MMLU} & \textbf{TQA-test} & \textbf{CSQA-test} & \textbf{Outcome} \\
+       & & & \multicolumn{2}{c}{\textbf{Pooled headline}} & \multicolumn{3}{c}{\textbf{Retention probes (ratio vs.\ pristine)}} & \\
+      \cmidrule(lr){4-5}\cmidrule(lr){6-8}
+      \textbf{Configuration} & \textbf{Cycle} & $n$/bench & \textbf{EM} & \textbf{CHM} & \textbf{MMLU} & \textbf{TQA-test} & \textbf{CSQA-test} & \textbf{Outcome} \\
       \midrule
-      \rowcolor{lightgrey} B1 (zero-shot ref) & $0.507$ & $0.120$ & \,---\, & \,---\, & \,---\, & reference \\
-      C0 & $0.541$ & $0.135$ & \,---\, & \,---\, & \,---\, & baseline \\
+      \multicolumn{9}{@{}l}{\textit{Reference floor (no CAEM architecture; same Qwen-2.5-3B-Instruct backbone)}} \\
+      B1 (zero-shot) & --- & 300 & 0.507 & 0.120 & --- & --- & --- & reference \\
+      \midrule
+      \multicolumn{9}{@{}l}{\textit{CAEM trajectory (full architecture: memory $+$ verifier $+$ SIL $+$ retention guard)}} \\
+      CAEM & C0 & 300 & 0.541 & 0.135 & -- & -- & -- & baseline \\
+      CAEM & C1 & 300 & 0.543 & 0.112 & 1.041 & 1.013 & \underline{1.006} & \textsc{commit} \\
       \rowcolor{caemTealLight}
-      \textbf{C2 $\star$} & $\mathbf{0.544}$ & $\mathbf{0.107}$ & $0.975$ & $0.949$ & $0.982$ & \textbf{COMMIT (best)} \\
-      C3 & $0.532$ & $0.115$ & $0.992$ & $0.987$ & $0.976$ & COMMIT \\
+      \textbf{CAEM} & \textbf{C2} & 300 & $\mathbf{0.544}$ & $\mathbf{0.107}$ & 0.975 & \underline{0.949} & 0.982 & \textsc{commit} $\star$ \\
+      CAEM & C3 & 300 & 0.532 & 0.115 & 0.992 & 0.987 & \underline{0.976} & \textsc{commit} \\
       \rowcolor{caemRedLight}
-      C4 & $0.532$ & $0.115$ & $1.018$ & $\mathbf{0.886}$ & $0.982$ & \textbf{ABORT} \\
-      C5 & $0.517$ & $0.109$ & $0.999$ & $1.013$ & $0.958$ & COMMIT (post-rollback) \\
+      CAEM & C4 & 300 & 0.532 & 0.115 & 1.018 & \textbf{\underline{0.886}} & 0.982 & \textsc{abort} \\
+      CAEM & C5 & 300 & 0.517 & 0.109 & 0.999 & 1.013 & \underline{0.958} & \textsc{commit} \\
+      \midrule
+      \multicolumn{9}{@{}l}{\textbf{Headline contrast (CAEM C2 vs.\ B1 zero-shot)}: $\Delta$EM $=+0.037$ ($+7.4\%$ relative); $\Delta$CHM $=-0.013$ ($-10.8\%$ relative).} \\
       \bottomrule
     \end{tabular}%
     }
@@ -221,54 +234,70 @@
   \end{block}
 
   \begin{block}{External Baseline Comparison}
+    % Source: thesis_report/figures/auto/tab_baseline_pooled.tex
+    % Structure preserved verbatim from the canonical thesis table (# +
+    % System + EM + CHM + 4 delta columns); only the poster colour-scheme
+    % overrides applied (caemTealLight on the CAEM C2 headline row in
+    % place of gray!18). The deltas keep the canonical "absolute (relative)"
+    % format from the report.
     \scriptsize
-    \setlength{\tabcolsep}{3pt}
+    \setlength{\tabcolsep}{2.5pt}
     \renewcommand{\arraystretch}{1.05}
     \resizebox{\colwidth}{!}{%
-    \begin{tabular}{@{}l c c c c c c@{}}
+    \begin{tabular}{@{}llcc|cc|cc@{}}
       \toprule
-      & & & \multicolumn{2}{c}{$\boldsymbol{\Delta}$\textbf{ vs C2 (best)}} & \multicolumn{2}{c}{$\boldsymbol{\Delta}$\textbf{ vs C5 (final)}} \\
-      \cmidrule(lr){4-5}\cmidrule(lr){6-7}
-      \textbf{System} & \textbf{EM} & \textbf{CHM} & \textbf{EM} & \textbf{CHM} & \textbf{EM} & \textbf{CHM} \\
+       & & & & \multicolumn{2}{c|}{\textbf{vs.\ CAEM C2 (best)}} & \multicolumn{2}{c}{\textbf{vs.\ CAEM C5 (final)}} \\
+      \cmidrule(lr){5-6}\cmidrule(lr){7-8}
+      \textbf{\#} & \textbf{System} & \textbf{EM} & \textbf{CHM} & $\boldsymbol{\Delta}$\textbf{EM} & $\boldsymbol{\Delta}$\textbf{CHM} & $\boldsymbol{\Delta}$\textbf{EM} & $\boldsymbol{\Delta}$\textbf{CHM} \\
       \midrule
       \rowcolor{caemTealLight}
-      \textbf{CAEM C2 (best) $\star$} & $\mathbf{0.544}$ & $\mathbf{0.107}$ & --- & --- & $+0.027$ & $-0.002$ \\
-      CAEM C5 (final) & $0.517$ & $0.109$ & $-0.027$ & $+0.002$ & --- & --- \\
+      & \textbf{CAEM C2 (best)} & $\mathbf{0.544}$ & $\mathbf{0.107}$ & --- & --- & $+0.027$ & $-0.002$ \\
+      & CAEM C5 (final) & $0.517$ & $0.109$ & $-0.027$ & $+0.002$ & --- & --- \\
       \midrule
-      B1 zero-shot & $0.507$ & $0.120$ & $+7.4\%$ & $-11.0\%$ & $+2.0\%$ & $-9.3\%$ \\
-      B2 chain-of-thought & $0.500$ & $0.123$ & $+8.8\%$ & $-12.7\%$ & $+3.4\%$ & $-11.0\%$ \\
-      B3 DPR-RAG & $0.458$ & $0.148$ & $+18.8\%$ & $-27.7\%$ & $+12.9\%$ & $-26.4\%$ \\
-      B4 CoT $+$ DPR-RAG & $0.461$ & $0.142$ & $+17.9\%$ & $-24.6\%$ & $+12.1\%$ & $-23.2\%$ \\
-      B5 five-shot CoT & $0.405$ & $0.136$ & $+34.2\%$ & $-21.4\%$ & $+27.5\%$ & $-19.9\%$ \\
-      B6 vanilla fine-tune (C5) & $0.325$ & $0.144$ & $+67.2\%$ & $-25.5\%$ & $+58.9\%$ & $-24.1\%$ \\
-      B7 FLARE & $0.292$ & $0.153$ & $+86.3\%$ & $-29.9\%$ & $+77.1\%$ & $-28.6\%$ \\
-      B8 semantic entropy & $0.505$ & $0.120$ & $+7.7\%$ & $-10.5\%$ & $+2.4\%$ & $-8.9\%$ \\
+      B1 & zero-shot & $0.507$ & $0.120$ & $+0.037\ (+7.4\%)$ & $-0.013\ (-11.0\%)$ & $+0.010\ (+2.0\%)$ & $-0.011\ (-9.3\%)$ \\
+      B2 & chain-of-thought & $0.500$ & $0.123$ & $+0.044\ (+8.8\%)$ & $-0.016\ (-12.7\%)$ & $+0.017\ (+3.4\%)$ & $-0.014\ (-11.0\%)$ \\
+      B3 & RAG & $0.458$ & $0.148$ & $+0.086\ (+18.8\%)$ & $-0.041\ (-27.7\%)$ & $+0.059\ (+12.9\%)$ & $-0.039\ (-26.4\%)$ \\
+      B4 & CoT $+$ RAG & $0.461$ & $0.142$ & $+0.083\ (+17.9\%)$ & $-0.035\ (-24.6\%)$ & $+0.056\ (+12.1\%)$ & $-0.033\ (-23.2\%)$ \\
+      B5 & five-shot CoT & $0.405$ & $0.136$ & $+0.139\ (+34.2\%)$ & $-0.029\ (-21.4\%)$ & $+0.112\ (+27.5\%)$ & $-0.027\ (-19.9\%)$ \\
+      B6 & vanilla fine-tune (C5) & $0.325$ & $0.144$ & $+0.219\ (+67.2\%)$ & $-0.037\ (-25.5\%)$ & $+0.192\ (+58.9\%)$ & $-0.035\ (-24.1\%)$ \\
+      B7 & FLARE & $0.292$ & $0.153$ & $+0.252\ (+86.3\%)$ & $-0.046\ (-29.9\%)$ & $+0.225\ (+77.1\%)$ & $-0.044\ (-28.6\%)$ \\
+      B8 & semantic entropy & $0.505$ & $0.120$ & $+0.039\ (+7.7\%)$ & $-0.013\ (-10.5\%)$ & $+0.012\ (+2.4\%)$ & $-0.011\ (-8.9\%)$ \\
       \midrule
       \rowcolor{caemOrangeLight}
-      \multicolumn{7}{@{}c@{}}{\textbf{Wins-against (joint $\Delta$EM \& $\Delta$CHM): CAEM C2 beats $8/8$; CAEM C5 beats $8/8$.}} \\
+      \multicolumn{8}{@{}l}{\footnotesize Wins-against count (CAEM beats baseline on $\Delta$EM and $\Delta$CHM jointly): CAEM C2 beats $8/8$; CAEM C5 beats $8/8$.} \\
       \bottomrule
     \end{tabular}%
     }
   \end{block}
 
   \begin{block}{Retrieval-Utility Classifier Ablation}
+    % Source: thesis_report/figures/auto/tab_ruc_ablation.tex
+    % Structure preserved verbatim from the canonical thesis table
+    % (Benchmark + 3xEM + 3xCHM + 3xT3 share = 10 columns grouped under
+    % Exact match | Composite hallucination | Tier 3 share); only the
+    % poster colour-scheme overrides applied (caemOrangeLight on the
+    % CSQA and TruthfulQA asymmetric-rescue rows).
     \scriptsize
-    \setlength{\tabcolsep}{3pt}
+    \setlength{\tabcolsep}{2.5pt}
     \renewcommand{\arraystretch}{1.0}
     \resizebox{\colwidth}{!}{%
-    \begin{tabular}{@{}l c c c c c@{}}
+    \begin{tabular}{@{}l|rrr|rrr|rrr@{}}
       \toprule
-      \textbf{Benchmark} & \textbf{EM off} & \textbf{EM on} & $\boldsymbol{\Delta}$\textbf{EM (pp)} & \textbf{T3 off} & \textbf{T3 on} \\
+       & \multicolumn{3}{c|}{\textbf{Exact match}} & \multicolumn{3}{c|}{\textbf{Composite hallucination}} & \multicolumn{3}{c}{\textbf{Tier 3 share}} \\
+      \textbf{Benchmark} & \textbf{Off} & \textbf{On} & $\boldsymbol{\Delta}$\,(pp) & \textbf{Off} & \textbf{On} & $\boldsymbol{\Delta}$\,(\% rel) & \textbf{Off} & \textbf{On} & $\boldsymbol{\Delta}$\,(pp) \\
       \midrule
-      FEVER          & $0.503$ & $0.503$ & $0.0$            & $92.3\%$ & $70.7\%$ \\
-      TriviaQA       & $0.437$ & $0.463$ & $+2.7$           & $95.7\%$ & $68.0\%$ \\
+      \multicolumn{10}{@{}l}{\textit{Training panel}} \\
+      FEVER          & $0.503$ & $0.503$ & $\phantom{+}0.0$  & $0.117$ & $0.120$ & $+2.5\%$  & $92.3\%$ & $70.7\%$ & $-21.7$ \\
+      TriviaQA       & $0.437$ & $0.463$ & $+2.7$            & $0.123$ & $0.121$ & $-2.0\%$  & $95.7\%$ & $68.0\%$ & $-27.7$ \\
       \rowcolor{caemOrangeLight}
-      \textbf{CommonsenseQA}  & $0.603$ & $\mathbf{0.743}$ & $\mathbf{+14.0}$ & $57.7\%$ & $20.3\%$ \\
-      StrategyQA     & $0.617$ & $0.640$ & $+2.3$           & $100.0\%$ & $76.7\%$ \\
-      \rowcolor{caemOrangeLight}
-      \textbf{TruthfulQA}     & $0.210$ & $\mathbf{0.310}$ & $\mathbf{+10.0}$ & $99.0\%$ & $40.0\%$ \\
+      CommonsenseQA  & $0.603$ & $\mathbf{0.743}$ & $\mathbf{+14.0}$ & $0.131$ & $\mathbf{0.086}$ & $\mathbf{-34.4\%}$ & $57.7\%$ & $20.3\%$ & $-37.3$ \\
       \midrule
-      \textbf{Pooled} & $\mathbf{0.474}$ & $\mathbf{0.532}$ & $\mathbf{+5.8}$ & $\mathbf{88.9\%}$ & $\mathbf{55.1\%}$ \\
+      \multicolumn{10}{@{}l}{\textit{Transfer panel}} \\
+      StrategyQA     & $0.617$ & $0.640$ & $+2.3$            & $0.119$ & $0.128$ & $+8.1\%$  & $100.0\%$ & $76.7\%$ & $-23.3$ \\
+      \rowcolor{caemOrangeLight}
+      TruthfulQA     & $0.210$ & $\mathbf{0.310}$ & $\mathbf{+10.0}$ & $0.116$ & $0.119$ & $+2.9\%$  & $99.0\%$ & $40.0\%$ & $\mathbf{-59.0}$ \\
+      \midrule
+      \textbf{Pooled (all five)} & $\mathbf{0.474}$ & $\mathbf{0.532}$ & $\mathbf{+5.8}$ & $\mathbf{0.121}$ & $\mathbf{0.115}$ & $\mathbf{-5.2\%}$ & $\mathbf{88.9\%}$ & $\mathbf{55.1\%}$ & $\mathbf{-33.8}$ \\
       \bottomrule
     \end{tabular}%
     }
