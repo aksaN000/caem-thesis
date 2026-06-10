@@ -1,0 +1,43 @@
+\documentclass[tikz,border=2pt]{standalone}
+\usepackage{tikz}
+\usetikzlibrary{calc}
+
+\definecolor{bracblue}{RGB}{0,71,135}
+\definecolor{bracgold}{RGB}{200,160,40}
+
+\begin{document}
+\begin{tikzpicture}
+  % Outer ring
+  \draw[bracblue, line width=2pt] (0,0) circle (3cm);
+  \draw[bracblue, line width=0.6pt] (0,0) circle (2.78cm);
+
+  % Curved top text: BRAC UNIVERSITY
+  \draw[bracblue] (0,0) ++(135:2.9) arc (135:45:2.9);
+  \node[bracblue, font=\bfseries\large] at (0,2.45) {BRAC UNIVERSITY};
+
+  % Curved bottom text: EST. 2001 (using founding year as placeholder)
+  \node[bracblue, font=\bfseries\small] at (0,-2.45) {EST.\ 2001};
+
+  % Inner shield background
+  \fill[bracblue!10] (0,0) circle (2.0cm);
+  \draw[bracblue, line width=1pt] (0,0) circle (2.0cm);
+
+  % Open book in the center
+  \fill[white] (-1.1,-0.4) -- (0,-0.1) -- (1.1,-0.4) -- (1.1,0.7) -- (0,1.0) -- (-1.1,0.7) -- cycle;
+  \draw[bracblue, line width=1pt] (-1.1,-0.4) -- (0,-0.1) -- (1.1,-0.4) -- (1.1,0.7) -- (0,1.0) -- (-1.1,0.7) -- cycle;
+  \draw[bracblue, line width=0.8pt] (0,-0.1) -- (0,1.0);
+  % Book page lines
+  \draw[bracblue!60, line width=0.3pt] (-0.95,0.45) -- (-0.15,0.65);
+  \draw[bracblue!60, line width=0.3pt] (-0.95,0.25) -- (-0.15,0.45);
+  \draw[bracblue!60, line width=0.3pt] (-0.95,0.05) -- (-0.15,0.25);
+  \draw[bracblue!60, line width=0.3pt] (0.15,0.65) -- (0.95,0.45);
+  \draw[bracblue!60, line width=0.3pt] (0.15,0.45) -- (0.95,0.25);
+  \draw[bracblue!60, line width=0.3pt] (0.15,0.25) -- (0.95,0.05);
+
+  % Gold star above the book
+  \node[bracgold, font=\Huge] at (0,1.35) {$\star$};
+
+  % Acronym below the book
+  \node[bracblue, font=\bfseries\Large] at (0,-0.95) {BRACU};
+\end{tikzpicture}
+\end{document}
