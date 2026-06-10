@@ -1,0 +1,63 @@
+% ============================================================================
+% beamercolorthemecaem.sty
+% BRAC University-aligned colour theme for the CAEM defence poster, built on
+% top of the Gemini beamerposter framework. Primary palette: BRAC navy blue;
+% accents pulled from the thesis architecture diagram (teal-700 for verifier /
+% storage gate, orange-500 for RUC, green-600 for memory tier, red-500 for
+% retention-guard alerts).
+% ============================================================================
+
+\ProvidesPackage{beamercolorthemecaem}
+
+\selectcolormodel{RGB}
+
+% --- BRAC institutional ----------------------------------------------------
+\definecolor{bracnavy}{RGB}{0,55,129}      % BRAC University primary navy
+\definecolor{bracnavydark}{RGB}{0,38,90}   % darker navy for headings
+\definecolor{bracred}{RGB}{173,32,46}      % BRAC University accent red
+\definecolor{bracgold}{RGB}{207,154,57}    % BRAC accent gold
+
+% --- Thesis architecture-diagram palette (for figure consistency) ----------
+\definecolor{caemTeal}{RGB}{0,128,128}     % verifier, storage gate
+\definecolor{caemTealLight}{RGB}{220,242,242}
+\definecolor{caemOrange}{RGB}{230,108,0}   % retrieval-utility classifier (Stage 3b)
+\definecolor{caemOrangeLight}{RGB}{255,237,213}
+\definecolor{caemGreen}{RGB}{40,130,75}    % memory tier
+\definecolor{caemGreenLight}{RGB}{226,242,233}
+\definecolor{caemRed}{RGB}{198,40,40}      % retention guard, abort markers
+\definecolor{caemRedLight}{RGB}{253,230,230}
+
+% --- Neutrals --------------------------------------------------------------
+\definecolor{bg}{RGB}{255,255,255}
+\definecolor{fg}{RGB}{32,32,32}
+\definecolor{lightgrey}{RGB}{238,238,238}
+\definecolor{midgrey}{RGB}{170,170,170}
+
+% --- Beamer palette --------------------------------------------------------
+\setbeamercolor{background canvas}{bg=bg}
+\setbeamercolor{headline}{fg=bg,bg=bracnavy}
+\setbeamercolor{headline rule}{bg=bracred}
+\setbeamercolor{footline}{fg=bg,bg=bracnavy}
+
+% Section title (block headers)
+\setbeamercolor{block title}{fg=bg,bg=bracnavy}
+\setbeamercolor{block body}{fg=fg,bg=bg}
+
+% Highlight (alert) block: the BRAC accent red, used for the headline-result strip
+\setbeamercolor{block alerted title}{fg=bg,bg=bracred}
+\setbeamercolor{block alerted body}{fg=fg,bg=caemRedLight}
+
+% Example block (used for theorems / formal statements): teal palette
+\setbeamercolor{block example title}{fg=bg,bg=caemTeal}
+\setbeamercolor{block example body}{fg=fg,bg=caemTealLight}
+
+% Itemize / enumerate markers
+\setbeamercolor{itemize item}{fg=bracnavy}
+\setbeamercolor{itemize subitem}{fg=caemTeal}
+\setbeamercolor{enumerate item}{fg=bracnavy}
+
+% Heading inside a block (\heading{})
+\setbeamercolor{heading}{fg=bracnavy}
+
+% Caption labels
+\setbeamercolor{caption name}{fg=bracnavy}

@@ -1,7 +1,14 @@
 # CAEM: Confidence-Aware Episodic Memory with Self-Improvement
 
+*Confidence-Aware Episodic Memory with Self-Improvement for Progressive Hallucination Reduction in Large Language Models*
+
 **CSE400 Final Year Thesis · BRAC University**
-**Author:** Aksan Gony Alif
+
+**Authors:** Md. Aksan Gony Alif (24341256), Maliha Binte Shamim (23101466), Md. Mahmudur Rahman (22101355)
+
+**Supervisor:** Dr. Md. Golam Rabiul Alam, Professor, Department of Computer Science & Engineering, BRAC University
+
+**Co-supervisor:** Md. Tanzim Reza, Senior Lecturer, Department of Computer Science & Engineering, BRAC University
 
 A three-tier hallucination-reduction architecture for open-domain question answering, built on Qwen-2.5-3B-Instruct. CAEM combines a verified episodic memory, confidence-aware routing with a retrieval-utility classifier, a nine-signal calibrated-probability verifier ensemble with a fixed-threshold storage gate, and a constrained per-cycle self-improvement loop under a multi-modal retention guard with asymmetric rollback.
 
@@ -428,10 +435,10 @@ If you reference CAEM or build on this work, please cite:
 
 ```bibtex
 @misc{alif2026caem,
-  author = {Aksan Gony Alif},
-  title  = {Confidence-Aware Episodic Memory with Self-Improvement: An Architectural Approach to Hallucination Reduction in Open-Domain Question Answering},
+  author = {Md. Aksan Gony Alif and Maliha Binte Shamim and Md. Mahmudur Rahman},
+  title  = {Confidence-Aware Episodic Memory with Self-Improvement for Progressive Hallucination Reduction in Large Language Models},
   year   = {2026},
-  note   = {CSE400 Undergraduate Thesis, BRAC University},
+  note   = {CSE400 Undergraduate Thesis, Department of Computer Science \& Engineering, BRAC University. Supervisor: Dr. Md. Golam Rabiul Alam. Co-supervisor: Md. Tanzim Reza.},
   url    = {https://github.com/aksaN000/caem-thesis}
 }
 ```
