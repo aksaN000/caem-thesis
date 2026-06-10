@@ -217,52 +217,66 @@
 \begin{column}{\colwidth}
 
   \begin{block}{Headline Result}
-    The headline finding is the joint reading of three axes against the
-    matched zero-shot baseline B1 over the same Qwen-2.5-3B-Instruct
-    backbone. The training-panel architectural-contribution slice at the
-    within-trajectory best cycle (cycle two) reaches a pooled exact-match
-    gain of $+20.3\%$ relative against the B1 floor and a pooled composite
-    hallucination metric reduction of $-29.4\%$ relative against the same
-    floor; the trajectory-end cycle holds at $+13.7\%$ relative
-    exact-match gain and $-20.3\%$ relative composite-hallucination
-    reduction. In the pooled comparison against the locked external
-    eight-baseline panel, CAEM beats every baseline on both axes at both
-    reference cycles.
+    Against the matched zero-shot baseline B1 on the same backbone, the
+    training-panel architectural-contribution slice at the within-trajectory
+    best cycle (C2) reaches a pooled exact-match gain of $+20.3\%$ relative
+    and a pooled composite hallucination metric reduction of $-29.4\%$
+    relative; the trajectory-end cycle holds at $+13.7\%$ EM and $-20.3\%$
+    CHM. CAEM beats every external baseline on both axes at both reference
+    cycles.
 
     \[
       \boxed{\Delta\mathrm{EM} = +20.3\%\ \text{rel.}} \qquad
       \boxed{\Delta\mathrm{CHM} = -29.4\%\ \text{rel.}}
     \]
-    \footnotesize
+    \centering\footnotesize
     (training panel, CAEM C2 vs.\ B1 zero-shot baseline)
   \end{block}
 
   \begin{block}{External Baseline Comparison}
-    \footnotesize
-    \setlength{\tabcolsep}{4pt}
-    \renewcommand{\arraystretch}{1.05}
-    \begin{tabular}{@{}l l r r r r@{}}
-      \toprule
-      & \textbf{System} & \textbf{EM} & \textbf{CHM} & $\boldsymbol{\Delta}$\textbf{EM} & $\boldsymbol{\Delta}$\textbf{CHM} \\
-      & & & & \textbf{vs C2} & \textbf{vs C2} \\
-      \midrule
-      \rowcolor{caemTealLight}
-      $\star$ & \textbf{CAEM C2 (best)} & $\mathbf{0.544}$ & $\mathbf{0.107}$ & --- & --- \\
-              & CAEM C5 (final) & $0.517$ & $0.109$ & $-0.027$ & $+0.002$ \\
-      \midrule
-      B1 & zero-shot & $0.507$ & $0.120$ & $+7.4\%$ & $-11.0\%$ \\
-      B2 & chain-of-thought & $0.500$ & $0.123$ & $+8.8\%$ & $-12.7\%$ \\
-      B3 & DPR-RAG & $0.458$ & $0.148$ & $+18.8\%$ & $-27.7\%$ \\
-      B4 & CoT $+$ DPR-RAG & $0.461$ & $0.142$ & $+17.9\%$ & $-24.6\%$ \\
-      B5 & five-shot CoT & $0.405$ & $0.136$ & $+34.2\%$ & $-21.4\%$ \\
-      B6 & vanilla fine-tune (C5) & $0.325$ & $0.144$ & $+67.2\%$ & $-25.5\%$ \\
-      B7 & FLARE & $0.292$ & $0.153$ & $+86.3\%$ & $-29.9\%$ \\
-      B8 & semantic entropy & $0.505$ & $0.120$ & $+7.7\%$ & $-10.5\%$ \\
-      \bottomrule
-    \end{tabular}
-
-    \footnotesize
-    \textbf{Wins-against: CAEM C2 beats $8/8$ baselines; CAEM C5 beats $8/8$.}
+    % Two side-by-side mini-tables save vertical space. CAEM reference cycles
+    % + B1-B4 (closer baselines) on the left; B5-B8 (deeper deficits) on the
+    % right. Same Delta-vs-C2 columns and bold-highlight pattern as the RUC
+    % ablation table below for visual consistency.
+    \begin{minipage}[t]{0.49\colwidth}
+      \scriptsize
+      \setlength{\tabcolsep}{3pt}
+      \renewcommand{\arraystretch}{1.05}
+      \begin{tabular}{@{}l r r r r@{}}
+        \toprule
+        \textbf{System} & \textbf{EM} & \textbf{CHM} & $\boldsymbol{\Delta}$\textbf{EM} & $\boldsymbol{\Delta}$\textbf{CHM} \\
+        \midrule
+        \rowcolor{caemTealLight}
+        \textbf{CAEM C2 $\star$} & $\mathbf{0.544}$ & $\mathbf{0.107}$ & --- & --- \\
+        CAEM C5 (final) & $0.517$ & $0.109$ & $-0.027$ & $+0.002$ \\
+        \midrule
+        B1 zero-shot & $0.507$ & $0.120$ & $+7.4\%$ & $-11.0\%$ \\
+        B2 chain-of-thought & $0.500$ & $0.123$ & $+8.8\%$ & $-12.7\%$ \\
+        B3 DPR-RAG & $0.458$ & $0.148$ & $+18.8\%$ & $-27.7\%$ \\
+        B4 CoT$+$DPR-RAG & $0.461$ & $0.142$ & $+17.9\%$ & $-24.6\%$ \\
+        \bottomrule
+      \end{tabular}
+    \end{minipage}\hfill
+    \begin{minipage}[t]{0.49\colwidth}
+      \scriptsize
+      \setlength{\tabcolsep}{3pt}
+      \renewcommand{\arraystretch}{1.05}
+      \begin{tabular}{@{}l r r r r@{}}
+        \toprule
+        \textbf{System} & \textbf{EM} & \textbf{CHM} & $\boldsymbol{\Delta}$\textbf{EM} & $\boldsymbol{\Delta}$\textbf{CHM} \\
+        \midrule
+        B5 five-shot CoT & $0.405$ & $0.136$ & $+34.2\%$ & $-21.4\%$ \\
+        B6 vanilla FT (C5) & $0.325$ & $0.144$ & $+67.2\%$ & $-25.5\%$ \\
+        B7 FLARE & $0.292$ & $0.153$ & $+86.3\%$ & $-29.9\%$ \\
+        B8 semantic entropy & $0.505$ & $0.120$ & $+7.7\%$ & $-10.5\%$ \\
+        \midrule
+        \rowcolor{caemOrangeLight}
+        \multicolumn{5}{@{}l}{\textbf{Wins-against (joint $\Delta$EM \& $\Delta$CHM):}} \\
+        \rowcolor{caemOrangeLight}
+        \multicolumn{5}{@{}l}{\textbf{CAEM C2 beats $8/8$; CAEM C5 beats $8/8$.}} \\
+        \bottomrule
+      \end{tabular}
+    \end{minipage}
   \end{block}
 
   \begin{block}{Retrieval-Utility Classifier Ablation}
@@ -288,39 +302,16 @@
     }
   \end{block}
 
-  \begin{block}{Future Work}
-    \begin{itemize}
-      \item \textbf{Fixed-composite ablation for the monotonicity theorem.}
-        A future-work cycle freezes the rescaling layer across two
-        adjacent committed cycles and varies only the generator's outputs
-        as they pass through the locked verifier ensemble.
-      \item \textbf{Extended-horizon stochastic-equilibrium probe.} A
-        future-work probe extends the committed-cycle horizon to at least
-        fifteen cycles and reads stationarity through a Wald-Wolfowitz
-        runs test and a Bernoulli rate fit on the commit-indicator
-        sequence.
-      \item \textbf{Larger backbone.} Scaling to a seven-billion or
-        thirteen-billion-parameter model in the same open-weight family
-        would test whether the architectural gain over scaling is
-        preserved, narrows, or inverts at higher backbone capacity.
-      \item \textbf{Long-hypothesis judge under fine-tuning.} Refit the
-        long-hypothesis judge under task-specific training on a synthetic
-        claim-support dataset in the spirit of MiniCheck's training
-        corpus, and re-test calibrated agreement against the registered
-        $\rho_{\min} = 0.70$ floor.
-    \end{itemize}
-  \end{block}
-
   \begin{block}{References}
     \scriptsize
-    {[1]} Guo et al. On Calibration of Modern Neural Networks. \emph{ICML 2017}. \,
-    {[2]} Lin et al. TruthfulQA: Measuring How Models Mimic Human Falsehoods. \emph{ACL 2022}. \,
-    {[3]} Thorne et al. FEVER: Large-scale Fact Extraction and Verification. \emph{NAACL 2018}. \,
-    {[4]} Joshi et al. TriviaQA: Distantly Supervised Reading Comprehension. \emph{ACL 2017}. \,
-    {[5]} Talmor et al. CommonsenseQA: Commonsense Knowledge QA Challenge. \emph{NAACL 2019}. \,
-    {[6]} Hu et al. LoRA: Low-Rank Adaptation of Large Language Models. \emph{ICLR 2022}. \,
-    {[7]} Tang et al. MiniCheck: Efficient Fact-Checking on Grounding Documents. \emph{ACL 2024}. \,
-    {[8]} Cherian et al. Enhanced Conformal Prediction with Boosted Logistic Regression. \emph{NeurIPS 2024}.
+    [1] Guo et al. \emph{ICML 2017} (calibration). \,
+    [2] Lin et al. \emph{ACL 2022} (TruthfulQA). \,
+    [3] Thorne et al. \emph{NAACL 2018} (FEVER). \,
+    [4] Joshi et al. \emph{ACL 2017} (TriviaQA). \,
+    [5] Talmor et al. \emph{NAACL 2019} (CommonsenseQA). \,
+    [6] Hu et al. \emph{ICLR 2022} (LoRA). \,
+    [7] Tang et al. \emph{ACL 2024} (MiniCheck). \,
+    [8] Cherian et al. \emph{NeurIPS 2024} (boost layer).
   \end{block}
 
 \end{column}

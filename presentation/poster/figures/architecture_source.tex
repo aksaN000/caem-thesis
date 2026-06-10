@@ -1,6 +1,21 @@
-\begin{figure}[p]
-\centering
-\resizebox{1.08\textwidth}{!}{%
+% ============================================================================
+% Standalone wrapper for the CAEM architecture diagram.
+% Renders the tikzpicture body of thesis_report/figures/system_architecture_figure.tex
+% as a tight-bounded single-page PDF that the poster includegraphics'es.
+% ============================================================================
+\documentclass[border=4pt,tikz]{standalone}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{xcolor}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,shapes.geometric,fit,backgrounds,calc}
+
+% Cref calls in the thesis source resolved to plain italic placeholders so the
+% standalone document compiles without the thesis preamble.
+\providecommand{\Cref}[1]{\textit{(the methodology chapter)}}
+\providecommand{\cref}[1]{\textit{(the methodology chapter)}}
+
+\begin{document}
 \begin{tikzpicture}[
     xshift=-0.9cm,
     font=\normalsize,
@@ -260,8 +275,4 @@
     -- (s1.west);
 
 \end{tikzpicture}%
-}
-\caption{%
-The eight-stage CAEM pipeline. Stages~S1--S8 are described in \Cref{ch:methodology}; the retrieval-utility classifier (Stage S3b, RUC) of \Cref{sec:ruc} sits between the three-tier router and the retrieval-augmented tier, intercepting the safety-veto and score-formula fall-through dispatches and redirecting retrieval-hurt queries to the zero-shot tier. The nine deployed signals at S5 are the registered set minus $h_{\text{norm}}$ (registered then retired at the cycle-zero audit; see the list-of-symbols footnote) and $p_{\text{contra}}$ (structurally zero under the deployed MiniCheck judge). The outer dashed arrow indicates the cycle-boundary handoff from the close of one cycle to the start of the next.}
-\label{fig:system-architecture}
-\end{figure}
+\end{document}
