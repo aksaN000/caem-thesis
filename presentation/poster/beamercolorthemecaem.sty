@@ -75,6 +75,27 @@
 \setbeamercolor{caption name}{fg=bracnavy}
 
 % ============================================================================
+% FONT OVERRIDES
+% ============================================================================
+% The Gemini theme installs Raleway for headings and Lato for sans body, both
+% as OpenType fonts. At poster sizes the thin strokes of Raleway-Bold and the
+% light cuts of Lato can render as a soft halo / glow in some PDF viewers
+% (especially when displayed at non-100% zoom). Latin Modern is already
+% loaded via the document-level \usepackage{lmodern} as crisp Type 1
+% outlines; redirect every poster-side font slot to Latin Modern so the
+% outlines render cleanly across viewers.
+% ============================================================================
+\renewcommand{\familydefault}{\rmdefault}
+\setbeamerfont{headline}{family=\rmfamily}
+\setbeamerfont{headline title}{family=\rmfamily,size=\Huge,series=\bfseries}
+\setbeamerfont{headline author}{family=\rmfamily,size=\Large}
+\setbeamerfont{headline institute}{family=\rmfamily,size=\normalsize}
+\setbeamerfont{block title}{family=\rmfamily,size=\large,series=\bfseries}
+\setbeamerfont{heading}{family=\rmfamily,series=\bfseries}
+\setbeamerfont{caption}{family=\rmfamily,size=\small}
+\setbeamerfont{footline}{family=\rmfamily,size=\normalsize}
+
+% ============================================================================
 % HEADLINE TEMPLATE
 % ============================================================================
 % Full-width navy bar (~10cm tall) containing:
@@ -90,8 +111,15 @@
   \begin{beamercolorbox}[wd=\paperwidth,ht=10cm,dp=0pt,leftskip=1.5cm,rightskip=1.5cm]{headline}%
     \vbox to 10cm{%
       \vfill
-      \begin{minipage}[c]{7cm}
-        \includegraphics[height=7cm,keepaspectratio]{logos/bracu_logo_12-0-2022.png}%
+      \begin{minipage}[c]{8cm}
+        % White rounded card behind the logo so the BRAC crest (whose
+        % primary blue blends into the navy header background) sits on a
+        % clean white field and reads as a discrete identity mark.
+        \begin{tikzpicture}
+          \node[fill=white,rounded corners=4pt,inner sep=6pt] {%
+            \includegraphics[height=7cm,keepaspectratio]{logos/bracu_logo_12-0-2022.png}%
+          };
+        \end{tikzpicture}%
       \end{minipage}\hfill
       \begin{minipage}[c]{\dimexpr\paperwidth-3cm-9cm\relax}
         \centering
