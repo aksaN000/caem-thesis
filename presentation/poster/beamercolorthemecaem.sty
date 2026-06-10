@@ -119,13 +119,14 @@
     \vbox to 10cm{%
       \vfill
       \begin{minipage}[c]{8cm}
-        % BRAC logo placed directly on the navy header to match the BRAC
-        % Pre-Thesis 2 sample style. The standard colour BRAC crest carries
-        % blue circular detail that partially blends into the navy
-        % background; the silver and lighter elements remain visible.
-        % Swap in a white-on-transparent variant of the BRAC logo at this
-        % include path to make every detail of the crest fully visible.
-        \includegraphics[height=7cm,keepaspectratio]{logos/bracu_logo_12-0-2022.png}%
+        % White-on-transparent variant of the BRAC crest. Generated from the
+        % standard colour PNG (logos/bracu_logo_12-0-2022.png) by recolouring
+        % every non-transparent pixel whose RGB sum is below 400 to pure
+        % white while preserving transparency. The threshold catches the
+        % BRAC primary blue (#253494, RGB-sum 237) and every dark text /
+        % outline element, leaving the silver tier untouched. The resulting
+        % crest reads as a clean white identity mark on the navy header.
+        \includegraphics[height=7cm,keepaspectratio]{logos/bracu_logo_white.png}%
       \end{minipage}\hfill
       \begin{minipage}[c]{\dimexpr\paperwidth-3cm-9cm\relax}
         \centering
