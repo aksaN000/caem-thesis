@@ -43,13 +43,25 @@
 \setbeamercolor{block title}{fg=bg,bg=bracnavy}
 \setbeamercolor{block body}{fg=fg,bg=bg}
 
-% Highlight (alert) block: the BRAC accent red, used for the headline-result strip
-\setbeamercolor{block alerted title}{fg=bg,bg=bracred}
+% Highlight (alert) block: title bar unified to BRAC navy (was bracred); body
+% retains the soft-red tint so the block still reads as an alert in content.
+% bracred is still defined above for in-content highlighting use.
+\setbeamercolor{block alerted title}{fg=bg,bg=bracnavy}
 \setbeamercolor{block alerted body}{fg=fg,bg=caemRedLight}
 
-% Example block (used for theorems / formal statements): teal palette
-\setbeamercolor{block example title}{fg=bg,bg=caemTeal}
+% Example block (used for theorems / formal statements): title bar unified to
+% BRAC navy (was caemTeal); body retains the soft-teal tint for visual variety.
+% caemTeal is still defined above for in-content highlighting use.
+\setbeamercolor{block example title}{fg=bg,bg=bracnavy}
 \setbeamercolor{block example body}{fg=fg,bg=caemTealLight}
+
+% --- Block title <-> body breathing room -----------------------------------
+% Gemini packs the block title flush against the body. Insert a small vertical
+% gap after every block-title bar so headings don't collide with body prose.
+% Applied uniformly to regular, alerted, and example blocks.
+\addtobeamertemplate{block begin}{}{\vspace{0.4em}}
+\addtobeamertemplate{block alerted begin}{}{\vspace{0.4em}}
+\addtobeamertemplate{block example begin}{}{\vspace{0.4em}}
 
 % Itemize / enumerate markers
 \setbeamercolor{itemize item}{fg=bracnavy}
