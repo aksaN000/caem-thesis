@@ -89,6 +89,7 @@ htmlcov/
 *.aux
 *.bbl
 *.blg
+*.bcf
 *.fls
 *.fdb_latexmk
 *.synctex.gz
@@ -96,6 +97,13 @@ htmlcov/
 *.out
 *.lof
 *.lot
+*.loa
+*.lol
+*.nlo
+*.nls
+*.ilg
+*.run.xml
+*.thm
 
 # ── Keep these tracked ────────────────────────────────────────────────────────
 # caem-unified-plan-v3.tex    ← tracked (thesis plan)
