@@ -1,4 +1,4 @@
-# CAEM — Confidence-Aware Episodic Memory with Self-Improvement
+# CAEM: Confidence-Aware Episodic Memory with Self-Improvement
 
 **CSE400 Final Year Thesis · BRAC University**
 **Author:** Aksan Gony Alif
@@ -90,8 +90,8 @@ The realised programme closed at the **six-cycle horizon** (cycles C0 through C5
 
 | Configuration | Cycle | Pooled EM | Pooled CHM | MMLU ratio | TQA-test ratio | CSQA-test ratio | Outcome |
 |---|---|---:|---:|---:|---:|---:|---|
-| **B1 zero-shot (reference)** | — | **0.507** | **0.120** | — | — | — | reference floor |
-| CAEM | C0 | 0.541 | 0.135 | — | — | — | baseline |
+| **B1 zero-shot (reference)** | n/a | **0.507** | **0.120** | n/a  | n/a | n/a | reference floor |
+| CAEM | C0 | 0.541 | 0.135 | n/a  | n/a | n/a | baseline |
 | CAEM | C1 | 0.543 | 0.112 | 1.041 | 1.013 | **1.006** | COMMIT |
 | **CAEM** | **C2 ⭐** | **0.544** | **0.107** | 0.975 | **0.949** | 0.982 | **COMMIT (headline cycle)** |
 | CAEM | C3 | 0.532 | 0.115 | 0.992 | 0.987 | **0.976** | COMMIT |
@@ -102,7 +102,7 @@ Headline contrast vs B1 zero-shot at the trajectory's within-best cycle (C2): **
 
 The trajectory carries three findings. First, **the composite hallucination metric reduces monotonically into a deep minimum at cycle two (0.107) and recovers a near-minimum at cycle five (0.109)**, a −19% relative reduction from the cycle-zero baseline (Ch5 §5.2). Second, **cycle four exhibits the first in-flight retention rollback** on the realised trajectory: the TriviaQA-test probe ratio falls to 0.886, crossing below the registered floor of 0.93, the cycle aborts, and the adapter is restored to the cycle-three checkpoint while the memory store grows across the boundary (Ch5 §5.2; the architectural contract is `cor:stochastic-equilibrium` sub-claim iii). Third, **cycle five recovers to a worst-probe ratio of 0.958**, well clear of the floor, and the realised commit fraction closes at π_commit = 4/5 = 0.80, strictly in the open interval (0, 1) that the corollary's sub-claim (i) predicts.
 
-### Per-benchmark trajectory — training panel (canonical reading from `tab:per-bench-trajectory`, Ch5 §5.2)
+### Per-benchmark trajectory: training panel (canonical reading from `tab:per-bench-trajectory`, Ch5 §5.2)
 
 The **architectural-contribution slice** is read off the shaded pooled rows: training-panel pooled EM lifts from **0.483 at B1** to **0.581 at C2** (the architectural-contribution headline of +20.3% relative), and training-panel pooled CHM falls from **0.143 at B1** to **0.101 at C2** (the architectural-contribution headline of −29.4% relative).
 
@@ -117,7 +117,7 @@ The **architectural-contribution slice** is read off the shaded pooled rows: tra
 | **train pooled** | **EM** | **0.483** | 0.571 | 0.584 | **0.581** | 0.570 | 0.571 | 0.549 | **+0.098 (+20.3%)** | **+0.066 (+13.7%)** |
 | **train pooled** | **CHM** | **0.143** | 0.124 | 0.104 | **0.101** | 0.109 | 0.108 | 0.114 | **−0.042 (−29.4%)** | **−0.029 (−20.3%)** |
 
-### Per-benchmark trajectory — transfer panel (held-out, no pooled row by design)
+### Per-benchmark trajectory: transfer panel (held-out, no pooled row by design)
 
 The transfer panel has no pooled row in the thesis because TruthfulQA and StrategyQA move in opposite directions across the trajectory and pooling would mask both signals.
 
@@ -136,8 +136,8 @@ All baselines evaluated under the matched-protocol contract on the five-benchmar
 
 | # | System | EM | CHM | ΔEM vs CAEM C2 (best) | ΔCHM vs CAEM C2 (best) | ΔEM vs CAEM C5 (final) | ΔCHM vs CAEM C5 (final) |
 |---|---|---:|---:|---:|---:|---:|---:|
-|   | **CAEM C2 (best)** ⭐ | **0.544** | **0.107** | — | — | +0.027 | −0.002 |
-|   | CAEM C5 (final) | 0.517 | 0.109 | −0.027 | +0.002 | — | — |
+|   | **CAEM C2 (best)** ⭐ | **0.544** | **0.107** | n/a  | n/a | +0.027 | −0.002 |
+|   | CAEM C5 (final) | 0.517 | 0.109 | −0.027 | +0.002 | n/a  | n/a |
 | B1 | zero-shot | 0.507 | 0.120 | +0.037 (+7.4%) | −0.013 (−11.0%) | +0.010 (+2.0%) | −0.011 (−9.3%) |
 | B2 | chain-of-thought | 0.500 | 0.123 | +0.044 (+8.8%) | −0.016 (−12.7%) | +0.017 (+3.4%) | −0.014 (−11.0%) |
 | B3 | DPR-RAG | 0.458 | 0.148 | +0.086 (+18.8%) | −0.041 (−27.7%) | +0.059 (+12.9%) | −0.039 (−26.4%) |
@@ -166,30 +166,30 @@ Head-to-head ablation at the cycle-three close under the matched-protocol contra
 | **TruthfulQA (transfer)** | 0.210 | **0.310** | **+10.0** | 0.116 | 0.119 | +2.9% | 99.0% | 40.0% |
 | **Pooled (all five)** | **0.474** | **0.532** | **+5.8** | **0.121** | **0.115** | **−5.2%** | **88.9%** | **55.1%** |
 
-The asymmetric-rescue pattern is read off the bold cells: the largest exact-match gains land on CommonsenseQA and TruthfulQA — the two benchmarks where retrieval was actively hurting in the classifier-off arm. FEVER exact match is flat, the empirical receipt that the classifier correctly preserves the retrieval-helpful regime on the textbook fact-verification benchmark. The pooled retrieval-augmented tier share collapses by 33.8 percentage points, with the largest individual collapse on TruthfulQA at 59 percentage points — the empirical receipt that the classifier engages the misconception-amplification mechanism it was registered against.
+The asymmetric-rescue pattern is read off the bold cells: the largest exact-match gains land on CommonsenseQA and TruthfulQA, the two benchmarks where retrieval was actively hurting in the classifier-off arm. FEVER exact match is flat, the empirical receipt that the classifier correctly preserves the retrieval-helpful regime on the textbook fact-verification benchmark. The pooled retrieval-augmented tier share collapses by 33.8 percentage points, with the largest individual collapse on TruthfulQA at 59 percentage points, the empirical receipt that the classifier engages the misconception-amplification mechanism it was registered against.
 
 ### Per-cycle tier-share trajectory (canonical reading from `tab:tier-trajectory`, Ch5 §5.4)
 
 | Cycle | Tier 1 (memory) share / EM | Tier 2 (zero-shot) share / EM | Tier 3 (RAG) share / EM | Pooled EM |
 |---|---:|---:|---:|---:|
-| C0 | 0.0% / — | 48.7% / 0.602 | 51.3% / 0.482 | 0.541 |
-| C1 | 0.0% / — | 49.8% / 0.585 | 50.2% / 0.502 | 0.543 |
+| C0 | 0.0% / n/a | 48.7% / 0.602 | 51.3% / 0.482 | 0.541 |
+| C1 | 0.0% / n/a | 49.8% / 0.585 | 50.2% / 0.502 | 0.543 |
 | C2 ⭐ | 0.1% / 1.000 | **55.2%** / 0.568 | 44.7% / 0.514 | **0.544** |
 | C3 | 0.1% / 1.000 | 44.7% / 0.566 | 55.1% / 0.503 | 0.532 |
 | C4 | 0.1% / 1.000 | 45.6% / 0.564 | 54.3% / 0.504 | 0.532 |
 | C5 | 0.1% / 1.000 | 50.2% / 0.537 | 49.7% / 0.497 | 0.517 |
 
-The cycle-zero baseline routes 51.3% of queries to the retrieval-augmented tier (Tier 3, base T3 EM 0.482); by cycle two the SIL-fine-tuned zero-shot tier (Tier 2, T2 EM 0.568) is **outperforming the cycle-zero RAG tier by +8.6 percentage points** of EM at a 55.2% Tier 2 share — the **SIL-as-distillation receipt**: the self-improvement loop folds verified retrieval-augmented reasoning into the generator's parametric capacity, so the next cycle's zero-shot tier serves a measurable share of previously retrieval-dependent queries without paying the retrieval cost. Tier 1 (memory-direct) fires on a vanishing fraction (0.1%) of held-out queries by design under the content-hash-disjoint evaluation contract, returning the correct stored answer on every observed firing.
+The cycle-zero baseline routes 51.3% of queries to the retrieval-augmented tier (Tier 3, base T3 EM 0.482); by cycle two the SIL-fine-tuned zero-shot tier (Tier 2, T2 EM 0.568) is **outperforming the cycle-zero RAG tier by +8.6 percentage points** of EM at a 55.2% Tier 2 share; this is the **SIL-as-distillation receipt**: the self-improvement loop folds verified retrieval-augmented reasoning into the generator's parametric capacity, so the next cycle's zero-shot tier serves a measurable share of previously retrieval-dependent queries without paying the retrieval cost. Tier 1 (memory-direct) fires on a vanishing fraction (0.1%) of held-out queries by design under the content-hash-disjoint evaluation contract, returning the correct stored answer on every observed firing.
 
 ### Per-tier EM decomposition at the cycle-five close (canonical reading from `tab:per-tier-em`, Ch5 §5.4)
 
 | Benchmark | T1 share / EM | T2 share / EM | T3 share / EM | Pooled EM |
 |---|---:|---:|---:|---:|
-| FEVER | 0.0% / — | 43.3% / 0.554 | 56.7% / 0.418 | 0.477 |
+| FEVER | 0.0% / n/a | 43.3% / 0.554 | 56.7% / 0.418 | 0.477 |
 | TriviaQA | 0.3% / 1.000 | 37.0% / 0.514 | 62.7% / 0.420 | 0.453 |
-| CommonsenseQA | 0.0% / — | 82.3% / 0.733 | 17.7% / 0.642 | 0.717 |
+| CommonsenseQA | 0.0% / n/a | 82.3% / 0.733 | 17.7% / 0.642 | 0.717 |
 | TruthfulQA | 0.3% / 1.000 | 64.3% / 0.591 | 35.3% / 0.311 | 0.493 |
-| StrategyQA | 0.0% / — | 24.0% / 0.736 | 76.0% / 0.610 | 0.640 |
+| StrategyQA | 0.0% / n/a | 24.0% / 0.736 | 76.0% / 0.610 | 0.640 |
 
 T2 EM at the headline C2 cycle (51.6 FEVER, 51.0 TQA, 72.4 CSQA, 35.3 TruthfulQA, 66.4 StrategyQA) compared against the C0 base T3 EM (43.5 FEVER, 46.4 TQA, 52.0 CSQA, 29.1 TruthfulQA, 59.9 StrategyQA) on the same five-benchmark panel supplies the **SIL-as-distillation receipt**: the zero-shot tier under the SIL-fine-tuned adapter outperforms the retrieval-augmented tier under the cycle-zero pristine generator on every benchmark by margins of 5–20 percentage points. The Tier 1 (memory-direct) tier fires on a vanishing fraction of held-out queries by design under the content-hash-disjoint evaluation contract (7 firings across 9000 queries in the realised horizon, all returning the correct stored answer), so the Tier 1 trajectory is a capability bound rather than a trajectory prediction; the framing is `cor:tier1-floor` in Chapter 4 §4.10 and the receipt is in Chapter 5 §5.4.
 
@@ -217,7 +217,7 @@ MMLU sits comfortably above the registered floor at every cycle (band [0.975, 1.
 
 | Cycle | Memory pool size | Deferred buffer size | Δ memory |
 |---|---:|---:|---:|
-| C0 (cold-start) | 431 | 0 | — |
+| C0 (cold-start) | 431 | 0 | n/a |
 | C1 | 2 818 | 1 123 | +2 387 |
 | C2 | 5 151 | 2 399 | +2 333 |
 | C3 | 7 477 | 2 692 | +2 326 |
