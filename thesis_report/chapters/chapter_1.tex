@@ -46,7 +46,7 @@ A second, less visible cost is computational. The stateless protocol of a typica
 \subsection{Why prior pipelines do not close the gap}
 \label{sec:prior-pipelines}
 
-Three families of prior systems have attempted to reduce hallucination, and each has a structural limitation that prevents it from closing the gap on its own. Retrieval-augmented generation grounds the model in retrieved evidence \cite{NEURIPS2020_6b493230}, which raises factual recall when the retrieval succeeds but is silent when retrieval misses or returns evidence the model summarises incorrectly. The output remains a single-pass generation whose quality is bounded by retrieval quality, and the system has no representation of which past answers were correct. Prompting interventions, including chain-of-thought reasoning and self-consistency over sampled chains \cite{NEURIPS2022_9d560961, wang2023selfconsistency}, expose internal reasoning and exploit agreement across resampled answers, but they provide no persistence: each session begins with no memory of prior verified answers, and the same question asked tomorrow triggers the same reasoning effort as today. Post-generation verification \cite{manakul-etal-2023-selfcheckgpt, farquhar2024semantic} detects hallucinations after they occur and supports refusal or revision, but it does not feed back into model weights or memory, so the same hallucination patterns recur in the next session.
+Three families of prior systems have attempted to reduce hallucination, and each has a structural limitation that prevents it from closing the gap on its own. Retrieval-augmented generation grounds the model in retrieved evidence \cite{NEURIPS2020_6b493230}, which raises factual recall when the retrieval succeeds but is silent when retrieval misses or returns evidence the model summarises incorrectly. The output remains a single-pass generation whose quality is bounded by retrieval quality, and the system has no representation of which past answers were correct. Prompting interventions, including chain-of-thought reasoning and self-consistency over sampled chains \cite{wei2022chain, wang2023selfconsistency}, expose internal reasoning and exploit agreement across resampled answers, but they provide no persistence: each session begins with no memory of prior verified answers, and the same question asked tomorrow triggers the same reasoning effort as today. Post-generation verification \cite{manakul-etal-2023-selfcheckgpt, farquhar2024semantic} detects hallucinations after they occur and supports refusal or revision, but it does not feed back into model weights or memory, so the same hallucination patterns recur in the next session.
 
 The implication is that hallucination reduction at deployment-relevant rates is unlikely to come from incremental improvement of any one family. Stronger retrievers, longer chains of thought, and sharper post-generation verifiers each yield diminishing returns when used in isolation. What is missing is a system in which verification feeds memory, memory feeds routing, routing feeds generation, and improvement compounds across cycles instead of evaporating at session boundaries. That system is an architectural intervention, and arguing for it is the work this thesis attempts.
 
@@ -61,7 +61,7 @@ The user-facing surface mirrors the same logic. Every served answer carries the 
 
 There is also a theoretical case for why this combined intervention can succeed even when verification is itself imperfect. The data-purity perspective notes that under reasonable conditions on the verifier balanced accuracy and the base generation accuracy, the purity of the stored pool can exceed the verification accuracy itself, because base-rate dynamics favour the gate whenever the verifier is more likely to admit a correct answer than to admit an incorrect one. The formal statement of this property, together with the conditions under which it implies monotonic improvement across cycles, appears in \Cref{ch:methodology}. For the rationale here, the relevant point is that the architecture does not require a perfect verifier; it requires a verifier whose balanced accuracy exceeds one half on the distribution of claims actually scored, and the empirical chapters report whether that condition is satisfied on the five-benchmark panel.
 
-The scope of the intervention is bounded so that it can be argued empirically within an undergraduate research budget. The thesis evaluates a single small instruction-tuned decoder backbone, namely Qwen-2.5-3B-Instruct, on five factual question-answering benchmarks partitioned into a three-benchmark training panel (FEVER, TriviaQA, CommonsenseQA) and a two-benchmark transfer panel (TruthfulQA, StrategyQA), with multitask language understanding held out as an out-of-distribution retention control alongside test-fold slices of two of the training benchmarks. Two benchmarks registered earlier in the project (HotpotQA and Natural Questions) were retired before the main run on cycle-zero diagnostic evidence that they violated the verifier-balanced-accuracy precondition for self-improvement; both are kept on disk as registered exclusion evidence rather than carried forward into the live panel. The self-improvement trajectory is registered to run for up to ten cycles in line with the equilibrium horizons reported in continual-learning studies, with an equilibrium-saturation gate at every cycle boundary that terminates the trajectory early when the post-rollback subsequence stabilises; the realised trajectory closes at the cycle-five close under that gate. The hardware target is a single consumer-grade graphics processor under sixteen-bit mixed-precision arithmetic, so that the result is reproducible without specialised infrastructure. The next section formalises the problem the intervention is designed to solve, before the objectives, methodology summary, and scope are presented in the remaining sections of this chapter.
+The scope of the intervention is bounded so that it can be argued empirically within an undergraduate research budget. The thesis evaluates a single small instruction-tuned decoder backbone, namely Qwen-2.5-3B-Instruct, on five factual question-answering benchmarks partitioned into a three-benchmark training panel (FEVER, TriviaQA, CommonsenseQA) and a two-benchmark transfer panel (TruthfulQA, StrategyQA), with multitask language understanding held out as an out-of-distribution retention control alongside test-fold slices of two of the training benchmarks. Three benchmarks registered earlier in the project (HotpotQA~\cite{yang-etal-2018-hotpotqa}, Natural Questions, and ARC-Challenge) were retired before the main run on cycle-zero diagnostic evidence that they violated the verifier-balanced-accuracy precondition for self-improvement; all three are kept on disk as registered exclusion evidence rather than carried forward into the live panel. The Natural Questions training split is also retained inside the retrieval-utility classifier's training distribution to broaden the coverage of retrieval-utility regimes the head must learn; HotpotQA and ARC-Challenge are excluded from every downstream component. The self-improvement trajectory is registered to run for up to ten cycles in line with the equilibrium horizons reported in continual-learning studies, with an equilibrium-saturation gate at every cycle boundary that terminates the trajectory early when the post-rollback subsequence stabilises; the realised trajectory closes at the cycle-five close under that gate. The hardware target is a single consumer-grade graphics processor under sixteen-bit mixed-precision arithmetic, so that the result is reproducible without specialised infrastructure. The next section formalises the problem the intervention is designed to solve, before the objectives, methodology summary, and scope are presented in the remaining sections of this chapter.
 
 \section{Problem Statement}
 \label{sec:problem}
@@ -155,7 +155,7 @@ H4 & The composite hallucination metric at the realised cycle horizon approaches
 H5 & Per-cycle Tier 1 hit rate grows monotonically as memory accumulates, producing a measurable per-query cost reduction. & Per-cycle Tier 1 share and per-cycle pooled latency. & Operational claim (\Cref{sec:econ-deployment}) \\
 \bottomrule
 \end{tabular}
-\caption{The five pre-registered hypotheses with deciding statistic and the theoretical or operational claim each tests. Verdicts are reported in \Cref{tab:hypothesis-verdicts}.}
+\caption[The five pre-registered hypotheses with deciding statistic and the theoretical or operational claim each tests.]{The five pre-registered hypotheses with deciding statistic and the theoretical or operational claim each tests. Verdicts are reported in \Cref{tab:hypothesis-verdicts}.}
 \label{tab:hyp-registration}
 \end{table}
 
@@ -202,7 +202,7 @@ The architecture organises a single query into an eight-stage pipeline that is t
 \node[box=red,    right=10mm of ruc, yshift=-18mm] (t3) {Tier 3\\RAG};
 
 %% External corpus
-\node[box=blue, dashed, right=8mm of t3, fill=blue!4] (kb) {Public\\corpus};
+\node[box=blue, dashed, below=8mm of t3, fill=blue!4] (kb) {Public\\corpus};
 
 %% Verify, Decide, Output
 \node[box=violet, right=22mm of t2]   (ver) {Stage 5\\Verify};
@@ -222,13 +222,13 @@ The architecture organises a single query into an eight-stage pipeline that is t
 \draw[darrow=teal]  (mem) -| (route);
 
 %% Router to T1 direct; T2/T3 fall-through via RUC
-\draw[arrow=green]  (route.east) to[out=20, in=180] (t1.west);
+\draw[arrow=green, rounded corners=4pt]  (route.east) -- ++(0.3,0) |- (t1.west);
 \draw[arrow=orange] (route) -- (ruc);
-\draw[arrow=red]    (ruc.east) to[out=20, in=180]  (t2.west);
+\draw[arrow=orange] (ruc.east) to[out=20, in=180]  (t2.west);
 \draw[arrow=red]    (ruc.east) to[out=-20, in=180] (t3.west);
 
 %% Safety override (pre-route low confidence -> RUC, which then decides T2 vs T3)
-\draw[darrow=red]   (pre.south) to[out=-90, in=180, looseness=1.4] node[elabel, pos=0.7] {safety} (ruc.west);
+\draw[darrow=red, rounded corners=4pt]   (pre.south) -- ++(0,-0.8) -| node[elabel, pos=0.25, anchor=north] {safety} (ruc.south);
 
 %% Memory to T1, Generator to T2
 \draw[arrow=green]  (mem.east) to[out=0, in=120] (t1.north);
@@ -247,8 +247,9 @@ The architecture organises a single query into an eight-stage pipeline that is t
 \draw[arrow=green]  (ver) -- (out);
 
 %% Decide -> Memory (commit), Memory -> Generator (training pool)
-\draw[darrow=purple] (dec.south) to[out=-90, in=-10, looseness=0.8] node[elabel, pos=0.7] {commit} (mem.east);
-\draw[darrow=purple] (mem.west) to[out=180, in=180, looseness=1.2] node[elabel, pos=0.5] {train} (gen.west);
+\coordinate (commitUp) at (0, 4.2);
+\draw[darrow=purple, rounded corners=4pt] (dec.east) -- ++(4.5, 0) |- node[elabel, pos=0.25] {commit} (mem.north |- commitUp) -- (mem.north);
+\draw[darrow=purple, rounded corners=4pt] (mem.south east) -- ++(0.4,0) |- node[elabel, pos=0.75] {train} (gen.west);
 
 %% Stage 8 frame
 \node[draw=purple!65, dashed, line width=0.7pt, rounded corners=4pt,
@@ -257,7 +258,7 @@ The architecture organises a single query into an eight-stage pipeline that is t
 \end{tikzpicture}
 }
 
-\caption[Architecture overview]{Eight-stage pipeline: pre-route, encode, route, Stage 3b retrieval-utility classifier on the score-formula and safety-override fall-through to the retrieval-augmented tier, tier execution, verify, decide, output, and a cycle-boundary self-improvement block; full specification in \Cref{ch:methodology}.}
+\caption[Architecture overview]{\small Eight-stage pipeline: pre-route, encode, route, Stage 3b retrieval-utility classifier on the score-formula and safety-override fall-through to the retrieval-augmented tier, tier execution, verify, decide, output, and a cycle-boundary self-improvement block; full specification in \Cref{ch:methodology}.}
 \label{fig:architecture}
 \end{figure}
 
@@ -370,7 +371,7 @@ Cycle boundary: same passes; on retention failure, weights roll back, memory per
 \draw[flow=green]  (cons2) -- (c3);
 
 \end{tikzpicture}
-\caption[Experimental workflow]{Self-improvement trajectory shown schematically as early, mid, and late phases; six cycles realised under the ten-cycle registered cap and closed under the equilibrium-saturation gate at the cycle-five close. Each phase runs the per-query pipeline (Stages 1 to 7, including the Stage 3b retrieval-utility classifier that refines the retrieval-augmented dispatch into either the zero-shot tier or the retrieval-augmented tier on a per-query basis) with nine-signal post-generation verification and the four-outcome storage decision over a fresh workload. At each cycle boundary (Stage 8) a retroactive re-verification pass refreshes stored composites under the updated generator, a deferred-entry reconsideration pass sweeps the deferred buffer, a memory consolidation pass collapses near-duplicate episodes, low-rank-adaptation fine-tuning draws from a strict training pool through a benchmark-balancing reweighting layer, and a multi-modal retention probe panel spanning a general-knowledge multiple-choice surface, an open-text factoid surface, and a commonsense multiple-choice surface aborts the cycle with an adapter rollback when the worst probe ratio falls below a fixed floor. Numeric values of the retention floor, the training threshold, the storage cut-point, and related thresholds are specified in \Cref{ch:methodology}. The memory is never rolled back, so accumulated knowledge survives abort events. Headline results across the realised six-cycle measurement horizon, including the composite hallucination metric reduction against the eight-baseline panel, the per-cycle trajectory, and the retrieval-utility-classifier on/off ablation, are reported in \Cref{ch:evaluation}.}
+\caption[Experimental workflow]{Self-improvement trajectory across early, mid, and late phases of the realised six-cycle horizon. Each phase runs the per-query pipeline and, at cycle boundaries, the retroactive re-verification, deferred reconsideration, consolidation, and adapter fine-tune under the multi-modal retention guard. Full specification appears in \Cref{ch:methodology}; headline results in \Cref{ch:evaluation}.}
 \label{fig:experimental-workflow}
 \end{figure}
 
