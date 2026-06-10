@@ -64,6 +64,17 @@
 % --- Bibliography -----------------------------------------------------------
 \usepackage[backend=biber,style=numeric-comp,sorting=none,maxbibnames=99]{biblatex}
 \addbibresource{bibliography/references.bib}
+% Render-time backstop: suppress any field that might still leak thesis-internal
+% commentary or non-bibliographic clutter into the rendered bibliography.
+\AtEveryBibitem{%
+  \clearfield{note}%
+  \clearfield{abstract}%
+  \clearfield{annotation}%
+  \clearfield{addendum}%
+  \clearfield{keywords}%
+  \clearfield{issn}%
+  \clearfield{isbn}%
+}
 
 % --- Code-path typesetting --------------------------------------------------
 % \codepath breaks long monospace identifiers (file paths, function names,

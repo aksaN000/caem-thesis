@@ -82,44 +82,49 @@
     hallucination reduction as a system-level problem rather than a
     post-hoc detection problem. A single query passes through a verified
     episodic memory store, a confidence-aware three-tier router with an
-    independent safety override, and a nine-signal verifier ensemble.
-    Against the matched zero-shot baseline, the within-trajectory best
-    cycle reaches a pooled exact-match gain of $+20.3\%$ and a pooled
-    composite hallucination metric reduction of $-29.4\%$ on the training
-    panel. Against the locked external eight-baseline panel, CAEM leads on
-    both pooled axes at the best and final cycles.
+    independent safety override and a retrieval-utility classifier, and a
+    nine-signal verifier ensemble spanning internal calibration,
+    sample-set agreement, external grounding, and question-answer
+    relevance, whose per-benchmark calibrated-probability composite gates
+    storage at two fixed cut-points held constant across cycles.
+    Self-improvement is delivered through low-rank adaptation over a
+    frozen Qwen-2.5-3B-Instruct backbone, with every cycle boundary
+    refitting calibration on a fresh fold under a multi-modal retention
+    guard whose asymmetric rollback reverts the adapter while preserving
+    memory. Against the matched zero-shot
+    baseline on the same backbone, on a five-benchmark panel split into
+    training (FEVER, TriviaQA, CommonsenseQA) and transfer (TruthfulQA,
+    StrategyQA), the within-trajectory best cycle reaches a pooled
+    exact-match gain of $+20.3\%$ and a pooled composite hallucination
+    metric reduction of $-29.4\%$ on the training panel; against the
+    locked external eight-baseline panel, CAEM leads on both pooled axes
+    at the best and final cycles.
   \end{block}
 
   \begin{block}{Research Objective}
     \begin{itemize}
-      \item \textbf{Verified episodic memory with a four-outcome decision:}
-        design an episodic memory whose admission rule is finer than a
-        single binary threshold.
+      \item \textbf{Verified episodic memory with a four-outcome decision}
+        whose admission rule is finer than a single binary threshold.
       \item \textbf{Pre-generation confidence, three-tier routing with
-        safety override, and a retrieval-utility classifier:} compute a
-        pre-generation confidence estimate from a single short forward
-        pass on the query that fuses a short-greedy-decode token-probability
-        aggregate with an encoder-layer convergence ratio, calibrate it
-        via per-benchmark temperature scaling on a disjoint fold, and use
-        it independently from the memory similarity score and the
-        stored-answer quality.
+        safety override, and a retrieval-utility classifier} computed
+        from a single short forward pass and calibrated via per-benchmark
+        temperature scaling on a disjoint fold.
       \item \textbf{Nine-signal post-generation verifier with a calibrated
-        probability composite:} combine nine complementary signals into a
-        per-answer record across four families: internal calibration of
-        the generator, sample-set agreement across resampled chains,
-        external grounding against retrieved evidence under three
-        aggregation rules, and question-answer relevance.
+        probability composite} across four families: internal calibration,
+        sample-set agreement, external grounding under three aggregation
+        rules, and question-answer relevance.
       \item \textbf{Fixed-threshold storage gate with two registered
-        cut-points:} convert the calibrated probability composite into the
-        storage and deferral decisions through a fixed-threshold rule
-        whose two cut-points and one abstention floor are registered
-        before the main run begins and held constant across cycles.
+        cut-points} held constant across cycles and one abstention floor.
+      \item \textbf{Retroactive review and deferred reconsideration at
+        cycle boundaries} that rescore stored episodes under the updated
+        model and promote deferred entries past threshold.
       \item \textbf{Constrained self-improvement with a parameter-efficient
-        adapter and a multi-modal retention guard:} curate the fine-tuning
-        pool from stored episodes that exceed a strict quality threshold
-        set above the storage cut-point and pass the curated pool through
-        a benchmark-balancing reweighting layer that prevents
-        single-benchmark dominance.
+        adapter and a multi-modal retention guard} that aborts the cycle
+        with an adapter rollback when the worst probe ratio falls below a
+        fixed floor.
+      \item \textbf{Empirical validation against eight external baselines
+        and pre-registered ablations} on a five-benchmark panel under
+        matched protocol.
     \end{itemize}
   \end{block}
 
@@ -152,7 +157,7 @@
 
 \begin{column}{\colwidth}
 
-  \begin{block}{Proposed Model Architecture}
+  \begin{block}{Model Architecture}
     \centering
     \includegraphics[width=0.95\colwidth,keepaspectratio]{figures/architecture_source.pdf}
 
@@ -306,10 +311,13 @@
   \begin{block}{References}
     \scriptsize
     \begin{enumerate}\setlength{\itemsep}{0.05em}\setlength{\parskip}{0pt}
+      \item Huang et al. A survey on hallucination in large language models. \emph{ACM TOIS 2024}.
+      \item Min et al. FactScore: fine-grained atomic evaluation of factual precision in long-form text generation. \emph{EMNLP 2023}.
       \item Guo et al. On calibration of modern neural networks. \emph{ICML 2017}.
       \item Lin et al. TruthfulQA: measuring how models mimic human falsehoods. \emph{ACL 2022}.
       \item Lewis et al. Retrieval-augmented generation for knowledge-intensive NLP tasks. \emph{NeurIPS 2020}.
       \item Wang et al. Self-consistency improves chain-of-thought reasoning. \emph{ICLR 2023}.
+      \item Farquhar et al. Detecting hallucinations in large language models using semantic entropy. \emph{Nature 2024}.
       \item Hu et al. LoRA: low-rank adaptation of large language models. \emph{ICLR 2022}.
       \item Tang et al. MiniCheck: efficient fact-checking on grounding documents. \emph{ACL 2024}.
       \item Cherian et al. Enhanced conformal prediction with boosted logistic regression. \emph{NeurIPS 2024}.
