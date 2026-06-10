@@ -12,16 +12,17 @@
 % under that simplest skeptical framing.
 % ============================================================================
 
-\chapter{Architecture positioning — frequently asked questions}
+\chapter[Architecture positioning]{Architecture positioning, frequently asked questions}
 \label{app:positioning-qa}
 
 The body chapters specify what CAEM does and how. This appendix collects the comparative-positioning and design-justification questions a reviewer in an adjacent area would ask, and answers each by naming the specific mechanism CAEM contributes that the alternative would lack. The first part answers \emph{why CAEM rather than the simpler alternative of plain exact-match-labelled fine-tuning at the same labelling budget} along the six load-bearing differentiators. The second part answers \emph{why the calibration discipline and cycle-boundary ordering chosen, rather than the straightforward alternatives}.
 
-\part*{Part I — Positioning against plain fine-tuning}
+\part*{Part I: Positioning against plain fine-tuning}
 
 % ---------------------------------------------------------------------------- %
 
-\section{What does the per-query precision contract give a user that plain fine-tuning cannot?}
+\needspace{4\baselineskip}
+\section[Per-query precision contract]{What does the per-query precision contract give a user that plain fine-tuning cannot?}
 \label{app:qa-precision-contract}
 
 Plain fine-tuning at the same labelling budget produces a model with an average exact-match accuracy on the held-out evaluation set; the deployed system serves whatever the model generates, with no per-query confidence axis. CAEM's calibrated-probability composite paired with the fixed-threshold storage gate produces a different deliverable: at every query the system outputs a calibrated probability $\ustored$ that the served answer is correct, and at the storage threshold $\tau_{\text{store}} = 0.60$ the cycle-zero calibration fold's empirical precision projects forward as a one-sided lower bound on the next cycle's storage precision under exchangeability between the calibration fold and the cycle-$t+1$ candidate pool; the per-cycle composite refit absorbs distribution drift into the signal-to-probability mapping so that the same threshold continues to address the same precision target as the generator improves.
@@ -30,25 +31,28 @@ The user-facing consequence is the abstain class. A query whose composite is bel
 
 % ---------------------------------------------------------------------------- %
 
-\section{The memory-direct tier saves inference cost — but does that saving survive at small deployment scale?}
+\needspace{4\baselineskip}
+\section[Memory-direct tier at scale]{The memory-direct tier saves inference cost; does that saving survive at small deployment scale?}
 \label{app:qa-memory-direct}
 
 A memory-direct query serves an answer through a sentence-embedding cosine search over the FAISS-backed episodic memory and returns the stored answer at retrieval-only cost. A zero-shot generation through the same generator pays the full forward-pass cost. A retrieval-augmented generation pays the FAISS lookup cost plus the cross-encoder reranker cost plus the forward-pass cost over a longer context. The per-tier cost ratio at the registered hardware envelope is reported in \Cref{sec:tier-cost}; the memory-direct path is meaningfully cheaper than either generation path.
 
-The cost saving is not constant across scale. At one query per hour the per-query saving is operationally invisible; at the deployment scale projected in \Cref{sec:econ-deployment} the saving compounds across millions of queries. The architectural value of the memory-direct tier is therefore conditional on deployment scale, but it is also conditional on the fraction of queries the memory-direct tier can serve confidently — a fraction that grows monotonically across cycles as the verifier admits more verified episodes (Theorem~\ref{thm:purity}). Plain fine-tuning has no equivalent mechanism: every query pays the full forward-pass cost regardless of how many times the question has been seen, because the knowledge is baked into the weights rather than retrievable as a separable episode. At any scale where the memory-direct hit rate exceeds the architectural overhead of the verifier ensemble, the cost saving is binding; the locked configuration is engineered to enter that regime by approximately Cycle 5.
+The cost saving is not constant across scale. At one query per hour the per-query saving is operationally invisible; at the deployment scale projected in \Cref{sec:econ-deployment} the saving compounds across millions of queries. The architectural value of the memory-direct tier is therefore conditional on deployment scale, but it is also conditional on the fraction of queries the memory-direct tier can serve confidently, a fraction that grows monotonically across cycles as the verifier admits more verified episodes (\Cref{thm:purity}). Plain fine-tuning has no equivalent mechanism: every query pays the full forward-pass cost regardless of how many times the question has been seen, because the knowledge is baked into the weights rather than retrievable as a separable episode. At any scale where the memory-direct hit rate exceeds the architectural overhead of the verifier ensemble, the cost saving is binding; the locked configuration is engineered to enter that regime by approximately Cycle 5.
 
 % ---------------------------------------------------------------------------- %
 
-\section{What does asymmetric rollback give the operator that a manual checkpoint backup does not?}
+\needspace{4\baselineskip}
+\section[Asymmetric rollback vs manual backup]{What does asymmetric rollback give the operator that a manual checkpoint backup does not?}
 \label{app:qa-asymmetric-rollback}
 
-The retention guard at every cycle boundary measures the post-fine-tune model on the held-out general-knowledge probe and computes the retention ratio $\rho = \mathrm{MMLU}_{\text{post}} / \mathrm{MMLU}_{\text{pre}}$. When $\rho < 0.93$ the cycle is declared aborted: the weights revert to the previous cycle's parameters, and the new memory written during the cycle is preserved unchanged. The architectural property is that the model is replaceable but the memory is not.
+The retention guard at every cycle boundary measures the post-fine-tune model on a three-probe multi-modal panel (MMLU, TriviaQA-test, CommonsenseQA-test) and computes the per-probe retention ratio $\rho_{k} = \mathrm{score}_{k,\text{post}} / \mathrm{score}_{k,\text{pre}}$ for each probe $k$. When any worst-probe ratio falls below the registered floor of $0.93$ the cycle is declared aborted: the weights revert to the previous cycle's parameters, and the new memory written during the cycle is preserved unchanged. The architectural property is that the model is replaceable but the memory is not.
 
-Plain fine-tuning has no equivalent guarantee even when the operator manually keeps the previous checkpoint. The reason is that plain fine-tuning at any cycle commits both the weights and the gradient signal that produced them; rolling the weights back rolls back the cycle's accumulated training experience entirely. CAEM's separation of weights from memory means a failed cycle costs only the cycle's fine-tune compute but does not lose the verified episodes that the cycle accumulated. The next cycle inherits the previous cycle's weights together with the larger memory, and the retroactive re-verification pass at the next cycle boundary refreshes the stored composites under the rolled-back generator. This asymmetric-rollback property is the architectural anchor for Theorem~\ref{thm:convergence}'s monotone structure: memory accumulates strictly across cycles even when weights do not. A weights-only architecture has no monotonicity property to anchor.
+Plain fine-tuning has no equivalent guarantee even when the operator manually keeps the previous checkpoint. The reason is that plain fine-tuning at any cycle commits both the weights and the gradient signal that produced them; rolling the weights back rolls back the cycle's accumulated training experience entirely. CAEM's separation of weights from memory means a failed cycle costs only the cycle's fine-tune compute but does not lose the verified episodes that the cycle accumulated. The next cycle inherits the previous cycle's weights together with the larger memory, and the retroactive re-verification pass at the next cycle boundary refreshes the stored composites under the rolled-back generator. This asymmetric-rollback property is the architectural anchor for the memory-growth invariant established in \Cref{cor:stochastic-equilibrium}: memory accumulates strictly across cycles even when weights do not. A weights-only architecture has no monotonicity property to anchor.
 
 % ---------------------------------------------------------------------------- %
 
-\section{If both architectures need exact-match-labelled data at the cycle boundary, how does CAEM use ten to a hundred times fewer labels?}
+\needspace{4\baselineskip}
+\section[Sample efficiency]{If both architectures need exact-match-labelled data at the cycle boundary, how does CAEM use ten to a hundred times fewer labels?}
 \label{app:qa-sample-efficiency}
 
 Plain fine-tuning consumes exact-match-labelled samples as the gradient signal. The number of labelled samples drives the size of the supervised-learning fine-tune; ten thousand to one hundred thousand labelled samples per fine-tune is the conventional supervised-learning budget. CAEM consumes exact-match-labelled samples for a different purpose: the labelled batch at every cycle boundary validates the empirical-precision anchor on the storage class. Approximately fifteen hundred labelled samples per cycle (five hundred per training benchmark) is sufficient for stable per-signal isotonic curves, stable per-benchmark composite boost weights under the shrinkage prior, and a stable empirical-precision reading at the registered fixed cut-points; the labels are not driving the gradient signal but anchoring the precision-floor diagnostic.
@@ -57,62 +61,69 @@ The mechanism that produces the order-of-magnitude difference is the verifier en
 
 % ---------------------------------------------------------------------------- %
 
-\section{What does the composite catch at inference time that a fine-tune cannot fix?}
+\needspace{4\baselineskip}
+\section[What the composite catches]{What does the composite catch at inference time that a fine-tune cannot fix?}
 \label{app:qa-composite-catches}
 
 A fine-tune updates the generator's weights so that the model is more likely to produce the correct answer on questions it has seen. The fine-tune does not alter the model's behaviour on a specific in-flight query that is hallucinating because of a property the training data did not cover: a fresh trivia question on a recently-changed world fact, an off-topic-but-grounded answer that drifts from the question's intent, a confidently-wrong output where the model has a strong prior toward a misconception. These failure modes are not closeable by parametric updates because they are first-order properties of the model's prior, not properties the training data instances reveal.
 
-The calibrated-probability composite catches each of these failure modes at inference time through a different signal family. Confidently-wrong outputs trip the early-exit conjunction $(u_{\text{internal}} \ge 0.70) \wedge (p_{\text{ground,max}} \le 0.20)$, route to retrieval-augmented regeneration, and avoid serving the hallucinated answer. Off-topic-but-grounded outputs are caught by the question-answer relevance signal $q_{\text{a,rel}}$, which scores the served answer against the question through a separate cross-encoder that the generator does not influence. Common-misconception outputs that match the model's prior are caught by the sample-set agreement family: the chain-to-answer entailment probability $p_{\text{entail}}$, the average pairwise similarity $s_{\text{avg}}$ over $M=3$ resampled chains, and the normalised semantic entropy $h_{\text{norm}}$ over $K=10$ resampled chains. The verifier's value at inference time is structurally orthogonal to the value that fine-tuning provides; once the fine-tune saturates against the parametric capacity of the generator, the architecture continues to add value because every query is still re-checked through the verifier ensemble before serving. \citet{xiong2023can} report that any single confidence signal reaches an area-under-the-curve in the range $0.50$ to $0.60$ for distinguishing correct from incorrect outputs; the composite aggregates nine signals across four families through per-signal isotonic regression and a regularised logistic boost layer to produce a calibrated correctness probability that no single signal can match.
+The calibrated-probability composite catches each of these failure modes at inference time through a different signal family. Confidently-wrong outputs trip the early-exit conjunction $(u_{\text{internal}} \ge 0.70) \wedge\allowbreak (p_{\text{ground,max}} \le 0.20)$, route to retrieval-augmented regeneration, and avoid serving the hallucinated answer. Off-topic-but-grounded outputs are caught by the question-answer relevance signal $q_{\text{a,rel}}$, which scores the served answer against the question through a separate cross-encoder that the generator does not influence. Common-misconception outputs that match the model's prior are caught by the sample-set agreement family: the chain-to-answer entailment probability $p_{\text{entail}}$, the average pairwise similarity $s_{\text{avg}}$ over $M=3$ resampled chains, and the MC-dropout dispersion signal $u_{\text{dropout}}$ over $K=5$ stochastic forward passes (the originally-registered semantic-entropy signal $h_{\text{norm}}$ was retired at cycle zero after the per-signal Cohen's $d$ audit found it dominated by the chain-to-answer entailment signal under the deployed verifier backend). The verifier's value at inference time is structurally orthogonal to the value that fine-tuning provides; once the fine-tune saturates against the parametric capacity of the generator, the architecture continues to add value because every query is still re-checked through the verifier ensemble before serving. \cite{xiong2023can} report that any single confidence signal reaches an area-under-the-curve in the range $0.50$ to $0.60$ for distinguishing correct from incorrect outputs; the composite aggregates nine signals across four families through per-signal isotonic regression and a regularised logistic boost layer to produce a calibrated correctness probability that no single signal can match.
 
 % ---------------------------------------------------------------------------- %
 
-\section{What does the zero-shot tier gain from the cycle loop that plain fine-tuning cannot match?}
+\needspace{4\baselineskip}
+\section[Tier-2 distillation]{What does the zero-shot tier gain from the cycle loop that plain fine-tuning cannot match?}
 \label{app:qa-tier2-distillation}
 
-A plain fine-tune produces a single static checkpoint whose zero-shot output distribution does not change between deployments. The cycle loop produces a sequence of checkpoints whose zero-shot output distribution evolves under a specific architectural pressure: at each cycle boundary the self-improvement loop draws its training pool from stored episodes whose answers were originally produced by the retrieval-augmented tier and were certified by the nine-signal verifier, so the fine-tune folds verified retrieval-augmented reasoning into the generator's parametric capacity. The next cycle is therefore able to answer a measurable share of the previously retrieval-dependent queries from the zero-shot tier alone, without paying the retrieval cost. The deployment-side reading of this mechanism is a tier-share migration over cycles: the zero-shot tier's share of the served stream grows, the retrieval-augmented tier's share contracts, and the per-query cost of the workload falls accordingly. Plain fine-tuning has no analogous mechanism because it has no separate retrieval-augmented tier whose certified outputs to distil from; the training data for a plain fine-tune is either pre-collected and static or it accumulates without the verifier-gated quality filter that the CAEM cycle imposes. The empirical receipt at the partial-trajectory point in \Cref{ch:evaluation} is the realised pooled zero-shot share rising from $7.5$ to $14.0$ percent across the first two completed cycles, with the corresponding retrieval-augmented share contracting from $92.3$ to $85.7$ percent; the full cycle-by-cycle trajectory is reported in \Cref{sec:tier-hit}.
+A plain fine-tune produces a single static checkpoint whose zero-shot output distribution does not change between deployments. The cycle loop produces a sequence of checkpoints whose zero-shot output distribution evolves under a specific architectural pressure: at each cycle boundary the self-improvement loop draws its training pool from stored episodes whose answers were originally produced by the retrieval-augmented tier and were certified by the nine-signal verifier, so the fine-tune folds verified retrieval-augmented reasoning into the generator's parametric capacity. The next cycle is therefore able to answer a measurable share of the previously retrieval-dependent queries from the zero-shot tier alone, without paying the retrieval cost. The deployment-side reading of this mechanism is a tier-share migration over cycles: the zero-shot tier's share of the served stream grows, the retrieval-augmented tier's share contracts, and the per-query cost of the workload falls accordingly.
+
+Plain fine-tuning has no analogous mechanism because it has no separate retrieval-augmented tier whose certified outputs to distil from; the training data for a plain fine-tune is either pre-collected and static or it accumulates without the verifier-gated quality filter that the CAEM cycle imposes. The empirical receipt across the realised trajectory in \Cref{ch:evaluation} is the per-tier hit-rate trajectory over the four committed cycles (C1, C2, C3, C5; C4 aborted under the retention guard), reported in \Cref{sec:tier-hit} alongside the retrieval-utility classifier ablation of \Cref{sec:ruc-ablation} that decomposes the share migration into the self-improvement distillation contribution and the per-query routing refinement contribution.
 
 % ---------------------------------------------------------------------------- %
 
-\section{When would CAEM not be worth deploying?}
+\needspace{4\baselineskip}
+\section[When not to deploy]{When would CAEM not be worth deploying?}
 \label{app:qa-when-not}
 
 The architecture is not a free contribution. Each of the six differentiators above corresponds to an architectural component whose cost is non-zero: the verifier ensemble pays forward passes through MiniCheck, the cross-encoder, and the sentence encoder at every query; the labelled cycle-boundary batch requires ongoing labelling effort; the cycle policy requires operational discipline. The architecture is worth deploying exactly when at least one of the six differentiators is binding for the deployment, and is not worth deploying when all six relax simultaneously:
 
-\begin{itemize}
-\item Deployments with no requirement for an abstain class.
-\item Deployments where memory-direct cost savings do not compound (very low traffic, or a product requirement that every query traverse the same path for uniformity).
-\item Deployments where the zero-shot tier's per-cycle improvement does not bind because the deployed workload distribution is too narrow for the SIL-driven distillation to gain traction, or too broad for a 3B-class generator to absorb at any cycle horizon.
-\item Deployments where a manual previous-checkpoint backup is sufficient and an external snapshot pipeline already solves the catastrophic-forgetting recovery problem.
-\item Deployments with a labelling budget large enough to support frequent direct fine-tuning, where the verifier-as-sample-efficiency-multiplier value collapses because labelling cost is not the binding constraint.
-\item Deployments below the parametric-capacity ceiling of the underlying generator, where direct fine-tuning still produces meaningful accuracy gains so the inference-time-error-catching value of the composite is dominated by what fine-tuning would also provide.
-\end{itemize}
+\begin{description}
+\item[No abstain class.] Deployments with no requirement for an abstain class.
+\item[No scale compounding.] Deployments where memory-direct cost savings do not compound (very low traffic, or a product requirement that every query traverse the same path for uniformity).
+\item[Distillation traction absent.] Deployments where the zero-shot tier's per-cycle improvement does not bind because the deployed workload distribution is too narrow for the SIL-driven distillation to gain traction, or too broad for a 3B-class generator to absorb at any cycle horizon.
+\item[Manual checkpoint sufficient.] Deployments where a manual previous-checkpoint backup is sufficient and an external snapshot pipeline already solves the catastrophic-forgetting recovery problem.
+\item[Labelling abundant.] Deployments with a labelling budget large enough to support frequent direct fine-tuning, where the verifier-as-sample-efficiency-multiplier value collapses because labelling cost is not the binding constraint.
+\item[Below parametric ceiling.] Deployments below the parametric-capacity ceiling of the underlying generator, where direct fine-tuning still produces meaningful accuracy gains so the inference-time-error-catching value of the composite is dominated by what fine-tuning would also provide.
+\end{description}
 
 A deployment that satisfies all six conditions simultaneously is one where plain fine-tuning at the same labelling budget would deliver comparable user-facing quality with simpler implementation. A deployment that fails any one of these conditions is one where the corresponding architectural component is binding. The thesis's value proposition is the regime where at least one of the six conditions binds; the empirical receipts in \Cref{ch:evaluation} measure the contribution of each component on the registered five-benchmark workload, where every component is binding by construction of the failure-mode taxonomy in \Cref{sec:hallucination-taxonomy}.
 
-\part*{Part II — Design-justification: calibration discipline and cycle-boundary ordering}
+\part*{Part II: Design-justification: calibration discipline and cycle-boundary ordering}
 
 The architecture makes several non-obvious design choices in how the calibration fold is constructed, how the cycle boundary is sequenced, and how the deduplication discipline guards the disjointness of the data partition. Part~II answers each as a direct ``is this correct, and why not the simpler alternative'' question.
 
 % ---------------------------------------------------------------------------- %
 
-\section{Why use the same calibration fold across all ten cycles rather than rotating folds?}
+\needspace{4\baselineskip}
+\section[Same calibration fold across cycles]{Why use the same calibration fold across all cycles of the registered horizon rather than rotating folds?}
 \label{app:qa-same-fold}
 
 The calibration fold is a fixed thousand-five-hundred-sample partition (five hundred samples drawn from each of the three training benchmarks) constructed once at pool-builder time and reused at every cycle boundary. The natural alternative would be to rotate the fold across cycles, drawing a fresh fifteen-hundred-sample slice each cycle from a larger reservoir. The same-fold protocol is preferred for four reasons.
 
 First, the cycle-boundary recalibration is itself a measurement. The labelled fold is the reference distribution against which the verifier's calibration is read; if the reference distribution varies between cycles, then a cycle-to-cycle change in the fitted curves entangles two sources of variation (the verifier improving under self-improvement, and the reference set drifting) and the trajectory analysis cannot decompose them. A fixed reference fold is the variance-isolation lever that lets the per-cycle isotonic and composite-calibration readings be attributed cleanly to verifier change.
 
-Second, the gold labels on the fold are constant across cycles. The model's verifier signals on a given fold question shift cycle-to-cycle (because the post-fine-tune model produces different token probabilities, dropout variances, semantic-entropy values, and so on), but the question's correct answer does not. Re-fitting the per-signal isotonic curves on the same (variable signals, constant labels) data is exactly the procedure the post-hoc calibration literature (Ovadia 2019, Thulasidasan 2019) registers for tracking calibration drift after a model update. Rotating the fold would replace the constant-labels property with a moving-target labelling distribution that confounds the fit.
+Second, the gold labels on the fold are constant across cycles. The model's verifier signals on a given fold question shift cycle-to-cycle (because the post-fine-tune model produces different token probabilities, dropout variances, semantic-entropy values, and so on), but the question's correct answer does not. Re-fitting the per-signal isotonic curves on the same (variable signals, constant labels) data is exactly the procedure the post-hoc calibration literature \cite{ovadia2019trust,thulasidasan2019mixup} registers for tracking calibration drift after a model update. Rotating the fold would replace the constant-labels property with a moving-target labelling distribution that confounds the fit.
 
 Third, the fixed-threshold empirical-precision anchor holds against the same-fold protocol. The anchor requires that the calibration-fold composite distribution at the registered cut-point projects forward as a one-sided lower bound on the cycle-$t+1$ candidate pool's storage precision under exchangeability between those two distributions. The protocol does \emph{not} require exchangeability between cycle $N$'s calibration fold and cycle $N+1$'s calibration fold; the same-fold choice across cycles is therefore not a contract violation, because the per-cycle composite refit absorbs any drift in the underlying signal distribution into the signal-to-probability mapping rather than into the threshold.
 
 Fourth, the storage cut-points themselves are held constant across cycles at $\tau_{\text{store}} = 0.60$ and $\tau_{\text{defer}} = 0.45$. With the same fold every cycle and the same cut-points across cycles, any cycle-to-cycle variation in the realised storage precision at the cut-point is attributable to the per-cycle composite refit absorbing distribution drift, rather than to fold-resampling variance or to the cut-points themselves moving.
 
-A defensible alternative for a substantially longer trajectory (say fifty or more cycles) would be a rotating-fold protocol drawn from a five-thousand-sample reservoir partitioned into ten overlapping subsets, where each cycle's fold differs but is still an honest sample from the labelled population. The variance-isolation argument weakens at long horizons because the same-fold protocol risks calibration over-fitting to fold-specific noise. The current ten-cycle horizon is short enough that variance isolation dominates, and the rotating-fold extension is registered as a Phase~1b future-work item should the trajectory horizon extend.
+A defensible alternative for a substantially longer trajectory (say fifty or more cycles) would be a rotating-fold protocol drawn from a five-thousand-sample reservoir partitioned into ten overlapping subsets, where each cycle's fold differs but is still an honest sample from the labelled population. The variance-isolation argument weakens at long horizons because the same-fold protocol risks calibration over-fitting to fold-specific noise. The realised six-cycle horizon (the cycle-zero calibration plus cycles one through five, with cycle four aborted under the retention guard and cycle five closing the trajectory under the equilibrium-saturation gate) is short enough that variance isolation dominates, and the rotating-fold extension is registered as a future-work item should the trajectory horizon extend.
 
 % ---------------------------------------------------------------------------- %
 
-\section{In production each calibration split would necessarily differ; how is this reconciled with the same-fold research protocol?}
+\needspace{4\baselineskip}
+\section[Production vs research fold]{In production each calibration split would necessarily differ; how is this reconciled with the same-fold research protocol?}
 \label{app:qa-production-fold}
 
 In production there is no pre-built calibration partition. The labelled batch at every production cycle boundary is drawn from accumulated serving traffic via stratified sampling (per the production runbook), so each cycle's fold is a fresh sample of three thousand or so labelled queries with content that varies cycle-to-cycle. This is a different operational mode from the research protocol but architecturally compatible with it.
@@ -127,7 +138,8 @@ The practical consequence: an operator who wants production calibration to behav
 
 % ---------------------------------------------------------------------------- %
 
-\section{Why apply the cycle-boundary recalibration before retroactive re-verification rather than after?}
+\needspace{4\baselineskip}
+\section[Cycle-boundary ordering]{Why apply the cycle-boundary recalibration before retroactive re-verification rather than after?}
 \label{app:qa-cycle-order}
 
 The cycle-boundary order is: self-improvement fine-tune, then score the calibration fold under the now-updated generator, then re-fit the temperature scalar and per-signal isotonic curves and per-benchmark composite boost weights on the freshly-scored fold (the storage cut-points themselves are held constant across cycles), then reload the verifier from the new calibration files, then run retroactive re-verification against the now-recalibrated verifier. The natural alternative would be to run retroactive re-verification first under the previous cycle's calibration and recalibrate afterwards. The current order is the architecturally correct one for two reasons.
@@ -138,7 +150,8 @@ Second, the corrected order preserves the architectural intent of retroactive re
 
 % ---------------------------------------------------------------------------- %
 
-\section{Why disable the confabulation early-exit during retroactive re-verification when it remains active at query time?}
+\needspace{4\baselineskip}
+\section[Early-exit disabled at retro-verify]{Why disable the confabulation early-exit during retroactive re-verification when it remains active at query time?}
 \label{app:qa-early-exit-retro}
 
 The early-exit rule fires when the internal-confidence composite is high (above $\eta_u = 0.70$) and the top-passage entailment is low (below $\eta_g = 0.20$). At query time this conjunction is the architectural defence against confabulation: a model that is internally confident on a fresh question but has no supporting passage is generating a confident hallucination, and the rule routes the answer to retrieval-augmented regeneration rather than serving the hallucination. At retroactive re-verification time the same conjunction reads differently. The fine-tune just memorised the stored chains, so the internal-confidence composite is automatically near one for every entry the self-improvement loop touched; the first conjunct is no longer informative. Letting the rule fire under this regime collapses the conjunction into ``low top-passage entailment, regardless of confidence,'' which is a much wider catchment than the registered confabulation rule and over-prunes EM-correct stored entries whose chain happened to have thin passage support.
@@ -147,18 +160,20 @@ The architectural fix is a query-time-only flag on the rule. The verifier's $\ma
 
 % ---------------------------------------------------------------------------- %
 
-\section{Why is the training threshold strictly higher than the storage threshold rather than equal?}
+\needspace{4\baselineskip}
+\section[Training vs storage threshold]{Why is the training threshold strictly higher than the storage threshold rather than equal?}
 \label{app:qa-tau-train-vs-store}
 
 The architecture registers two different thresholds on the calibrated composite. The storage threshold $\tau_{\text{store}}$ governs admission to the user-facing memory store and to the retrieval tier. The training threshold $\tau_{\text{train}}$ governs admission to the next cycle's self-improvement fine-tune pool; only entries whose composite clears $\tau_{\text{train}}$ enter the gradient signal. The convention is $\tau_{\text{train}} > \tau_{\text{store}}$, with the locked configuration setting $\tau_{\text{store}} = 0.60$ and $\tau_{\text{train}} = 0.70$ (held constant across cycles; the training-pool threshold was lowered from $0.75$ to $0.70$ on the trajectory-launch date to restore a non-empty verified-episode share while preserving the strictly-stricter invariant). The asymmetry is deliberate.
 
-The reason is that the training pool contributes to all subsequent cycles through the generator's weight update, while the storage pool contributes only to the user-facing retrieval tier at the current cycle. A noisy entry in the storage pool serves at most a single Tier-1 retrieval and is re-scored at the next cycle's retroactive re-verification; the architectural cost of a borderline storage admission is bounded. A noisy entry in the training pool propagates through the gradient signal into every subsequent cycle's generator and can compound the verifier's bias over the trajectory. The noise-tolerant-learning literature (Natarajan et al.\ 2013) bounds the corruption rate at which training under noisy labels still improves a model rather than degrading it; the architecture spends the strict-training-threshold budget to keep the training pool's empirical purity above that rate by construction.
+The reason is that the training pool contributes to all subsequent cycles through the generator's weight update, while the storage pool contributes only to the user-facing retrieval tier at the current cycle. A noisy entry in the storage pool serves at most a single Tier-1 retrieval and is re-scored at the next cycle's retroactive re-verification; the architectural cost of a borderline storage admission is bounded. A noisy entry in the training pool propagates through the gradient signal into every subsequent cycle's generator and can compound the verifier's bias over the trajectory. The noise-tolerant-learning literature \cite{natarajan2013learning} bounds the corruption rate at which training under noisy labels still improves a model rather than degrading it; the architecture spends the strict-training-threshold budget to keep the training pool's empirical purity above that rate by construction.
 
 A defensible alternative would be a single threshold $\tau = \tau_{\text{store}} = \tau_{\text{train}}$ that admits the same entries to both purposes. The simpler alternative loses the asymmetry between storage-class consequences (bounded, single-cycle) and training-class consequences (compounding, multi-cycle), and the noise-tolerant-learning bound on training-pool corruption is no longer enforced architecturally. The two-threshold protocol is the registered defence; the empirical purity of the resulting training pool is reported in \Cref{ch:evaluation}.
 
 % ---------------------------------------------------------------------------- %
 
-\section{Why deduplicate the calibration fold at three layers rather than relying on the dataset's native unique identifiers?}
+\needspace{4\baselineskip}
+\section[Three-layer dedup]{Why deduplicate the calibration fold at three layers rather than relying on the dataset's native unique identifiers?}
 \label{app:qa-three-layer-dedup}
 
 The deduplication discipline runs at three layers in the pool-builder. The first layer hashes every sample's question text into a sixteen-character content identifier and dedupes within each loaded dataset split, dropping ten thousand or more duplicate records on average per training-benchmark train split. The second layer dedupes within each individual partition slice (calibration, purity, training, evaluation) to catch any residual within-slice duplicates. The third layer cross-checks the calibration and purity slices against the evaluation slice and drops any sample whose content hash collides with an evaluation-slice sample. The natural alternative would be to rely on the dataset's native sample identifiers and assume disjointness by construction.

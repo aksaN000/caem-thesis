@@ -1,12 +1,131 @@
 % ============================================================================
 % Appendix F — Glossary
-% Status: SKELETON. Populates during the rewrite as terms are
-% introduced.
+% Discipline: only terms that appear in body prose more than once and
+% whose meaning a typical reader might not infer go here. Concept
+% words always; implementation names never.
 % ============================================================================
 
 \chapter{Glossary}
 \label{app:glossary}
 
-% Discipline: only terms that appear in body prose more than once and
-% whose meaning a typical reader might not infer go here. Concept
-% words always; implementation names never.
+The glossary collects every concept word that recurs in body prose and whose meaning a reader who has read \Cref{ch:introduction} alone might not infer. Each entry pairs the term with a one-sentence concept-word definition and a cross-reference to the chapter subsection that introduces the term. Acronyms used in body prose are listed together with their expansions; concept terms are listed in alphabetical order. Implementation identifiers (module paths, class names, script names) do not appear here; they live in \Cref{app:implementation}.
+
+\section{Concept terms}
+
+\begin{description}[style=nextline, leftmargin=0pt, labelindent=0pt, itemsep=6pt, parsep=0pt, font=\bfseries, beginpenalty=10000]
+
+\item[Asymmetric rollback.] The retention guard's response on a cycle whose worst-probe ratio falls below the registered floor: the adapter weights revert to the previous successful cycle's checkpoint, but the memory store does not revert, so the storage admissions accumulated during the failed cycle's stream-chunk pass are preserved. The retroactive re-verification pass and the deferred-buffer reconsider pass are skipped on the aborted cycle because both would be provable no-ops under unchanged weights. See \Cref{sec:retention}.
+
+\item[Boost layer.] The L2-regularised logistic regression that aggregates the nine per-signal calibrated probabilities produced by the per-signal isotonic regression stage into the final calibrated probability composite. Introduced at \Cref{sec:composite}.
+
+\item[Calibration fold.] The five-hundred-sample-per-training-benchmark labelled slice that fits the per-signal isotonic regression, the per-benchmark shrinkage prior, and the boost-layer logistic regression at every successful cycle boundary. Held content-hash disjoint from the seed pool, the purity-validation slice, the stream chunks, the evaluation fold, and the test fold. See \Cref{sec:adj-discipline}.
+
+\item[Calibrated-probability composite.] The two-stage scoring head that maps the nine verifier signals into a single calibrated correctness probability $u_{\text{stored}} \in [0, 1]$ through per-signal isotonic regression followed by the boost layer. The fixed-threshold storage gate reads against this output. See \Cref{sec:composite}.
+
+\item[Combined dispatch score.] The router's weighted blend of the cosine similarity to the nearest stored entry and the stored confidence of that neighbour, against which the memory-direct tier threshold is read. See \Cref{sec:router}.
+
+\item[Committed cycle.] A cycle whose self-improvement fine-tune cleared the retention guard and whose calibration-fold refit was applied at the cycle boundary. The realised trajectory records four committed cycles (C1, C2, C3, C5) against the cycle-four abort. See \Cref{sec:retention}.
+
+\item[Composite evaluation score (CES).] The five-axis geometric-mean roll-up that combines accuracy, episodic contribution, retention, calibration, and verifier reliability into a single per-cycle scalar. The CES peak across the trajectory falls at cycle five. See \Cref{sec:headline-trajectory}.
+
+\item[Composite hallucination metric (CHM).]\nopagebreak[4] The eight-axis equal-weighted mean over the post-generation hallucination subtypes (confident confabulation, false refusal, factual fabrication, logical fabrication, off-topic, template leak, defensive evasion, over-long generation). The architecture-vs-baseline CHM contrast is the headline hallucination-reduction axis. See \Cref{sec:headline-trajectory}.
+
+\item[Cycle.]\nopagebreak[4] A single iteration of the self-improvement loop: a stream-chunk pre-routing pass that accumulates storage admissions, a cycle-boundary recalibration that refits the per-signal isotonic curves and the per-benchmark shrinkage and boost-layer weights, a retroactive re-verification pass that updates the stored confidences against the recalibrated verifier, and a self-improvement fine-tune that distils verified retrieval-augmented reasoning into the generator's parametric capacity. See \Cref{sec:overview-cycle}.
+
+\item[Deferred buffer.] The bounded-capacity reconsider queue that holds outputs whose calibrated probability composite cleared the deferral threshold but fell short of the storage threshold. Each entry carries an age counter, is rescored under the recalibrated verifier at every successful cycle boundary, and is dropped from the buffer when the counter reaches the registered time-to-live of two reconsider invocations without a promotion. See \Cref{sec:deferred-reconsider}.
+
+\item[Empirical-precision anchor.] The realised storage precision on the calibration fold at the locked storage cut-point, audited once per cycle and reported as the headline diagnostic that licences the calibration-consistent precision floor of the pool-purity theorem. See \Cref{sec:adj-cal-eval-gap}.
+
+\item[Equilibrium-saturation gate.]\nopagebreak[4] The two-of-three composite stop trigger that closes the trajectory when at least two of the three signals fire simultaneously: storage saturation under repeated zero-admission cycles, MMLU-floor breach against the cycle-zero pristine baseline, and composite-evaluation-score plateau across the late-cycle subsequence. The realised trajectory closes at cycle five under the storage-saturation and MMLU-floor signals. See \Cref{sec:check-convergence}.
+
+\item[Evaluation fold.] The three-hundred-sample-per-benchmark held-out slice on which every per-cycle headline metric is computed. Held content-hash disjoint from the calibration fold, the seed pool, the purity-validation slice, and the stream chunks. See \Cref{sec:setup}.
+
+\item[Fixed-threshold storage gate.] The architecturally frozen storage admission rule that admits a generated output into the memory pool when its calibrated probability composite clears the registered cut-point $\tau_{\text{store}} = 0.60$. The cut-point does not move across the trajectory; the per-cycle composite refit moves the signal-to-probability mapping the cut-point operates on. See \Cref{sec:decision}.
+
+\item[Four-outcome decision tree.] The per-query post-verification routing rule that maps each generated output to one of the four outcomes \textsc{store}, \textsc{defer}, \textsc{abstain}, or \textsc{discard} on the basis of the calibrated probability composite and the grounding signal. See \Cref{sec:decision}.
+
+\item[Matched-protocol contract.] The pairing rule that every per-benchmark contrast between the architecture and an external baseline is computed sample-by-sample on the identical evaluation-fold sample identifiers under the identical prompt template family and the identical scoring rule. See \Cref{sec:sig-pairing}.
+
+\item[Memory-direct tier (Tier 1).] The serving tier that returns the nearest stored entry's answer directly when the combined dispatch score clears the registered Tier 1 threshold. The cheapest of the three tiers per query because it neither runs the generator nor retrieves passages. See \Cref{sec:router}.
+
+\item[Memory-poisoning rate.] The share of stored entries whose stored answer is wrong against the ground-truth label, audited at every cycle boundary as the complement of the storage precision. The validation-gate rule registers this rate at a fifty-percent ceiling on every training benchmark at cycle zero. See \Cref{sec:adj-gate}.
+
+\item[Per-cycle composite refit.] The cycle-boundary recalibration of the per-signal isotonic curves, the per-benchmark shrinkage prior, the per-benchmark temperature scalar, the per-benchmark safety floor, and the boost-layer weights and intercept. The cut-points themselves are architecturally frozen; the refit moves the signal-to-probability mapping under which the cut-points operate. See \Cref{sec:adj-trajectory}.
+
+\item[Pool purity.] The empirical correctness rate of the stored memory pool against the ground-truth label, reported as $\pi_{\text{store}}$ on the calibration fold (the theorem-anchored reading) and on the evaluation fold (the deployment-realised reading). The calibration-fold band across the committed-cycle subsequence is $[0.732, 0.746]$. See \Cref{sec:check-purity}.
+
+\item[Pre-routing confidence (\boldmath$u_{\text{pre}}$).] The single-pass scalar that fuses the generator's token-probability aggregate over a short greedy decode with the encoder-layer convergence ratio into a per-query confidence reading consumed by the safety override. See \Cref{sec:pre-routing}.
+
+\item[Production envelope.] The per-query four-outcome rendering on the deployment surface: every served answer carries the calibrated correctness probability as a continuous percentage alongside the categorical decision tag (store-and-serve, defer, abstain, retrieve-and-serve). See \Cref{sec:func-reqs}.
+
+\item[Purity-validation slice.] The five-hundred-sample-per-training-benchmark slice held disjoint from the calibration fold and the evaluation fold, against which the empirical-precision audit is run once per cycle to license the calibration-consistent precision floor. See \Cref{sec:adj-discipline}.
+
+\item[Retention guard.] The cycle-boundary mechanism that measures the post-fine-tune generator on the three-probe multi-modal panel (MMLU, TriviaQA-test, CommonsenseQA-test) and triggers the asymmetric rollback when the worst-probe ratio against the cycle-zero pristine baseline falls below the registered floor of $0.93$. See \Cref{sec:retention}.
+
+\item[Retrieval-augmented tier (Tier 3).] The serving tier that retrieves the top-$k$ passages from the dense passage index, reranks them through a cross-encoder, and runs a grounded generation against the reranked context. The architectural fallback when neither the memory-direct nor the zero-shot tier earns the right to answer. See \Cref{sec:router}.
+
+\item[Retrieval-utility classifier (RUC).] The binary classifier that intercepts the safety-veto fall-through and the score-formula fall-through of the three-tier router and decides whether to dispatch the query to the retrieval-augmented tier or to the zero-shot tier on the basis of a learned per-query retrieval-utility prediction. Closes the retrieval-amplification regression on misconception-bait benchmarks. See \Cref{sec:ruc}.
+
+\item[Retroactive re-verification.]\nopagebreak[4] The cycle-boundary pass that re-scores every stored entry under the recalibrated verifier, prunes entries whose recalibrated stored confidence drops below the retention threshold $\tau_{\text{retro}} = 0.50$, and writes the recalibrated confidence back to the memory store. Skipped on aborted cycles under the asymmetric-rollback contract. See \Cref{sec:retroverify}.
+
+\item[Safety override.] The router rule that dispatches the query off the score-formula path whenever the pre-routing confidence falls below the registered safety floor $\phi_{\text{safe}} = 0.38$. Post-classifier, the retrieval-utility classifier intercepts the safety-veto fall-through and chooses between the zero-shot and retrieval-augmented tiers. See \Cref{sec:router}.
+
+\item[Seed pool.] The one-thousand-sample-per-training-benchmark slice used to populate the cold-start memory through the cold-start seeding pass at the registered cold-start storage threshold of $0.50$. See \Cref{sec:setup}.
+
+\item[Self-improvement loop.]\nopagebreak[4] The cycle-boundary fine-tune that draws its training pool from stored memory entries whose calibrated probability composite clears the SIL admission threshold $\tau_{\text{train}} = 0.70$, applies the parameter-efficient update through the bounded low-rank adapter envelope on the frozen backbone, and re-tests the post-fine-tune model against the retention guard. See \Cref{sec:sil}.
+
+\item[Stochastic equilibrium.] The calendar-timeline refinement of the bounded-band stationarity result that reads the realised commit fraction $\pi_{\mathrm{commit}}$ off the per-cycle commit pattern. The realised pattern $(1, 1, 1, 0, 1)$ yields $\pi_{\mathrm{commit}} = 4/5$. See \Cref{cor:stochastic-equilibrium}.
+
+\item[Stored confidence (\boldmath$u_{\text{stored}}$).] The calibrated probability composite's output for a generated answer: the per-signal isotonic curves and the boost-layer logistic regression aggregate the nine verifier signals into a single scalar in the unit interval, against which the storage cut-point is read. See \Cref{sec:composite}.
+
+\item[Stream chunk.] The per-cycle pre-routing pass over a fresh slice of training-benchmark samples (two thousand FEVER, two thousand TriviaQA, seven hundred CommonsenseQA per cycle) that accumulates the per-cycle storage admissions, deferred entries, abstentions, and discards. See \Cref{sec:setup}.
+
+\item[Test fold.] The held-out slice reserved for the post-trajectory comparative panel. Distinct from the evaluation fold against which the per-cycle headline metrics are reported. See \Cref{sec:setup}.
+
+\item[Training-pool admission threshold (\boldmath$\tau_{\text{train}}$).] The second operating point above the storage cut-point at which a stored memory entry is admitted into the self-improvement training pool. Set at $0.70$ and held strictly greater than the storage cut-point $\tau_{\text{store}} = 0.60$ so the SIL pool is a strict refinement of the storage pool. See \Cref{sec:sil}.
+
+\item[Verifier-balanced-accuracy precondition.] The pre-registered floor on the verifier's balanced accuracy at the locked storage cut-point: a precondition of the calibration-consistent precision floor of \Cref{thm:purity}, audited at cycle zero through the composite Cohen's $d$ gate at the registered floor of $0.20$. See \Cref{sec:adj-gate}.
+
+\item[Verifier ensemble.] The nine-signal post-generation block that converts a generated answer into the four-family signal vector (internal calibration, sample-set agreement, external grounding, question-answer relevance) feeding the calibrated probability composite. See \Cref{sec:verifier}.
+
+\item[Zero-shot tier (Tier 2).] The serving tier that runs a generation on the fine-tuned backbone without retrieving passages, dispatched when the similarity to the nearest stored entry clears the registered Tier 2 threshold but the combined dispatch score does not clear the Tier 1 threshold. See \Cref{sec:router}.
+
+\end{description}
+
+\section{Acronyms}
+
+\begin{description}[style=nextline, leftmargin=0pt, labelindent=0pt, itemsep=6pt, parsep=0pt, font=\bfseries, beginpenalty=10000]
+
+\item[Bootstrap CI.] Bootstrap confidence interval. The percentile-method confidence interval on the per-sample exact-match-difference vector at the matched-paired sample size of three hundred. See \Cref{sec:sig-bootstrap}.
+
+\item[CES.] Composite evaluation score. See the concept entry above.
+
+\item[CHM.] Composite hallucination metric. See the concept entry above.
+
+\item[Cohen's $d$.] An effect-size measure for the standardised mean difference between two distributions. The cycle-zero validation gate reads the composite Cohen's $d$ between exact-match-correct and exact-match-incorrect outputs against the registered precondition floor of $0.20$. See \Cref{sec:adj-gate}.
+
+\item[EM.] Exact match. The registered correctness metric. On TruthfulQA the exact-match rule is the Haiku-judged correctness rule throughout the empirical chapter; on every other benchmark the rule is the standard span match. See \Cref{sec:setup-metrics}.
+
+\item[FAISS.] The dense vector similarity-search index used to host the memory store, the Wikipedia passage substrate, and the cross-encoder pair index. See \Cref{sec:memory-store}.
+
+\item[Haiku-judged.]\nopagebreak[4] The Claude Haiku 4.5 large-language-model judge used as the truthfulness adjudicator on the TruthfulQA evaluation fold. The judge reads the question, the model's answer, the correct reference answers, and the incorrect reference answers, and returns a binary truthful-or-not verdict. The uniform Haiku-judged rule is applied to every TruthfulQA exact-match cell in the empirical chapter, including every baseline. See \Cref{sec:setup-metrics}.
+
+\item[Holm-Bonferroni.] The step-down multiple-comparison correction applied within each benchmark family of size $m = 8$ on each metric axis. Sorts the raw $p$-values ascending and multiplies the $k$-th smallest by $m - k$ under a running-maximum monotonicity constraint, clipping at one. See \Cref{sec:sig-holm}.
+
+\item[LoRA.] Low-rank adaptation. The parameter-efficient fine-tuning technique that injects trainable low-rank matrices into the seven linear projections of every transformer block of the frozen base generator at rank $32$ and alpha $64$. See \Cref{sec:sil}.
+
+\item[McNemar test.] The paired significance test for binary outcomes, applied on the exact-match axis. Reads only the two discordant cells of the matched-pair contingency table under Edwards' continuity correction. See \Cref{sec:sig-mcnemar}.
+
+\item[MMLU.] Massive multitask language understanding. The fifty-seven-subject multiple-choice benchmark used as one of the three probes in the multi-modal retention probe panel. See \Cref{sec:retention}.
+
+\item[NLI.] Natural language inference. The three-class textual-entailment task (entailment, contradiction, neutral) consumed by the verifier's grounding signal family through the MiniCheck short-hypothesis backend. See \Cref{sec:verifier}.
+
+\item[RUC.] Retrieval-utility classifier. See the concept entry above.
+
+\item[SBERT.] Sentence-BERT. The siamese-network-fine-tuned sentence encoder that produces the 768-dimensional embeddings consumed by the memory-store lookup, the cycle-boundary consolidation pass, and the cold-start seeding pass. See \Cref{sec:memory-store}.
+
+\item[SIL.] Self-improvement loop. See the concept entry above.
+
+\item[Wilcoxon signed-rank.] The paired significance test for continuous outcomes, applied on the composite-hallucination-metric axis. Reads the signed-rank sum of the per-sample architecture-minus-baseline composite-hallucination-metric difference vector. See \Cref{sec:sig-mcnemar}.
+
+\end{description}

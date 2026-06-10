@@ -10,25 +10,25 @@
 % influenced a design decision. Body prose in Chapter 5 reports the
 % headline numbers; this appendix is the full archive.
 
-\section{The twenty-five-variant composite parameter sweep}
+\section{The one-hundred-variant composite parameter sweep}
 \label{app:sweep-full}
 
-The headline ten-variant table appears in \Cref{tab:sweep-top} of \Cref{ch:evaluation}. The full sweep over the pre-registered $\alpha \times C$ grid is recorded under \verb|outputs/cycle_0/sweep/| with one JSON per variant; the auto-generated comparison table is reproduced in the body chapter rather than duplicated here. Per-benchmark sweep diagnostics for any variant in the grid are recoverable by reading the corresponding JSON entry.
+The headline ten-variant table appears in \Cref{tab:sweep-top} of \Cref{ch:evaluation}. The full sweep over the pre-registered $\tau_{\text{store}} \times C \times \alpha_{\text{shrink}}$ grid ($4 \times 5 \times 5 = 100$ variants) is recorded in the cycle-zero sweep archive with one record per variant; the auto-generated comparison table is reproduced in the body chapter rather than duplicated here. Per-benchmark sweep diagnostics for any variant in the grid are recoverable by reading the corresponding JSON entry.
 
 \section{The calibration-to-evaluation gap analysis}
 \label{app:cal-eval-gap}
 
-The pooled gap reading at the locked configuration is reported in \Cref{sec:adj-cal-eval-gap}. The per-benchmark decomposition is reported in \Cref{tab:cross-bench-summary}, which is auto-generated from the cycle-zero evaluation outputs. The narrative analysis behind the per-benchmark gap is recorded in \verb|outputs/cycle_0/sweep/cal_eval_gap_analysis.md|.
+The pooled gap reading at the locked configuration is reported in \Cref{sec:adj-cal-eval-gap}. The per-benchmark decomposition is reported in \Cref{tab:cross-bench-summary}, which is auto-generated from the cycle-zero evaluation outputs. The narrative analysis behind the per-benchmark gap is recorded in the calibration-to-evaluation gap note within the cycle-zero sweep archive.
 
 \section{The first-iteration failure trace}
 \label{app:first-iteration-trace}
 
-The first iteration of the cycle-zero calibration failed the pre-registered validation gate due to a JSONL signal-dump bug; the narrative is recorded in \Cref{sec:adj-failed-iterations}. The diagnostic record is preserved at \verb|outputs/archive/pre_phase2_2026-04-25_T2/| together with the degenerate composite calibration JSON whose conformal-threshold collapse triggered the corrective patch.
+The first iteration of the cycle-zero calibration failed the pre-registered validation gate due to a JSONL signal-dump bug; the narrative is recorded in \Cref{sec:adj-failed-iterations}. The diagnostic record is preserved in the pre-Phase-2 archival snapshot dated to the failure, together with the degenerate composite calibration record whose conformal-threshold collapse triggered the corrective patch.
 
 \section{The long-hypothesis judge ablation diagnostic}
 \label{app:judge-ablation}
 
-The Platt fit diagnostic that licensed the ablation of the long-hypothesis judge is recorded in \verb|outputs/calibration/qwen_judge_platt.ablation.json|. The headline numbers are: $n = 500$ overlap fold, Platt slope $0.137$, Platt intercept $1.247$, Pearson $\rho = 0.5843$ in logit space against a pre-registered floor of $0.70$, mean absolute error in logit space $1.408$, and mean absolute error in probability space $0.230$. The verdict is therefore that the long-hypothesis judge fails the registered correlation floor; \Cref{sec:adj-judge-ablation} reports the architectural consequence and the future-work item that would re-fit the judge under task-specific training.
+The Platt fit diagnostic that licensed the ablation of the long-hypothesis judge is recorded in the long-hypothesis-judge Platt-ablation calibration record. The two persisted headline statistics are the observed Pearson $\rho = 0.5843$ in logit space and the pre-registered floor of $\rho_{\min} = 0.70$ against which the observed correlation is audited. The verdict is therefore that the long-hypothesis judge fails the registered correlation floor; the architectural consequence is the ablation of the long-hypothesis backend from the deployed configuration, with the unified verifier dispatching every hypothesis through the short-hypothesis backend under a documented five-hundred-and-twelve-token truncation contract. \Cref{sec:adj-judge-ablation} reports the architectural consequence and the future-work item that would re-fit the judge under task-specific training. The companion long-hypothesis judge Platt diagnostic log records the per-sample diagnostic trace whose summary statistics produced the headline correlation reading.
 
 \section{Pre and post prompt-fix compliance}
 \label{app:prompt-compliance}
@@ -47,7 +47,7 @@ The per-benchmark coverage of the atomic-fact decomposition signal $p_{\text{gro
 \section{Composite weight table}
 \label{app:composite-weights}
 
-The headline composite weight table is reported in \Cref{tab:composite-calibration} in \Cref{ch:evaluation}. The full per-cycle re-calibration of the composite (per-signal isotonic curves blended toward the pooled fit through the registered shrinkage prior, plus the boost-layer coefficient refit) will be reported in this section once the main-run trajectory lands; the storage and deferral cut-points themselves stay frozen at the cycle-zero registered values.
+The cycle-zero composite-weight table is reported in \Cref{tab:composite-calibration} of \Cref{ch:evaluation}. The per-cycle re-calibration of the composite (the per-benchmark temperature scalars, the per-benchmark safety floors, and the pooled boost-layer weights on the nine deployed signals) across the realised cycle-one through cycle-five trajectory is reported in the four-panel \Cref{tab:calibration-trajectory} of \Cref{sec:adj-trajectory}, with the cycle-four entry omitted under the asymmetric-rollback contract that skips the cal-fold refit on aborted cycles. The per-signal isotonic curves themselves are non-parametric step functions on the calibration fold and are not enumerated cell-by-cell across cycles; they are recoverable from the per-cycle composite calibration records, with the cycle-zero canonical record held immutable across the trajectory under the lock-cycle-zero patch. The storage and deferral cut-points stay frozen at the cycle-zero registered values throughout, so the per-cycle composite refit moves the signal-to-probability mapping the cut-points operate on rather than the cut-points themselves.
 
 \section{Per-benchmark precision-cliff curves}
 \label{app:precision-cliff}
@@ -57,7 +57,7 @@ The threshold-versus-precision tradeoff at the locked storage cut-point $\tau_{\
 \begin{figure}[!htbp]
 \centering
 \includegraphics[width=0.85\textwidth]{figures/auto/precision_cliff.pdf}
-\caption{Per-benchmark precision-cliff curves at the locked configuration. Auto-generated from \texttt{outputs/phase4/precision\_cliff.pdf}; the underlying threshold-versus-precision data are in \Cref{tab:precision-cliff}.}
+\caption[Per-benchmark precision-cliff curves at the locked configuration]{Per-benchmark precision-cliff curves at the locked configuration. Auto-generated from the Phase 4 precision-cliff diagnostic; the underlying threshold-versus-precision data are in \Cref{tab:precision-cliff}.}
 \label{fig:precision-cliff}
 \end{figure}
 
