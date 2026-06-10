@@ -221,38 +221,40 @@
   \end{block}
 
   \begin{block}{External Baseline Comparison}
-    \footnotesize
-    \setlength{\tabcolsep}{4pt}
+    \scriptsize
+    \setlength{\tabcolsep}{3pt}
     \renewcommand{\arraystretch}{1.05}
     \resizebox{\colwidth}{!}{%
-    \begin{tabular}{@{}l c c c c@{}}
+    \begin{tabular}{@{}l c c c c c c@{}}
       \toprule
-      \textbf{System} & \textbf{EM} & \textbf{CHM} & $\boldsymbol{\Delta}$\textbf{EM vs C2} & $\boldsymbol{\Delta}$\textbf{CHM vs C2} \\
+      & & & \multicolumn{2}{c}{$\boldsymbol{\Delta}$\textbf{ vs C2 (best)}} & \multicolumn{2}{c}{$\boldsymbol{\Delta}$\textbf{ vs C5 (final)}} \\
+      \cmidrule(lr){4-5}\cmidrule(lr){6-7}
+      \textbf{System} & \textbf{EM} & \textbf{CHM} & \textbf{EM} & \textbf{CHM} & \textbf{EM} & \textbf{CHM} \\
       \midrule
       \rowcolor{caemTealLight}
-      \textbf{CAEM C2 (best) $\star$} & $\mathbf{0.544}$ & $\mathbf{0.107}$ & --- & --- \\
-      CAEM C5 (final) & $0.517$ & $0.109$ & $-0.027$ & $+0.002$ \\
+      \textbf{CAEM C2 (best) $\star$} & $\mathbf{0.544}$ & $\mathbf{0.107}$ & --- & --- & $+0.027$ & $-0.002$ \\
+      CAEM C5 (final) & $0.517$ & $0.109$ & $-0.027$ & $+0.002$ & --- & --- \\
       \midrule
-      B1 zero-shot & $0.507$ & $0.120$ & $+7.4\%$ & $-11.0\%$ \\
-      B2 chain-of-thought & $0.500$ & $0.123$ & $+8.8\%$ & $-12.7\%$ \\
-      B3 DPR-RAG & $0.458$ & $0.148$ & $+18.8\%$ & $-27.7\%$ \\
-      B4 CoT $+$ DPR-RAG & $0.461$ & $0.142$ & $+17.9\%$ & $-24.6\%$ \\
-      B5 five-shot CoT & $0.405$ & $0.136$ & $+34.2\%$ & $-21.4\%$ \\
-      B6 vanilla fine-tune (C5) & $0.325$ & $0.144$ & $+67.2\%$ & $-25.5\%$ \\
-      B7 FLARE & $0.292$ & $0.153$ & $+86.3\%$ & $-29.9\%$ \\
-      B8 semantic entropy & $0.505$ & $0.120$ & $+7.7\%$ & $-10.5\%$ \\
+      B1 zero-shot & $0.507$ & $0.120$ & $+7.4\%$ & $-11.0\%$ & $+2.0\%$ & $-9.3\%$ \\
+      B2 chain-of-thought & $0.500$ & $0.123$ & $+8.8\%$ & $-12.7\%$ & $+3.4\%$ & $-11.0\%$ \\
+      B3 DPR-RAG & $0.458$ & $0.148$ & $+18.8\%$ & $-27.7\%$ & $+12.9\%$ & $-26.4\%$ \\
+      B4 CoT $+$ DPR-RAG & $0.461$ & $0.142$ & $+17.9\%$ & $-24.6\%$ & $+12.1\%$ & $-23.2\%$ \\
+      B5 five-shot CoT & $0.405$ & $0.136$ & $+34.2\%$ & $-21.4\%$ & $+27.5\%$ & $-19.9\%$ \\
+      B6 vanilla fine-tune (C5) & $0.325$ & $0.144$ & $+67.2\%$ & $-25.5\%$ & $+58.9\%$ & $-24.1\%$ \\
+      B7 FLARE & $0.292$ & $0.153$ & $+86.3\%$ & $-29.9\%$ & $+77.1\%$ & $-28.6\%$ \\
+      B8 semantic entropy & $0.505$ & $0.120$ & $+7.7\%$ & $-10.5\%$ & $+2.4\%$ & $-8.9\%$ \\
       \midrule
       \rowcolor{caemOrangeLight}
-      \multicolumn{5}{@{}c@{}}{\textbf{Wins-against (joint $\Delta$EM \& $\Delta$CHM): CAEM C2 beats $8/8$; CAEM C5 beats $8/8$.}} \\
+      \multicolumn{7}{@{}c@{}}{\textbf{Wins-against (joint $\Delta$EM \& $\Delta$CHM): CAEM C2 beats $8/8$; CAEM C5 beats $8/8$.}} \\
       \bottomrule
     \end{tabular}%
     }
   \end{block}
 
   \begin{block}{Retrieval-Utility Classifier Ablation}
-    \footnotesize
-    \setlength{\tabcolsep}{4pt}
-    \renewcommand{\arraystretch}{1.05}
+    \scriptsize
+    \setlength{\tabcolsep}{3pt}
+    \renewcommand{\arraystretch}{1.0}
     \resizebox{\colwidth}{!}{%
     \begin{tabular}{@{}l c c c c c@{}}
       \toprule
@@ -276,7 +278,6 @@
     \scriptsize
     \begin{enumerate}\setlength{\itemsep}{0.05em}\setlength{\parskip}{0pt}
       \item Guo et al. On calibration of modern neural networks. \emph{ICML 2017}.
-      \item Kadavath et al. Language models (mostly) know what they know. \emph{arXiv 2022}.
       \item Lin et al. TruthfulQA: measuring how models mimic human falsehoods. \emph{ACL 2022}.
       \item Lewis et al. Retrieval-augmented generation for knowledge-intensive NLP tasks. \emph{NeurIPS 2020}.
       \item Wang et al. Self-consistency improves chain-of-thought reasoning. \emph{ICLR 2023}.
