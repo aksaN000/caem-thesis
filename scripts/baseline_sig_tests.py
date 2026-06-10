@@ -99,8 +99,8 @@ BENCHMARKS = list(_CFG_TRAINING_BENCHMARKS) + list(_CFG_TRANSFER_BENCHMARKS)
 # can flip the inference cycle without touching the training cycle, but
 # Phase 1A uses cycle 10 for both.
 TRAINING_BASELINES = {"vanilla_ft", "ewc_only_ft"}
-CAEM_CYCLE_INFERENCE = 10
-CAEM_CYCLE_TRAINING = 10
+CAEM_CYCLE_INFERENCE = 5
+CAEM_CYCLE_TRAINING = 5
 
 OUTPUT_FIELDS = [
     "baseline", "benchmark", "n_paired",
@@ -181,6 +181,10 @@ def _baseline_json_candidates(baselines_dir: Path, baseline: str,
     c: List[Path] = []
     c.append(baselines_dir / baseline / f"{benchmark}_cycle0.json")
     for cyc in (CAEM_CYCLE_TRAINING, 0):
+        # Production layout: <baselines_dir>/<baseline>/eval/<bench>_cycle{N}.json
+        c.append(baselines_dir / baseline / "eval"
+                 / f"{benchmark}_cycle{cyc}.json")
+        # Legacy: nested baseline/baseline/eval/...
         c.append(baselines_dir / baseline / baseline / "eval"
                  / f"{benchmark}_cycle{cyc}.json")
     return c

@@ -62,9 +62,29 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import sys
 from pathlib import Path
 from typing import Dict, List
+
+# Local-WSL fallback: torch.compile requires a C compiler that the writeup
+# environment lacks. Disable inductor entirely so model.forward runs in
+# eager mode without paying the failed-compile cost on every batch shape.
+os.environ["TORCH_COMPILE_DISABLE"] = "1"
+os.environ["TORCHDYNAMO_DISABLE"] = "1"
+try:
+    import torch._dynamo
+    torch._dynamo.config.suppress_errors = True
+    torch._dynamo.config.disable = True
+except Exception:
+    pass
+# Force the config default off so baselines.py + load_base_generator skip the
+# torch.compile() wrap entirely on this run.
+try:
+    from caem.config import CAEMConfig
+    CAEMConfig.use_torch_compile = False
+except Exception:
+    pass
 
 logging.basicConfig(
     level=logging.INFO,
