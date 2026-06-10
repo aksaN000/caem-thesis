@@ -1,0 +1,25 @@
+% Auto-generated from outputs/full_run/deferred_buffer_cycle_*.pkl
+% Per-cycle TTL distribution of deferred-buffer entries.
+% TTL field: DeferredEntry.age (caem/memory/deferred.py:116), incremented per reconsider().
+% Drop threshold: age >= config.deferred_buffer_ttl_cycles (= 2).
+\begin{table}[H]
+\centering\small
+\setlength{\tabcolsep}{8pt}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{@{}lrrr@{}}
+\toprule
+\textbf{Cycle} & \textbf{Age $=0$ (fresh)} & \textbf{Age $=1$ (one reconsider survived)} & \textbf{Total buffer} \\
+\midrule
+C0 & $0$ & $0$ & $0$ \\
+C1 & $1\,123$ & $0$ & $1\,123$ \\
+C2 & $1\,407$ & $992$ & $2\,399$ \\
+C3 & $1\,437$ & $1\,255$ & $2\,692$ \\
+C4$^{\ast}$ & $2\,813$ & $1\,255$ & $4\,068$ \\
+C5 & $1\,684$ & $2\,600$ & $4\,284$ \\
+\bottomrule
+\multicolumn{4}{@{}l}{\footnotesize $^{\ast}$ Cycle four reconsider was skipped under the abort contract; the age $=1$ cohort from C3 carried over unchanged into C4 without ageing further.} \\
+\end{tabular}%
+}
+\caption{Per-cycle TTL distribution of deferred-buffer entries at the cycle close, sourced from \texttt{deferred\_buffer\_cycle\_*.pkl} via the \texttt{DeferredEntry.age} field. The age counter is initialised to zero when an entry is pushed and incremented by one each time \texttt{DeferredBuffer.reconsider()} processes the entry; an entry whose age reaches the registered TTL of two (\texttt{config.deferred\_buffer\_ttl\_cycles}) without being promoted is dropped on its next reconsider invocation. The age $=0$ cohort at each cycle is the freshly-pushed batch of that cycle; the age $=1$ cohort is the set of entries that survived one reconsider pass without being promoted or dropped. No age $=2$ entries appear in the table because the drop threshold fires before the cycle close, so entries that would otherwise age to two are removed from the buffer by the reconsider pass that creates the next cycle's snapshot. The cycle-four age $=1$ cohort of $1\,255$ entries carries over from cycle three unchanged because the cycle-four reconsider pass was skipped under the asymmetric-rollback contract; this carryover is the mechanism by which the deferred buffer preserves recovery opportunities through retention aborts.}
+\label{tab:deferred-buffer-ttl}
+\end{table}

@@ -10,10 +10,10 @@ B-rag & 0.457 & -- & -- & 1.000 & 1.000 & 1.000 & 0.822 & 0.0 \\
 B-cot\_rag & 0.466 & -- & -- & 1.000 & 1.000 & 1.000 & 0.826 & 0.0 \\
 B-flare & 0.291 & -- & -- & 1.000 & 1.000 & 1.000 & 0.735 & 0.0 \\
 B-semantic\_entropy & 0.507 & -- & -- & 1.000 & 1.000 & 1.000 & 0.844 & 0.0 \\
-CAEM C0 & 0.470 & 0.156 & 0.844 & -- & -- & -- & 0.630 & 35.0 \\
-CAEM C3 & 0.474 & 0.121 & 0.879 & -- & -- & -- & 0.645 & 11.6 \\
-CAEM C5 & 0.475 & 0.123 & 0.877 & -- & -- & -- & 0.645 & 11.6 \\
+CAEM C0 & 0.541 & 0.135 & 0.865 & -- & -- & -- & 0.684 & 33.9 \\
+CAEM C3 & 0.532 & 0.115 & 0.885 & -- & -- & -- & 0.686 & 11.9 \\
+CAEM C5 & 0.517 & 0.109 & 0.891 & -- & -- & -- & 0.679 & 17.0 \\
 \bottomrule
 \end{tabular}
 
-ACC = pooled EM; EPI = 1$-$CHM (8-subtype composite hallucination metric); RET / CAL / VER = retention / calibration / verifier-reliability axes (CAEM-internal; baselines default to 1.0 by convention). CES = geometric mean of populated axes. Dashes indicate the axis requires the verifier rescore (pending for some baselines).
+ACC = pooled EM; EPI = 1$-$CHM (8-subtype composite hallucination metric); RET / CAL / VER = retention / calibration / verifier-reliability axes (CAEM-internal). CES is the canonical five-axis geometric mean of \Cref{eq:ces} and is reported for CAEM rows only because three of the five axes are architectural properties of a cyclic, calibrated, verifier-gated system that do not transfer to single-pass baselines; the baseline rows in this auxiliary table are retained for ACC and EPI only and the CES column on baseline rows is a degenerate two-axis variant that should not be compared against the canonical CAEM CES of \Cref{tab:ces-caem-trajectory}. Dashes indicate an axis is not populated.

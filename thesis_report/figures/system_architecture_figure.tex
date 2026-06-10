@@ -71,7 +71,14 @@
 \node[router] (s3)  at (6, -9.2)  {%
     \textbf{S3\quad Three-tier router}\\[4pt]
     $S(q)=0.70\cdot\mathrm{sim}(q,e^{*})+0.30\cdot u_{\text{stored}}(e^{*})$\\
-    {\scriptsize safety override:\;if $u_{\text{pre}}<0.60$ the score is bypassed and Tier~3 is forced}};
+    {\scriptsize safety override:\;if $u_{\text{pre}}<\phi_{\text{safe}}{=}0.38$ the score is bypassed and the RUC decides Tier~2 vs Tier~3}};
+
+% ---- S3b: Retrieval-utility classifier (intercepts the safety-override and score-formula fall-throughs) ----
+\node[router, minimum height=1.5cm, minimum width=5.0cm, fill=yellow!12]
+      (ruc) at (13.6,-10.9) {%
+    \textbf{S3b\quad RUC}\\[2pt]
+    {\scriptsize 36-feature LR head;\;$p_{\text{RAG}}\gtrless\tau_{\text{RUC}}{=}0.375$}\\
+    {\scriptsize routes safety-veto and else fall-through to Tier~2 or Tier~3}};
 
 % ---- Tier row  (T1 far-left / T2 centre / T3 far-right)
 %  S5 min-width = 9.5 cm centred at x=6  ->  left edge  ~ x = 1.25
@@ -96,8 +103,9 @@
 \node[verify] (s5)  at (6, -17.0)  {%
     \textbf{S5\quad Nine-signal Verifier}\\[6pt]
     \textit{Internal:}\quad$u_{\text{token}},\;u_{\text{dropout}},\;u_{\text{internal}}$\\[3pt]
-    \textit{Sample-set:}\quad$s_{\text{avg}},\;p_{\text{entail}},\;h_{\text{norm}}$\\[3pt]
-    \textit{Grounding:}\quad$p_{\text{ground}}^{\max},\;p_{\text{ground}}^{\text{mean}},\;p_{\text{ground}}^{\text{atomic}}$\\[5pt]
+    \textit{Sample-set:}\quad$s_{\text{avg}},\;p_{\text{entail}}$\\[3pt]
+    \textit{Grounding:}\quad$p_{\text{ground}}^{\max},\;p_{\text{ground}}^{\text{mean}},\;p_{\text{ground}}^{\text{atomic}}$\\[3pt]
+    \textit{Relevance:}\quad$q_{\text{a,rel}}$\\[5pt]
     {\footnotesize\textbf{confabulation gate:}\;
      $u_{\text{internal}}{\geq}0.70\;\wedge\;p_{\text{ground}}^{\max}{\leq}0.20
      \;\Rightarrow\;$\textsc{Discard (early exit)}}};
@@ -105,7 +113,7 @@
 \node[decide] (s6)  at (6, -21.0)  {%
     \textbf{S6\quad Four-outcome storage decision}\\[5pt]
     {\scriptsize
-    $u_{\text{stored}}{\geq}0.65\Rightarrow\textsc{Store}$\quad
+    $u_{\text{stored}}{\geq}0.60\Rightarrow\textsc{Store}$\quad
     $u_{\text{stored}}{\geq}0.45\Rightarrow\textsc{Deferred}$\quad
     $p_{\text{ground}}^{\max}{<}0.20\Rightarrow\textsc{Abstain}$\quad
     \textit{else:}\;\textsc{Discard}}};
@@ -127,7 +135,7 @@
     \quad\textit{(runs once at each cycle boundary, not per query)}\\[6pt]
     (1)~Retroverify all stored entries
         ($\tau_{\text{retro}}{=}0.50$;\;upward-only: never demotes a previously verified entry)\\[3pt]
-    (2)~Curate training pool ($\tau_{\text{train}}{=}0.75$;\;90:10 task-to-general mix)\quad
+    (2)~Curate training pool ($\tau_{\text{train}}{=}0.70$;\;pool-reweighting layer)\quad
     (3)~Fine-tune:\;$\mathcal{L}(\theta)=\mathcal{L}_{\text{CE}}
         +\tfrac{\lambda}{2}\|\theta-\theta_{\text{prev}}\|^2$,\;$\lambda{=}0.01$\\[3pt]
     (4)~Abort guard:\;$\rho=A_{\text{post}}/A_{\text{pre}}\geq0.93$;\;
@@ -164,11 +172,23 @@
     node[elab,right,pos=0.5]{\textbf{elif}\;$\mathrm{sim}(q,e^{*})\geq0.75$}
     (t2.north);
 
-% Tier 3 (red): branch RIGHT, condition label above horizontal leg
-\draw[rarr]
+% Score-formula else + safety-override both reach the RUC (S3b), not Tier 3 directly
+\draw[farr]
     (br) --
-    node[elab,above,pos=0.75]{\textbf{else};\;or forced when\;$u_{\text{pre}}<0.60$}
-    (12.0,-10.9) -- (t3.north);
+    node[elab,above,pos=0.6]{\textbf{else}\;\textbf{or}\;$u_{\text{pre}}<\phi_{\text{safe}}$}
+    (ruc.west);
+
+% RUC -> Tier 3 (retrieval-augmented) when p_RAG >= tau_RUC
+\draw[rarr]
+    (ruc.south) --
+    node[elab,right,pos=0.55]{$p_{\text{RAG}}\ge\tau_{\text{RUC}}$}
+    (ruc.south |- t3.north) -- (t3.north);
+
+% RUC -> Tier 2 (zero-shot) when p_RAG < tau_RUC; loop up and over to enter t2 from the right
+\draw[oarr]
+    (ruc.north) -- ++(0,0.4) coordinate (rucup)
+    -- node[elab,above,pos=0.5]{$p_{\text{RAG}}<\tau_{\text{RUC}}$}
+    (t2.north east -| rucup) -- (t2.north east);
 
 % ---- Tier 1 bypass: route LEFT then DOWN, well outside S5 ----
 % S5 left edge ≈ x=1.25; this path uses x=-3.5 to stay clear.
@@ -241,3 +261,6 @@
 \end{tikzpicture}%
 }
 \caption{%
+The eight-stage CAEM pipeline. Stages~S1--S8 are described in \Cref{ch:methodology}; the retrieval-utility classifier (Stage S3b, RUC) of \Cref{sec:ruc} sits between the three-tier router and the retrieval-augmented tier, intercepting the safety-veto and score-formula fall-through dispatches and redirecting retrieval-hurt queries to the zero-shot tier. The nine deployed signals at S5 are the registered set minus $h_{\text{norm}}$ (registered then retired at the cycle-zero audit; see the list-of-symbols footnote) and $p_{\text{contra}}$ (structurally zero under the deployed MiniCheck judge). The outer dashed arrow indicates the cycle-boundary handoff from the close of one cycle to the start of the next.}
+\label{fig:system-architecture}
+\end{figure}

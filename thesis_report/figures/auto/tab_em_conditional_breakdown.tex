@@ -1,0 +1,28 @@
+% Auto-generated from outputs/full_run/memory_store_cycle_*.faiss.meta set-difference
+% (prune cohort identification) + experiment.log DeferredBuffer.reconsider() per-entry
+% trace (promotion cohort identification) + offline EM-label lookup against
+% HuggingFace gold (FEVER train+dev, TriviaQA train+val+test, CSQA train+val).
+% EM labels are not persisted per entry; this reconstruction is a one-off audit.
+\begin{table}[H]
+\centering\footnotesize
+\setlength{\tabcolsep}{4pt}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{@{}l|rrrr|rrrr@{}}
+\toprule
+ & \multicolumn{4}{c|}{\textbf{Retroverify prunes}} & \multicolumn{4}{c}{\textbf{Deferred-buffer promotions}} \\
+\textbf{Cycle} & \textbf{Pruned} & \textbf{em-wrong} & \textbf{em-correct} & \textbf{Wrong-caught} & \textbf{Promoted} & \textbf{em-correct} & \textbf{em-wrong} & \textbf{Correct-recovered} \\
+\midrule
+C1 & $56$ & $0$ & $56$ & $0.0\%$ & $0$ & $0$ & $0$ & --- \\
+C2 & $261$ & $114$ & $147$ & $43.7\%$ & $117$ & $65$ & $52$ & $55.6\%$ \\
+C3 & $355$ & $122$ & $233$ & $34.4\%$ & $210$ & $119$ & $91$ & $56.7\%$ \\
+C4$^{\ast}$ & --- & --- & --- & --- & --- & --- & --- & --- \\
+C5 & $422$ & $184$ & $238$ & $43.6\%$ & $293$ & $161$ & $132$ & $54.9\%$ \\
+\midrule
+\textbf{Pooled} & $\mathbf{1\,094}$ & $\mathbf{420}$ & $\mathbf{674}$ & $\mathbf{38.4\%}$ & $\mathbf{620}$ & $\mathbf{345}$ & $\mathbf{275}$ & $\mathbf{55.6\%}$ \\
+\bottomrule
+\multicolumn{9}{@{}l}{\footnotesize $^{\ast}$ Cycle four was aborted under the retention guard; both the retroverify pass and the deferred-reconsider pass were skipped under the asymmetric-rollback contract.} \\
+\end{tabular}%
+}
+\caption[EM-conditional decomposition of retroverify prunes and deferred-buffer promotions]{Em-conditional decomposition of retroverify-pruned entries and deferred-buffer-promoted entries across the realised trajectory. \emph{Wrong-caught rate} is the share of pruned entries whose ground-truth em label was zero, the principled measure of whether retroverify selects against hallucinations rather than rolling random; the pooled rate of $38.4\%$ is approximately $1.75\times$ the pool-base wrong rate of $\sim 22\%$, the empirical receipt that retroverify is enriched against wrong entries rather than uniform. The cycle-one anomaly ($0\%$ wrong-caught on a small $56$-entry prune cohort) reflects signal-noise on cold-start TriviaQA and CSQA entries that were actually correct; this is the noisy regime where the retroverify pass has the least lift over the gate's initial admission. \emph{Correct-recovered rate} is the share of promoted entries whose ground-truth em label was one; the pooled $55.6\%$ sits below the $\sim 78\%$ pool-base correct rate, confirming that the deferred-buffer cohort is intrinsically harder than the entries that cleared the storage cut-point on the first attempt, but is well above chance and recovers $345$ correct entries that the initial gate had rejected as too uncertain. The two mechanisms are complementary: retroverify shaves a modest hallucination-enriched tail off the storage pool, while the deferred buffer reclaims correct entries the initial gate over-rejected. Em labels are not persisted per entry by the runtime; the reconstruction used offline lookup against the benchmark gold (one-hundred-percent match coverage on the realised $12\,175$ stored entries) and an entry-identifier set-difference between consecutive memory-store metadata snapshots for prune identification (a small consolidation-removed cohort of $\le 5\%$ runs in the same step and is indistinguishable at the snapshot level).}
+\label{tab:em-conditional-breakdown}
+\end{table}
