@@ -1,35 +1,6 @@
-% Standalone wrapper for the CAEM system-architecture diagram.
-% Source: thesis_report/figures/system_architecture_figure.tex
-%
-% This wrapper extracts the tikzpicture body verbatim and stubs the two
-% \Cref calls that the thesis caption uses, so the diagram self-contains
-% when compiled outside the main thesis document. The figure environment
-% and caption are intentionally dropped: the poster supplies its own
-% caption via the poster source.
-
-\documentclass[tikz,border=4pt]{standalone}
-
-% --- TikZ libraries used by the source figure ----------------------------
-\usepackage{tikz}
-\usetikzlibrary{arrows.meta}
-\usetikzlibrary{positioning}
-\usetikzlibrary{shapes.geometric}
-\usetikzlibrary{fit}
-\usetikzlibrary{calc}     % required by the ($(s8.north)+(-2.5,0)$) coordinate arithmetic
-
-% --- Math support for the inline formulae in the node labels ------------
-\usepackage{amsmath}
-\usepackage{amssymb}
-
-% --- Stubs for the thesis cross-references --------------------------------
-% In the thesis these resolve via cleveref to "Chapter 4" and to the
-% retrieval-utility classifier section. Outside the thesis they are
-% rendered as plain italic text so the figure compiles standalone.
-\providecommand{\Cref}[1]{\textit{the methodology chapter}}
-\providecommand{\cref}[1]{\textit{the methodology chapter}}
-
-\begin{document}
-
+\begin{figure}[p]
+\centering
+\resizebox{1.08\textwidth}{!}{%
 \begin{tikzpicture}[
     xshift=-0.9cm,
     font=\normalsize,
@@ -84,27 +55,27 @@
 
 \node[stage]  (q)   at (6,   0.0)  {\textbf{Query $q$}};
 
-\node[stage]  (s1)  at (6,  -2.7)  {%
+\node[stage]  (s1)  at (6,  -2.5)  {%
     \textbf{S1\quad Pre-route confidence}\\[4pt]
     $u_{\text{pre}} = 0.60\,u_{\text{token}} + 0.40\,(1{+}C_{\text{conv}})^{-1}$\\
     {\scriptsize two forward passes;\;$T$ re-fit per cycle}};
 
-\node[stage]  (s2)  at (6,  -5.8)  {%
+\node[stage]  (s2)  at (6,  -5.3)  {%
     \textbf{S2\quad Episodic memory retrieval}\\[4pt]
     SBERT 768-d cosine nearest-neighbour search};
 
 % Episodic memory cylinder  (right of S2, connected by dashed bidirectional arrow)
-\node[mcyl]   (mem) at (16.5,-5.8) {%
+\node[mcyl]   (mem) at (16.5,-5.3) {%
     \textbf{Episodic}\\[2pt]\textbf{Memory}\\[3pt]$K{=}10^{6}$};
 
-\node[router] (s3)  at (6, -9.2)  {%
+\node[router] (s3)  at (6, -8.3)  {%
     \textbf{S3\quad Three-tier router}\\[4pt]
     $S(q)=0.70\cdot\mathrm{sim}(q,e^{*})+0.30\cdot u_{\text{stored}}(e^{*})$\\
     {\scriptsize safety override:\;if $u_{\text{pre}}<\phi_{\text{safe}}{=}0.38$ the score is bypassed and the RUC decides Tier~2 vs Tier~3}};
 
 % ---- S3b: Retrieval-utility classifier (intercepts the safety-override and score-formula fall-throughs) ----
 \node[router, minimum height=1.5cm, minimum width=5.0cm, fill=yellow!12]
-      (ruc) at (13.6,-10.9) {%
+      (ruc) at (16.5,-9.8) {%
     \textbf{S3b\quad RUC}\\[2pt]
     {\scriptsize 36-feature LR head;\;$p_{\text{RAG}}\gtrless\tau_{\text{RUC}}{=}0.375$}\\
     {\scriptsize routes safety-veto and else fall-through to Tier~2 or Tier~3}};
@@ -115,7 +86,7 @@
 \node[tA] (t1) at (0.0, -12.2)  {%
     \textbf{Tier 1}\\[3pt]return $e^{*}$ answer\\{\scriptsize(from verified memory)}};
 \node[tB] (t2) at (6.0, -12.2)  {%
-    \textbf{Tier 2}\\[3pt]one-shot CoT generation\\{\scriptsize(base model only)}};
+    \textbf{Tier 2}\\[3pt]base model CoT generation\\{\scriptsize(base model only)}};
 \node[tC] (t3) at (12.0,-12.2)  {%
     \textbf{Tier 3}\\[3pt]RAG: DPR top-5\\{\scriptsize$\to$ cross-encoder rerank to top-3}};
 
@@ -186,19 +157,19 @@
     (mem.west);
 
 % ---- S3 -> three tiers ----
-\coordinate (br) at (6, -10.9);   % branch waypoint below S3
+\coordinate (br) at (6, -9.8);   % branch waypoint below S3
 \draw[farr] (s3.south) -- (br);
 
 % Tier 1 (green): branch LEFT, condition label above horizontal leg
 \draw[garr]
     (br) --
     node[elab,above,pos=0.45]{\textbf{if}\;$S(q)\geq0.90$}
-    (0.0,-10.9) -- (t1.north);
+    (0.0,-9.8) -- (t1.north);
 
-% Tier 2 (orange): straight down, condition label to the RIGHT
+% Tier 2 (orange): straight down, condition label to the LEFT
 \draw[oarr]
     (br) --
-    node[elab,right,pos=0.5]{\textbf{elif}\;$\mathrm{sim}(q,e^{*})\geq0.75$}
+    node[elab,left,pos=0.5]{\textbf{elif}\;$\mathrm{sim}(q,e^{*})\geq0.75$}
     (t2.north);
 
 % Score-formula else + safety-override both reach the RUC (S3b), not Tier 3 directly
@@ -210,17 +181,18 @@
 % RUC -> Tier 3 (retrieval-augmented) when p_RAG >= tau_RUC
 \draw[rarr]
     (ruc.south) --
-    node[elab,right,pos=0.55]{$p_{\text{RAG}}\ge\tau_{\text{RUC}}$}
-    (ruc.south |- t3.north) -- (t3.north);
+    (ruc.south |- t3.east) --
+    node[elab,above,pos=0.5]{$p_{\text{RAG}}\ge\tau_{\text{RUC}}$}
+    (t3.east);
 
-% RUC -> Tier 2 (zero-shot) when p_RAG < tau_RUC; loop up and over to enter t2 from the right
+% RUC -> Tier 2 (zero-shot) when p_RAG < tau_RUC; direct diagonal to t2
 \draw[oarr]
-    (ruc.north) -- ++(0,0.4) coordinate (rucup)
-    -- node[elab,above,pos=0.5]{$p_{\text{RAG}}<\tau_{\text{RUC}}$}
-    (t2.north east -| rucup) -- (t2.north east);
+    (ruc.south west) --
+    node[elab,above=2pt,sloped,pos=0.5]{$p_{\text{RAG}}<\tau_{\text{RUC}}$}
+    (t2.north east);
 
 % ---- Tier 1 bypass: route LEFT then DOWN, well outside S5 ----
-% S5 left edge ~ x=1.25; this path uses x=-3.5 to stay clear.
+% S5 left edge ≈ x=1.25; this path uses x=-3.5 to stay clear.
 \coordinate (t1byp1) at (0.0, -14.0);    % just below T1
 \coordinate (t1byp2) at (-3.5,-14.0);    % far left
 \draw[garr]
@@ -270,10 +242,10 @@
 
 % ---- S8 -> S1 : OUTER TEN-CYCLE LOOP ----
 %
-%  After S8 concludes, the updated weights theta_new (or theta_prev on rollback)
+%  After S8 concludes, the updated weights θ_new (or θ_prev on rollback)
 %  are loaded and Stage 1 of Cycle n+1 begins.  This arrow is the outer loop.
 %
-%  Route: S8.west  ->  far left (x ~= -5.5)  ->  up to y of S1  ->  S1.west
+%  Route: S8.west  →  far left (x ≈ -5.5)  →  up to y of S1  →  S1.west
 %
 \draw[varr]
     (s8.west)
@@ -287,6 +259,9 @@
     (ll |- s1.west)
     -- (s1.west);
 
-\end{tikzpicture}
-
-\end{document}
+\end{tikzpicture}%
+}
+\caption{%
+The eight-stage CAEM pipeline. Stages~S1--S8 are described in \Cref{ch:methodology}; the retrieval-utility classifier (Stage S3b, RUC) of \Cref{sec:ruc} sits between the three-tier router and the retrieval-augmented tier, intercepting the safety-veto and score-formula fall-through dispatches and redirecting retrieval-hurt queries to the zero-shot tier. The nine deployed signals at S5 are the registered set minus $h_{\text{norm}}$ (registered then retired at the cycle-zero audit; see the list-of-symbols footnote) and $p_{\text{contra}}$ (structurally zero under the deployed MiniCheck judge). The outer dashed arrow indicates the cycle-boundary handoff from the close of one cycle to the start of the next.}
+\label{fig:system-architecture}
+\end{figure}
