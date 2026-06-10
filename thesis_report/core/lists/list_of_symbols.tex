@@ -6,9 +6,9 @@
 \addcontentsline{toc}{chapter}{List of Symbols}
 
 {\footnotesize
-\setlength{\tabcolsep}{4pt}
+\setlength{\tabcolsep}{3pt}
 \renewcommand{\arraystretch}{1.05}
-\begin{longtable}{@{}p{2.1cm}p{5.6cm}@{\hspace{1.2em}}p{2.1cm}p{5.6cm}@{}}
+\begin{longtable}{@{}p{0.12\textwidth}p{0.34\textwidth}@{\hspace{0.5em}}p{0.12\textwidth}p{0.34\textwidth}@{}}
 \multicolumn{4}{@{}l@{}}{\textbf{\normalsize Confidence, verifier signals, thresholds}}\\
 $\upre$ & Pre-routing confidence & $\ustored$ & Calibrated post-generation composite \\
 $u_{\text{token}}$ & Mean token log-probability & $u_{\text{dropout}}$ & MC-Dropout variance, $K{=}5$ \\
@@ -16,14 +16,14 @@ $u_{\text{internal}}$ & $0.5u_{\text{tok}}{+}0.5(1{-}u_{\text{drop}})$ & $s_{\te
 $p_{\text{entail}}$ & Chain-to-answer NLI entailment & $h_{\text{norm}}$ & Normalised semantic entropy, $K{=}10$ \\
 $p_{\text{ground,max}}$ & Top-$1$ passage entailment & $p_{\text{ground,mean}}$ & Mean entailment over top-$3$ \\
 $p_{\text{ground,atomic}}$ & Length-gated atomic-fact entailment & $q_{\text{a,rel}}$ & Question-answer relevance \\
-\multicolumn{4}{@{}p{16cm}@{}}{\footnotesize $h_{\text{norm}}$ (normalised semantic entropy, $K{=}10$) was registered then retired post Cycle-0 audit (boost weight $\approx -5\times10^{-4}$); deployed verifier consumes nine signals.} \\
+\multicolumn{4}{@{}p{\textwidth}@{}}{\footnotesize $h_{\text{norm}}$ (normalised semantic entropy, $K{=}10$) was registered then retired post Cycle-0 audit (boost weight $\approx -5\times10^{-4}$); deployed verifier consumes nine signals.} \\
 $\taustore,\taudefer$ & Fixed store / defer cut-points on $\ustored$ ($0.60$ / $0.45$) & $\tautrain$ & Strict training-pool threshold ($0.70$) \\
 $\tau_{\text{retro}}$ & Retroactive prune threshold ($0.50$) & $\tau_{\text{ttl}}$ & Deferred-buffer TTL (cycles) \\
 $\tau_{\text{cons}}$ & Memory consolidation cosine & $\phi_{\text{pg}}$ & Pre-routing safety floor \\
 $\eta_u,\eta_g$ & Early-exit thresholds & $\tau_{\text{RUC}}$ & Retrieval-utility classifier threshold ($0.375$) \\
 \\[-0.5em]
 \multicolumn{4}{@{}l@{}}{\textbf{\normalsize Calibrated probability composite}}\\
-\multicolumn{4}{@{}p{16cm}@{}}{\footnotesize $\alphastore,\alphadefer$ (split-CP miscoverage targets) and $\alpha_{\text{ema}}$ (EMA refit factor) were registered in the conformal storage gate then retired when the gate was replaced by the fixed-threshold rule above; the calibration-versus-evaluation distribution shift broke the marginal-coverage premise of split-CP on the five-benchmark panel. The composite refit absorbs distribution drift through the per-signal isotonic curves and the per-benchmark boost coefficients on a fresh per-cycle fold.} \\
+\multicolumn{4}{@{}p{\textwidth}@{}}{\footnotesize $\alphastore,\alphadefer$ (split-CP miscoverage targets) and $\alpha_{\text{ema}}$ (EMA refit factor) were registered in the conformal storage gate then retired when the gate was replaced by the fixed-threshold rule above; the calibration-versus-evaluation distribution shift broke the marginal-coverage premise of split-CP on the five-benchmark panel. The composite refit absorbs distribution drift through the per-signal isotonic curves and the per-benchmark boost coefficients on a fresh per-cycle fold.} \\
 $n_{\min}$ & Minimum top-$k$ for fit ($20$) & $n_{\text{cal}},n_{\text{eval}}$ & Calibration / evaluation fold sizes \\
 $\pi_{\text{store}},\pi_{\text{defer}}$ & Calibration-fold empirical precision & $\pi_{\text{retro}}$ & Retroactive-survivor precision \\
 $\pi_t,\pi_\infty$ & Pool purity at cycle $t$, asymptote & $P_c,P_c^{\text{theory}}$ & Empirical / Bayes pool purity \\
