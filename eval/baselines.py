@@ -798,6 +798,17 @@ class FLAREBaseline(RAGBaseline):
     name = "flare"
     tier_value = 3
 
+    # 2026-06-12 fix (forensic audit `wuqqys99w`): inherit the matched-protocol
+    # SYSTEM_PROMPT + FORCED_PREFIX so FLARE's look-ahead prompts the model in
+    # the same Reasoning:/Answer: format as B1/B2/B5/B8. Without these, every
+    # ``_look_ahead`` call goes through a bare ChatML user turn and Qwen's
+    # default narrator voice commits "The context mentions ..." prose with no
+    # ``Answer:`` line, so ``extract_cot_answer`` falls back to the full string
+    # and EM collapses to ~0 on every short-form benchmark (the original audit
+    # showed TriviaQA EM 0.000, TruthfulQA EM 0.000).
+    system_prompt = SYSTEM_PROMPT
+    forced_prefix = FORCED_PREFIX
+
     def __init__(
         self,
         passage_store: PassageStore,
@@ -833,8 +844,17 @@ class FLAREBaseline(RAGBaseline):
         ``committed`` as the assistant prefill (so the model continues from
         wherever the caller has accumulated text). For an empty ``committed``
         the assistant starts from a bare generation marker.
+
+        2026-06-12 fix: when ``self.system_prompt`` is set (matched-protocol
+        configuration) the prompt uses the two-message ChatML form so the
+        model sees the same Reasoning:/Answer: SYSTEM mandate that B1/B2/B5/B8
+        see. The forced_prefix is threaded into ``committed`` at the start of
+        ``_generate`` so we do not re-append it here.
         """
-        prompt_text = self._wrap_chatml_user(query)
+        if self.system_prompt:
+            prompt_text = self._wrap_chatml_system_user(self.system_prompt, query)
+        else:
+            prompt_text = self._wrap_chatml_user(query)
         full_prompt = f"{prompt_text}{committed}" if committed else prompt_text
         enc = self.tokenizer(
             full_prompt,
@@ -912,8 +932,16 @@ class FLAREBaseline(RAGBaseline):
         (a) commits a look-ahead sentence if its min-prob >= theta, or
         (b) triggers retrieval and commits a grounded regeneration.
         ``escalated`` is True whenever at least one retrieval fires.
+
+        2026-06-12 fix: ``committed`` is initialised with ``forced_prefix`` so
+        the model continues from the Reasoning: marker on the first
+        iteration, and the buffer tracks the full Reasoning:/Answer() format
+        across iterations. The earlier "first complete sentence" terminator
+        truncated FLARE before the Answer: line landed (audit `wuqqys99w`);
+        we now terminate when the Answer: marker is in the buffer so
+        ``extract_cot_answer`` can parse it.
         """
-        committed = ""
+        committed = self.forced_prefix if self.forced_prefix else ""
         escalated = False
         for _ in range(self.max_sentences):
             look_text, min_prob = self._look_ahead(query, committed)
@@ -929,14 +957,18 @@ class FLAREBaseline(RAGBaseline):
                 retrieval_query = sentence or query
                 passages = self.rag.retrieve(retrieval_query)
                 grounded = self._grounded_generate(query, committed, passages)
-                # Strip the "Reasoning:" prefix that the scaffolded prompt
-                # forces; FLARE's committed buffer tracks natural-language
-                # sentences, not scaffolded CoT tokens.
-                if grounded.lower().lstrip().startswith(FORCED_PREFIX.lower()):
-                    grounded = grounded.lstrip()[len(FORCED_PREFIX):].lstrip()
+                # 2026-06-12 fix: do not strip the Reasoning: prefix from the
+                # grounded continuation. The committed buffer intentionally
+                # tracks the full Reasoning:/Answer: format so the EM extractor
+                # can parse it. ``build_tier3_prompt`` already places the
+                # forced_prefix in the prompt, so ``grounded`` is the
+                # post-prefix continuation; appending it to committed gives us
+                # the merged Reasoning: + grounded text.
                 committed = _append_sentence(committed, _first_sentence(grounded))
 
-            if committed.rstrip().endswith((".", "?", "!")) and len(committed.split()) >= 3:
+            # Terminate when the Answer: marker has landed so the EM extractor
+            # has a parseable final answer.
+            if "Answer:" in committed:
                 break
 
         return committed.strip(), self.tier_value, escalated
