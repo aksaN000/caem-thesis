@@ -971,6 +971,32 @@ class FLAREBaseline(RAGBaseline):
             if "Answer:" in committed:
                 break
 
+        # 2026-06-12 forced-conclusion fix: FLARE's reasoning loop generates
+        # reasoning sentences only and never explicitly transitions to a final
+        # answer. On short-answer benchmarks (FEVER yes/no) the model concludes
+        # within the budget, but on retrieval-poor open benchmarks (closed-book
+        # TriviaQA, where the 21M index rarely surfaces the exact fact) it loops
+        # "the context mentions X but does not specify Y" until the 8-sentence
+        # budget is exhausted, never emitting "Answer:". That abstains-by-
+        # exhaustion (EM 0.004 on the no-Answer samples vs 0.592 on the
+        # samples that do conclude) and is NOT matched-protocol-fair: every
+        # other baseline (B1-B8) commits to an answer under the same
+        # SYSTEM_PROMPT. So if the loop ended without an Answer: marker, force
+        # one final short generation that appends "Answer:" and lets the model
+        # commit, using the accumulated reasoning as context. This matches the
+        # original FLARE (which produces a complete answer) and the matched
+        # protocol (every baseline concludes).
+        if "Answer:" not in committed:
+            conclusion_prompt = self._wrap_chatml_system_user(
+                self.system_prompt, query
+            ) if self.system_prompt else self._wrap_chatml_user(query)
+            # Prefill the model with the reasoning so far plus the Answer: cue.
+            conclusion_prompt = f"{conclusion_prompt}{committed}\nAnswer:"
+            final = self._run_generation(
+                conclusion_prompt, max_new_tokens=64, do_sample=False,
+            )
+            committed = f"{committed}\nAnswer: {final.strip()}"
+
         return committed.strip(), self.tier_value, escalated
 
     def answer_batch(self, queries: List[str], store_to_memory: bool = False) -> List[PipelineResult]:
