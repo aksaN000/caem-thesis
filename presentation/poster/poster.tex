@@ -97,8 +97,10 @@
     StrategyQA), the within-trajectory best cycle reaches a pooled
     exact-match gain of $+20.3\%$ and a pooled composite hallucination
     metric reduction of $-29.4\%$ on the training panel; against the
-    locked external eight-baseline panel, CAEM leads on both pooled axes
-    at the best and final cycles.
+    locked external eight-baseline panel, CAEM leads every baseline on
+    pooled composite hallucination at both cycles and on pooled exact
+    match at the best cycle, reaching exact-match parity with the
+    strongest baselines at trajectory end.
   \end{block}
 
   \begin{block}{Research Objective}
@@ -227,8 +229,9 @@
     best cycle (C2) reaches a pooled exact-match gain of $+20.3\%$ relative
     and a pooled composite hallucination metric reduction of $-29.4\%$
     relative; the trajectory-end cycle holds at $+13.7\%$ EM and $-20.3\%$
-    CHM. CAEM beats every external baseline on both axes at both reference
-    cycles.
+    CHM. CAEM beats every external baseline on composite hallucination at
+    both reference cycles and on exact match at the best cycle, reaching
+    exact-match parity with the strongest baselines at trajectory end.
 
     \[
       \boxed{\Delta\mathrm{EM} = +20.3\%\ \text{rel.}} \qquad
@@ -261,15 +264,15 @@
       \midrule
       B1 & zero-shot & $0.507$ & $0.120$ & $+0.037\ (+7.4\%)$ & $-0.013\ (-11.0\%)$ & $+0.010\ (+2.0\%)$ & $-0.011\ (-9.3\%)$ \\
       B2 & chain-of-thought & $0.500$ & $0.123$ & $+0.044\ (+8.8\%)$ & $-0.016\ (-12.7\%)$ & $+0.017\ (+3.4\%)$ & $-0.014\ (-11.0\%)$ \\
-      B3 & RAG & $0.458$ & $0.148$ & $+0.086\ (+18.8\%)$ & $-0.041\ (-27.7\%)$ & $+0.059\ (+12.9\%)$ & $-0.039\ (-26.4\%)$ \\
-      B4 & CoT $+$ RAG & $0.461$ & $0.142$ & $+0.083\ (+17.9\%)$ & $-0.035\ (-24.6\%)$ & $+0.056\ (+12.1\%)$ & $-0.033\ (-23.2\%)$ \\
-      B5 & five-shot CoT & $0.405$ & $0.136$ & $+0.139\ (+34.2\%)$ & $-0.029\ (-21.4\%)$ & $+0.112\ (+27.5\%)$ & $-0.027\ (-19.9\%)$ \\
-      B6 & vanilla fine-tune (C5) & $0.325$ & $0.144$ & $+0.219\ (+67.2\%)$ & $-0.037\ (-25.5\%)$ & $+0.192\ (+58.9\%)$ & $-0.035\ (-24.1\%)$ \\
-      B7 & FLARE & $0.292$ & $0.153$ & $+0.252\ (+86.3\%)$ & $-0.046\ (-29.9\%)$ & $+0.225\ (+77.1\%)$ & $-0.044\ (-28.6\%)$ \\
-      B8 & semantic entropy & $0.505$ & $0.120$ & $+0.039\ (+7.7\%)$ & $-0.013\ (-10.5\%)$ & $+0.012\ (+2.4\%)$ & $-0.011\ (-8.9\%)$ \\
+      B3 & RAG & $0.458$ & $0.148$ & $+0.086\ (+18.8\%)$ & $-0.041\ (-27.7\%)$ & $+0.059\ (+13.0\%)$ & $-0.039\ (-26.4\%)$ \\
+      B4 & CoT $+$ RAG & $0.464$ & $0.142$ & $+0.080\ (+17.2\%)$ & $-0.035\ (-24.6\%)$ & $+0.053\ (+11.5\%)$ & $-0.033\ (-23.2\%)$ \\
+      B5 & five-shot CoT & $0.405$ & $0.136$ & $+0.139\ (+34.2\%)$ & $-0.029\ (-21.4\%)$ & $+0.112\ (+27.6\%)$ & $-0.027\ (-19.9\%)$ \\
+      B6 & vanilla fine-tune (C5) & $0.490$ & $0.127$ & $+0.054\ (+11.0\%)$ & $-0.020\ (-15.9\%)$ & $+0.027\ (+5.6\%)$ & $-0.018\ (-14.3\%)$ \\
+      B7 & FLARE & $0.525$ & $0.173$ & $+0.019\ (+3.5\%)$ & $-0.066\ (-38.0\%)$ & $-0.008\ (-1.5\%)$ & $-0.064\ (-36.8\%)$ \\
+      B8 & semantic entropy & $0.505$ & $0.120$ & $+0.039\ (+7.8\%)$ & $-0.013\ (-10.5\%)$ & $+0.013\ (+2.5\%)$ & $-0.011\ (-8.9\%)$ \\
       \midrule
       \rowcolor{caemOrangeLight}
-      \multicolumn{8}{@{}l}{\footnotesize Wins-against count (CAEM beats baseline on $\Delta$EM and $\Delta$CHM jointly): CAEM C2 beats $8/8$; CAEM C5 beats $8/8$.} \\
+      \multicolumn{8}{@{}l}{\footnotesize Wins-against count (CAEM beats baseline on $\Delta$EM and $\Delta$CHM jointly): CAEM C2 beats $8/8$; CAEM C5 beats $7/8$.} \\
       \bottomrule
     \end{tabular}%
     }
