@@ -64,7 +64,7 @@ caem/routing/ruc.py    & RUC head      & LRRetrievalUtilityClassifier: binary he
 \midrule
 \multicolumn{3}{@{}l}{\textnormal{\textit{Verification}}} \\
 caem/verification/verifier.py            & verifier ensemble & UnifiedVerifier: nine-signal composite producing $u_{\text{pre}}$ and $u_{\text{stored}}$. \\
-caem/verification/adaptive\_nli\_judge.py & NLI dispatch     & AdaptiveNLIJudge: length-gated routing to MiniCheck or frozen Qwen. \\
+caem/verification/adaptive\_nli\_judge.py & NLI dispatch     & AdaptiveNLIJudge: length-gated dispatcher; in the deployed configuration every hypothesis routes to MiniCheck under a 512-token truncation contract because the long-hypothesis Qwen-3B backend was ablated (\Cref{sec:adj-judge-ablation}). \\
 caem/verification/cal\_prob\_composite.py & calibration      & Per-signal isotonic curves plus per-benchmark shrinkage and boost layer. \\
 caem/retrieval/rag.py                    & retrieval         & FAISS-backed passage index reader for Tier 3 grounded generation. \\
 \midrule
@@ -290,7 +290,7 @@ The end-to-end execution sequence partitions into a pre-run setup block, a six-s
 
 \paragraph{Post-run analysis (Steps P-1 through P-7):}
 \begin{enumerate}
-\item Run the seven-baseline panel (\verb|step_baselines_all|) under the matched-protocol contract.
+\item Run the eight-baseline panel (\verb|step_baselines_all|) under the matched-protocol contract.
 \item Rescore the baseline outputs through the locked cycle-three composite (\codepath{step\_rescore\_baselines\_through\_verifier}).
 \item Run the TruthfulQA Haiku rescore (\verb|scripts/rescore_truthfulqa.py|) on every baseline plus CAEM so that the TruthfulQA exact-match cells are scored under a uniform rule.
 \item Run the significance panel (\verb|step_15_5_sig|): paired McNemar on exact match, paired Wilcoxon on the composite hallucination metric, bootstrap confidence intervals, and the Holm correction within each benchmark family.
