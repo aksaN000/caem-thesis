@@ -1,0 +1,134 @@
+[32mActivated conda/uv virtual environment at [36m/venv/main[0m
+[2026-06-11T23:39:20Z] ==================== B-INF flare — generate predictions ====================
+2026-06-11 23:39:21,801 [INFO] Seeded all RNGs with seed=42
+2026-06-11 23:39:22,165 [INFO] Set RAYON_NUM_THREADS=16 (mirrors OMP cap) to prevent tokenizer panic on high-core-count hosts.
+2026-06-11 23:39:22,167 [INFO] Writing baseline results to outputs/baselines/flare
+2026-06-11 23:39:22,168 [INFO] Building deterministic pool splits for baseline eval: ['fever', 'triviaqa', 'commonsense_qa', 'truthfulqa', 'strategyqa']
+2026-06-11 23:39:22,168 [INFO] Loading TRAIN split of fever (need 22000 samples for 6-way split)...
+2026-06-11 23:39:22,329 [INFO] PyTorch version 2.4.0+cu121 available.
+2026-06-11 23:39:22,508 [INFO] Loading FEVER [lucadiliello/fever, train] from HuggingFace...
+2026-06-11 23:39:29,495 [INFO] FEVER: 145405 samples loaded (train split).
+2026-06-11 23:39:29,628 [INFO] Deduped 145405 → 135503 samples by content-hash (dropped 9902 within-split duplicates)
+2026-06-11 23:39:29,675 [INFO] Loading eval-side split (dev) of fever for eval+test pools...
+2026-06-11 23:39:29,675 [INFO] Loading FEVER [lucadiliello/fever, dev] from HuggingFace...
+2026-06-11 23:39:31,955 [INFO] FEVER: 19998 samples loaded (dev split).
+2026-06-11 23:39:31,973 [INFO] Deduped 19998 → 19597 samples by content-hash (dropped 401 within-split duplicates)
+2026-06-11 23:39:32,004 [INFO] Built pools: fever (is_training=True): seed=1000 purity=500 calib=500 sil_train=10×2000 eval=300 test=500 total=22800
+2026-06-11 23:39:32,066 [INFO] Loading TRAIN split of triviaqa (need 22000 samples for 6-way split)...
+2026-06-11 23:39:32,066 [INFO] Loading TriviaQA (rc.nocontext) [train] from HuggingFace...
+2026-06-11 23:39:49,136 [INFO] Deduped 138384 → 76523 samples by content-hash (dropped 61861 within-split duplicates)
+2026-06-11 23:39:49,164 [INFO] Loading eval-side split (validation) of triviaqa for eval+test pools...
+2026-06-11 23:39:49,164 [INFO] Loading TriviaQA (rc.nocontext) [validation] from HuggingFace...
+2026-06-11 23:39:53,932 [INFO] Deduped 17944 → 9961 samples by content-hash (dropped 7983 within-split duplicates)
+2026-06-11 23:39:53,959 [INFO] Built pools: triviaqa (is_training=True): seed=1000 purity=500 calib=500 sil_train=10×2000 eval=300 test=500 total=22800
+2026-06-11 23:39:54,068 [INFO] Loading TRAIN split of commonsense_qa (need 9000 samples for 6-way split)...
+2026-06-11 23:39:54,068 [INFO] Loading CommonsenseQA [train] from HuggingFace...
+2026-06-11 23:39:58,105 [INFO] Loading eval-side split (validation) of commonsense_qa for eval+test pools...
+2026-06-11 23:39:58,105 [INFO] Loading CommonsenseQA [validation] from HuggingFace...
+2026-06-11 23:40:00,634 [INFO] Built pools: commonsense_qa (is_training=True): seed=1000 purity=500 calib=500 sil_train=10×700 eval=300 test=500 total=9800
+2026-06-11 23:40:00,635 [INFO] Loading eval-side split (None) of truthfulqa for eval+test pools...
+2026-06-11 23:40:00,635 [INFO] Loading TruthfulQA [generation] from HuggingFace...
+2026-06-11 23:40:03,324 [INFO] TruthfulQA: 817 samples loaded.
+2026-06-11 23:40:03,325 [INFO] Built pools: truthfulqa (is_training=False): seed=0 purity=0 calib=0 sil_train=10×0 eval=300 test=500 total=800
+2026-06-11 23:40:03,325 [INFO] Loading eval-side split (test) of strategyqa for eval+test pools...
+2026-06-11 23:40:03,325 [INFO] Loading StrategyQA [ChilleD/StrategyQA, test] from HuggingFace...
+2026-06-11 23:40:05,018 [INFO] StrategyQA: 687 samples loaded from ChilleD/StrategyQA:test.
+2026-06-11 23:40:05,019 [WARNING] Transfer benchmark strategyqa has 687 samples; eval=300, test clamped to 387 (requested 500; transfer-only benchmark has limited dev split).
+2026-06-11 23:40:05,020 [INFO] Built pools: strategyqa (is_training=False): seed=0 purity=0 calib=0 sil_train=10×0 eval=300 test=387 total=687
+2026-06-11 23:40:05,083 [INFO] Built pools for all 5 benchmarks; cross-benchmark disjoint verified.
+
+-------------------------------------------------------
+  CAEM Hardware Profile
+-------------------------------------------------------
+  Device:     CUDA
+  GPU:        NVIDIA GeForce RTX 4090
+  VRAM:       23.6 GB
+  Precision:  fp16
+  Batch size: 8 (recommended)
+  Note:       16 GB GPU (T4/V100-class). fp16, batch_size=8, grad_accum=4 (effective batch=32).
+-------------------------------------------------------
+
+2026-06-11 23:40:05,118 [INFO] Loading passage index from data/passage_index ...
+2026-06-11 23:40:31,835 [INFO] PassageStore loaded from data/passage_index (21000000 passages).
+2026-06-11 23:40:31,835 [INFO] Passage store loaded: 21000000 passages.
+2026-06-11 23:40:31,835 [INFO] [flare] loading Qwen/Qwen2.5-3B-Instruct on cuda
+2026-06-11 23:40:32,006 [INFO] SDPA backend: cuDNN-attention ENABLED (primary).
+2026-06-11 23:40:32,006 [INFO] SDPA enabled (cuDNN-attention backend on Blackwell; 4-6x vs eager). Use attn_implementation='eager' to revert.
+2026-06-11 23:40:33,720 [INFO] Falling back to legacy torch_dtype kwarg (transformers<4.45): Qwen2ForCausalLM.__init__() got an unexpected keyword argument 'dtype'
+Loading checkpoint shards:   0%|          | 0/2 [00:00<?, ?it/s]Loading checkpoint shards:  50%|█████     | 1/2 [00:01<00:01,  1.03s/it]Loading checkpoint shards: 100%|██████████| 2/2 [00:01<00:00,  1.10it/s]Loading checkpoint shards: 100%|██████████| 2/2 [00:01<00:00,  1.07it/s]
+2026-06-11 23:40:38,295 [INFO] torch.compile applied to model.forward (mode=default, dynamic=True). First ~10 samples pay JIT cost.
+2026-06-11 23:40:38,296 [INFO] Loaded base generator: name=Qwen/Qwen2.5-3B-Instruct  params=3,085,938,688  device=cuda  dtype=torch.float16  attn_implementation=sdpa  compiled=yes
+2026-06-11 23:40:38,298 [INFO] ========================================================================
+2026-06-11 23:40:38,298 [INFO] BASELINE=flare | BENCHMARK=fever | N=300
+2026-06-11 23:40:38,298 [INFO] ========================================================================
+2026-06-11 23:40:38,298 [INFO] Loaded 300 eval samples for fever from benchmark_pools (content-hash disjoint from CAEM's train/calib/purity/test/seed).
+2026-06-11 23:40:38,298 [INFO] EvalHarness: starting fever | cycle=0 | n=300 samples
+2026-06-11 23:40:38,298 [INFO] EvalHarness: pipeline has native answer_batch (FLAREBaseline); using it directly (bs=32).
+2026-06-11 23:40:38,298 [INFO]   [0/300] fever cycle=0 batched (bs=32) ...
+From v4.47 onwards, when a model cache is to be returned, `generate` will return a `Cache` instance instead by default (as opposed to the legacy tuple of tuples format). If you want to keep returning the legacy format, please set `return_legacy_cache=True`.
+2026-06-11 23:40:40,194 [INFO] Loading Sentence-BERT model: sentence-transformers/all-mpnet-base-v2 on cuda
+2026-06-11 23:40:40,195 [INFO] Load pretrained SentenceTransformer: sentence-transformers/all-mpnet-base-v2
+Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 16.79it/s]
+2026-06-11 23:40:41,708 [INFO] Encoder loaded. Output dim: 768
+2026-06-11 23:56:50,389 [INFO]   [64/300] fever cycle=0 batched (bs=32) ...
+2026-06-12 00:11:17,014 [INFO]   [128/300] fever cycle=0 batched (bs=32) ...
+2026-06-12 00:24:43,903 [INFO]   [192/300] fever cycle=0 batched (bs=32) ...
+2026-06-12 00:39:50,058 [INFO]   [256/300] fever cycle=0 batched (bs=32) ...
+2026-06-12 00:49:58,902 [INFO] EvalHarness done: fever | cycle=0 | EM=0.4367 | F1=0.4367 | Tier1=0.00% Tier2=0.00% Tier3=100.00% | stored=0.00%
+2026-06-12 00:49:58,917 [INFO] Results saved -> outputs/baselines/flare/fever_cycle0.json
+2026-06-12 00:49:58,917 [INFO] ========================================================================
+2026-06-12 00:49:58,917 [INFO] BASELINE=flare | BENCHMARK=triviaqa | N=300
+2026-06-12 00:49:58,917 [INFO] ========================================================================
+2026-06-12 00:49:58,917 [INFO] Loaded 300 eval samples for triviaqa from benchmark_pools (content-hash disjoint from CAEM's train/calib/purity/test/seed).
+2026-06-12 00:49:58,917 [INFO] EvalHarness: starting triviaqa | cycle=0 | n=300 samples
+2026-06-12 00:49:58,917 [INFO]   [0/300] triviaqa cycle=0 batched (bs=32) ...
+2026-06-12 01:22:38,515 [INFO]   [64/300] triviaqa cycle=0 batched (bs=32) ...
+2026-06-12 01:54:43,229 [INFO]   [128/300] triviaqa cycle=0 batched (bs=32) ...
+2026-06-12 02:24:26,059 [INFO]   [192/300] triviaqa cycle=0 batched (bs=32) ...
+2026-06-12 02:57:18,339 [INFO]   [256/300] triviaqa cycle=0 batched (bs=32) ...
+2026-06-12 03:18:28,155 [INFO] EvalHarness done: triviaqa | cycle=0 | EM=0.4167 | F1=0.4973 | Tier1=0.00% Tier2=0.00% Tier3=100.00% | stored=0.00%
+2026-06-12 03:18:28,173 [INFO] Results saved -> outputs/baselines/flare/triviaqa_cycle0.json
+2026-06-12 03:18:28,173 [INFO] ========================================================================
+2026-06-12 03:18:28,173 [INFO] BASELINE=flare | BENCHMARK=commonsense_qa | N=300
+2026-06-12 03:18:28,173 [INFO] ========================================================================
+2026-06-12 03:18:28,173 [INFO] Loaded 300 eval samples for commonsense_qa from benchmark_pools (content-hash disjoint from CAEM's train/calib/purity/test/seed).
+2026-06-12 03:18:28,173 [INFO] EvalHarness: starting commonsense_qa | cycle=0 | n=300 samples
+2026-06-12 03:18:28,173 [INFO]   [0/300] commonsense_qa cycle=0 batched (bs=32) ...
+2026-06-12 03:51:50,194 [INFO]   [64/300] commonsense_qa cycle=0 batched (bs=32) ...
+2026-06-12 04:23:56,167 [INFO]   [128/300] commonsense_qa cycle=0 batched (bs=32) ...
+2026-06-12 04:55:10,759 [INFO]   [192/300] commonsense_qa cycle=0 batched (bs=32) ...
+2026-06-12 05:28:44,385 [INFO]   [256/300] commonsense_qa cycle=0 batched (bs=32) ...
+2026-06-12 05:50:21,936 [INFO] EvalHarness done: commonsense_qa | cycle=0 | EM=0.7233 | F1=0.7416 | Tier1=0.00% Tier2=0.00% Tier3=100.00% | stored=0.00%
+2026-06-12 05:50:21,953 [INFO] Results saved -> outputs/baselines/flare/commonsense_qa_cycle0.json
+2026-06-12 05:50:21,953 [INFO] ========================================================================
+2026-06-12 05:50:21,953 [INFO] BASELINE=flare | BENCHMARK=truthfulqa | N=300
+2026-06-12 05:50:21,953 [INFO] ========================================================================
+2026-06-12 05:50:21,953 [INFO] Loaded 300 eval samples for truthfulqa from benchmark_pools (content-hash disjoint from CAEM's train/calib/purity/test/seed).
+2026-06-12 05:50:21,953 [INFO] EvalHarness: starting truthfulqa | cycle=0 | n=300 samples
+2026-06-12 05:50:21,953 [INFO]   [0/300] truthfulqa cycle=0 batched (bs=32) ...
+2026-06-12 06:26:42,941 [INFO]   [64/300] truthfulqa cycle=0 batched (bs=32) ...
+2026-06-12 07:03:49,076 [INFO]   [128/300] truthfulqa cycle=0 batched (bs=32) ...
+2026-06-12 07:40:21,853 [INFO]   [192/300] truthfulqa cycle=0 batched (bs=32) ...
+2026-06-12 08:16:11,977 [INFO]   [256/300] truthfulqa cycle=0 batched (bs=32) ...
+2026-06-12 08:41:11,657 [INFO] EvalHarness done: truthfulqa | cycle=0 | EM=0.7667 | F1=0.3325 | Tier1=0.00% Tier2=0.00% Tier3=100.00% | stored=0.00%
+2026-06-12 08:41:11,674 [INFO] Results saved -> outputs/baselines/flare/truthfulqa_cycle0.json
+2026-06-12 08:41:11,674 [INFO] ========================================================================
+2026-06-12 08:41:11,674 [INFO] BASELINE=flare | BENCHMARK=strategyqa | N=300
+2026-06-12 08:41:11,674 [INFO] ========================================================================
+2026-06-12 08:41:11,674 [INFO] Loaded 300 eval samples for strategyqa from benchmark_pools (content-hash disjoint from CAEM's train/calib/purity/test/seed).
+2026-06-12 08:41:11,674 [INFO] EvalHarness: starting strategyqa | cycle=0 | n=300 samples
+2026-06-12 08:41:11,674 [INFO]   [0/300] strategyqa cycle=0 batched (bs=32) ...
+2026-06-12 09:04:32,658 [INFO]   [64/300] strategyqa cycle=0 batched (bs=32) ...
+2026-06-12 09:26:17,188 [INFO]   [128/300] strategyqa cycle=0 batched (bs=32) ...
+2026-06-12 09:48:09,375 [INFO]   [192/300] strategyqa cycle=0 batched (bs=32) ...
+2026-06-12 10:14:37,692 [INFO]   [256/300] strategyqa cycle=0 batched (bs=32) ...
+2026-06-12 10:31:59,821 [INFO] EvalHarness done: strategyqa | cycle=0 | EM=0.6000 | F1=0.6000 | Tier1=0.00% Tier2=0.00% Tier3=100.00% | stored=0.00%
+2026-06-12 10:31:59,849 [INFO] Results saved -> outputs/baselines/flare/strategyqa_cycle0.json
+2026-06-12 10:31:59,851 [INFO] ========================================================================
+2026-06-12 10:31:59,851 [INFO] BASELINE=flare summary:
+2026-06-12 10:31:59,873 [INFO]   fever                 EM=0.4367  F1=0.4367  N=300
+2026-06-12 10:31:59,873 [INFO]   triviaqa              EM=0.4167  F1=0.4973  N=300
+2026-06-12 10:31:59,873 [INFO]   commonsense_qa        EM=0.7233  F1=0.7416  N=300
+2026-06-12 10:31:59,873 [INFO]   truthfulqa            EM=0.7667  F1=0.3325  N=300
+2026-06-12 10:31:59,873 [INFO]   strategyqa            EM=0.6000  F1=0.6000  N=300
+2026-06-12 10:31:59,873 [INFO] All baseline runs complete. Outputs under outputs/baselines/flare
