@@ -1,0 +1,592 @@
+\chapter{The Big Picture: Eight Stages and a Loop}
+\label{ch:bigpicture}
+
+\Cref{ch:problem} argued the \emph{why}: hallucination is a structural property
+of stateless, overconfident, static generation, and the only honest response is
+a system that attacks all three at once. This chapter gives the \emph{shape} of
+that system in a single sitting. We will not prove anything here and we will not
+open any one component. The goal is a reliable mental map, so that when a later
+chapter spends thirty pages on the verifier or the router, we already know where
+that piece sits, what feeds it, and what it feeds.
+
+\begin{intuition}[The whole machine in three sentences]
+\caem{} runs every question through a short assembly line that decides how hard
+to work, produces an answer, and then judges that answer before deciding whether
+to trust it, refuse, or file it away for later. That assembly line is the
+\textbf{per-query pipeline}, and it runs thousands of times without ever changing
+the model. Wrapped around it is a slower \textbf{cycle loop} that periodically
+retrains the model on the answers the pipeline judged trustworthy, with a guard
+that undoes any retraining that makes the model worse. One fast clock answers
+questions; one slow clock makes the answerer better. Everything in the book is a
+detail of one of those two clocks.
+\end{intuition}
+
+\section{Two clocks, not one}
+\label{sec:two-clocks}
+
+The single most important idea in this chapter is that \caem{} has \emph{two
+independent clocks}, and almost every later confusion dissolves once we keep them
+apart.
+
+\begin{description}[leftmargin=0pt, labelsep=0.5em, style=nextline]
+  \item[The per-query clock (Stages 1 to 7).] One tick is one question. The
+  system encodes the query, decides which of three tiers should handle it,
+  generates or retrieves an answer, scores that answer with a verifier, and
+  applies a four-way decision. This clock \emph{reads} the current memory, the
+  current model weights, and the current calibration, and at most it \emph{writes
+  one episode} into memory. It never trains anything. It ticks thousands of times
+  per cycle.
+
+  \item[The per-cycle clock (Stage 8).] One tick is one \emph{cycle boundary},
+  reached after a batch of queries has been processed. At a boundary the system
+  fine-tunes the model on its own verified answers, re-checks that it has not
+  forgotten anything, recalibrates the verifier, and re-scores the stored
+  memory. This clock \emph{mutates} the weights, the calibration, and the
+  consolidated memory. It ticks a handful of times across the whole run, six
+  times in the realised trajectory of \Cref{ch:trajectory}.
+\end{description}
+
+The two clocks are nested: the per-cycle clock is the outer loop, and each of its
+ticks drives the per-query clock thousands of times in batch. Stages 1 through 7
+are where the model, the calibration, and the memory are merely \emph{consumed};
+Stage 8 is the only place they are \emph{changed}. \Cref{fig:two-clocks} draws
+the nesting; the rest of the chapter walks the inner clock first, then the outer.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[
+  font=\small\sffamily,
+  outer/.style={rectangle, rounded corners=8pt, draw=cbFormula!70!black,
+    fill=cbFormula!5, line width=1.2pt},
+  inner/.style={rectangle, rounded corners=6pt, draw=cbIntuition!75!black,
+    fill=cbIntuition!8, line width=1pt},
+  cbstep/.style={rectangle, rounded corners=3pt, draw=cbFormula!70!black,
+    fill=cbFormula!12, line width=0.8pt, align=center, inner sep=4pt,
+    font=\footnotesize, minimum height=0.8cm},
+  flow/.style={-{Stealth[length=2.2mm]}, line width=1pt, draw=cbInk!70},
+  carry/.style={-{Stealth[length=2.2mm]}, line width=1pt, draw=cbExample!75,
+    dashed},
+]
+  % outer frame
+  \node[outer, minimum width=13.2cm, minimum height=5.6cm] (O) at (0,0) {};
+  \node[anchor=north west, font=\footnotesize\bfseries\sffamily,
+        text=cbFormula!75!black] at (O.north west)
+        {\,\,PER-CYCLE CLOCK \;(Stage 8): ticks a handful of times};
+
+  % inner frame (the per-query pipeline)
+  \node[inner, minimum width=8.4cm, minimum height=2.5cm] (I) at (-2.0,0.45) {};
+  \node[anchor=north west, font=\footnotesize\bfseries\sffamily,
+        text=cbIntuition!80!black] at (I.north west)
+        {\,\,PER-QUERY CLOCK \;(Stages 1--7): ticks thousands of times};
+  \node[align=center, font=\footnotesize, text=cbInk!85] at (-2.0,0.2)
+    {one question in, one answer out\\[1pt]
+     \emph{reads} weights, memory, calibration\\[1pt]
+     \emph{writes} at most one episode};
+
+  % cycle-boundary steps on the right
+  \node[cbstep, text width=3.0cm] (sil)  at (4.0, 1.55) {Fine-tune on verified\\answers + retention guard};
+  \node[cbstep, text width=3.0cm] (recal)at (4.0, 0.45) {Recalibrate verifier\\+ retro-verify memory};
+  \node[cbstep, text width=3.0cm] (grow) at (4.0,-0.65) {Grow memory with\\fresh-data stream};
+
+  % flows
+  \draw[flow] (I.east) -- ++(0.5,0) |- (sil.west);
+  \draw[flow] (sil) -- (recal);
+  \draw[flow] (recal) -- (grow);
+  \draw[carry] (grow.south) |- ($(I.south)+(0,-0.55)$)
+        node[pos=0.75, below, font=\scriptsize, text=cbExample!60!black]
+        {updated weights, memory, calibration carried into next cycle}
+        -- (I.south);
+\end{tikzpicture}
+\caption[The two clocks]{The two clocks of \caem{}. The inner per-query pipeline
+(Stages 1 to 7) answers questions without ever training. The outer per-cycle loop
+(Stage 8) is the only place the weights, calibration, and consolidated memory
+change. Each cycle boundary fine-tunes the model on the answers the pipeline
+judged trustworthy, then hands the updated state back to the inner clock. (Schematic.)}
+\label{fig:two-clocks}
+\end{figure}
+
+\section{The per-query pipeline at a glance}
+\label{sec:pipeline-glance}
+
+A single question enters through one public entry point and leaves as one
+structured record. Everything between is a fixed sequence of stages.
+\Cref{fig:master-pipeline} is the master diagram of the book; it is worth a long
+look, because every chapter in Parts II and III is a zoom into one of its boxes.
+
+\begin{figure}[t]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[
+  font=\small\sffamily,
+  io/.style={rectangle, rounded corners=2pt, draw=cbInk!55, fill=cbInk!6,
+    line width=1pt, align=center, inner sep=5pt, minimum height=0.9cm},
+  front/.style={rectangle, rounded corners=4pt, draw=cbIntuition!75!black,
+    fill=cbIntuition!10, line width=1pt, align=center, inner sep=5pt,
+    minimum height=1.0cm, drop shadow={shadow xshift=0.3ex,
+    shadow yshift=-0.3ex, fill=black!10}},
+  mem/.style={rectangle, rounded corners=4pt, draw=cbExample!70!black,
+    fill=cbExample!12, line width=1pt, align=center, inner sep=5pt,
+    minimum height=1.0cm, drop shadow={shadow xshift=0.3ex,
+    shadow yshift=-0.3ex, fill=black!10}},
+  tier/.style={rectangle, rounded corners=4pt, draw=cbScenario!70!black,
+    fill=cbScenario!10, line width=1pt, align=center, inner sep=4pt,
+    minimum height=0.85cm, text width=2.3cm, drop shadow={shadow xshift=0.3ex,
+    shadow yshift=-0.3ex, fill=black!10}},
+  judge/.style={rectangle, rounded corners=4pt, draw=cbFormula!70!black,
+    fill=cbFormula!10, line width=1pt, align=center, inner sep=5pt,
+    minimum height=1.0cm, drop shadow={shadow xshift=0.3ex,
+    shadow yshift=-0.3ex, fill=black!10}},
+  flow/.style={-{Stealth[length=2.6mm]}, line width=1.1pt, draw=cbInk!75},
+  bypass/.style={-{Stealth[length=2.6mm]}, line width=1.1pt, draw=cbScenario!80,
+    dashed},
+  store/.style={-{Stealth[length=2.6mm]}, line width=1.1pt, draw=cbExample!75,
+    dashed},
+]
+  % top: memory store, spanning
+  \node[mem, minimum width=4.2cm] (store) at (6.0, 3.0)
+    {\textbf{Episodic memory}\\{\footnotesize verified episodes (FAISS)}};
+
+  % front end
+  \node[io] (q) at (-1.0,0) {Query};
+  \node[front, text width=2.6cm] (enc) at (2.0,0)
+    {\textbf{Encode + $\upre$}\\{\footnotesize Stages 2, 1}};
+  \node[front, text width=1.9cm] (route) at (5.3,0)
+    {\textbf{Router}\\{\footnotesize Stage 3 / 3b}};
+
+  % three tiers
+  \node[tier] (t1) at (8.6, 1.5) {\textbf{Tier 1}\\memory-direct};
+  \node[tier] (t2) at (8.6, 0.0) {\textbf{Tier 2}\\zero-shot};
+  \node[tier] (t3) at (8.6,-1.5) {\textbf{Tier 3}\\RAG};
+
+  % verify + gate + output
+  \node[judge, text width=1.9cm] (ver) at (11.7,-0.75)
+    {\textbf{Verify}\\{\footnotesize Stage 5}};
+  \node[judge, text width=2.0cm] (gate) at (14.6,-0.75)
+    {\textbf{Gate}\\{\footnotesize Stage 6}};
+  \node[io, text width=2.0cm] (out) at (14.6, 1.5)
+    {\textbf{Output}\\{\footnotesize Stage 7}};
+
+  % front-end flow
+  \draw[flow] (q) -- (enc);
+  \draw[flow] (enc) -- (route);
+  \draw[flow] (enc.north) -- ++(0,1.0) -| (store.west)
+    node[pos=0.25, above, font=\scriptsize, text=cbInk!60] {probe};
+
+  % route to tiers
+  \draw[flow] (route.east) -- ++(0.5,0) |- (t1.west);
+  \draw[flow] (route.east) -- ++(0.5,0) |- (t2.west);
+  \draw[flow] (route.east) -- ++(0.5,0) |- (t3.west);
+
+  % tiers to verify (T2/T3) and bypass (T1)
+  \draw[flow] (t2.east) -- ++(0.4,0) |- (ver.west);
+  \draw[flow] (t3.east) -- ++(0.4,0) |- (ver.west);
+  \draw[bypass] (t1.east) -| (out.west)
+    node[pos=0.25, above, font=\scriptsize, text=cbScenario!70!black]
+    {no verify, no store};
+
+  % verify -> gate -> output
+  \draw[flow] (ver) -- (gate);
+  \draw[flow] (gate.north) -- (out.south);
+
+  % gate store back to memory
+  \draw[store] (gate.north) -- ++(0,0.6) -| (store.south)
+    node[pos=0.25, right, font=\scriptsize, text=cbExample!55!black]
+    {store / defer};
+\end{tikzpicture}}
+\caption[The master per-query pipeline]{The per-query pipeline. A query is
+encoded and scored for confidence, the router picks one of three tiers, and the
+chosen tier produces an answer. Tier 1 (a memory hit) returns its stored answer
+directly, skipping verification and storage entirely. Tiers 2 and 3 send their
+generated answer through the nine-signal verifier and the four-outcome gate,
+which may return it, refuse it, or write it back into memory. The dashed green
+path is the only way an episode enters memory; the dashed teal path is the only
+tier that bypasses the judge. (Schematic.)}
+\label{fig:master-pipeline}
+\end{figure}
+
+\subsection*{The seven inner stages in one line each}
+
+Reading \Cref{fig:master-pipeline} left to right, with the chapter that opens each
+box:
+
+\begin{enumerate}[leftmargin=1.8em]
+  \item \textbf{Pre-routing confidence} ($\upre$, \Cref{ch:upre}). A single short
+  forward pass, with no full generation, produces a calibrated guess at how
+  likely the model is to answer this query correctly on its own. It fuses a
+  token-probability signal with an encoder-convergence signal.
+  \item \textbf{Encode and probe} (\Cref{ch:memory}). The query is turned into a
+  768-dimensional embedding, which is used both to search the episodic memory for
+  the single nearest stored episode and, later, to ground the verifier.
+  \item \textbf{Route} (\Cref{ch:router}). The retrieved similarity and the
+  stored answer's quality are fused into one dispatch score that selects a tier,
+  with a safety override that escalates whenever $\upre$ falls below a fixed
+  floor.
+  \item \textbf{Refine with the retrieval-utility classifier} (Stage 3b,
+  \Cref{ch:ruc}). When the router would default to retrieval, a small learned
+  classifier decides whether retrieval will actually help this query, or whether
+  the model is better off answering zero-shot. This is the centrepiece of the
+  second version of the system.
+  \item \textbf{Execute the tier} (\Cref{ch:tiers}). Tier 1 serves the stored
+  answer; Tier 2 generates zero-shot on the fine-tuned model; Tier 3 retrieves
+  passages from a large public corpus and generates a grounded answer.
+  \item \textbf{Verify} (\Cref{ch:verifier}). Every generated answer, but never a
+  Tier 1 hit, is scored on nine signals across four families: token and dropout
+  uncertainty, internal-state probes, semantic consistency across resampled
+  chains, and entailment against retrieved evidence.
+  \item \textbf{Decide and output} (\Cref{ch:composite,ch:output}). The nine
+  signals are folded into one calibrated probability, the four-outcome gate maps
+  that probability to \emph{store}, \emph{defer}, \emph{abstain}, or
+  \emph{discard}, and the output stage returns the answer or a calibrated
+  refusal.
+\end{enumerate}
+
+\begin{fromcode}[Where this lives, and one honest subtlety]
+The entire inner pipeline is one method, \code{CAEMPipeline.answer(query,
+store\_to\_memory, source\_benchmark)} in \code{caem/pipeline.py}. It is the
+single public per-query entry point and it returns one \code{PipelineResult}
+object. Two details are worth flagging now so they do not surprise us later.
+First, the stage \emph{numbers} are a conceptual taxonomy, not the execution
+order: in the actual code the query is encoded, then scored for $\upre$, then the
+memory is searched, then the route is chosen. We draw the diagram in code order.
+Second, an older design carried a separate post-generation confidence gate; it
+was retired, and the verifier of \Cref{ch:verifier} is now the single source of
+truth after generation. Where the code comments still mention that retired gate,
+they are stale.
+\end{fromcode}
+
+\section{The tier asymmetry, the load-bearing branch}
+\label{sec:tier-asymmetry}
+
+If only one fact from this chapter survives, it should be this one. The three
+tiers are not symmetric, and the asymmetry is the whole point of the design.
+
+\begin{itemize}[leftmargin=1.4em]
+  \item \textbf{Tier 1} is a memory hit. The router found a stored episode close
+  enough to the query that its verified answer can be served directly. There is
+  \emph{no generation} and \emph{no verification}: the answer and its
+  already-known trust score are read straight off the stored entry, and the
+  pipeline returns in well under half a second. A Tier 1 answer was already
+  judged trustworthy on the cycle it was stored, so re-judging it would be wasted
+  work.
+  \item \textbf{Tier 2 and Tier 3} are fresh generations, zero-shot and
+  retrieval-augmented respectively. A fresh generation has never been judged, so
+  it \emph{must} pass through the verifier and the gate before the system will
+  trust it or store it.
+\end{itemize}
+
+This is the branch that turns the three tiers into a self-organising compute
+ladder. Cheap, repeated questions collapse onto Tier 1 over time as their answers
+get memorised; novel or hard questions climb to Tiers 2 and 3 and pay the full
+verification cost. The cost of trust is paid once per fact, not once per ask.
+
+\begin{pitfall}[Tier 1 is not ``the model is sure''; it is ``we have seen this answered well before'']
+It is tempting to read the tiers as a confidence ladder, with Tier 1 meaning
+``the model is most confident.'' That is wrong. Tier 1 means a \emph{stored
+episode} matches the query closely enough, and that episode carries the trust
+score it earned when it was first verified. The confidence that the \emph{current}
+query is well served comes from the match quality and the stored score together,
+not from a fresh judgement of the answer. This is exactly why Tier 1 can skip the
+verifier: the judging already happened, on a past cycle, and its verdict was
+written into the episode.
+\end{pitfall}
+
+One escalation edge is worth noting on the diagram. If a Tier 2 generation comes
+back empty or fails, the pipeline quietly escalates that single query to Tier 3
+and marks the result as escalated. The reported tier still reads two, but the
+answer came from retrieval. It is a small robustness valve, not a separate stage.
+
+\section{A query, end to end}
+\label{sec:end-to-end}
+
+Abstractions settle once we watch a real query move through the machine. Two
+scenarios follow, the first a claim that ends up stored, the second a question
+that ends up refused. The refusal scenario is an actual record from a cold-start
+pipeline pass, reproduced with its logged signals. The stored-claim scenario is an
+illustrative walkthrough of the defer-then-promote path, hand-authored to make that
+two-cycle behaviour concrete rather than transcribed verbatim from a single record.
+Together they exercise the two behaviours that define the architecture: promoting
+a tentatively answered claim to memory after later review, and turning a
+low-confidence question into an honest refusal rather than a fabricated answer.
+
+\begin{scenario}[A claim that gets stored: ``The French Revolution began before 1792'' (FEVER)]
+The task is to label the claim as \emph{supports}, \emph{refutes}, or \emph{not
+enough information}.
+\begin{enumerate}[leftmargin=1.5em, itemsep=2pt]
+  \item \textbf{Pre-routing.} The fused, temperature-scaled confidence
+  comfortably clears the safety floor, so no override fires.
+  \item \textbf{Encode and probe.} On this cycle-zero pass the memory is empty,
+  so there is no neighbour to retrieve.
+  \item \textbf{Route.} With nothing in memory, the router defaults the query
+  toward the retrieval tier.
+  \item \textbf{Refine (RUC).} The retrieval-utility classifier overrides that
+  default to the \emph{zero-shot} tier, judging the claim short, self-contained,
+  and unlikely to benefit from passage retrieval.
+  \item \textbf{Execute.} Tier 2 generates the label \emph{supports}.
+  \item \textbf{Verify.} The nine signals read as follows: top-passage entailment
+  is high (above $0.94$), the pooled-mean and atomic entailment are lower because
+  only part of the supporting evidence sits in the context window, semantic
+  consistency across resampled chains is high (above $0.85$), and
+  question-answer relevance is moderate (around $0.69$). Folded together, the
+  calibrated composite is about $0.51$.
+  \item \textbf{Decide.} A composite of $0.51$ clears the deferral threshold
+  ($\taudefer = 0.45$) but falls just below the storage threshold
+  ($\taustore = 0.60$), so the entry is parked in the \emph{deferred buffer} for
+  reconsideration at the next cycle boundary, rather than stored or discarded.
+  \item \textbf{Cycle boundary (Stage 8).} After the model is fine-tuned, the
+  retroactive re-verification pass re-scores the same entry under the improved
+  model. This time it crosses $\taustore$ and is promoted into the cold-start
+  memory as entry identifier zero.
+  \item \textbf{Output.} The user receives the label \emph{supports}, which is
+  correct.
+\end{enumerate}
+\textbf{The lesson:} a borderline-but-promising answer is neither trusted blindly
+nor thrown away. It waits, and a later, better model decides its fate.
+\end{scenario}
+
+\begin{scenario}[A question that gets refused: ``\,`If I Ruled The World' comes from which musical?'' (TriviaQA)]
+\begin{enumerate}[leftmargin=1.5em, itemsep=2pt]
+  \item \textbf{Pre-routing.} The pre-routing confidence lands around $0.66$,
+  comfortably above the safety floor, so no override fires. On this cold-start
+  pass the episodic memory is still empty, so no cheap memory path can be earned
+  and the query is scored normally.
+  \item \textbf{Refine (RUC).} Consulted on the same query, the classifier
+  confirms the retrieval tier: the base model's self-knowledge probe reads low,
+  and the dense passage corpus does carry supporting evidence.
+  \item \textbf{Execute.} Tier 3 retrieves passages and runs a grounded
+  generation, which returns an \emph{empty} answer, an explicit refusal signal.
+  \item \textbf{Verify.} The signals on the empty answer are damning:
+  token-level uncertainty is very low (around $0.02$), top-passage entailment is
+  low (around $0.11$), atomic entailment is low (around $0.09$), and
+  question-answer relevance sits at chance (around $0.50$). The calibrated
+  composite is about $0.13$, well below both thresholds.
+  \item \textbf{Decide.} The composite fails both the storage and deferral
+  cut-points, and the top-passage entailment falls below the registered
+  abstention floor, so the gate returns \emph{abstain} rather than a silent
+  discard.
+  \item \textbf{Output.} The user sees the registered refusal string, and the raw
+  model prediction is suppressed from the user surface.
+\end{enumerate}
+\textbf{The lesson:} when the evidence does not support an answer, the system says
+so, instead of emitting a confident guess. This is the calibration mismatch of
+\Cref{ch:problem} being repaired in practice.
+\end{scenario}
+
+\section{What the pipeline hands back}
+\label{sec:pipeline-result}
+
+Each tick of the per-query clock returns one structured record, and it is worth
+knowing its shape, because the rest of the system, the evaluation harness, and
+the cycle loop all read from it. The record carries the raw answer string kept
+verbatim for scoring, the tier that handled the query, a flag for whether the
+answer was stored, the full routing decision, the pre-routing confidence, the
+complete verifier record with all nine signals and the gate decision, the single
+trust scalar, the memory identifier if one was written, an escalation flag, and a
+display answer that maps an abstention to a refusal string and a discard to an
+empty surface.
+
+\begin{bythenumbers}[The four gate outcomes and their thresholds]
+The gate of \Cref{ch:composite} maps the calibrated composite to one of four
+outcomes. Holding the locked operating point in mind makes the scenarios above
+exact rather than approximate.
+\begin{itemize}[leftmargin=1.3em, itemsep=1pt]
+  \item \textbf{Store} when the composite is at least $\taustore = 0.60$: write
+  the episode into high-precision memory.
+  \item \textbf{Defer} when it lands in $[\taudefer, \taustore) = [0.45, 0.60)$:
+  park it in the deferred buffer for reconsideration next cycle.
+  \item \textbf{Abstain} when it is below $\taudefer$ \emph{and} an abstention
+  condition holds (for instance grounding below its floor): return a calibrated
+  refusal.
+  \item \textbf{Discard} otherwise: drop the answer silently without storing.
+\end{itemize}
+A single fixed pair of thresholds works across five very different benchmarks
+because the signals are \emph{per-benchmark calibrated} before they are compared,
+a point we develop in \Cref{ch:composite}.
+\end{bythenumbers}
+
+\section{The cycle loop that wraps it all}
+\label{sec:cycle-loop}
+
+Now the outer clock. A cycle boundary is not a single step but an ordered block,
+and the order matters because some steps depend on the model having actually
+improved. \Cref{fig:cycle-loop} sketches the block; the precise mechanics are the
+subject of \Cref{ch:cycle}.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[
+  font=\small\sffamily,
+  st/.style={rectangle, rounded corners=4pt, line width=1pt, align=center,
+    inner sep=5pt, minimum height=1.0cm, text width=3.5cm,
+    drop shadow={shadow xshift=0.3ex,shadow yshift=-0.3ex,fill=black!10}},
+  commit/.style={st, draw=cbExample!70!black, fill=cbExample!10},
+  always/.style={st, draw=cbNumbers!70!black, fill=cbNumbers!10},
+  fork/.style={diamond, aspect=2, draw=cbPitfall!75!black, fill=cbPitfall!10,
+    line width=1pt, align=center, inner sep=2pt, font=\footnotesize,
+    text width=2.2cm},
+  flow/.style={-{Stealth[length=2.4mm]}, line width=1.1pt, draw=cbInk!75},
+  no/.style={-{Stealth[length=2.4mm]}, line width=1.1pt, draw=cbPitfall!75,
+    dashed},
+]
+  \node[commit] (ft) at (0,2.4)
+    {\textbf{1. Fine-tune}\\{\footnotesize LoRA on verified answers}};
+  \node[fork] (guard) at (0,0.55)
+    {\textbf{Retention}\\\textbf{guard}};
+  \node[commit] (recal) at (4.6,0.55)
+    {\textbf{2. Recalibrate +}\\\textbf{retro-verify}\\{\footnotesize commit only}};
+  \node[always] (grow) at (4.6,-1.7)
+    {\textbf{3. Grow memory}\\{\footnotesize fresh stream, always}};
+  \node[commit] (keep) at (0,-1.7)
+    {\textbf{Keep new adapter}};
+  \node[st, draw=cbInk!55, fill=cbInk!6, text width=3.5cm] (revert) at (-4.6,0.55)
+    {\textbf{Roll back adapter}\\{\footnotesize memory kept}};
+
+  \draw[flow] (ft) -- (guard);
+  \draw[flow] (guard) -- node[right,font=\scriptsize,text=cbExample!55!black]
+    {pass} (keep);
+  \draw[no] (guard) -- node[above,font=\scriptsize,text=cbPitfall!70!black]
+    {fail} (revert);
+  \draw[flow] (keep) -| (recal);
+  \draw[flow] (recal) -- (grow);
+  \draw[flow] (revert) |- (grow);
+\end{tikzpicture}
+\caption[The cycle-boundary block]{The cycle boundary. The model is fine-tuned on
+its own verified answers, then a retention guard checks it has not regressed on
+held-out probes. On a pass (green) the new adapter is kept, the verifier is
+recalibrated, and the stored memory is re-scored. On a fail (red) the adapter is
+rolled back to the previous cycle, and recalibration and re-verification are
+skipped. Either way (orange), the memory grows with the cycle's fresh data. This
+asymmetry, weights revert but memory persists, is the core safety property. (Schematic.)}
+\label{fig:cycle-loop}
+\end{figure}
+
+\subsection*{The commit-versus-abort fork}
+
+The retraining step is the only place the model can get worse, so it is the only
+place the system is willing to undo its own work. After fine-tuning, the loop
+runs a set of retention probes on held-out material and compares the worst probe
+against a pristine baseline anchored once at the very start. If any probe ratio
+drops below the retention floor ($\rhomin = 0.93$), the cycle is declared an
+\emph{abort}: the freshly fine-tuned adapter is thrown away and the previous
+cycle's adapter is restored.
+
+\begin{precise}[Asymmetric rollback, the single most important safety property]
+On an abort, the model weights revert, but the episodic memory does \emph{not}.
+Everything the pipeline stored this cycle survives; only the parametric update is
+undone. This asymmetry is deliberate. Memory growth is monotone and
+high-precision by construction (each episode passed the gate), so it is safe to
+keep. A weight update, by contrast, is a global change that can quietly erode
+unrelated capabilities, which is exactly the catastrophic forgetting of
+\Cref{ch:problem}. So the cheap, reversible, local thing (the adapter) is the
+thing we are willing to throw away, and the expensive, accumulated, verified
+thing (the memory) is the thing we protect. The realised trajectory hit this fork
+for real: at cycle four a retention probe fell to $0.886$, below the $0.93$ floor,
+so the adapter rolled back to its cycle-three state while the memory carried
+forward untouched.
+\end{precise}
+
+\subsection*{What carries across a boundary, and what resets}
+
+The asymmetry generalises into a clean rule about state. Four things persist
+across cycle boundaries, and several things are rebuilt fresh each cycle.
+
+\begin{description}[leftmargin=0pt, labelsep=0.5em, style=nextline]
+  \item[Carries forward.] The \textbf{episodic memory} (always, even on abort);
+  the \textbf{adapter weights} (on commit they advance, on abort they revert to
+  the last good state); the \textbf{calibration}, namely the temperature and the
+  per-signal curves (refreshed on commit, retained on abort); and the
+  \textbf{deferred buffer} of borderline answers awaiting reconsideration.
+  \item[Resets each cycle.] The \textbf{training pool} is rebuilt fresh from the
+  current memory; the cycle consumes a \textbf{fresh, disjoint slice} of
+  questions it has never seen; and the optimiser and dataloader are torn down and
+  rebuilt. The \textbf{pristine retention baseline} is the one deliberate
+  exception: it is anchored once at the start and never re-anchored, because
+  re-anchoring it against an already-trained model would hide the very
+  regression it exists to catch.
+\end{description}
+
+\begin{pitfall}[An abort is not a no-op cycle]
+It is easy to assume that an aborted cycle does nothing. It does a great deal.
+Only the \emph{commit-gated} half is skipped: the weight update, the
+recalibration, the retroactive re-verification, the deferred-buffer
+reconsideration, and the memory consolidation. The \emph{unconditional} half runs
+regardless: the pipeline still processes the cycle's fresh data and grows the
+memory, still runs the held-out evaluation, still checkpoints memory and the
+deferred buffer, and still consults the early-stop gate. An abort costs the
+system its weight update for that cycle, not its progress.
+\end{pitfall}
+
+\section{The map of the book}
+\label{sec:book-map}
+
+With the shape in hand, the rest of the book is a guided descent into each box.
+\Cref{tab:book-map} is the index to keep a thumb on: every stage and its chapter.
+
+\begin{table}[t]
+\centering
+\caption[The stage-to-chapter map]{Where each stage of \Cref{fig:master-pipeline}
+and \Cref{fig:cycle-loop} is opened in full.}
+\label{tab:book-map}
+\small
+\renewcommand{\arraystretch}{1.25}
+\begin{tabularx}{\textwidth}{@{}c >{\raggedright\arraybackslash}X l@{}}
+\toprule
+\textbf{Stage} & \textbf{What it decides} & \textbf{Chapter} \\
+\midrule
+1  & Pre-routing confidence $\upre$: how likely is a correct self-answer?
+   & \Cref{ch:upre} \\
+2  & Episodic memory: encode the query and find the nearest stored episode
+   & \Cref{ch:memory} \\
+3  & Router: fuse similarity and stored quality into a tier choice
+   & \Cref{ch:router} \\
+3b & Retrieval-utility classifier: will retrieval actually help here?
+   & \Cref{ch:ruc} \\
+4  & Tier execution: serve from memory, generate, or retrieve and generate
+   & \Cref{ch:tiers} \\
+5  & Nine-signal verifier: score the generated answer's trustworthiness
+   & \Cref{ch:verifier} \\
+6  & Calibrated composite and four-outcome gate: store, defer, abstain, discard
+   & \Cref{ch:composite} \\
+7  & Output contract: return the answer or a calibrated refusal
+   & \Cref{ch:output} \\
+8  & Cycle boundary: fine-tune, guard, recalibrate, re-verify, grow
+   & \Cref{ch:cycle} \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+Part IV then steps back from the mechanism. \Cref{ch:theory} proves the
+data-purity property that \Cref{ch:problem} promised, namely that a verifier only
+modestly better than chance still yields a memory pool cleaner than the verifier
+itself. \Cref{ch:benchmarks} lays out the five benchmarks, the baselines, and the
+hallucination metrics. \Cref{ch:trajectory} walks the realised run from cycle
+zero to cycle five, including the cycle-four abort we have already met.
+\Cref{ch:ablations} measures what each piece is actually worth by removing it.
+The appendices collect every registered constant (\Cref{ch:constants}) and a
+glossary of every symbol (\Cref{ch:glossary}).
+
+\begin{defence}[If an examiner asks: ``what is the one-paragraph summary of how it works?'']
+\caem{} answers each question through a seven-stage pipeline that first estimates
+how confidently it can answer, then routes the query to one of three tiers,
+memory lookup, zero-shot generation, or retrieval-augmented generation, picking
+the cheapest tier that will do. Generated answers, but not memory hits, pass
+through a nine-signal verifier whose calibrated composite gates a four-outcome
+decision: store the answer, defer it, refuse, or discard it. That pipeline never
+trains. Around it, a cycle loop periodically fine-tunes the model on the answers
+it judged trustworthy, under a retention guard that rolls back any update which
+degrades held-out performance, while the verified memory it accumulated persists
+regardless. Two clocks: one answers, one improves, and a guard keeps improvement
+from becoming regression.
+\end{defence}
+
+For a single reference that holds the whole machine at once, \Cref{fig:full-pipeline}
+reproduces the complete eight-stage pipeline on one page exactly as the main report
+draws it, every stage, formula, and threshold in one view. It is dense by design: the
+rest of the book is a guided tour of its boxes, and it rewards returning to as the
+trajectory and ablation chapters refer back to specific stages.
+
+\input{chapters/fig_full_pipeline}
+
+We now have the map. The next chapter fills in the handful of background concepts,
+namely embeddings, calibration, natural-language inference, low-rank adaptation,
+and similarity search, that the per-stage chapters lean on, so that the descent
+into each box is self-contained.

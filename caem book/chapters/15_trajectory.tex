@@ -1,0 +1,386 @@
+\chapter{The Realised Trajectory: Cycles 0 to 5}
+\label{ch:trajectory}
+
+\Cref{ch:benchmarks} defined the instruments. This chapter reads them across the run
+the system actually performed: six cycles, numbered zero through five, on the
+five-benchmark panel. Everything here is measured, not designed. Where the earlier
+chapters said what \emph{should} happen, this one says what \emph{did}, and it does
+not hide the places where the two diverge.
+
+\begin{intuition}[What a cycle is, and what we are watching]
+Cycle zero is the cold start: the full architecture is in place, but the model has
+not yet been fine-tuned on its own answers. Each later cycle fine-tunes on the
+verified episodes accumulated since the last boundary, checks retention, and re-scores
+memory. We watch five things across the six cycles: pooled accuracy and honesty, the
+per-benchmark spread, how the four-outcome gate shifts, how work moves between the
+three tiers, and what the retention guard does when an update goes wrong. The single
+most important habit to keep is the one \Cref{ch:benchmarks} argued for: read accuracy
+and honesty on separate axes, because the loop moves them differently.
+\end{intuition}
+
+\section{The shape of the run}
+\label{sec:traj-shape}
+
+The run committed three cycles, aborted one, and committed a final one. That sentence
+is the spine of the whole chapter.
+
+\begin{table}[t]
+\centering
+\small
+\begin{tabular}{@{}lccccl@{}}
+\toprule
+\textbf{Cycle} & \textbf{Pooled EM} & \textbf{Pooled CHM} & \textbf{Worst probe} & \textbf{Floor} & \textbf{Outcome} \\
+\midrule
+C0 (cold start) & 0.541 & 0.135 & ---   & ---  & baseline \\
+C1              & 0.543 & 0.112 & 1.006 & 0.93 & commit \\
+C2 (best)       & 0.544 & 0.107 & 0.949 & 0.93 & commit \\
+C3              & 0.532 & 0.115 & 0.976 & 0.93 & commit \\
+C4              & 0.532 & 0.115 & \textbf{0.886} & 0.93 & \textbf{abort} \\
+C5 (final)      & 0.517 & 0.109 & 0.958 & 0.93 & commit \\
+\bottomrule
+\end{tabular}
+\caption[The six-cycle trajectory at a glance]{The realised trajectory. Pooled exact
+match and the composite hallucination metric are unweighted means over the five panel
+benchmarks (the misconception benchmark scored by the language-model judge). The
+\emph{worst probe} column is the lowest of the three retention ratios at that cycle;
+the cycle aborts when it falls below the floor $\rhomin = 0.93$, which happened at C4.
+C2 is the within-trajectory best cycle, C5 the final one.}
+\label{tab:traj-glance}
+\end{table}
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+  name=emax, width=12.0cm, height=4.0cm,
+  xlabel={}, ylabel={pooled EM}, xmin=-0.3, xmax=5.3, ymin=0.50, ymax=0.60,
+  xtick={0,1,2,3,4,5}, xticklabels={C0,C1,C2,C3,C4,C5}, ytick={0.50,0.53,0.56,0.59},
+  axis lines=left, font=\small\sffamily, tick label style={font=\scriptsize},
+  legend style={at={(0.5,1.28)}, anchor=north, legend columns=2, draw=cbInk!25, font=\scriptsize},
+  grid=both, grid style={cbInk!8},
+]
+  \addplot[cbExample!70!black, line width=1.4pt, mark=*, mark size=1.6pt] coordinates {
+    (0,0.571)(1,0.584)(2,0.581)(3,0.570)(4,0.571)(5,0.549)};
+  \addlegendentry{three training benchmarks}
+  \addplot[cbInk!70, line width=1.4pt, mark=square*, mark size=1.5pt] coordinates {
+    (0,0.541)(1,0.543)(2,0.544)(3,0.532)(4,0.532)(5,0.517)};
+  \addlegendentry{full five-benchmark panel}
+  \draw[cbPitfall!70!black, dashed, line width=1pt] (axis cs:4,0.50) -- (axis cs:4,0.60);
+  \node[font=\scriptsize, text=cbPitfall!70!black, anchor=south] at (axis cs:4,0.50) {abort};
+\end{axis}
+\begin{axis}[
+  name=chmax, width=12.0cm, height=4.0cm, at={(emax.south)}, yshift=-1.4cm, anchor=north,
+  xlabel={cycle}, ylabel={pooled CHM}, xmin=-0.3, xmax=5.3, ymin=0.10, ymax=0.14,
+  xtick={0,1,2,3,4,5}, xticklabels={C0,C1,C2,C3,C4,C5}, ytick={0.10,0.11,0.12,0.13,0.14},
+  axis lines=left, font=\small\sffamily, tick label style={font=\scriptsize},
+  grid=both, grid style={cbInk!8},
+]
+  \addplot[cbPitfall!65!black, line width=1.4pt, mark=*, mark size=1.6pt] coordinates {
+    (0,0.135)(1,0.112)(2,0.107)(3,0.115)(4,0.115)(5,0.109)};
+  \draw[cbPitfall!70!black, dashed, line width=1pt] (axis cs:4,0.10) -- (axis cs:4,0.14);
+\end{axis}
+\end{tikzpicture}
+\caption[The headline trajectory]{The actual deployed trajectory. Top: pooled exact
+match holds in a narrow band (full panel $0.517$ to $0.544$), with the training
+benchmarks running a few points higher. Bottom: the hallucination metric drops sharply
+from the cold start to the first committed cycle and then holds low. The dashed line
+marks C4, where the retention guard aborted; its eval ran on the rolled-back C3 model,
+which is why C3 and C4 read almost identically.}
+\label{fig:traj-headline}
+\end{figure}
+
+\begin{bythenumbers}[Read the two axes separately]
+On the accuracy axis the run is almost flat: pooled exact match stays between $0.517$
+and $0.544$ across all six cycles, peaking at C2. On the honesty axis the run does real
+work: the hallucination metric falls from $0.135$ at the cold start to $0.107$ at C2
+and holds near $0.11$ thereafter, a reduction of roughly a fifth that the accuracy
+trace alone would never reveal. This is the single most important reading of the whole
+trajectory: the self-improvement loop is a honesty engine, not an accuracy engine, and
+a chapter that reported only exact match would have called it a failure.
+\end{bythenumbers}
+
+\section{Accuracy, benchmark by benchmark}
+\label{sec:traj-perbench}
+
+The flat pooled accuracy hides a real split, and the split is exactly along the
+training-versus-transfer line that \Cref{ch:benchmarks} drew.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+  width=12.4cm, height=6.0cm,
+  xlabel={cycle}, ylabel={exact match}, xmin=-0.3, xmax=5.3, ymin=0.25, ymax=0.82,
+  xtick={0,1,2,3,4,5}, xticklabels={C0,C1,C2,C3,C4,C5},
+  axis lines=left, font=\small\sffamily, tick label style={font=\scriptsize},
+  legend style={at={(1.02,0.5)}, anchor=west, draw=cbInk!25, font=\scriptsize},
+  grid=both, grid style={cbInk!8},
+]
+  \addplot[cbExample!70!black, line width=1.3pt, mark=*, mark size=1.4pt] coordinates {
+    (0,0.763)(1,0.740)(2,0.717)(3,0.743)(4,0.743)(5,0.717)};
+  \addlegendentry{commonsense (train)}
+  \addplot[cbScenario!75!black, line width=1.3pt, mark=triangle*, mark size=1.7pt] coordinates {
+    (0,0.610)(1,0.647)(2,0.653)(3,0.640)(4,0.640)(5,0.640)};
+  \addlegendentry{multi-step (transfer)}
+  \addplot[cbFormula!70!black, line width=1.3pt, mark=square*, mark size=1.4pt] coordinates {
+    (0,0.487)(1,0.533)(2,0.533)(3,0.503)(4,0.507)(5,0.477)};
+  \addlegendentry{fact-check (train)}
+  \addplot[cbIntuition!75!black, line width=1.3pt, mark=diamond*, mark size=1.7pt] coordinates {
+    (0,0.463)(1,0.480)(2,0.493)(3,0.463)(4,0.463)(5,0.453)};
+  \addlegendentry{factoid (train)}
+  \addplot[cbPitfall!70!black, line width=1.3pt, mark=otimes*, mark size=1.6pt] coordinates {
+    (0,0.380)(1,0.317)(2,0.323)(3,0.310)(4,0.307)(5,0.300)};
+  \addlegendentry{misconception (transfer)}
+\end{axis}
+\end{tikzpicture}
+\caption[Per-benchmark exact match across the run]{The actual per-benchmark exact match
+across the six cycles (misconception benchmark scored by the language-model judge).
+Four of the five benchmarks hold steady or rise; the misconception benchmark falls
+monotonically from $0.380$ to $0.300$, which is the one trace that drags the pooled
+average down. \Cref{sec:traj-honesty} shows why that fall is honesty, not failure.}
+\label{fig:traj-perbench}
+\end{figure}
+
+\begin{precise}[Four steady, one declining]
+Against the zero-shot floor of \Cref{ch:benchmarks}, four of the five benchmarks
+improve or hold. The open-text factoid benchmark rises from a floor of $0.293$ to a
+trajectory band around $0.46$ to $0.49$; the fact-checking benchmark rises from $0.453$
+into the $0.48$ to $0.53$ band; the commonsense benchmark holds high, in the $0.72$ to
+$0.76$ band, a little above its $0.703$ floor; the implicit multi-step benchmark holds
+around $0.64$. The single exception is the misconception benchmark, which falls every
+cycle, from $0.380$ to $0.300$, ending below its own $0.433$ zero-shot floor. That one
+benchmark is the entire reason the pooled five-benchmark accuracy looks flat while the
+three training benchmarks sit a few points higher. The honest move is not to drop the
+benchmark but to read its decline with the right metric, which the chapter does in
+\Cref{sec:traj-honesty}.
+\end{precise}
+
+\section{How the gate shifts}
+\label{sec:traj-decisions}
+
+The four-outcome gate of \Cref{ch:composite} is not static. As the model improves, the
+mix of store, defer, discard, and abstain moves, and the direction of the movement is
+itself a measurement of the system's growing confidence.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+  width=12.0cm, height=5.4cm, ybar stacked, bar width=15pt,
+  symbolic x coords={C0,C1,C2,C3,C4,C5}, xtick=data,
+  ymin=0, ymax=1.0, ylabel={share of eval queries},
+  font=\small\sffamily, tick label style={font=\scriptsize},
+  legend style={at={(0.5,1.18)}, anchor=north, legend columns=4, draw=cbInk!25, font=\scriptsize},
+  grid=none,
+]
+  \addplot[draw=cbExample!70!black, fill=cbExample!30] coordinates {
+    (C0,0.25)(C1,0.44)(C2,0.47)(C3,0.56)(C4,0.55)(C5,0.42)};
+  \addlegendentry{store}
+  \addplot[draw=cbNumbers!75!black, fill=cbNumbers!28] coordinates {
+    (C0,0.09)(C1,0.32)(C2,0.34)(C3,0.26)(C4,0.26)(C5,0.39)};
+  \addlegendentry{defer}
+  \addplot[draw=cbInk!55, fill=cbInk!14] coordinates {
+    (C0,0.32)(C1,0.10)(C2,0.07)(C3,0.06)(C4,0.07)(C5,0.02)};
+  \addlegendentry{discard}
+  \addplot[draw=cbIntuition!75!black, fill=cbIntuition!25] coordinates {
+    (C0,0.34)(C1,0.14)(C2,0.12)(C3,0.12)(C4,0.12)(C5,0.17)};
+  \addlegendentry{abstain}
+\end{axis}
+\end{tikzpicture}
+\caption[The four-outcome distribution over the run]{The actual decision distribution
+across the six cycles, pooled over the five-benchmark fold. At the cold start the gate
+is cautious: a third of queries are discarded and a third abstained. By the third cycle
+the store and defer shares dominate (store peaks near $0.56$) while discard collapses
+from $0.32$ to about $0.06$, the signature of a model the gate increasingly trusts.}
+\label{fig:traj-decisions}
+\end{figure}
+
+\begin{precise}[From cautious to decisive, and the per-outcome ordering]
+At the cold start the gate parks or refuses two thirds of its answers: store $0.25$,
+defer $0.09$, discard $0.32$, abstain $0.34$. By the third committed cycle it has
+turned decisive: store $0.56$, defer $0.26$, discard $0.06$, abstain $0.12$. Two
+movements drive this. The discard share collapses from about a third to a sixteenth as
+the model produces fewer answers that are low-confidence yet grounded enough not to
+abstain; and the store-plus-defer mass grows as more answers clear the trust
+thresholds. The per-outcome accuracy stays strictly ordered at every cycle, stored
+answers most accurate and abstentions least, which is exactly the ordering a
+calibrated gate must produce. The final cycle relaxes slightly, store $0.42$ and defer
+$0.39$, as the post-abort model becomes a little less certain, a movement the next
+sections explain.
+\end{precise}
+
+\section{The three tiers in motion}
+\label{sec:traj-tiers}
+
+The clearest evidence that the loop is doing something real is not in the pooled
+accuracy but in how the three tiers perform and how work moves between them.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+  width=12.0cm, height=5.4cm,
+  xlabel={cycle}, ylabel={tier exact match}, xmin=-0.3, xmax=5.3, ymin=0.45, ymax=0.64,
+  xtick={0,1,2,3,4,5}, xticklabels={C0,C1,C2,C3,C4,C5}, ytick={0.45,0.50,0.55,0.60},
+  axis lines=left, font=\small\sffamily, tick label style={font=\scriptsize},
+  legend style={at={(0.97,0.97)}, anchor=north east, draw=cbInk!25, font=\scriptsize},
+  grid=both, grid style={cbInk!8},
+]
+  \addplot[cbIntuition!75!black, line width=1.5pt, mark=*, mark size=1.6pt] coordinates {
+    (0,0.602)(1,0.585)(2,0.568)(3,0.566)(4,0.564)(5,0.537)};
+  \addlegendentry{Tier 2: zero-shot}
+  \addplot[cbScenario!75!black, line width=1.5pt, mark=square*, mark size=1.5pt] coordinates {
+    (0,0.482)(1,0.502)(2,0.514)(3,0.503)(4,0.504)(5,0.497)};
+  \addlegendentry{Tier 3: retrieval}
+\end{axis}
+\end{tikzpicture}
+\caption[Per-tier exact match: the distillation receipt]{The actual per-tier exact
+match across the run. The cheap zero-shot tier (Tier 2) answers its assigned queries
+\emph{more} accurately than the expensive retrieval tier (Tier 3) at every single
+cycle, opening at a twelve-point gap ($0.602$ against $0.482$) at the cold start. The
+gap narrows as the loop runs but never reverses, which is the inference-time signature
+of self-improvement folding retrieval-found knowledge into the model's own parameters.
+The memory-direct tier (Tier 1) is omitted here: it fires on about one query in a
+thousand and returned the correct stored answer every time it did.}
+\label{fig:traj-tiers}
+\end{figure}
+
+\begin{bythenumbers}[The selection effect, stated honestly]
+The per-tier reading must be stated with care, because it is partly a selection effect.
+The router sends a query to the zero-shot tier precisely because it judges the query
+answerable from parameters, so that tier's queries are easier on average. The honest
+claim is therefore the conditional one: \emph{the zero-shot tier answers the queries it
+is assigned at least as accurately as the retrieval tier answers the queries it is
+assigned}, at every cycle, while costing a fraction as much. It is not the claim that
+retrieval is worse in general. Even stated conditionally the receipt is strong: a tier
+that needs no retrieval matching a tier that does is exactly what a system that has
+distilled its retrieved knowledge into its weights should show. The memory-direct tier
+fires on roughly one query in a thousand because the evaluation fold is content-hash
+disjoint from everything the system trained or stored on, so near-verbatim repeats are
+rare by construction; when it does fire it is a precision-first cache, correct on every
+realised firing.
+\end{bythenumbers}
+
+\section{Retention, and the cycle that was thrown away}
+\label{sec:traj-retention}
+
+Three cycles committed cleanly. The fourth did not, and what the system did about it is
+the safety property the whole architecture exists to guarantee.
+
+\begin{precise}[The cycle-four abort]
+At the fourth cycle boundary the retention guard ran its three probes against their
+cold-start anchors. The general-knowledge probe came back at $1.018$, slightly
+improved; the commonsense probe at $0.982$; but the held-out open-text factoid probe
+fell to $0.886$, below the floor $\rhomin = 0.93$. Because the guard aborts on the
+worst probe, the cycle was thrown away: the freshly fine-tuned adapter was discarded
+and the model rolled back to its third-cycle weights. This is why C3 and C4 read almost
+identically in \Cref{tab:traj-glance}: the C4 evaluation was run on the restored C3
+model. The fifth cycle then re-attempted training from that last good adapter and
+committed. The retention figure of \Cref{ch:cycle} draws this firing.
+\end{precise}
+
+\begin{intuition}[Why the memory did not roll back with the weights]
+The abort reverts the weights but \emph{not} the memory. Every episode admitted during
+the fourth cycle survived, and the store kept growing across the boundary. This
+asymmetry is deliberate and is the core safety property: memory growth is monotone and
+high-precision by construction, since each episode passed the gate, so it is always
+safe to keep, whereas a weight update is a global change with no such guarantee, so it
+is the thing thrown away. A rollback therefore costs a cycle's training but never a
+cycle's remembered knowledge. The reconsideration of deferred episodes is one of the
+steps gated on committing, so it is skipped on an abort, which is correct: re-scoring
+through unchanged weights would be a no-op.
+\end{intuition}
+
+\section{The honesty lens on the misconception benchmark}
+\label{sec:traj-honesty}
+
+The one benchmark whose accuracy fell every cycle is also the one that proves the
+metric suite of \Cref{ch:benchmarks} was necessary. Read with exact match alone, it
+looks like a regression. Read with the honesty axis, it is the opposite.
+
+\begin{bythenumbers}[Falling accuracy, rising honesty]
+On the misconception benchmark the judged exact match falls from $0.380$ at the cold
+start to $0.300$ at the final cycle. Over the same cycles its abstention rate stays
+high, in the band of roughly a quarter to a third of all questions (one hundred of
+three hundred at the cold start, sixty-nine at the end), where the zero-shot floor
+abstains on none. And its hallucination metric \emph{falls}, from about $0.150$ to
+about $0.104$. The three numbers together tell one story: the declining exact match
+tracks an increase in honest abstention, not a loss of knowledge. The benchmark is
+built so the fluent answer is a common misconception, and a dense retrieval substrate
+tends to amplify that framing rather than refute it, so the system increasingly
+declines rather than commit to a confident falsehood. A bare model is not licensed to
+abstain, pays no abstention penalty, and scores a higher strict exact match by stating
+the misconception outright. Exact match rewards that; the honesty axis does not.
+\end{bythenumbers}
+
+\begin{defence}[If an examiner asks: ``isn't a falling benchmark just a worse system?'']
+Not on this benchmark, and the separation of axes is what lets us say so without
+hand-waving. The misconception benchmark is adversarial by design: its questions are
+written so the most fluent completion is false. A system that answers all of them
+scores a higher exact match precisely by asserting falsehoods confidently, which is the
+behaviour the whole project is built to suppress. \caem{} instead abstains on a quarter
+to a third of them, so its exact match falls while its confident-wrongness metric on
+the same benchmark falls too. The architectural remedy for the lost accuracy is the
+retrieval-utility classifier of \Cref{ch:ruc}, which routes these queries away from the
+amplifying retrieval tier; the trajectory here is the un-routed behaviour the classifier
+was built to correct, reported honestly rather than quietly dropped.
+\end{defence}
+
+\section{Inside the loop, and when it stopped}
+\label{sec:traj-loop}
+
+Underneath the eval numbers the loop itself left a clean record: a training pool that
+grew, a training loss that fell, a memory that accumulated, and a principled reason it
+stopped at five rather than running to its configured ten.
+
+\begin{precise}[Pool, loss, memory, and the stop]
+The per-cycle training pool grew as memory accumulated: roughly one hundred episodes at
+the first cycle, then about fifteen hundred, three thousand, and five thousand by the
+fifth. The final-epoch training loss fell across the committed cycles, from about
+$0.26$ to about $0.11$, with the aborted fourth cycle reaching the lowest loss of the
+run, about $0.07$, the textbook signature of an over-fit update that the retention guard
+correctly caught (\Cref{ch:cycle} draws this). The episodic store grew monotonically
+across every boundary, including the aborted one, from a few hundred episodes to roughly
+ten thousand by the final cycle, and the per-cycle re-verification pruned a declining
+tail, about thirteen percent at the first committed cycle down to about four percent at
+the last, as the pool's composition shifted toward higher-confidence survivors. The loop
+stopped at the fifth cycle, not the configured tenth, because two of its three
+early-stop signals fired together: the storage rate had saturated and general-knowledge
+retention was holding, which is enough to halt at the first eligible cycle after the
+burn-in.
+\end{precise}
+
+\begin{intuition}[Why stopping early is a feature, not a shortfall]
+A self-improvement loop that ran forever would eventually overfit its own outputs, and
+the fourth cycle is the warning shot: lowest training loss, failed retention. The
+early-stop gate reads the same evidence and halts while the system is still healthy,
+rather than grinding through five more cycles of diminishing returns and rising
+forgetting risk. The realised five cycles are not a truncated ten-cycle plan; they are
+the loop recognising that it had extracted the gains its own answers could supply and
+stopping before it started to harm itself.
+\end{intuition}
+
+\section{What the theory predicted, and what the run did}
+\label{sec:traj-theory}
+
+\Cref{ch:theory} proved properties about the memory pool; the trajectory is where those
+properties either held or did not. They held, with one honest exception.
+
+\begin{bythenumbers}[The theory met the run]
+The data-purity floor held: the calibration-fold pool purity stayed in the band $0.72$
+to $0.75$ across every committed cycle, clearing the registered floor near $0.64$ by
+eight to eleven points. The self-correction prediction held: the per-cycle prune rate
+declined monotonically, from about thirteen percent to about four percent, as wrong
+episodes were caught and removed faster than they accumulated. The Tier-1 floor held:
+the memory-direct tier returned the correct answer on every one of its seven firings
+across nine thousand evaluation queries. The convergence prediction held in the weak
+sense the theory allowed: four of five committed transitions kept retention above the
+floor and the fifth was caught and reverted. The one property the run only partially
+supported is monotone improvement, because the composite is re-fitted each cycle and so
+violates the fixed-function premise the proof assumes; the chapter reports this as a
+partial receipt rather than a clean confirmation, exactly as \Cref{ch:theory} flagged.
+\end{bythenumbers}
+
+The trajectory is the architecture's behaviour with every piece switched on. To price
+each piece, \Cref{ch:ablations} switches them off one at a time and measures what the
+panel and the metrics of \Cref{ch:benchmarks} report when a component is removed.

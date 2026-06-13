@@ -1,0 +1,239 @@
+\chapter{Stage 7: The Output Contract}
+\label{ch:output}
+
+Six stages have decided what to answer and how much to trust it. Stage 7 is the last
+one in the per-query pipeline, and it is the only one the user ever sees. Its job is
+narrow but important: take the four-outcome decision of \Cref{ch:composite} and turn
+it into what is actually shown, and crucially, ensure the answer never travels alone.
+This is the stage where the calibration mismatch of \Cref{ch:problem}, the confident
+lie wearing the same clothes as the confident truth, is finally repaired at the
+surface the user touches.
+
+\begin{intuition}[The decision becomes a presentation]
+By the time a query reaches Stage 7, the hard thinking is done: there is a generated
+string and a verdict (store, defer, abstain, or discard). Stage 7 does not re-judge
+anything. It decides what string to display, whether to show it at all, and what
+reliability signal to attach. The guiding principle is that a user should never
+receive a fluent answer with no indication of how much to trust it; the answer and
+its confidence are delivered together, as one object.
+\end{intuition}
+
+\section{Two answers, kept separate}
+\label{sec:output-two-answers}
+
+The pipeline carries the answer in \emph{two} fields, and the separation is
+deliberate. One field, the \emph{raw answer}, is the model's literal output, kept
+verbatim. The other, the \emph{display answer}, is the curated string a user would
+see. They are computed from the same generation but serve opposite masters.
+
+\begin{intuition}[Why scoring and display must not share a string]
+Evaluation needs the model's \emph{literal} prediction: to score exact match
+honestly, the harness must see exactly what the model produced, including a wrong
+answer, so that a wrong answer counts as wrong. The user, by contrast, should see a
+\emph{curated} string: the final answer with its reasoning scaffold stripped away, or
+an honest refusal, or nothing at all. If display and scoring shared one field, then
+either the user would see raw scaffold text, or the scorer would be fed a cleaned-up
+string that no longer matches what the model actually said. Keeping the raw answer for
+the scorer and the display answer for the user lets each be exactly what it should be.
+\end{intuition}
+
+\section{Mapping the decision to a display string}
+\label{sec:output-map}
+
+The display answer is computed by one small function that reads the verdict and
+nothing else. Its logic is the whole contract.
+
+\begin{lstlisting}[caption={The display mapping, condensed from \texttt{caem/pipeline.py}.}, label={lst:display}]
+if verifier_output is None:                # Tier 1 hit, or a pipeline edge case
+    return strip_scaffold(answer)          # serve the (stored) answer as-is
+if decision == "ABSTAIN":
+    return "I do not know."                # the calibrated refusal
+if decision == "DISCARD":
+    return ""                              # suppress: the prediction is not safe to show
+return strip_scaffold(answer)              # STORE / DEFERRED: show the final answer
+\end{lstlisting}
+
+So the four verdicts map to three surface behaviours. A \textbf{stored} or
+\textbf{deferred} answer is shown, because the system trusts it enough to serve (and,
+for a deferred answer, also holds it for reconsideration). An \textbf{abstained} query
+returns the fixed refusal string ``I do not know.'', the principled failure mode in a
+factual setting where a confident wrong answer costs more than an honest refusal. A
+\textbf{discarded} answer is suppressed entirely, because the verdict was that the
+prediction is not safe to expose. A Tier 1 memory hit, which skipped the verifier by
+design, serves its stored answer directly.
+
+\begin{precise}[Scaffold stripping keeps display and scoring aligned]
+The generated string is the scaffolded form ``Reasoning: \dots\ Answer: $Y$'' from
+\Cref{ch:tiers}. The display function strips this down to just the final answer $Y$,
+and it does so through the \emph{same} extraction routine the exact-match scorer uses.
+This shared routine is not an accident: it guarantees that the answer the user sees
+and the answer the scorer grades are extracted identically, so a reported score always
+corresponds to what was actually shown. If the string carries no scaffold markers (a
+direct answer, or a legacy format), it is passed through unchanged.
+\end{precise}
+
+\section{The answer never travels alone: the confidence envelope}
+\label{sec:output-envelope}
+
+A bare string, even the right one, would reproduce the original problem: the user
+could not tell a trusted answer from a guess. So a deployment frontend wraps the
+display answer in a \emph{confidence envelope} built from the same verdict and the
+calibrated score $\ustored$. The envelope carries six things alongside the answer.
+
+\begin{description}[leftmargin=0pt, labelsep=0.5em, style=nextline]
+  \item[A continuous score.] The calibrated $\ustored$ rendered as a percentage, for
+  example ``72\%'', read directly as the chance the answer is correct.
+  \item[A semantic tag.] One of \emph{verified}, \emph{provisional},
+  \emph{conflicting}, or \emph{insufficient}, naming \emph{which} situation produced
+  the verdict rather than just how confident it was.
+  \item[An ordinal label.] One of \emph{high}, \emph{moderate}, \emph{low}, or
+  \emph{very low}, an at-a-glance reliability hint.
+  \item[An icon.] A check, a tilde, a warning, or a cross, for instant visual reading.
+  \item[A show-or-hide flag.] Whether to display the answer at all, hidden on an
+  abstention.
+  \item[A caveat.] An optional hedge sentence appropriate to the verdict.
+\end{description}
+
+\begin{table}[t]
+\centering
+\caption[The confidence envelope]{How each verdict is rendered. The four verdicts map
+to four distinct user-facing presentations, not to four points on a single confidence
+scale.}
+\label{tab:envelope}
+\small
+\renewcommand{\arraystretch}{1.25}
+\begin{tabularx}{\textwidth}{@{}l l l l >{\raggedright\arraybackslash}X@{}}
+\toprule
+\textbf{Verdict} & \textbf{Tag} & \textbf{Label} & \textbf{Icon} & \textbf{Shown to the user} \\
+\midrule
+STORE & verified & high & check & the answer, with its confidence percentage \\
+DEFERRED & provisional & moderate & tilde & the answer, with a ``re-checking later'' caveat \\
+DISCARD & conflicting & low & warning & a hedge that the evidence found disagrees \\
+ABSTAIN & insufficient & very low & cross & ``I do not know.'' (the answer is hidden) \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[
+  font=\small\sffamily,
+  card/.style={rectangle, rounded corners=5pt, line width=1.2pt, align=left,
+    inner sep=7pt, text width=6.0cm, minimum height=2.3cm,
+    drop shadow={shadow xshift=0.4ex, shadow yshift=-0.4ex, fill=black!12}},
+]
+  % STORE / verified
+  \node[card, draw=cbExample!70!black, fill=cbExample!6] (c1) at (0,0) {
+    {\large\color{cbExample!55!black}$\checkmark$}\;\textbf{\color{cbExample!50!black}verified}
+    \hfill {\color{cbInk!60}\footnotesize high $\cdot$ 70\%}\\[3pt]
+    {\footnotesize\color{cbInk!70}\itshape Roquefort Cheese is made from what sort of milk?}\\[2pt]
+    {\large sheep's milk.}};
+  % DEFERRED / provisional
+  \node[card, draw=cbScenario!70!black, fill=cbScenario!6] (c2) at (7.2,0) {
+    {\large\color{cbScenario!55!black}$\sim$}\;\textbf{\color{cbScenario!50!black}provisional}
+    \hfill {\color{cbInk!60}\footnotesize moderate $\cdot$ 55\%}\\[3pt]
+    {\footnotesize\color{cbInk!70}\itshape What was President Gerald Ford's middle name?}\\[2pt]
+    {\large Rudolph.}\\[2pt]
+    {\footnotesize\color{cbInk!60} I'll reconsider this at my next learning cycle. Please ask again later for an updated answer.}};
+  % DISCARD / conflicting
+  \node[card, draw=cbNumbers!75!black, fill=cbNumbers!6] (c3) at (0,-3.0) {
+    {\large\color{cbNumbers!70!black}$!$}\;\textbf{\color{cbNumbers!65!black}conflicting}
+    \hfill {\color{cbInk!60}\footnotesize low $\cdot$ 40\%}\\[3pt]
+    {\large\color{cbInk!45} (answer withheld)}\\[2pt]
+    {\footnotesize\color{cbInk!60} Evidence exists but some signals disagree, independent verification is recommended.}};
+  % ABSTAIN / insufficient
+  \node[card, draw=cbPitfall!70!black, fill=cbPitfall!6] (c4) at (7.2,-3.0) {
+    {\large\color{cbPitfall!65!black}$\times$}\;\textbf{\color{cbPitfall!60!black}insufficient}
+    \hfill {\color{cbInk!60}\footnotesize very low}\\[3pt]
+    {\large I do not know.}\\[2pt]
+    {\footnotesize\color{cbInk!60} no supporting evidence was found.}};
+\end{tikzpicture}
+\caption[What the user actually sees]{The four verdicts rendered as user-facing cards. The
+\emph{verified} and \emph{provisional} cards reproduce real deployed cycle-three records;
+the \emph{conflicting} and \emph{insufficient} cards are representative of their verdict. A
+\emph{verified} answer carries its
+confidence; a \emph{provisional} answer is shown with a promise to re-check it; a
+\emph{conflicting} verdict withholds the answer and explains that the evidence disagreed;
+an \emph{insufficient} verdict returns an honest refusal. The answer and its reliability
+signal always arrive together.}
+\label{fig:cards}
+\end{figure}
+
+\section{Conflicting is not the same as insufficient}
+\label{sec:output-failure-modes}
+
+The most important subtlety in the envelope is that the two low-confidence verdicts,
+discard and abstain, are \emph{different failure modes}, not two points on one
+confidence scale. This was decided back at the gate (\Cref{ch:composite}) and it
+surfaces here.
+
+\begin{precise}[The split is by grounding, not by score]
+Recall the gate: among answers below the deferral cut-point, the split between abstain
+and discard is made by the grounding signal $\pgmax$, not by $\ustored$. An
+\textbf{abstain} (tag \emph{insufficient}) means there was essentially no supporting
+evidence at all, so the honest move is to say nothing. A \textbf{discard} (tag
+\emph{conflicting}) means evidence existed but the signals disagreed about it, so the
+answer is withheld with a different explanation. A consequence worth stating plainly:
+a discarded answer can carry a \emph{higher} $\ustored$ than an abstained one. In the
+deployed cycle-three run this is not a corner case but the norm: the discard and abstain
+calibrated-confidence distributions overlapped almost entirely, with the chance that a
+randomly chosen discarded answer scored higher than a randomly chosen abstained one close
+to one half (near $0.46$). The two verdicts therefore genuinely cannot be ordered on a
+single confidence axis; the split is by grounding, not by score. The two
+tags are not ``a bit unsure'' versus ``very unsure''; they are ``the evidence
+conflicts'' versus ``there is no evidence.'' Naming the failure mode, rather than only
+its severity, is what lets the user respond appropriately, by rephrasing in one case
+and by trusting the refusal in the other.
+\end{precise}
+
+\section{Deferral speaks in the system's own clock}
+\label{sec:output-defer}
+
+The deferred verdict has a caveat unlike the others, because deferral is a promise
+about the future. A provisional answer is shown with a note that the system will
+reconsider it, and the phrasing reflects how \caem{} actually updates: its cycle
+boundary is triggered by \emph{query volume}, not by the wall clock, so the default
+caveat is the cadence-neutral ``I'll reconsider this at my next learning cycle.'' A
+deployment that updates on a known schedule can override this with a concrete cadence,
+nightly or hourly or continuously, to give the user a real expectation. The deferral
+message is the only place the user-facing surface acknowledges that the system learns
+over time, which is the subject of the next chapter.
+
+\section{Where the calibration mismatch is repaired}
+\label{sec:output-repair}
+
+\Cref{ch:problem} opened with the core hazard: a model states a falsehood with the
+same confidence it states a truth, and a reader has no way to tell them apart. Stage 7
+is the surface where that hazard is closed. Every served answer arrives with a
+calibrated probability and a named reliability tag; a low-confidence answer is either
+hedged, withheld, or replaced by an honest refusal; and the confidence number means
+the same thing on every benchmark because of the calibration of \Cref{ch:composite}.
+The confident lie no longer wears the same clothes as the confident truth, because the
+clothes now include an honest label of how much to trust what was said.
+
+\begin{defence}[If an examiner asks: ``why four outcomes rather than answer-or-refuse?'']
+Because two of the four outcomes carry information a binary surface would discard.
+\emph{Defer} separates the genuinely uncertain answer, which a later cycle's better
+model may resolve, from the confidently wrong one; collapsing both into ``refuse''
+would throw away a recoverable answer. And the \emph{conflicting}-versus-%
+\emph{insufficient} split separates ``the evidence disagrees'' from ``there is no
+evidence,'' two situations that call for different user responses. The four-outcome
+contract is what lets the system distinguish \emph{wrong}, \emph{unknown}, and
+\emph{not yet decided}, rather than flattening all three into a single refusal.
+\end{defence}
+
+\begin{bythenumbers}[The output contract]
+\begin{itemize}[leftmargin=1.3em, itemsep=1pt]
+  \item Two answer fields: raw (verbatim, for scoring) and display (curated, for the user).
+  \item Display map: store/defer $\to$ stripped answer; abstain $\to$ ``I do not know.''; discard $\to$ withheld.
+  \item Scaffold stripping shares the exact-match scorer's extraction routine.
+  \item Envelope: calibrated percentage, semantic tag (verified / provisional / conflicting / insufficient), ordinal label, icon, show-or-hide flag, caveat.
+  \item Discard versus abstain is split by grounding ($\pgmax$), not by $\ustored$.
+\end{itemize}
+\end{bythenumbers}
+
+The per-query pipeline is now complete: a query has been triaged, routed, answered,
+verified, scored, and presented with its confidence. Everything so far has happened
+without the model learning anything. \Cref{ch:cycle} opens Part III and the second
+clock, Stage 8, the cycle-boundary self-improvement loop, where the verified answers
+this pipeline produced are folded back into the model and the whole system gets better.

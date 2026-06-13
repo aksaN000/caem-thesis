@@ -1,0 +1,427 @@
+\chapter{Stage 1: Pre-Routing Confidence ($u_{\text{pre}}$)}
+\label{ch:upre}
+
+We now open the first box of the per-query pipeline. Before \caem{} retrieves
+anything, generates anything, or verifies anything, it asks a single cheap
+question about the query in front of it: how ready is the model to answer this on
+its own? The answer is one number, $\upre$, the pre-routing confidence. It is the
+earliest signal in the pipeline and the only one computed before the system
+commits to a tier, which is exactly why it carries a special responsibility,
+namely the safety override that refuses to let an unready model answer without
+grounded retrieval.
+
+\begin{intuition}[A glance before the work]
+Imagine a triage nurse who, in a few seconds and without running any tests, has to
+decide whether a patient can wait or needs immediate care. The nurse is not
+diagnosing; the nurse is deciding \emph{how much machinery to spend}. Stage 1 is
+that glance. From one short look at the query, before any real answer exists, it
+produces a confidence that decides whether the model has earned the right to take
+a cheap path or must be sent down the expensive, grounded one. It is deliberately
+fast and deliberately humble: when in any doubt, it escalates.
+\end{intuition}
+
+\section{What Stage 1 is for}
+\label{sec:upre-job}
+
+It helps to be exact about the one job $\upre$ does, because it is narrower than
+its prominence suggests. The pre-routing confidence has a single decisive
+consumer in the router of \Cref{ch:router}: the \textbf{safety override}. The
+router checks, before anything else, whether $\upre$ has cleared a fixed floor. If
+it has not, the query is forced off the cheap paths and onto the
+retrieval-augmented tier, no matter how good a memory match might look.
+
+\begin{pitfall}[$\upre$ does not enter the dispatch score]
+It is natural to assume that a confidence computed this early feeds into the
+tier-selection score. In the live code it does not. The router's combined score
+is built only from the memory similarity and the neighbour's stored quality, the
+subject of \Cref{ch:router}. The pre-routing confidence enters the router at
+exactly one point, the safety override that is evaluated \emph{before} the score,
+and nowhere else. Keeping these two mechanisms separate is deliberate: the score
+answers ``does memory cover this query?'', while $\upre$ answers a different
+question, ``is the model ready to generate at all?'' Conflating them would
+over-retrieve when memory is strong but the model is shaky, and under-retrieve in
+the opposite case.
+\end{pitfall}
+
+So $\upre$ is the model's pre-generation readiness, distilled into one calibrated
+scalar, and its power is the veto. The rest of this chapter builds that scalar from
+two cheap signals, fuses them, calibrates the result, and then shows the veto in
+action.
+
+\section{Signal one: token confidence ($u_{\text{token}}$)}
+\label{sec:upre-utoken}
+
+The first ingredient is the model's own commitment to its words. We met the raw
+material in \Cref{sec:prereq-llm}: at each step the model assigns a probability to
+the token it actually emits. If those probabilities are high, the model is moving
+through the answer decisively; if they are low, it is hedging across many
+alternatives at every step, which is the textual signature of guessing.
+
+To turn this into a signal, Stage 1 runs a \emph{short} greedy decode, just
+thirty-two tokens, under the chat template, and records the probability the model
+assigned to each chosen token. It then takes the geometric mean of those
+probabilities, which is the same as exponentiating the average log-probability.
+The geometric mean is the right average here because probabilities multiply along
+a sequence; averaging in log-space keeps one very low token from being masked by
+many confident ones.
+
+\begin{precise}[The $u_{\text{token}}$ definition]
+Let the short decode produce tokens $\hat v_1, \dots, \hat v_n$ (stopping at the
+end-of-sequence token), each with model probability $p_t(\hat v_t)$. Then
+\[
+  \utoken
+  \;=\;
+  \exp\!\left(\frac{1}{n}\sum_{t=1}^{n}\log p_t(\hat v_t)\right)
+  \;=\;
+  \Big(\textstyle\prod_{t=1}^{n} p_t(\hat v_t)\Big)^{1/n}.
+\]
+This is the per-token average probability under the model: a value near one means
+the model was confident at every step, a value near zero means it was unsure
+somewhere along the way. The decode is capped at thirty-two tokens because Stage 1
+needs a confidence proxy, not a full answer, and the short cap is what keeps the
+whole stage inside its latency budget.
+\end{precise}
+
+The actual computation is short enough to read in full, and it is worth doing so,
+because two details in it matter.
+
+\begin{lstlisting}[caption={The $u_{\text{token}}$ computation, condensed from \texttt{caem/confidence/pre\_routing.py}.}, label={lst:utoken}]
+out = model.generate(**inputs, max_new_tokens=32, do_sample=False,
+                     output_scores=True, return_dict_in_generate=True)
+
+log_probs = []
+for t, step_logits in enumerate(out.scores):          # one entry per generated token
+    log_soft  = log_softmax(step_logits[0], dim=-1)
+    token_id  = out.sequences[0, gen_start + t].item()
+    if token_id == tokenizer.eos_token_id:
+        break                                          # stop at end-of-sequence
+    log_probs.append(log_soft[token_id].item())        # log P(chosen token)
+
+u_token = exp(sum(log_probs) / len(log_probs))         # geometric mean
+\end{lstlisting}
+
+The first detail is the greedy, deterministic decode (\code{do\_sample=False}):
+the signal must be reproducible, so the same query always yields the same
+$\utoken$. The second is the fail-safe. If generation throws, or returns no
+scorable tokens, the function returns $0.0$ rather than raising. A zero
+pre-routing confidence is the most cautious value possible, and as we will see it
+forces the query onto the grounded tier. Failure in Stage 1 therefore degrades
+toward safety, never toward a confident wrong answer.
+
+\begin{pitfall}[Raw text collapses the signal; the chat template rescues it]
+One non-obvious requirement: the query must be wrapped in the chat-markup envelope
+before the decode. An instruction-tuned model fed a bare question scatters its
+probability mass across the vocabulary, and $\utoken$ collapses to roughly
+$10^{-9}$ for every query, informative about nothing. Wrapping the query as a user
+turn with a generation prompt puts the model into ``assistant answering a user''
+mode, where its per-token probabilities become meaningful. The envelope adds about
+twenty fixed tokens, identical for every query, which is why it does not distort
+the second signal we turn to next.
+\end{pitfall}
+
+\section{Signal two: internal convergence ($c_{\text{conv}}$)}
+\label{sec:upre-cconv}
+
+Token confidence reads the model's output. The second signal reads its
+\emph{internals}, and asks a different question: has the model settled on a single,
+stable interpretation of the query, or is it still of several minds about what is
+being asked? This is the internal-convergence ratio, adapted
+from~\cite{nandakishor2025routing}.
+
+The idea rests on how a decoder processes a query. The same query produces a stack
+of hidden-state representations, one per layer. When the model has a clear,
+unambiguous reading of the question, the representation stabilises: the later
+layers vary little, having converged on an interpretation. When the question is
+ambiguous or unfamiliar, the representation keeps shifting across layers, and the
+early-layer variance stays high relative to the late layers. The ratio of those
+two variances is a cheap proxy for ``did the model converge?''
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[font=\small\sffamily]
+  % left: not converged (high early variance)
+  \begin{scope}[xshift=0cm]
+    \node[font=\bfseries\sffamily, text=cbPitfall!75!black] at (1.6,4.3) {Unstable reading};
+    \node[font=\scriptsize, text=cbInk!70] at (1.6,3.95) {early layers scattered $\Rightarrow$ high $c_{\text{conv}}$};
+    % early layers (scattered dots)
+    \foreach \y/\jit in {3.2/0.5, 2.9/-0.4, 3.05/0.35, 2.75/-0.55, 3.25/0.15}
+      \filldraw[cbPitfall!70] (1.6+\jit,\y) circle (1.6pt);
+    \node[font=\scriptsize,text=cbInk!60,anchor=west] at (2.5,3.0) {early};
+    \draw[cbInk!25, dashed] (0.2,2.5) -- (3.0,2.5);
+    % late layers (still somewhat scattered)
+    \foreach \y/\jit in {1.9/0.25, 1.7/-0.2, 1.8/0.1, 1.6/-0.3, 2.0/0.18}
+      \filldraw[cbPitfall!40] (1.6+\jit,\y) circle (1.6pt);
+    \node[font=\scriptsize,text=cbInk!60,anchor=west] at (2.5,1.8) {late};
+    \draw[->,cbInk!50] (0.2,1.2) -- (0.2,3.6) node[above,font=\scriptsize]{layer};
+  \end{scope}
+  % right: converged (low late variance)
+  \begin{scope}[xshift=6.2cm]
+    \node[font=\bfseries\sffamily, text=cbExample!60!black] at (1.6,4.3) {Stable reading};
+    \node[font=\scriptsize, text=cbInk!70] at (1.6,3.95) {late layers tight $\Rightarrow$ low $c_{\text{conv}}$};
+    \foreach \y/\jit in {3.2/0.45, 2.9/-0.35, 3.05/0.3, 2.75/-0.5, 3.25/0.1}
+      \filldraw[cbExample!70] (1.6+\jit,\y) circle (1.6pt);
+    \node[font=\scriptsize,text=cbInk!60,anchor=west] at (2.5,3.0) {early};
+    \draw[cbInk!25, dashed] (0.2,2.5) -- (3.0,2.5);
+    \foreach \y/\jit in {1.78/0.05, 1.74/-0.04, 1.8/0.02, 1.72/-0.05, 1.79/0.03}
+      \filldraw[cbExample!70] (1.6+\jit,\y) circle (1.6pt);
+    \node[font=\scriptsize,text=cbInk!60,anchor=west] at (2.5,1.78) {late};
+    \draw[->,cbInk!50] (0.2,1.2) -- (0.2,3.6) node[above,font=\scriptsize]{layer};
+  \end{scope}
+\end{tikzpicture}
+\caption[Internal convergence]{The convergence ratio compares the spread of the
+early-layer representations with that of the late layers. On the left the late
+layers are still scattered: the model has not converged on one reading, the ratio
+$c_{\text{conv}}$ is high, and the confidence $1/(1+c_{\text{conv}})$ is low. On
+the right the late layers are tight: the model has settled, $c_{\text{conv}}$ is
+low, and the confidence is high. (Schematic.)}
+\label{fig:cconv}
+\end{figure}
+
+\begin{precise}[The $c_{\text{conv}}$ definition]
+A single forward pass over the query, with no generation, exposes the hidden-state
+stack $\mathbf{H}^{(1)}, \dots, \mathbf{H}^{(L)}$ for the $L$ decoder layers (the
+backbone has $L=36$). Splitting the stack into an early half and a late half, the
+convergence ratio is the variance of the early half divided by that of the late
+half,
+\[
+  \cconv
+  \;=\;
+  \frac{\operatorname{Var}\!\big(\mathbf{H}^{(1:L/2)}\big)}
+       {\operatorname{Var}\!\big(\mathbf{H}^{(L/2+1:L)}\big) + \varepsilon},
+\]
+and it is turned into a confidence by the decreasing map
+\[
+  \text{confidence from } \cconv \;=\; \frac{1}{1 + \cconv}.
+\]
+A high ratio (early layers far more variable than late) reads as instability and
+maps toward zero; a low ratio reads as a settled representation and maps toward
+one. As with $\utoken$, any failure in this forward pass returns a ratio of zero,
+the most confident value, but here the fail-safe is overridden in fusion because
+the token signal will usually have failed too, and the combined floor still
+escalates. The embedding layer is excluded from both halves so that only the
+transformer computation, not the raw lookup, is measured.
+\end{precise}
+
+\section{Fusing and calibrating the two signals}
+\label{sec:upre-fusion}
+
+Two signals become one through a fixed weighted blend, followed by a calibration
+step. The blend places more weight on the token signal, which is the more direct
+reliability cue, and uses the convergence signal as a secondary prior on query
+stability.
+
+\begin{precise}[From two signals to a calibrated $u_{\text{pre}}$]
+The raw pre-routing confidence is the registered blend
+\[
+  \upre^{\text{raw}}
+  \;=\;
+  0.60 \cdot \utoken \;+\; 0.40 \cdot \frac{1}{1 + \cconv},
+\]
+clipped to $[0,1]$. The mixing weights $0.60$ and $0.40$ are \emph{registered
+before} the calibration phase rather than learned, so the meaning of the fused
+scalar does not drift as the generator is fine-tuned across cycles. The raw value
+is then passed through temperature scaling (\Cref{sec:prereq-calibration}) to make
+it a calibrated probability,
+\[
+  \upre
+  \;=\;
+  \sigma\!\left(\frac{\operatorname{logit}\big(\upre^{\text{raw}}\big)}{T_b}\right),
+\]
+where the temperature $T_b$ is fit \emph{per benchmark}. A temperature of one
+leaves the value untouched; a larger temperature softens an overconfident raw
+distribution toward the diagonal of the reliability diagram.
+\end{precise}
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[
+  font=\small\sffamily,
+  sig/.style={rectangle, rounded corners=4pt, draw=cbIntuition!75!black,
+    fill=cbIntuition!10, line width=1pt, align=center, inner sep=5pt,
+    text width=3.5cm, minimum height=1.1cm, drop shadow={shadow xshift=0.3ex,
+    shadow yshift=-0.3ex, fill=black!10}},
+  op/.style={rectangle, rounded corners=4pt, draw=cbFormula!75!black,
+    fill=cbFormula!10, line width=1pt, align=center, inner sep=5pt,
+    text width=2.5cm, minimum height=1.1cm, drop shadow={shadow xshift=0.3ex,
+    shadow yshift=-0.3ex, fill=black!10}},
+  dec/.style={diamond, aspect=2.2, draw=cbPitfall!75!black, fill=cbPitfall!10,
+    line width=1pt, align=center, inner sep=1pt, font=\footnotesize,
+    text width=2.4cm},
+  cbout/.style={rectangle, rounded corners=2pt, draw=cbInk!55, fill=cbInk!6,
+    line width=1pt, align=center, inner sep=5pt},
+  flow/.style={-{Stealth[length=2.4mm]}, line width=1.1pt, draw=cbInk!75},
+  veto/.style={-{Stealth[length=2.4mm]}, line width=1.1pt, draw=cbPitfall!75, dashed},
+]
+  \node[sig] (ut) at (0,1.1) {\textbf{32-token greedy decode}\\$\utoken$ (geom.\ mean)};
+  \node[sig] (cc) at (0,-1.1) {\textbf{one forward pass}\\$1/(1+\cconv)$};
+  \node[op]  (blend) at (4.0,0) {\textbf{blend}\\$0.6\,\utoken + 0.4(\cdot)$};
+  \node[op]  (temp) at (7.3,0) {\textbf{temperature}\\$\sigma(\operatorname{logit}/T_b)$};
+  \node[dec] (gate) at (10.7,0) {$\upre \ge 0.38$?};
+  \node[cbout] (proceed) at (10.7,1.9) {to dispatch score (\Cref{ch:router})};
+  \node[cbout, text=cbPitfall!70!black] (t3) at (10.7,-1.9) {\textbf{safety override $\to$ Tier 3}};
+
+  \draw[flow] (ut) -- (blend);
+  \draw[flow] (cc) -- (blend);
+  \draw[flow] (blend) -- (temp);
+  \draw[flow] (temp) -- (gate);
+  \draw[flow] (gate) -- node[right,font=\scriptsize,text=cbExample!55!black]{yes} (proceed);
+  \draw[veto] (gate) -- node[right,font=\scriptsize,text=cbPitfall!70!black]{no} (t3);
+\end{tikzpicture}
+\caption[The Stage 1 data flow]{The pre-routing confidence is built from two cheap
+signals, a thirty-two-token greedy decode for $\utoken$ and a single forward pass
+for $\cconv$, blended with fixed weights, calibrated by a per-benchmark
+temperature, and then tested against the safety floor. Clearing the floor hands
+control to the dispatch score; failing it triggers the safety override straight to
+the grounded tier. (Schematic.)}
+\label{fig:upre-flow}
+\end{figure}
+
+\section{The safety override}
+\label{sec:upre-override}
+
+Now the payoff. The router evaluates one rule before any other: if $\upre$ is
+below the registered floor $\phisafe = 0.38$, the query is dispatched to the
+retrieval-augmented tier and the override flag is recorded, regardless of how
+strong the memory match is. This is the architectural expression of a single
+principle: \textbf{the system must not generate without grounded retrieval
+whenever its pre-generation readiness is low}. The cost of grounded retrieval is
+explicitly preferred over the risk of a confident wrong answer from memory or
+zero-shot generation.
+
+\begin{fromcode}[The floor, and why it is $0.38$ rather than $0.60$]
+The floor began life at $0.60$ and was lowered to $0.38$ during the cycle-one
+routing audit. The audit found that the higher floor was forcing well-supported
+queries onto the grounded tier under the post-calibration pre-routing
+distribution, which depressed the architecture's effective use of the cheaper
+tiers without a matching gain in safety. Lowering the floor preserved the
+override's intent, refuse to generate when readiness is genuinely low, while
+admitting a wider band of capable queries to the cheap paths. The floor is read
+per benchmark through a configuration helper, with the pooled $\phisafe = 0.38$ used
+as the registered default. The per-benchmark floors are re-fit across cycles, and
+they are not all equal: the fact-checking and trivia probes hold at the pooled $0.38$,
+while the commonsense probe drifts upward, to about $0.49$ by the third cycle and
+about $0.57$ by the fifth, as its calibrated readiness distribution shifts. The pooled
+$0.38$ remains the fallback wherever a benchmark-specific value is unavailable.
+\end{fromcode}
+
+The ordering is the subtle part. Because the override is checked first, a query
+with a near-perfect memory match but a low readiness signal is still sent to
+retrieval. The override is a veto, not a vote: it cannot be outweighed by a good
+score, only avoided by clearing the floor. When the floor is cleared, $\upre$ has
+done its job and steps aside; the tier is then chosen by the similarity-and-quality
+score of \Cref{ch:router}.
+
+On the realised trajectory the override is a worst-case safety contract that, in
+fact, never activates: the calibrated pre-routing confidence stays above the active
+floor on every one of the roughly nine thousand evaluation queries, so the override
+never fires. This is best read not as evidence that the mechanism is
+unneeded, but as evidence that the panel distribution simply does not exercise it. The
+contract is cheap to carry and would fire the moment a genuinely unready query
+appeared; the deployed query mix never produced one that fell through the floor.
+
+\section{Why Stage 1 is cheap by design}
+\label{sec:upre-cost}
+
+A theme of the whole architecture is paying for confidence only where it is
+needed, and Stage 1 is the first instance. The pre-routing confidence pointedly
+does \emph{not} use the expensive multi-chain resampling that the post-generation
+verifier of \Cref{ch:verifier} relies on. It costs one forward pass over the query
+plus a thirty-two-token greedy decode, and that is all.
+
+\begin{intuition}[The right signal at the right price]
+There are two confidence questions in the pipeline, asked at different prices.
+Stage 1 asks the cheap one, ``should the model even try?'', and pays a single
+short decode for it, because every query must be triaged. The expensive question,
+``is this generated answer trustworthy enough to keep?'', is asked only of queries
+that actually reach the generating tiers, and is paid for with the resampling and
+entailment machinery of \Cref{ch:verifier}. A memory-direct query never pays the
+expensive cost at all. Spending a cheap signal on everyone and an expensive signal
+on the few who need it is the economic logic of the entire compute ladder.
+\end{intuition}
+
+\section{The two readings, at the $u_{\text{pre}}$ level}
+\label{sec:upre-scenarios}
+
+The two queries we traced in \Cref{ch:bigpicture} diverge for the first time
+exactly here, at Stage 1, and it is instructive to watch only this stage.
+
+\begin{scenario}[The claim that clears the floor (FEVER)]
+For the claim ``The French Revolution began before 1792'', the short decode commits
+to its tokens with reasonable probability and the forward pass shows a settled
+late-layer representation. The blended raw confidence, after the per-benchmark
+temperature, lands comfortably above $0.38$. The safety override does \emph{not}
+fire. Control passes to the dispatch score, and because the cycle-zero memory is
+empty, the query continues down the pipeline toward generation rather than being
+vetoed here. Stage 1's verdict: this query is ready enough; let the later stages
+decide the tier.
+\end{scenario}
+
+\begin{scenario}[The question routed to grounding (trivia)]
+For ``\,`If I Ruled The World' comes from which musical?'', the short decode commits
+only weakly to its tokens (the token-probability aggregate sits near $0.02$), yet the
+calibrated pre-routing confidence still lands around $\upre = 0.66$, comfortably above
+the $0.38$ safety floor. The override therefore does \emph{not} fire here. The query
+nonetheless goes to the retrieval-augmented tier, because at the cold start the
+episodic memory is empty and no cheap path can be earned: the dispatch score finds no
+neighbour to draw on. Grounded generation is what later gives the verifier something
+real to judge, and ultimately what lets the system refuse rather than fabricate. The
+honest refusal at the end of the pipeline begins with this early decision to ground.
+\end{scenario}
+
+\section{An honest limitation}
+\label{sec:upre-threats}
+
+One property of $\upre$ deserves a frank note, because it surfaces in the
+trajectory of \Cref{ch:trajectory}. The single-parameter temperature that calibrates
+the pre-routing confidence (distinct from the composite's own temperature in
+\Cref{ch:composite}) behaves oddly across the run. At the cold start the fit saturates
+its optimisation bound, returning a temperature near $20$ that is best flagged as
+pathological calibration data; even there the calibration error does fall, from about
+$0.28$ to about $0.07$. The per-cycle re-fits that follow then settle at low interior
+values, roughly $1.09$, $0.84$, and $0.74$ over the next cycles, while the calibration
+error barely moves, staying around $0.04$ to $0.05$. The honest reading is therefore
+not that the temperature is pinned at its ceiling every cycle, but that
+single-parameter temperature scaling on this particular surface is largely inert
+across the trajectory: it neither helps nor hurts $\upre$ much once the cold-start
+boundary is past.
+
+\begin{pitfall}[Why the drift is tolerable]
+A miscalibrated $\upre$ would be a serious problem if it gated what \caem{}
+stores. It does not. The pre-routing confidence governs only \emph{routing}: the
+safety override and, indirectly, which tier pays the verification cost. The
+decision of whether an answer is trustworthy enough to keep is made downstream, by
+the calibrated composite of \Cref{ch:composite}, on signals that carry their own
+per-cycle calibration. So a drift in $\upre$ can send a few queries down a more
+expensive tier than strictly necessary, which costs compute, but it cannot admit a
+wrong answer into memory. The architecture localises the consequences of this
+imperfection to cost, not correctness, which is precisely why the cheap signal is
+allowed to be imperfect.
+\end{pitfall}
+
+\begin{bythenumbers}[Stage 1 constants]
+\begin{itemize}[leftmargin=1.3em, itemsep=1pt]
+  \item $\utoken$ decode length: $32$ tokens, greedy, deterministic.
+  \item Fusion weights: $0.60$ on $\utoken$, $0.40$ on $1/(1+\cconv)$, registered (not learned).
+  \item Convergence split: early half versus late half of $L=36$ decoder layers, embedding layer excluded.
+  \item Calibration: per-benchmark temperature $T_b$ via $\sigma(\operatorname{logit}(\cdot)/T_b)$.
+  \item Safety floor: $\phisafe = 0.38$ (lowered from $0.60$ at the cycle-one audit).
+  \item Fail-safe: any error returns $0.0$, the most cautious value, forcing the grounded tier.
+\end{itemize}
+\end{bythenumbers}
+
+\begin{defence}[If an examiner asks: ``is two signals not too few for a confidence estimate?'']
+The pre-routing confidence is deliberately thin because of what it is for. It is a
+triage signal whose only hard consequence is a conservative veto, backed by a
+fail-safe that escalates on any doubt, so the cost of an occasional false
+low-confidence reading is bounded compute rather than a wrong answer. The
+literature is in any case discouraging about single-signal confidence, which
+reaches only chance-to-modest discrimination on its own; \caem{} answers that not
+by piling more signals into the cheap pre-generation estimate, but by deferring the
+heavy, many-signal judgement to the post-generation verifier, where it can be
+afforded. Two cheap signals to triage, nine calibrated signals to decide: the
+split is the point, not an oversight.
+\end{defence}
+
+With the query triaged, the pipeline turns to memory. \Cref{ch:memory} takes up
+Stage 2, the episodic store: how a query is encoded, how the nearest past episode
+is found, and what an episode actually carries.

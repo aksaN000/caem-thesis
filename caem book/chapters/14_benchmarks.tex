@@ -1,0 +1,680 @@
+\chapter{Benchmarks, Baselines, and Metrics}
+\label{ch:benchmarks}
+
+The previous thirteen chapters built the machine and proved properties about it.
+This chapter does something different: it lays out the \emph{instruments} that
+measure whether the machine works. Three instruments, in order. The
+\textbf{benchmarks} decide what we ask the system. The \textbf{baselines} decide
+what we compare it against. The \textbf{metrics} decide how we score what comes
+back. \Cref{ch:trajectory} and \Cref{ch:ablations} will report what these
+instruments measured; this chapter is about the instruments themselves, because a
+result is only as trustworthy as the ruler that produced it.
+
+\begin{intuition}[Why a chapter on measurement]
+It is easy to make a hallucination-reduction system look good by choosing a
+favourable benchmark, a weak baseline, or a metric that rewards the behaviour the
+system happens to produce. \caem{} commits in advance to a fixed panel of
+benchmarks, a panel of eight baselines that each isolate one competing idea, and a
+metric suite that scores honesty and accuracy separately. The discipline is the
+point: every number in the next two chapters is produced by an instrument defined
+here, on data the system never trained on, under a protocol that is identical for
+\caem{} and for every baseline it is compared against.
+\end{intuition}
+
+\section{The benchmark panel}
+\label{sec:bench-panel}
+
+\caem{} is evaluated on a fixed panel of five question-answering benchmarks. They
+are not interchangeable: each stresses a different failure surface, and they are
+split into two roles that the whole continual-learning story depends on.
+
+\begin{intuition}[Training benchmarks and transfer benchmarks]
+A self-improving system has an obvious way to cheat: it can get better at exactly
+the tasks it trains on while quietly getting worse everywhere else. To catch this,
+the panel is split. Three benchmarks are \emph{training} benchmarks: the
+self-improvement loop is allowed to learn from their answers. Two are
+\emph{transfer} benchmarks: they are evaluated every cycle but the loop never
+trains on them, so they measure whether an improvement generalises or is just
+memorisation of the training distribution. A gain that shows up only on the
+training benchmarks is suspect; a gain that also shows up on the held-out transfer
+benchmarks is real.
+\end{intuition}
+
+\begin{table}[t]
+\centering
+\small
+\begin{tabular}{@{}llll@{}}
+\toprule
+\textbf{Benchmark} & \textbf{What it tests} & \textbf{Answer surface} & \textbf{Role} \\
+\midrule
+FEVER~\cite{thorne-etal-2018-fever}                 & factual claim verification    & supports / refutes / not enough info & training \\
+TriviaQA~\cite{joshi-etal-2017-triviaqa}            & open-text factoid recall      & free-text entity (many aliases)      & training \\
+CommonsenseQA~\cite{talmor-etal-2019-commonsenseqa} & everyday commonsense          & five-option multiple choice          & training \\
+TruthfulQA~\cite{lin-etal-2022-truthfulqa}          & common-misconception probing  & free-text answer                     & transfer \\
+StrategyQA~\cite{geva2021strategyqa}                & implicit multi-step reasoning & yes / no                             & transfer \\
+\bottomrule
+\end{tabular}
+\caption[The five-benchmark panel]{The evaluation panel. Three training benchmarks
+feed the self-improvement loop; two transfer benchmarks are held out to measure
+generalisation. All five are evaluated at every cycle.}
+\label{tab:benchmarks}
+\end{table}
+
+\begin{precise}[What each benchmark stresses]
+The five are chosen to span distinct surfaces so a single metric cannot be gamed.
+\emph{FEVER} is a fact-checking benchmark with a bounded three-label space; the
+answer is a verdict, not free text, so the failure mode is mislabelling.
+\emph{TriviaQA} is open-text factoid recall with many acceptable aliases per
+question, so the failure mode is fabrication of a plausible-but-wrong entity.
+\emph{CommonsenseQA} is a five-option multiple-choice benchmark on everyday
+reasoning with a bounded label space. \emph{TruthfulQA} is adversarial: its
+questions are written so that the most fluent answer is a common human
+misconception, so it specifically rewards a system that knows when not to commit.
+\emph{StrategyQA} asks yes/no questions whose reasoning chain is implicit and must
+be decomposed, stressing multi-step inference. The two transfer benchmarks
+(TruthfulQA, StrategyQA) are exactly the ones the loop never sees during training.
+\end{precise}
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[
+  font=\small\sffamily,
+  train/.style={rectangle, rounded corners=4pt, draw=cbExample!70!black, fill=cbExample!12,
+    line width=1pt, align=center, inner sep=4pt, text width=2.7cm, minimum height=1.0cm},
+  trans/.style={rectangle, rounded corners=4pt, draw=cbScenario!70!black, fill=cbScenario!12,
+    line width=1pt, align=center, inner sep=4pt, text width=2.7cm, minimum height=1.0cm},
+  loop/.style={rectangle, rounded corners=6pt, draw=cbFormula!70!black, fill=cbFormula!8,
+    line width=1.1pt, align=center, inner sep=5pt, text width=3.0cm, minimum height=1.0cm},
+  flow/.style={-{Stealth[length=2.4mm]}, line width=1pt, draw=cbInk!75},
+  held/.style={-{Stealth[length=2.4mm]}, line width=1pt, draw=cbScenario!75, dashed},
+]
+  \node[train] (fe) at (0,2.0) {FEVER\\{\footnotesize fact-checking}};
+  \node[train] (tq) at (0,0.7) {TriviaQA\\{\footnotesize open-text factoid}};
+  \node[train] (cq) at (0,-0.6) {CommonsenseQA\\{\footnotesize five-option MCQ}};
+  \node[trans] (tf) at (0,-2.1) {TruthfulQA\\{\footnotesize misconception probe}};
+  \node[trans] (sg) at (0,-3.4) {StrategyQA\\{\footnotesize implicit multi-step}};
+  \node[loop] (sil) at (5.4,1.0) {self-improvement\\loop\\{\footnotesize trains on answers}};
+  \node[loop, draw=cbInk!55, fill=cbInk!6] (ev) at (5.4,-2.0) {per-cycle\\evaluation\\{\footnotesize scores all five}};
+  \draw[flow] (fe.east) -- (sil.west);
+  \draw[flow] (tq.east) -- (sil.west);
+  \draw[flow] (cq.east) -- (sil.west);
+  \draw[held] (tf.east) to[bend right=8] (ev.west);
+  \draw[held] (sg.east) to[bend right=12] (ev.west);
+  \draw[flow] (fe.east) to[bend left=4] (ev.west);
+  \draw[flow] (tq.east) to[bend left=2] (ev.west);
+  \draw[flow] (cq.east) -- (ev.west);
+  \node[font=\scriptsize, text=cbScenario!70!black, align=center] at (5.4,-3.6)
+    {dashed: transfer benchmarks\\are never trained on};
+\end{tikzpicture}
+\caption[The training-versus-transfer split]{The panel split. The three training
+benchmarks (green) feed the self-improvement loop and are also evaluated; the two
+transfer benchmarks (orange) are evaluated every cycle but never enter training, so
+they measure generalisation rather than memorisation. (Schematic.)}
+\label{fig:panel}
+\end{figure}
+
+\subsection*{The panel was pruned for a principled reason}
+
+The five-benchmark panel is what survived a cold-start screening. Three further
+benchmarks were considered and removed before the main run, and the reason ties
+directly back to the data-purity theorem of \Cref{ch:theory}.
+
+\begin{bythenumbers}[Three benchmarks were removed, and why]
+The purity theorem requires the verifier to clear a balanced-accuracy floor on the
+claims a benchmark produces; below that floor, storing is worse than not storing. A
+cold-start screening measured this and rejected three benchmarks. A multi-hop
+benchmark's base correctness was about $0.09$, which demanded a verifier
+discrimination far beyond what any signal achieved, so its episodes were
+\emph{mathematically unstoreable}. An open-domain benchmark sat at about $0.16$ with
+a verifier balanced accuracy below one half on every calibration fold, a
+structural-failure benchmark. A four-option science benchmark was dropped as
+redundant with the five-option commonsense benchmark already in the panel. All three
+are kept on disk as registered exclusion evidence; none enters the active
+trajectory. The lesson is that the panel is not a convenience sample, it is the set
+of benchmarks on which the architecture's own precondition is met.
+\end{bythenumbers}
+
+\subsection*{Six disjoint pools, and why leakage would invalidate everything}
+
+Within each benchmark, every sample is assigned to exactly one of six pools, and the
+assignment is enforced to be leak-free. This is the single most important piece of
+evaluation hygiene in the whole project.
+
+\begin{precise}[The six pools]
+Each benchmark's samples are partitioned into six disjoint pools: a \emph{seed} pool
+that bootstraps the cold-start memory, a \emph{purity} pool that measures the
+storage precision, a \emph{calibration} pool on which the composite of
+\Cref{ch:composite} is fitted, per-cycle \emph{training} chunks that the
+self-improvement loop consumes (one disjoint chunk per cycle), an \emph{evaluation}
+pool that produces the per-cycle trajectory numbers, and a held-out \emph{test} pool
+reserved for the final generalisation table. A sample that appears in training or
+calibration must never reappear in evaluation or test, otherwise the reported
+accuracy and calibration would be inflated by memorisation rather than measuring
+generalisation. Transfer benchmarks populate only the evaluation and test pools;
+their training, seed, calibration, and purity pools are empty by construction.
+\end{precise}
+
+\begin{fromcode}[Content-hash deduplication and the leakage guards]
+Disjointness is guaranteed by a content hash, not by a dataset's native identifiers,
+because source datasets reuse question text under drifting identifiers across
+versions. Each sample's pool key is the first sixteen hexadecimal characters of a
+SHA-256 digest of its question text, so two questions with identical text collide
+into the same key regardless of how the dataset labelled them. Before any pool is
+used, an assertion flattens all six pools and raises an error if a single content key
+appears in more than one; a second assertion checks that no key appears in two
+different benchmarks. Any duplicate halts the run immediately. The
+deduplicate-then-slice order is what lets the evaluation and test numbers be read as
+generalisation rather than recall.
+\end{fromcode}
+
+\begin{bythenumbers}[Pool sizes in the realised run]
+In the realised trajectory each training benchmark allocated roughly one thousand
+seed candidates, five hundred calibration samples, five hundred purity samples, a
+per-cycle training chunk (two thousand for the two large benchmarks, seven hundred
+for the smaller commonsense benchmark), three hundred evaluation samples, and up to
+five hundred test samples. Each transfer benchmark allocated only its three hundred
+evaluation samples and its test samples. The headline figure to carry is the
+\emph{evaluation fold}: three hundred samples per benchmark across five benchmarks,
+so every cycle's trajectory number is computed over fifteen hundred held-out
+questions. The calibration fold that the composite is fitted on is a separate five
+hundred per training benchmark, fifteen hundred in total, and is disjoint from the
+evaluation fold.
+\end{bythenumbers}
+
+\subsection*{The retention probes}
+
+One more measurement surface deserves its own mention, because it is what the
+retention guard of \Cref{ch:cycle} reads. It is deliberately \emph{not} one of the
+five panel benchmarks.
+
+\begin{precise}[Three held-out probes, anchored once]
+The retention guard scores the fine-tuned model on three probes that span different
+abilities: a general-knowledge multiple-choice probe, a held-out open-text factoid
+probe, and a held-out commonsense multiple-choice probe, two hundred questions each.
+Their cold-start scores are anchored once, to about $0.61$, $0.395$, and $0.825$
+respectively, and that anchor is reused as the denominator for every later cycle. A
+cycle aborts if any probe's ratio against its anchor falls below the floor
+$\rhomin = 0.93$. The probes are held out from both training and the panel
+evaluation folds, so a high retention ratio cannot be bought by overfitting the
+panel. This is the multi-modal guard that fired at the fourth cycle of
+\Cref{ch:trajectory}, when the open-text factoid probe ratio fell to $0.886$.
+\end{precise}
+
+\section{The baselines: what we compare against}
+\label{sec:bench-baselines}
+
+A trajectory number in isolation means nothing. The question is always
+\emph{compared to what}. \caem{} answers this with a panel of eight baselines, and
+the panel is constructed so that each baseline isolates exactly one idea that a
+sceptic might propose as the \emph{real} source of any gain.
+
+\begin{intuition}[Each baseline removes one explanation]
+Suppose \caem{} reports a gain over a plain language model. A reviewer can offer many
+deflating explanations: maybe it is just the prompt, maybe just chain-of-thought,
+maybe just retrieval, maybe just fine-tuning. The baseline panel is built to answer
+each of these in turn. Every baseline runs on the \emph{same} frozen backbone as
+\caem{}, so no comparison is contaminated by a stronger model; each adds exactly one
+of the competing ingredients; and the gap between \caem{} and each baseline is the
+value of everything \caem{} adds beyond that ingredient. No single baseline combines
+all the ingredients, which is precisely the gap the architecture occupies.
+\end{intuition}
+
+\begin{table}[t]
+\centering
+\small
+\begin{tabular}{@{}llp{6.6cm}@{}}
+\toprule
+ & \textbf{Baseline} & \textbf{What it isolates} \\
+\midrule
+B1 & zero-shot               & the empirical floor: the bare backbone with the same answer format, no reasoning trigger, no retrieval, no memory, no verifier \\
+B2 & chain-of-thought        & the effect of a zero-shot reasoning trigger over the bare format~\cite{wei2022chain} \\
+B3 & retrieval-augmented     & unconditional grounding: every query retrieves, no router, no verifier~\cite{karpukhin-etal-2020-dense} \\
+B4 & reasoning $+$ retrieval & a reasoning trigger layered on top of retrieval \\
+B5 & five-shot reasoning     & in-context demonstrations instead of fine-tuning~\cite{wei2022chain} \\
+B6 & vanilla fine-tuning     & plain supervised fine-tuning with no retention guard, no memory, no verifier \\
+B7 & active retrieval        & look-ahead-triggered retrieval during generation~\cite{jiang-etal-2023-active} \\
+B8 & semantic-entropy        & sampling-uncertainty abstention from a single model family~\cite{farquhar2024semantic} \\
+\bottomrule
+\end{tabular}
+\caption[The eight-baseline panel]{Each baseline runs on the same frozen backbone as
+\caem{} and isolates one competing explanation for a gain. B1 is the floor; B3 and B7
+isolate retrieval; B6 isolates training-time learning; B8 isolates sampling-based
+abstention.}
+\label{tab:baselines}
+\end{table}
+
+\begin{precise}[The matched protocol]
+The comparison is fair only if every system is scored under identical conditions, so
+three things are pinned. First, the \emph{backbone}: every baseline uses the same
+frozen three-billion-parameter instruction model \caem{} uses, so a gain is never
+attributable to a bigger model. Second, the \emph{evaluation fold}: baselines are
+scored on the byte-identical, content-hash-matched evaluation samples \caem{} saw,
+produced by the same seeded split. Third, the \emph{answer format}: every baseline
+emits its answer through the same reasoning-then-answer scaffold \caem{} uses, so the
+answer extractor reads the same shape from all systems. With these pinned, any
+difference in score is attributable to mechanism, not to setup.
+\end{precise}
+
+\begin{pitfall}[The format floor: why ``raw'' exact match lies]
+An earlier protocol let the generation-only baselines emit bare prose with no
+explicit answer line. The answer extractor then found nothing to extract, and strict
+exact match read close to zero \emph{even when the prose contained the correct
+answer}. On the open-text factoid benchmark the bare zero-shot model was right in its
+prose about fifty-nine percent of the time yet scored near zero on extracted exact
+match. The fix is the matched protocol above: every baseline is required to commit to
+an explicit answer line under the same instruction \caem{} follows, so its exact
+match reflects what it knew rather than how it happened to format the output. The
+book reports the matched-protocol numbers throughout, because a baseline made
+artificially weak is as dishonest as a system made artificially strong.
+\end{pitfall}
+
+\begin{fromcode}[Scoring the baselines through the same verifier]
+A baseline owns no verifier, so on its own it produces no hallucination signals and
+no calibrated trust score. To place every system on the same honesty axis, each
+baseline's question-and-answer pairs are replayed through the \emph{locked} \caem{}
+verifier and composite, which recomputes the grounding, entailment, relevance, and
+consistency signals and the four-outcome decision for that answer. The same locked
+instrument scores \caem{} and every baseline, so any difference in the hallucination
+metric is a property of the generator's output, not of a different ruler. This is the
+standard practice for cross-system hallucination comparison: fix the judge, vary the
+system under test.
+\end{fromcode}
+
+\begin{defence}[If an examiner asks: ``how much of the gain is just retrieval?'']
+This is exactly what the panel is designed to answer, and the answer is built into
+its structure. The contrast against the zero-shot floor (B1) isolates the joint
+contribution of routing, verification, memory, and self-improvement together. The
+contrast against unconditional retrieval (B3) isolates what the architecture adds
+\emph{beyond} grounding every query. The contrast against vanilla fine-tuning (B6)
+isolates what the deployment-time machinery adds beyond training-time learning. And
+the difference between the B1 contrast and the B6 contrast decomposes the gain
+between deployment-time mechanisms and training-time mechanisms. No reviewer can
+attribute the result to retrieval alone, because B3 and B4 already hold retrieval
+fixed; the remaining gap is everything else.
+\end{defence}
+
+\section{The metrics}
+\label{sec:bench-metrics}
+
+The final instrument is the scorer. \caem{} reports a small suite of metrics, and the
+central design decision is that \emph{accuracy and honesty are scored on separate
+axes}. A system can be more accurate, or more honest, or both, and conflating the two
+is how the field has historically rewarded confident wrongness.
+
+\subsection*{Exact match and token overlap}
+
+\begin{precise}[Exact match, per task family]
+Exact match is the headline accuracy axis and the basis for every paired comparison.
+It is computed per task family after a shared normalisation that lowercases, strips
+punctuation, removes the articles \emph{a}, \emph{an}, and \emph{the}, and collapses
+whitespace, matching the standard convention. On the fact-checking benchmark it is
+label-exact over the three verdicts; on the open-text factoid benchmark it is a match
+against any of the gold aliases, with token-level overlap reported alongside for
+partial credit; on the two multiple-choice and yes/no benchmarks it is label-exact.
+The extractor reads the final answer out of the reasoning-then-answer scaffold before
+scoring, so a correct answer that follows its reasoning is still counted.
+\end{precise}
+
+\begin{lstlisting}[caption={Exact match and answer extraction, condensed from \texttt{eval/metrics.py}.}, label={lst:em}]
+def normalise(text):                       # SQuAD / TriviaQA convention
+    text = text.lower().translate(PUNCT_TABLE)
+    return " ".join(t for t in text.split() if t not in {"a", "an", "the"})
+
+def extract_cot_answer(text):              # pull the answer out of the scaffold
+    if "Answer:" in text:
+        return text.split("Answer:")[-1].strip()
+    m = search(r"the answer is[:\s]+(.+?)(?:[.!?]|$)", text)   # natural-language CoT
+    return m.group(1).strip() if m else text.strip()
+
+def exact_match(prediction, gold):
+    return float(normalise(prediction) == normalise(gold))
+\end{lstlisting}
+
+\begin{pitfall}[The misconception benchmark needs a language-model judge]
+On the misconception benchmark, surface-overlap scoring is actively misleading. The
+benchmark provides reference answers, and a token-overlap score rewards an answer for
+echoing the misconception's wording even when it asserts the false belief. A bare
+model that fluently restates the common misconception can therefore score high on
+overlap while being exactly wrong. For this benchmark the book uses a language-model
+judge that reads the question and answer and rules on truthfulness, not token
+overlap. The judged correctness is far lower, and far more honest, than the overlap
+score: the same answers an overlap metric scores around $0.80$ are judged correct
+only around $0.43$. Wherever the misconception benchmark's accuracy appears in this
+book, it is the judged value, never the overlap value.
+\end{pitfall}
+
+\subsection*{The composite hallucination metric}
+
+Accuracy says whether the answer was right. It says nothing about \emph{how} the
+system failed when it was wrong. The composite hallucination metric is the honesty
+axis, and it is a structured decomposition rather than a single rate.
+
+\begin{precise}[Eight failure modes, equally weighted]
+The composite hallucination metric is the equal-weighted mean over an eight-axis
+failure-mode taxonomy. The eight axes are: confident confabulation (wrong while the
+calibrated trust score is at least one half), factual fabrication (wrong while the
+weakest atomic fact is ungrounded), logical fabrication (wrong while the reasoning
+does not entail the answer), off-topic answering (wrong while the answer is
+irrelevant to the question), defensive evasion (wrong while emitting a stock
+``cannot determine'' phrase), template leakage (a placeholder string leaked from the
+prompt), false refusal (the answer was actually correct yet the system abstained or
+discarded it), and length-padded over-generation (wrong while the answer is
+implausibly long). A ninth axis, factual contradiction, is part of the taxonomy but
+excluded from the default denominator, because the deployed natural-language
+inference judge produces no contradiction class and the corresponding rate is
+structurally zero. The subtypes overlap deliberately, so the metric is a mean
+prevalence across failure modes, not the fraction of samples with any failure.
+\end{precise}
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[
+  font=\footnotesize\sffamily,
+  ax/.style={rectangle, rounded corners=3pt, draw=cbPitfall!65!black, fill=cbPitfall!10,
+    line width=0.8pt, align=center, inner sep=3pt, text width=2.7cm, minimum height=0.85cm},
+  hub/.style={circle, draw=cbFormula!70!black, fill=cbFormula!10, line width=1.1pt,
+    align=center, inner sep=2pt, text width=1.7cm, font=\scriptsize},
+]
+  \node[hub] (h) at (0,0) {CHM\\{\scriptsize mean of 8}};
+  \node[ax] (a1) at (-4.6,2.3) {confident\\confabulation};
+  \node[ax] (a2) at (-1.55,2.7) {factual\\fabrication};
+  \node[ax] (a3) at (1.55,2.7) {logical\\fabrication};
+  \node[ax] (a4) at (4.6,2.3) {off-topic\\answering};
+  \node[ax] (a5) at (-4.6,-2.3) {defensive\\evasion};
+  \node[ax] (a6) at (-1.55,-2.7) {template\\leakage};
+  \node[ax] (a7) at (1.55,-2.7) {false\\refusal};
+  \node[ax] (a8) at (4.6,-2.3) {length-padded\\over-generation};
+  \foreach \a in {a1,a2,a3,a4,a5,a6,a7,a8}{\draw[cbInk!45, line width=0.7pt] (h) -- (\a);}
+\end{tikzpicture}
+\caption[The hallucination taxonomy]{The composite hallucination metric is the
+equal-weighted mean of eight measured failure-mode rates. Each axis is a distinct way
+to be wrong; weighting them equally avoids privileging one definition of
+hallucination over another. A ninth axis (factual contradiction) is in the taxonomy
+but is structurally zero under the deployed judge and excluded from the denominator.
+(Schematic.)}
+\label{fig:chm-axes}
+\end{figure}
+
+\begin{lstlisting}[caption={The composite hallucination metric, condensed from \texttt{eval/metrics.py}.}, label={lst:chm}]
+SUBTYPES = ["confident_confabulation", "factual_fabrication",   # 8 measured axes
+            "logical_fabrication", "off_topic", "defensive_evasion",
+            "template_leak", "false_refusal", "over_long"]       # contradiction excluded
+
+def chm(samples):
+    rates = hallucination_subtypes(samples)        # one prevalence per axis
+    return sum(rates[s] for s in SUBTYPES) / len(SUBTYPES)   # equal-weighted mean
+\end{lstlisting}
+
+\begin{workedexample}[A confident confabulation scores on one axis]
+Take a wrong answer the system nonetheless stored, with a calibrated trust score of
+$0.62$. It is incorrect and its trust is above one half, so it fires the confident
+confabulation axis, the costliest failure: the model was wrong and apparently sure.
+If its weakest atomic fact were also ungrounded it would additionally fire factual
+fabrication, and a single bad answer can light up several axes at once. The metric
+counts each axis's prevalence across the fold and averages the eight, so a system
+that trades confident confabulations for honest abstentions lowers one axis without
+inflating the others, and its composite falls. That is exactly the trade the gate of
+\Cref{ch:composite} is built to make.
+\end{workedexample}
+
+\subsection*{The composite evaluation score}
+
+The accuracy axis and the honesty axis can move in opposite directions, and so can
+calibration and retention. A single headline scalar is useful only if it refuses to
+let one strong axis hide a collapsed one.
+
+\begin{precise}[A geometric mean of five axes]
+The composite evaluation score is the geometric mean of five axes, each in the unit
+interval with one as best: accuracy (pooled exact match), epistemic quality (one
+minus the composite hallucination metric), retention (the worst of the three probe
+ratios, capped at one), calibration (one minus twice the calibration error, floored
+at zero), and verifier reliability (the verifier's balanced accuracy rescaled so
+chance maps to zero). The mean is geometric, not arithmetic, on purpose: a near-zero
+axis drags the whole score down, so a system cannot buy a good headline by excelling
+on four axes while catastrophically forgetting on the fifth. Each axis is clamped
+just above zero so a single uncomputed axis cannot zero the score outright. The score
+is a visualisation and headline tool only; the book always reports the five component
+axes beside it so the reader can reconstruct it.
+\end{precise}
+
+\begin{lstlisting}[caption={The composite evaluation score, condensed from \texttt{eval/metrics.py}.}, label={lst:ces}]
+def ces_score(acc, epi, ret, cal, ver, eps=0.01):   # five orthogonal axes in [0,1]
+    axes = [min(max(a, eps), 1.0) for a in (acc, epi, ret, cal, ver)]
+    prod = 1.0
+    for a in axes:
+        prod *= a
+    return prod ** (1.0 / len(axes))                 # geometric mean: any collapse hurts
+\end{lstlisting}
+
+\begin{pitfall}[Two conventions for the score, do not conflate them]
+The five-axis score is fully defined only for a cyclic, calibrated, verifier-gated
+system: retention, calibration, and verifier reliability are not properties a
+single-pass baseline even has. So there are two conventions. The
+\emph{system-internal} convention reports the full five-axis mean for \caem{} across
+cycles, and is the one to read as the headline. A \emph{cross-system} convention
+compares \caem{} and the baselines on only the two shared axes, accuracy and
+epistemic quality, and defaults the other three to one for the baselines purely so
+the arithmetic runs. Under that second convention a baseline can show a higher number
+than \caem{}, but only because three of its axes were set to one by fiat rather than
+measured. That is a bookkeeping artefact, never a finding; the baselines were not
+measured on retention, calibration, or verifier reliability because they do not
+implement them.
+\end{pitfall}
+
+\subsection*{Significance, and the rule for licensing a claim}
+
+\begin{precise}[Paired tests, corrected across the panel]
+Because every system is scored on the identical evaluation samples, the comparisons
+are paired, and paired tests are used throughout. On the exact-match axis the test is
+McNemar's test with a continuity correction, the maximum-likelihood test for matched
+binary outcomes~\cite{mcnemar1947note}. On the hallucination axis, which is
+continuous, the test is the paired Wilcoxon signed-rank test. Both report a
+bias-corrected bootstrap ninety-five percent interval on the delta beside the
+p-value, because a p-value alone does not convey effect size. Within each benchmark
+the eight baseline contrasts are corrected for multiple comparisons by the Holm
+procedure~\cite{holm1979simple}, which controls the family-wise error rate at higher
+power than a plain Bonferroni correction.
+\end{precise}
+
+\begin{intuition}[When a claim is allowed to be called supported]
+A single significant p-value is not enough to license an architectural claim, because
+with enough samples a trivially small difference becomes significant. The book uses a
+conjunction: a contrast counts as supporting only if its Holm-corrected p-value is
+below five percent \emph{and} the bootstrap interval on the exact-match delta lies
+entirely above two percentage points. Meeting one of the two is partial support;
+meeting neither is unsupported. This pre-registered rule is what separates a result
+worth building an architecture on from a statistical curiosity.
+\end{intuition}
+
+\subsection*{The decision distribution and the abstention lens}
+
+\begin{precise}[Four outcomes, and what abstention buys]
+Because \caem{} can decline to answer, accuracy alone misreads it. The four-outcome
+decision distribution (store, defer, discard, abstain) is reported alongside
+accuracy, and the per-outcome accuracy is strictly ordered: stored answers are the
+most accurate, abstentions the least, with defer and discard between. The honest
+reading of the misconception benchmark depends on this. A bare model is not licensed
+to abstain, so it answers every adversarial question and pays the price in confident
+wrongness; \caem{} abstains on roughly a quarter to a third of those questions. Its
+strict exact match therefore looks lower, while its hallucination metric on the same
+benchmark falls: the answer set is becoming more honest even as the strict-correctness
+rate declines. Exact match is the wrong lens for honesty, which is precisely why the
+book reports the honesty axis separately.
+\end{precise}
+
+\section{Reading the panel: what good looks like}
+\label{sec:bench-reading}
+
+The full trajectory is the subject of \Cref{ch:trajectory} and the ablations are the
+subject of \Cref{ch:ablations}. But the instruments are easier to trust once we have
+seen them produce a headline, so this section reads one real comparison end to end.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+  name=emax, width=12.2cm, height=4.5cm,
+  ybar, bar width=7pt,
+  symbolic x coords={zero-shot, CoT, RAG, CoT-RAG, five-shot, vanilla-FT, active-ret, sem-entropy, CAEM-C5},
+  xtick=data, x tick label style={font=\scriptsize, rotate=28, anchor=east},
+  ymin=0.38, ymax=0.58, ylabel={pooled EM}, ytick={0.4,0.45,0.5,0.55},
+  font=\small\sffamily, tick label style={font=\scriptsize},
+  ymajorgrids, grid style={cbInk!8}, nodes near coords,
+  nodes near coords style={font=\tiny, /pgf/number format/fixed, /pgf/number format/precision=3},
+]
+  \addplot[draw=cbInk!55, fill=cbInk!12] coordinates {
+    (zero-shot,0.507) (CoT,0.500) (RAG,0.458) (CoT-RAG,0.464) (five-shot,0.405)
+    (vanilla-FT,0.490) (active-ret,0.525) (sem-entropy,0.505) };
+  \addplot[draw=cbExample!70!black, fill=cbExample!30] coordinates { (CAEM-C5,0.517) };
+\end{axis}
+\begin{axis}[
+  name=chmax, width=12.2cm, height=4.5cm, at={(emax.south)}, yshift=-1.7cm, anchor=north,
+  ybar, bar width=7pt,
+  symbolic x coords={zero-shot, CoT, RAG, CoT-RAG, five-shot, vanilla-FT, active-ret, sem-entropy, CAEM-C5},
+  xtick=data, x tick label style={font=\scriptsize, rotate=28, anchor=east},
+  ymin=0.09, ymax=0.19, ylabel={pooled CHM (lower better)}, ytick={0.10,0.13,0.16,0.19},
+  font=\small\sffamily, tick label style={font=\scriptsize},
+  ymajorgrids, grid style={cbInk!8}, nodes near coords,
+  nodes near coords style={font=\tiny, /pgf/number format/fixed, /pgf/number format/precision=3},
+]
+  \addplot[draw=cbPitfall!60!black, fill=cbPitfall!20] coordinates {
+    (zero-shot,0.120) (CoT,0.123) (RAG,0.148) (CoT-RAG,0.142) (five-shot,0.136)
+    (vanilla-FT,0.127) (active-ret,0.173) (sem-entropy,0.120) };
+  \addplot[draw=cbExample!70!black, fill=cbExample!30] coordinates { (CAEM-C5,0.109) };
+\end{axis}
+\end{tikzpicture}
+\caption[The deployed baseline panel]{The actual deployed comparison at the final
+cycle. Top: pooled exact match across the five-benchmark fold; \caem{} sits in the
+upper band, at parity with the strongest baseline (active retrieval edges it by under
+one point). Bottom: pooled composite hallucination metric, where \caem{} is the
+lowest (most honest) of every system, beating active retrieval by about thirty-seven
+percent relative. The headline is read on both axes at once: accuracy parity with the
+best baseline, and a clear honesty win over all of them.}
+\label{fig:baseline-bars}
+\end{figure}
+
+\begin{bythenumbers}[The headline, on two axes]
+At the final cycle \caem{} reaches a pooled exact match of $0.517$ and a pooled
+hallucination metric of $0.109$ over the five-benchmark fold. Of the eight baselines,
+the best on accuracy is active retrieval at $0.525$, edging \caem{} by under one
+point, but its hallucination metric is $0.173$, the worst of any system. \caem{} is
+the lowest on the hallucination axis of every system measured. At its best cycle the
+accuracy reads $0.544$, ahead of all eight. The honest verdict is therefore precise:
+accuracy at parity with the strongest baseline, and a decisive, statistically
+significant advantage on confident wrongness, which is the quantity the architecture
+was built to reduce.
+\end{bythenumbers}
+
+\subsection*{Decomposing the gain}
+
+A single \caem{}-versus-floor number bundles two very different contributions: what
+the architecture buys before any training, and what the self-improvement loop adds on
+top. The book separates them with a three-way decomposition, because they answer
+different questions.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+  width=12.0cm, height=5.2cm, ybar, bar width=11pt,
+  symbolic x coords={architecture, self-improvement, full},
+  xtick=data, x tick label style={font=\small},
+  ymin=-3, ymax=11, ylabel={pooled EM change (percentage points)},
+  font=\small\sffamily, tick label style={font=\scriptsize},
+  legend style={at={(0.97,0.97)}, anchor=north east, font=\scriptsize, draw=cbInk!25},
+  ymajorgrids, grid style={cbInk!8},
+  nodes near coords, nodes near coords style={font=\tiny, /pgf/number format/fixed, /pgf/number format/precision=1},
+]
+  \addplot[draw=cbScenario!70!black, fill=cbScenario!22] coordinates {
+    (architecture,3.4) (self-improvement,-0.9) (full,2.5) };
+  \addplot[draw=cbExample!70!black, fill=cbExample!28] coordinates {
+    (architecture,8.8) (self-improvement,-0.1) (full,8.7) };
+  \legend{five-benchmark panel, three training benchmarks}
+  \draw[cbInk!50, dashed] (axis cs:architecture,0) -- (axis cs:full,0);
+\end{axis}
+\end{tikzpicture}
+\caption[Where the accuracy gain comes from]{The actual three-way decomposition of
+the exact-match gain over the zero-shot floor. ``Architecture'' is the cold-start
+contrast (three tiers, verifier, and routing, before any fine-tuning);
+``self-improvement'' is the slice the cyclic loop adds; ``full'' is the two combined.
+On the five-benchmark panel almost all the accuracy gain is architectural and the
+self-improvement slice is roughly flat, because the loop's value is on the honesty
+axis instead, which \Cref{fig:chm-decomp} decomposes on the same three contrasts. On
+the three training benchmarks the architectural gain is much larger (about nine
+points).}
+\label{fig:headline-decomp}
+\end{figure}
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+  width=12.0cm, height=5.2cm, ybar, bar width=11pt,
+  symbolic x coords={architecture, self-improvement, full},
+  xtick=data, x tick label style={font=\small},
+  ymin=-4, ymax=2.5, ylabel={pooled CHM change (percentage points)},
+  font=\small\sffamily, tick label style={font=\scriptsize},
+  legend style={at={(0.97,0.04)}, anchor=south east, font=\scriptsize, draw=cbInk!25},
+  ymajorgrids, grid style={cbInk!8},
+  nodes near coords, nodes near coords style={font=\tiny, /pgf/number format/fixed, /pgf/number format/precision=1},
+]
+  \addplot[draw=cbScenario!70!black, fill=cbScenario!22] coordinates {
+    (architecture,1.5) (self-improvement,-2.0) (full,-0.5) };
+  \addplot[draw=cbExample!70!black, fill=cbExample!28] coordinates {
+    (architecture,-1.9) (self-improvement,-1.5) (full,-3.4) };
+  \legend{five-benchmark panel, three training benchmarks}
+  \draw[cbInk!50, dashed] (axis cs:architecture,0) -- (axis cs:full,0);
+\end{axis}
+\end{tikzpicture}
+\caption[Where the honesty gain comes from]{The actual three-way decomposition of the
+composite hallucination metric over the zero-shot floor, the honesty companion to
+\Cref{fig:headline-decomp}; \textbf{lower is better, so a bar below the dashed line is
+an improvement}. The contrasts are the same: architecture is the cold-start step, then
+the self-improvement slice, then the two combined. The reading is the mirror image of
+the accuracy figure. On the full five-benchmark panel the architecture step
+\emph{raises} the hallucination metric slightly (a bar above the line), because
+cold-start retrieval amplifies the adversarial misconception benchmark, and the
+self-improvement step is what pulls it back down. On the three training benchmarks
+both steps lower it and the combined reduction is about three and a half points (close
+to a quarter relative). Where the accuracy figure showed the architecture doing the
+work and the loop flat, this figure shows the loop doing the honesty work.}
+\label{fig:chm-decomp}
+\end{figure}
+
+\begin{precise}[Architecture, self-improvement, and the honesty story]
+The decomposition reads off three contrasts. The architecture contrast (the
+zero-shot floor against cold-start \caem{}, before any training) lifts pooled exact
+match by about three and a half points on the full panel and nearly nine points on
+the training benchmarks: the three tiers, the verifier, and the router account for
+most of the headline accuracy gain on their own. The self-improvement contrast
+(cold-start \caem{} against the third cycle, architecture held fixed) is roughly flat
+on exact match. This is not a disappointment, it is the expected result, because the
+loop's job is honesty, not raw accuracy, and \Cref{fig:chm-decomp} shows this
+directly. On the full panel the architecture step actually \emph{raises} the pooled
+hallucination metric slightly, from $0.120$ to $0.135$, because cold-start retrieval
+amplifies the adversarial misconception benchmark; the self-improvement step is what
+pulls it back, from $0.135$ to $0.115$, about fifteen percent. On the three training
+benchmarks both steps reduce it, and the combined drop is about a quarter. The loop
+folds retrieval-found knowledge into the model and trims confident wrongness; it was
+never
+going to move strict exact match much, and the metric suite is designed to show that
+distinction rather than hide it.
+\end{precise}
+
+\begin{defence}[If an examiner asks: ``so the loop barely helps accuracy?'']
+Correct, and the book says so plainly rather than burying it. The self-improvement
+loop is close to flat on pooled exact match, and that is the honest reading of the
+decomposition. Its contribution is on the honesty axis: about a fifteen percent
+reduction in the hallucination metric across the same cycles on the full panel, close
+to a quarter on the training benchmarks, a growing share of
+queries answered cheaply from the zero-shot tier as knowledge is distilled into the
+weights, and a memory that survives every retention-guarded rollback. Reporting a
+flat accuracy slice next to a real honesty gain is exactly the separation of axes
+this chapter argued for. A metric suite that reported only accuracy would have called
+the loop worthless; the suite the book uses shows what it actually bought.
+\end{defence}
+
+With the instruments defined, we can now read what they measured. \Cref{ch:trajectory}
+walks the realised six-cycle trajectory benchmark by benchmark and cycle by cycle, and
+\Cref{ch:ablations} removes one architectural piece at a time to price each component
+against the panel and metrics established here.

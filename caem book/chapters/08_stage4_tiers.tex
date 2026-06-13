@@ -1,0 +1,257 @@
+\chapter{Stage 4: Tier Execution}
+\label{ch:tiers}
+
+The router has chosen a tier. Stage 4 is where that choice is finally carried out
+and an actual answer appears. There are three ways to produce one, and they differ
+enormously in cost: read a verified answer straight from memory, generate one from
+the model's own knowledge, or retrieve evidence and generate a grounded answer.
+This chapter walks all three, the shared reasoning format they obey, and the small
+escalation valve that connects the two generating tiers.
+
+\begin{intuition}[Three ways to answer, in rising order of effort]
+Faced with a question, a careful person has three moves. If they have answered it
+before and remember the answer, they just say it. If they know the area well, they
+reason it out from what they already know. And if they are unsure, they look it up
+first and then reason from the source. The three tiers are exactly these moves,
+made mechanical. The router picked the cheapest move it judged safe; Stage 4
+performs it.
+\end{intuition}
+
+\section{The shared contract: scaffolded chain of thought}
+\label{sec:tiers-contract}
+
+Before the tiers themselves, one convention they share. Both generating tiers, and
+the stored episodes that the memory tier serves, follow the same answer format: a
+\emph{Reasoning} section followed by a single \emph{Answer} line. This is scaffolded
+chain-of-thought~\cite{wei2022chain}, and the uniformity is deliberate and
+load-bearing.
+
+\begin{intuition}[Why force the same shape everywhere]
+The verifier of \Cref{ch:verifier} reads every answer the same way: it looks for an
+explicit chain of reasoning and a cleanly extractable final answer. If a fact-checking
+claim, a trivia question, and a multiple-choice item each came back in a different
+shape, the verifier would be comparing apples to oranges, and its signals would mean
+different things on different benchmarks. Forcing one shape everywhere gives the
+verifier a uniform surface to score, which is precisely what lets a single set of
+calibrated thresholds govern all five benchmarks. The reasoning scaffold is not just
+for the model's benefit; it is the contract the rest of the pipeline reads against.
+\end{intuition}
+
+The model is steered into this shape two ways. A system instruction states the format
+explicitly and makes the Answer line mandatory, and the generation is \emph{prefilled}
+with the literal token ``Reasoning:'' so the model begins inside the scaffold rather
+than deciding whether to use it. A representative prompt skeleton, with the
+retrieval block that only Tier 3 adds, looks like this.
+
+\begin{lstlisting}[language={}, caption={The scaffolded-CoT prompt skeleton shared by Tiers 2 and 3 (Tier 3 adds the Context block).}, label={lst:prompt}]
+<|im_start|>system
+Answer with a Reasoning section, then an Answer line. The Answer line is mandatory.
+Reasoning: <concise step-by-step thought, 3-4 sentences>
+Answer: <final answer in the specified format><|im_end|>
+<|im_start|>user
+Context:                       # <-- Tier 3 only
+[1] <retrieved passage 1>      #     top-5 passages, numbered
+...
+[5] <retrieved passage 5>
+Question: <the query><|im_end|>
+<|im_start|>assistant
+Reasoning:                     # <-- forced prefix (prefill); the model continues here
+\end{lstlisting}
+
+\begin{pitfall}[The mandatory Answer line is a hard-won fix]
+An earlier version of the instruction left the Answer line optional, and the cold-start
+audit found that on between forty-three and fifty-three percent of samples the model
+emitted only a Reasoning section and never reached an Answer line, so the user-facing
+result was empty. The silent cost was worse than it first appeared: on the fact-checking
+benchmark, about a third of those empty results in fact carried reasoning whose conclusion
+already matched the gold verdict, so they were correct answers discarded for a structural
+reason rather than a semantic one. The current instruction makes the
+Answer line explicitly mandatory and caps the reasoning length so the model reliably
+reaches it. The lesson generalises: when a downstream component depends on a
+structural feature of the output, that feature has to be demanded in the prompt, not
+hoped for. The format is steered further by short per-benchmark worked examples and an
+answer-format specification, so a fact-check returns a verdict word, a yes-no question
+returns yes or no, and a multiple-choice item returns a single option letter.
+\end{pitfall}
+
+\section{Tier 1: serve from memory}
+\label{sec:tiers-tier1}
+
+The cheapest tier is barely a computation at all. When the router commits to Tier 1,
+the matched episode already holds a verified answer and its trust score, so the tier
+reads them straight off the entry and returns. There is no generation and, crucially,
+no verification.
+
+\begin{lstlisting}[caption={Tier 1, in full, from \texttt{caem/pipeline.py}.}, label={lst:tier1}]
+def _tier1(self, search_with_ids):
+    entry, entry_id, similarity = search_with_ids[0]
+    return entry.answer, entry.u_stored      # stored answer + its trust score; no model call
+\end{lstlisting}
+
+\begin{precise}[Why Tier 1 may skip the verifier]
+Skipping verification looks dangerous until we recall what a Tier 1 hit means. The
+episode was admitted to memory only because it passed the four-outcome gate of
+\Cref{ch:composite} on some earlier cycle, so its answer was \emph{already judged
+trustworthy}, and its trust score was written into the entry at that time. Re-running
+the nine-signal verifier now would re-derive a verdict the system already holds. So
+Tier 1 reads the stored verdict instead of recomputing it, returning in the time of a
+single index lookup with no generation, which makes it by construction far cheaper than
+the generating tiers; the production design's qualitative target is sub-second serving
+rather than a measured per-tier latency, since the batched evaluation logs cannot be
+decomposed into a per-tier figure. The cost of judging a fact is paid once, on
+the cycle it entered memory, not on every later query that matches it.
+\end{precise}
+
+A Tier 1 serve does leave one trace: it updates the episode's usage statistics, the
+retrieval count and running success rate of \Cref{sec:memory-feedback}, so that a
+heavily served episode's standing can drift with experience and so that a popular
+episode is flagged for re-checking. Reading the answer is free; recording that it was
+read is the only bookkeeping.
+
+\section{Tier 2: zero-shot generation}
+\label{sec:tiers-tier2}
+
+When the router judges the query familiar enough to generate but has no servable
+stored answer, it picks Tier 2. The model generates an answer from its own parameters,
+conditioned only on the query, with no retrieved evidence. This is where the
+self-improvement loop's gains show up at inference time: a query that needed retrieval
+in an early cycle can be answered zero-shot once the loop has folded that knowledge into
+the adapter. Across the deployed trajectory the zero-shot tier answered its own assigned
+queries at least as accurately as the more expensive retrieval tier answered its assigned
+queries, with its exact match holding near or above that of the retrieval tier in every
+cycle (about $0.57$ by the third cycle against about $0.48$ for the retrieval tier at the
+cold start). This is a per-tier-on-assigned-queries comparison, not a claim that retrieval
+is globally inferior, and it is precisely the inference-time signature one expects when the
+loop has folded retrieval-found knowledge into the model's own parameters.
+
+\begin{lstlisting}[caption={Tier 2 generation, condensed from \texttt{caem/pipeline.py}.}, label={lst:tier2}]
+prompt_text, forced_prefix = build_tier2_prompt(query, tokenizer)   # scaffolded ChatML
+full_input = prompt_text + forced_prefix                            # prefill "Reasoning:"
+
+output_ids = model.generate(input_ids, max_new_tokens=512,          # cot_max_new_tokens
+                            do_sample=False)                        # greedy, reproducible
+continuation = tokenizer.decode(output_ids[0, input_len:])          # only the new tokens
+answer_str = f"{forced_prefix}{continuation}"                       # re-attach "Reasoning:"
+\end{lstlisting}
+
+Three details are worth drawing out. The generation is \emph{greedy}, so the same query
+under the same weights yields the same answer, which keeps the whole pipeline
+reproducible. Only the newly generated continuation is decoded, and the forced prefix is
+re-attached, so the returned string always begins with ``Reasoning:'' and satisfies the
+scaffold contract. And the generation budget is capped at five hundred and twelve new
+tokens, enough headroom for a few-shot example, a short reasoning section, and the Answer
+line. The result is then handed to the verifier of \Cref{ch:verifier}; unlike Tier 1, a
+fresh Tier 2 answer has never been judged, so it must be.
+
+\section{Tier 3: retrieval-augmented generation}
+\label{sec:tiers-tier3}
+
+The most expensive tier retrieves evidence before generating. It is the architectural
+floor, the path the router falls back to whenever the cheaper tiers cannot earn the
+query, and the path the classifier of \Cref{ch:ruc} reserves for questions where
+grounding genuinely helps.
+
+\begin{fromcode}[The passage store]
+Tier 3 retrieves from a read-only store of roughly twenty-one million Wikipedia
+passages, each a hundred-word chunk in the dense-passage-retrieval
+style~\cite{karpukhin-etal-2020-dense}. The passages are embedded with the \emph{same}
+sentence encoder used for episodic memory (\Cref{sec:prereq-embeddings}), so queries,
+stored episodes, and corpus passages all live in one $768$-dimensional space. The index
+is the approximate inverted-file product-quantised structure of \Cref{sec:prereq-faiss},
+sized for the corpus, and it is memory-mapped from disk so that the sixty-four-gigabyte
+body stays on disk and only the active cells are paged in. Retrieval uses the high-recall
+probe setting, scanning four times as many index cells as the cheap memory-hit
+confirmation lookups elsewhere in the system (sixty-four probed cells against sixteen),
+because on a Tier 3 query recall matters more than the last millisecond of latency.
+\end{fromcode}
+
+The generation itself mirrors Tier 2, with one addition: the top five retrieved passages
+are formatted into a numbered Context block above the question, as in the skeleton of
+\Cref{lst:prompt}. The retrieve-then-read structure is the standard
+retrieval-augmented-generation recipe~\cite{NEURIPS2020_6b493230}, and the model is asked
+to reason from the supplied passages rather than from memory alone.
+
+\begin{lstlisting}[caption={Tier 3 retrieve-then-generate, condensed from \texttt{caem/retrieval/rag.py}.}, label={lst:tier3}]
+passages = self._retrieve(query, k=5)                       # top-5 from the 21M-passage index
+prompt_text, forced_prefix = build_tier3_prompt(query, passages, tokenizer)  # adds Context block
+output_ids = model.generate(input_ids, max_new_tokens=512, do_sample=False)  # greedy, grounded
+answer = f"{forced_prefix}{tokenizer.decode(output_ids[0, input_len:])}"      # scaffold contract
+\end{lstlisting}
+
+Like a Tier 2 answer, a Tier 3 answer is fresh and unjudged, so it passes through the
+verifier and the gate, and a Tier 3 answer that verifies well is stored as a new episode,
+so that a future similar query can be served from the cheaper tiers. This is the
+mechanism by which the compute ladder \emph{lowers} over time: yesterday's expensive
+retrieval becomes tomorrow's memory hit.
+
+\section{The escalation edge}
+\label{sec:tiers-escalation}
+
+One connection runs directly between the two generating tiers. If a Tier 2 generation
+comes back empty, or the generation call fails outright, the pipeline does not return an
+empty answer; it quietly escalates that single query to Tier 3 and marks the result as
+escalated.
+
+\begin{pitfall}[The reported tier still reads 2 after an escalation]
+The escalation is a robustness valve, not a re-routing. When it fires, the answer comes
+from Tier 3, but the routing decision is not rewritten: the recorded tier stays at two,
+with a separate flag noting that the query escalated. Anyone reading the logs should know
+that an escalated Tier 2 result was in fact produced by retrieval. The valve exists
+because an empty zero-shot answer is worse than a grounded one, so a failed cheap attempt
+falls forward to the expensive path rather than failing the query.
+\end{pitfall}
+
+\section{What leaves Stage 4, and where it goes}
+\label{sec:tiers-exit}
+
+\Cref{tab:tiers} collects the three tiers side by side, and the single most important
+column is the last one. A Tier 1 answer carries a trust score already and goes straight to
+the output stage. A Tier 2 or Tier 3 answer is a fresh, unjudged string, and it goes to the
+verifier of \Cref{ch:verifier} before the system will trust it, store it, or refuse it.
+
+\begin{table}[t]
+\centering
+\caption[The three tiers compared]{The three execution tiers. Only the two generating
+tiers produce a fresh answer that must be verified; the memory tier serves an answer that
+was already judged on a past cycle.}
+\label{tab:tiers}
+\small
+\renewcommand{\arraystretch}{1.25}
+\begin{tabularx}{\textwidth}{@{}l >{\raggedright\arraybackslash}X c c@{}}
+\toprule
+\textbf{Tier} & \textbf{Mechanism} & \textbf{Generates?} & \textbf{Verified now?} \\
+\midrule
+1 (memory-direct) & read the stored answer and its trust score off the matched episode
+  & no & no (judged on a past cycle) \\
+2 (zero-shot) & generate from the model's own knowledge, query only
+  & yes & yes \\
+3 (retrieval) & retrieve top-5 passages from the 21M-passage corpus, then generate grounded
+  & yes & yes \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\begin{bythenumbers}[Tier-execution constants]
+\begin{itemize}[leftmargin=1.3em, itemsep=1pt]
+  \item Generation: greedy (deterministic) on the frozen backbone plus its adapter; cap $512$ new tokens.
+  \item Forced prefix: every generated answer is prefilled with ``Reasoning:'' to enter the scaffold.
+  \item Tier 3 retrieval: top $5$ passages from $\approx 21$ million Wikipedia chunks; one shared $768$-dimensional embedding space; high-recall probe setting; index memory-mapped from disk.
+  \item Escalation: an empty or failed Tier 2 generation falls forward to Tier 3, flagged as escalated.
+  \item Verification: Tiers 2 and 3 go to the verifier; Tier 1 does not.
+\end{itemize}
+\end{bythenumbers}
+
+\begin{defence}[If an examiner asks: ``why not verify Tier 1 answers too, to be safe?'']
+Two reasons, one about correctness and one about cost. On correctness, a Tier 1 answer was
+admitted to memory only by passing the gate, and the memory is re-judged in full at every
+\emph{committed} cycle boundary by the retroactive re-verification of \Cref{ch:cycle}, so a
+stored answer is rarely more than a cycle old without a fresh verdict. On cost, the entire value of the memory
+tier is that it answers recurring queries for the price of a lookup; verifying every Tier 1
+hit would erase that saving and make the cheapest tier nearly as expensive as the others.
+The design verifies a fact when it enters memory and re-verifies it each cycle, rather than
+on every serve, which is where the asymmetry of the architecture pays off.
+\end{defence}
+
+Every tier has now produced an answer, and for the two generating tiers that answer is still
+unjudged. \Cref{ch:verifier} opens Stage 5, the nine-signal verifier, the component that
+decides how much to trust a freshly generated answer.

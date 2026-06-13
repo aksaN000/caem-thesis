@@ -1,0 +1,317 @@
+\chapter{The Hallucination Problem, and Why \texorpdfstring{\textsc{CAEM}}{CAEM} Exists}
+\label{ch:problem}
+
+Before we touch a single component, we need to feel the problem clearly. Every
+design choice in \caem{}, namely the memory, the nine signals, the calibrated
+gate, the self-improvement loop, and the rollback, is a direct response to a
+specific failure of ordinary language models. Once we understand that failure,
+the architecture stops looking like a pile of clever tricks and starts looking
+like the \emph{only} sensible response. That is the goal of this chapter.
+
+\begin{intuition}
+A language model is a fluent guesser. It is extraordinarily good at producing
+text that \emph{sounds} right. The trouble is that ``sounds right'' and ``is
+right'' are different properties, the model has no built-in way to tell them
+apart, and, worse, no way to signal which is which to a reader. A confident lie
+and a confident truth come out of the model wearing the same clothes. \caem{}
+exists to put a disciplined system around the guesser, so that the answers it
+commits to are trustworthy, it knows how much to trust each one, and it gets
+better over time without forgetting what it already knew.
+\end{intuition}
+
+\section{What a hallucination actually is}
+
+A \emph{hallucination} is a model output that is fluent and confident but
+factually wrong. The word covers a range of causes, from a retrieval system
+that missed, to a genuine gap in the model's knowledge, to outright
+confabulation under uncertainty. The symptom is always the same: the model
+states something untrue as though it were true.
+
+The danger is not the wrongness by itself. We tolerate wrong answers from
+search engines, from textbooks, and from each other. The danger is the
+\textbf{calibration mismatch}: the model expresses the same high confidence
+whether it is right or wrong, so a reader with no independent way to check
+cannot tell which answers to trust. A false answer phrased like a true one is
+harder to catch than a false answer that sounds unsure. In a casual chat that
+is an annoyance. In a clinical, legal, or financial setting it is a hazard.
+
+\section{Scale does not fix it}
+
+The first instinct of the field was that hallucination is a small-model problem
+that scale will erase. The evidence says otherwise.
+
+\begin{itemize}[leftmargin=1.4em]
+  \item On \textbf{TruthfulQA}, a benchmark deliberately built around questions
+  where humans hold confident misconceptions, the largest frontier model
+  evaluated reached only \textbf{58\%} on the truthfulness axis and \textbf{25\%}
+  on the combined truthful-and-informative axis, against a human baseline of
+  \textbf{94\%} on both~\cite{lin-etal-2022-truthfulqa}.
+  \item The same benchmark documented \textbf{inverse scaling}: larger models
+  were \emph{more}, not less, prone to echo human falsehoods. Bigger made the
+  result worse on exactly the questions that matter~\cite{lin-etal-2022-truthfulqa}.
+  \item On \textbf{long-form generation}, the FactScore atomic-fact decomposition
+  protocol found that only \textbf{58\%} of decomposed atomic claims in
+  chat-style biographical generation were supported by evidence; the rest ranged
+  from unsupported speculation to outright fabrication~\cite{min-etal-2023-factscore}.
+  \item In \textbf{clinical question answering}, frontier models hallucinated in
+  \textbf{69--77\%} of responses, an order of magnitude above any threshold a
+  responsible deployment would tolerate~\cite{alkaissi2023artificial}.
+\end{itemize}
+
+\begin{pitfall}[A number that appeared on the poster]
+An earlier draft of the poster quoted a ``3 to 91 percent'' deployment-domain
+range. That specific range is \emph{not} in the thesis, and we do not use it
+here. The grounded figures are the four above. If the 3--91\% number comes up,
+it should be treated as a loose summary rather than a thesis claim. This book
+uses only what the report actually establishes.
+\end{pitfall}
+
+The survey literature draws the conclusion bluntly: hallucination is
+``a structural property of stateless generation under uncertainty rather than a
+defect to be trained away''~\cite{ji2023survey,huang-etal-2023-large}. That
+sentence rewards a second reading. It says the problem is not in the
+\emph{weights}; it is in the \emph{way the model is used}. A bigger guesser is
+still a guesser. \textbf{Any system that aims to reduce hallucination must
+change the structure, not just train harder.} That single sentence is the seed
+of the entire thesis.
+
+\section{The three structural flaws}
+\label{sec:three-flaws}
+
+The thesis pins the structural problem to three specific shortcomings of the
+standard inference paradigm. These three words, \textbf{stateless},
+\textbf{overconfident}, and \textbf{static}, are worth committing to memory,
+because every part of \caem{} maps back to one of them.
+
+\subsection*{Flaw 1: Stateless}
+Standard inference processes every query independently. No representation of
+past successful answers is kept across sessions, and the same question asked
+twice can produce two different answers. A reasoning chain that produced a
+correct answer this morning is discarded the moment the answer is delivered.
+This wastes computation on questions the system has effectively already solved,
+and it prevents any accumulation of domain knowledge through use. The model
+never gets to say ``I have seen this before, and last time I got it right.''
+
+\subsection*{Flaw 2: Overconfident (miscalibrated)}
+Modern neural networks are systematically overconfident. Calibration studies
+report that both classifiers and language models assign high probability to
+incorrect outputs at rates that exceed their actual accuracy by \textbf{ten
+percentage points or more}~\cite{pmlr-v70-guo17a, kadavath2022language}. The
+obvious fix, reading off the model's own confidence, does not work either:
+single-signal correctness predictors achieve area-under-the-ROC scores between
+only \textbf{0.50 and 0.60}, barely above random chance~\cite{xiong2023can}.
+The consequence is the one we opened with: a user cannot reliably tell which
+answers are likely wrong from confidence alone.
+
+\subsection*{Flaw 3: Static}
+Once trained, a deployed model neither learns from its mistakes nor adapts to
+the institution using it, because naive online fine-tuning incurs
+\textbf{catastrophic forgetting}: it improves on new material by erasing the
+broad capabilities the base training instilled~\cite{doi:10.1073/pnas.1611835114}.
+The implication is stark. Verification effort spent today produces no
+compounding benefit tomorrow. A thousand answers verified by humans this morning
+will not change a single answer the model gives this afternoon.
+
+\subsection*{Why the three are a knot, not a list}
+
+The crucial observation is that these flaws \textbf{reinforce one another}. They
+are not three independent bugs that could be fixed one at a time; they form a
+cycle.
+
+\begin{itemize}[leftmargin=1.4em]
+  \item Without \textbf{memory}, the model cannot reuse verified knowledge.
+  \item Without \textbf{calibrated confidence}, the system cannot recognise when
+  memory is missing and worth consulting, so even a perfect memory would be
+  under-used.
+  \item Without \textbf{self-improvement}, the verifications that humans or
+  external systems do produce decay into one-shot interventions.
+\end{itemize}
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[
+  font=\small\sffamily,
+  flaw/.style={rectangle, rounded corners=6pt, draw=#1!75!black, fill=#1!10,
+    line width=1.1pt, align=center, text width=3.5cm, minimum height=1.55cm,
+    inner sep=5pt, drop shadow={shadow xshift=0.4ex,shadow yshift=-0.4ex,
+    fill=black!12}},
+  rel/.style={-{Stealth[length=3mm]}, line width=1.1pt, draw=black!50},
+]
+  \node[flaw=cbIntuition] (state) at (90:3.1) {\textbf{Stateless}\\[2pt]
+    {\footnotesize no verified answer is retained}};
+  \node[flaw=cbPitfall]   (conf)  at (210:3.1) {\textbf{Overconfident}\\[2pt]
+    {\footnotesize cannot tell right from wrong}};
+  \node[flaw=cbExample]   (static)at (330:3.1) {\textbf{Static}\\[2pt]
+    {\footnotesize verification never compounds}};
+  \node[circle, draw=black!25, fill=black!3, line width=0.8pt,
+        text width=1.7cm, align=center, font=\scriptsize] (c) at (0,0)
+    {the\\ reinforcing\\ cycle};
+
+  \draw[rel] (state) to[bend left=20]
+    node[midway,right,text width=2.5cm,align=left,font=\scriptsize]
+    {no memory, so nothing to calibrate about} (conf);
+  \draw[rel] (conf) to[bend left=20]
+    node[midway,below,text width=2.8cm,align=center,font=\scriptsize]
+    {cannot spot gaps, so cannot target learning} (static);
+  \draw[rel] (static) to[bend left=20]
+    node[midway,left,text width=2.5cm,align=right,font=\scriptsize]
+    {no learning, so verified knowledge never persists} (state);
+\end{tikzpicture}
+\caption[The three-flaw cycle]{The three structural flaws form a reinforcing
+cycle, not an independent list. Fixing any one in isolation leaves the other two
+to drag it back. The thesis of \caem{} is that they must be attacked
+\emph{simultaneously}. (Schematic.)}
+\label{fig:three-flaw-cycle}
+\end{figure}
+
+This is why fixing one flaw alone fails: each unsolved flaw pulls the solved one
+back toward the broken state. \Cref{fig:three-flaw-cycle} draws the cycle. The
+whole architecture of \caem{} is the claim that the cycle can be broken along
+all three axes at once: memory for statelessness, a calibrated verifier for
+overconfidence, and a guarded self-improvement loop for staticness.
+
+\section{Why existing fixes do not close the gap}
+\label{sec:prior-fail}
+
+Three families of prior systems each attack hallucination, and each has a
+structural limitation that prevents it from closing the gap alone.
+
+\begin{description}[leftmargin=0pt, labelsep=0.5em, style=nextline]
+  \item[Retrieval-augmented generation (RAG).] RAG grounds the model in
+  retrieved evidence~\cite{NEURIPS2020_6b493230}, which raises factual recall
+  \emph{when retrieval succeeds}. It is silent, however, when retrieval misses
+  or returns evidence the model summarises incorrectly. The output is still a
+  single-pass generation whose quality is capped by retrieval quality, and the
+  system keeps \emph{no record of which past answers were correct}. RAG does not
+  touch statelessness.
+
+  \item[Prompting interventions.] Chain-of-thought reasoning and
+  self-consistency over sampled chains~\cite{wei2022chain, wang2023selfconsistency}
+  expose internal reasoning and exploit agreement across resampled answers. They
+  provide \emph{no persistence}, however: each session begins with no memory of
+  prior verified answers, and the same question tomorrow triggers the same
+  reasoning effort as today. They make a single answer better; they do not make
+  the \emph{system} better.
+
+  \item[Post-generation verification.] Methods such as SelfCheckGPT and semantic
+  entropy~\cite{manakul-etal-2023-selfcheckgpt, farquhar2024semantic} detect
+  hallucinations after they occur and support refusal or revision. The verdict
+  \emph{does not feed back}, however, into the model's weights or any memory, so
+  the identical hallucination recurs in the next session. Verification without a
+  feedback loop is a one-shot intervention.
+\end{description}
+
+\begin{intuition}[The pattern across all three]
+RAG fixes grounding but not statelessness. Prompting fixes single-answer quality
+but not persistence. Verification detects errors but never feeds the fix back.
+Each family solves a different \emph{slice} of the problem and leaves the rest
+untouched, which is exactly why stacking ``a stronger retriever, longer chains,
+a sharper verifier'' yields diminishing returns. None of them closes the loop.
+\end{intuition}
+
+The thesis states the implication directly: hallucination reduction at
+deployment-relevant rates ``is unlikely to come from incremental improvement of
+any one family.'' What is missing is \textbf{a closed loop}, a system in which
+verification feeds memory, memory feeds routing, routing feeds generation, and
+improvement compounds across cycles instead of evaporating at session
+boundaries. Arguing for that system, and building it, is the work of the thesis.
+
+\section{The architectural opportunity}
+\label{sec:arch-opportunity}
+
+If the three flaws are a knot, the opportunity is that three capabilities, taken
+\emph{together}, untie it. \caem{} commits to exactly three, each aimed at one
+flaw.
+
+\begin{enumerate}[leftmargin=1.6em]
+  \item \textbf{A verified episodic memory with a four-outcome admission rule},
+  finer than a single binary threshold. Outputs are sorted into store, defer,
+  abstain, or discard, so borderline answers wait in a deferred buffer
+  \emph{without contaminating the high-precision pool}. This attacks
+  statelessness.
+  \item \textbf{Confidence-aware routing with a retrieval-utility decision}. A
+  calibrated pre-generation confidence and a learned classifier decide
+  \emph{how hard to work} and \emph{whether retrieval will even help} on each
+  query. This attacks overconfidence.
+  \item \textbf{A constrained self-improvement loop with retention rollback}.
+  The model re-trains on its own verified answers each cycle, but a guard
+  reverts any update that erodes prior capability. This attacks staticness.
+\end{enumerate}
+
+Taken together, these convert the two statelessness problems into two
+\emph{stateful} mechanisms: the verified store absorbs recurring queries at
+lookup cost, and the self-improvement loop folds verified retrieval-augmented
+reasoning into the model's own parametric capacity. The three serving tiers,
+memory, zero-shot, and retrieval, stop being fixed cost categories and become a
+\textbf{self-organising compute ladder} under the cycle loop.
+
+\begin{precise}[The data-purity precondition, or why an imperfect verifier is enough]
+The natural objection is this: if the verifier is imperfect, will it not admit
+wrong answers and poison the memory? The thesis answers with a base-rate
+argument. Under reasonable conditions on the verifier's balanced accuracy and
+the base generation accuracy, \textbf{the purity of the stored pool can exceed
+the verifier's own accuracy}, because base-rate dynamics favour the gate
+whenever the verifier is more likely to admit a correct answer than an incorrect
+one. The precondition is mild: the verifier's balanced accuracy need only exceed
+one half on the distribution of claims it actually scores. We prove and test
+this in \Cref{ch:theory}. For now, the intuition to hold is that a perfect
+verifier is not required, only one that is better than a coin flip on the claims
+it sees. On the realised system this precondition is met with room to spare: the
+deployed verifier's balanced accuracy on the calibration-matched distribution is
+about 0.67, and the stored pool's realised purity sits near 0.74, above the
+verifier's own accuracy exactly as the identity predicts (the proof is in
+\Cref{ch:theory} and the empirical receipt in the evaluation chapter).
+\end{precise}
+
+\section{The scope of the claim}
+
+So the thesis does not get to claim that \caem{} solves hallucination. It claims
+something sharper and falsifiable. The intervention is bounded so that it can be
+argued empirically within an undergraduate research budget.
+
+\begin{itemize}[leftmargin=1.4em]
+  \item \textbf{One small frozen generator}: Qwen-2.5-3B-Instruct, a
+  three-billion-parameter open-weight instruction-tuned decoder. The backbone is
+  \emph{frozen}; only a low-rank adapter on the attention and feed-forward
+  projections trains, at roughly \textbf{2\%} of the parameter count.
+  \item \textbf{One consumer GPU}: the whole system fits on a single
+  thirty-two-gigabyte graphics processor under sixteen-bit precision, so the
+  result is reproducible without specialised infrastructure.
+  \item \textbf{Five benchmarks}: a three-benchmark \emph{training panel}
+  (FEVER, TriviaQA, CommonsenseQA) and a two-benchmark \emph{transfer panel}
+  (TruthfulQA, StrategyQA), with multitask language understanding (MMLU) held
+  out as an out-of-distribution retention control rather than an optimisation
+  target.
+  \item \textbf{A fixed open generator}, with open verification machinery and no
+  external commercial calls, so the architectural claim is separable from any
+  pre-training advantage and reproducible end-to-end.
+\end{itemize}
+
+\begin{defence}[The one-sentence framing of the whole thesis]
+``Hallucination is a structural property of stateless, overconfident, static
+generation, not a defect that scale removes. \caem{} attacks all three at once
+on a fixed small model: a verified episodic memory for statelessness, a
+calibrated nine-signal verifier for overconfidence, and a guarded
+self-improvement loop for staticness; and we show the gains compound across
+cycles while a retention guard prevents regression.''
+\end{defence}
+
+\section{What the rest of the book does}
+
+We now have the \emph{why}. The rest of the book is the \emph{how}, built
+bottom-up.
+
+\begin{itemize}[leftmargin=1.4em]
+  \item \Cref{ch:bigpicture} gives the whole machine in one picture, the
+  eight-stage per-query pipeline and the cycle loop that wraps it, so we have a
+  map before zooming in.
+  \item \Cref{ch:prereq} fills in the concepts the later chapters lean on
+  (embeddings, calibration, natural-language inference, low-rank adaptation, and
+  similarity search), so the book is self-contained.
+  \item Each stage then gets its own chapter, grounded in the live code: what it
+  does, the exact mechanism, a worked example, the traps, and how to defend it.
+\end{itemize}
+
+It helps to keep \Cref{fig:three-flaw-cycle} in mind throughout. Whenever a
+component seems elaborate, we can ask which of the three flaws it is breaking the
+cycle on. The answer is always one of the three.

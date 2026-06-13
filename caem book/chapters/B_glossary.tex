@@ -1,0 +1,172 @@
+\chapter{Glossary of Symbols and Terms}
+\label{ch:glossary}
+
+This glossary collects the notation and vocabulary the book uses. The first section
+lists every mathematical symbol with its meaning and the chapter that introduces it;
+the second defines the architectural terms in plain language. Nothing here is new: it
+is a single place to look up a symbol or a name encountered anywhere in the preceding
+chapters.
+
+\section{Symbols}
+\label{sec:glossary-symbols}
+
+\begin{table}[h]
+\centering\small
+\begin{tabular}{@{}p{2.4cm}p{9.4cm}l@{}}
+\toprule
+\textbf{Symbol} & \textbf{Meaning} & \textbf{Where} \\
+\midrule
+\multicolumn{3}{@{}l}{\textit{Confidence and uncertainty}} \\
+$\upre$    & Pre-routing confidence: a cheap readiness score read before any tier runs. & \Cref{ch:upre} \\
+$\utoken$  & Token-level confidence: the geometric mean of the per-token probabilities of the generated answer. & \Cref{ch:verifier} \\
+$\udrop$   & Dropout disagreement: instability of the answer across resampled forward passes. & \Cref{ch:verifier} \\
+$\uint$    & Internal confidence: $0.5\,\utoken + 0.5\,(1-\udrop)$, the model's self-assessed certainty. & \Cref{ch:verifier} \\
+$\cconv$   & Encoder convergence ratio: how settled the late-layer representation is, a component of $\upre$. & \Cref{ch:upre} \\
+$\savg$    & Self-consistency: semantic agreement across the $M$ resampled reasoning chains. & \Cref{ch:verifier} \\
+\addlinespace
+\multicolumn{3}{@{}l}{\textit{Grounding and relevance}} \\
+$\pentail$ & Reasoning-to-answer entailment: whether the chain logically supports the answer. & \Cref{ch:verifier} \\
+$\pgmax$   & Top-passage grounding: entailment of the single best supporting passage (the most forgiving reading). & \Cref{ch:verifier} \\
+$\pgmean$  & Mean grounding: average support across the retrieved passages. & \Cref{ch:verifier} \\
+$\pgatom$  & Atomic grounding: support of the weakest atomic fact in the answer (the strictest reading). & \Cref{ch:verifier} \\
+$\qarel$   & Question-answer relevance: how well the answer addresses the question. & \Cref{ch:verifier} \\
+\addlinespace
+\multicolumn{3}{@{}l}{\textit{Routing and the retrieval-utility classifier}} \\
+$\pik$     & Self-knowledge probe: the model's estimated probability that it already knows the answer. & \Cref{ch:ruc} \\
+$\prag$    & Predicted retrieval utility: the classifier's probability that retrieval will help this query. & \Cref{ch:ruc} \\
+$\tauruc$  & Retrieval-utility threshold: route to retrieval only when $\prag \ge \tauruc = 0.375$. & \Cref{ch:ruc} \\
+\addlinespace
+\multicolumn{3}{@{}l}{\textit{Trust score and the four-outcome gate}} \\
+$\ustored$ & Calibrated composite trust score: the single honest probability the answer is correct. & \Cref{ch:composite} \\
+$\taustore$& Storage threshold: store when $\ustored \ge 0.60$. & \Cref{ch:composite} \\
+$\taudefer$& Deferral threshold: defer when $0.45 \le \ustored < 0.60$. & \Cref{ch:composite} \\
+$\tautrain$& Training trust cut: only episodes with $\ustored \ge 0.70$ train the model. & \Cref{ch:cycle} \\
+$\tauretro$& Retroverification prune floor: drop a stored episode whose re-scored trust falls below $0.50$. & \Cref{ch:memory} \\
+$\phisafe$ & Safety floor: send a query to retrieval whenever $\upre < 0.38$. & \Cref{ch:upre} \\
+\addlinespace
+\multicolumn{3}{@{}l}{\textit{Calibration, learning, and theory}} \\
+$\rhomin$  & Retention floor: abort a cycle if any probe ratio falls below $0.93$. & \Cref{ch:cycle} \\
+$\alpha$   & Shrinkage weight ($0.6$): the blend of a per-benchmark curve toward the pooled curve; also, in theory, verifier balanced accuracy. & \Cref{ch:composite} \\
+$\lambda$  & A decay or penalty rate: recency decay in memory, the blend weight in routing, the anchor strength in training. & \Cref{ch:memory} \\
+$M,\,K$    & Self-consistency chains ($M=3$) and dropout passes ($K=5$). & \Cref{ch:verifier} \\
+$\pi$      & Pool purity: the fraction of stored episodes that are actually correct. & \Cref{ch:theory} \\
+$p$        & Base accuracy: the generator's correctness rate before the gate filters it. & \Cref{ch:theory} \\
+$d$        & Cohen's $d$: a standardised effect size, used for verifier discrimination. & \Cref{ch:theory} \\
+\bottomrule
+\end{tabular}
+\caption{Mathematical symbols used in the book.}
+\label{tab:glossary-symbols}
+\end{table}
+
+\section{Terms}
+\label{sec:glossary-terms}
+
+\begin{description}[leftmargin=0pt, labelsep=0.6em, style=nextline]
+
+\item[\caem{}] Confidence-Aware Episodic Memory with Self-Improvement: the three-tier,
+verifier-gated, cyclically self-improving architecture this book describes.
+
+\item[Abstain] The honest-refusal outcome of the gate: when an answer is both
+low-confidence and ungrounded, the system returns ``I do not know'' rather than guess.
+
+\item[Asymmetric rollback] The safety property that, when a cycle aborts, the model
+weights revert but the episodic memory is kept. Training can be undone; remembered
+knowledge is not.
+
+\item[Atomic-fact decomposition] Splitting an answer into its component factual claims
+so each can be checked for grounding separately; the weakest one drives $\pgatom$.
+
+\item[Calibration] Replacing a raw score with a probability whose value means what it
+says, so that a stored score of $0.60$ corresponds to a sixty-percent chance of being
+correct.
+
+\item[Calibration fold] A held-out, leakage-disjoint slice of labelled answers on which
+the composite and the pre-routing temperature are fitted; separate from the evaluation
+fold.
+
+\item[Cold start] Cycle zero: the full architecture running before any self-improvement
+fine-tuning.
+
+\item[Composite] The calibrated fusion of the verifier's nine signals into the single
+trust score $\ustored$, via per-signal isotonic curves, per-benchmark shrinkage, and a
+log-odds boost.
+
+\item[Composite evaluation score (CES)] A headline scalar: the geometric mean of five
+axes (accuracy, epistemic quality, retention, calibration, verifier reliability), so a
+collapse on any one axis drags the whole score down.
+
+\item[Composite hallucination metric (CHM)] The honesty axis: the equal-weighted mean
+of eight measured failure-mode rates, lower being better.
+
+\item[Confident confabulation] The costliest failure mode: a wrong answer the system was
+nonetheless confident enough to store.
+
+\item[Consolidation] The cycle-boundary merge of near-duplicate stored episodes onto a
+single highest-trust representative, guarded by answer agreement and a trust-spread cap.
+
+\item[Defer] The gate outcome for a promising but not-yet-trusted answer: it is parked in
+a buffer for reconsideration by a later, better model.
+
+\item[Discard] The gate outcome for a low-confidence answer that is dropped silently,
+distinct from an abstention because some grounding exists.
+
+\item[Early-exit] The confabulation gate inside the verifier: when internal confidence is
+high but grounding is near zero, the answer is discarded and regenerated.
+
+\item[Episodic memory] The growing store of verified question-answer episodes, embedded
+for similarity search and served by the cheap memory tier.
+
+\item[Exact match (EM)] The headline accuracy axis: a normalised answer either matches a
+gold answer or does not.
+
+\item[Four-outcome gate] The decision step that reads $\ustored$ and commits to one of
+store, defer, abstain, or discard.
+
+\item[Isotonic regression] A monotone, piecewise-constant fit that turns a raw signal
+into a calibrated probability of correctness, learning its direction from the data.
+
+\item[Low-rank adaptation (LoRA)] The fine-tuning method: the backbone is frozen and only
+a small low-rank adapter trains, which bounds catastrophic forgetting.
+
+\item[Pool reweighting] The temperature-mixed rebalancing of the training pool each cycle
+so that no benchmark or answer type dominates the fine-tune.
+
+\item[Purity theorem] The result that a verifier only modestly better than chance lifts
+the stored pool's purity above the generator's base accuracy, so an imperfect verifier
+still yields a clean memory.
+
+\item[Retention guard] The check that runs three held-out probes after each fine-tune and
+aborts the cycle if the worst probe falls below $\rhomin$.
+
+\item[Retrieval-utility classifier (RUC)] The learned gate that predicts whether retrieval
+will help a query and routes accordingly, withdrawing grounding where it amplifies the
+wrong answer.
+
+\item[Retroverification] The cycle-boundary re-scoring of every stored episode under the
+updated model, pruning any whose trust has fallen below $\tauretro$.
+
+\item[Router] The dispatcher that sends each query to the cheap memory tier, the zero-shot
+tier, or the retrieval-augmented tier, using similarity, stored trust, and $\upre$.
+
+\item[Self-improvement loop] The outer cycle that fine-tunes the model on its own verified
+answers, re-checks retention, and re-scores memory at each boundary.
+
+\item[Store] The gate outcome for a trusted answer: it is admitted to episodic memory as a
+verified episode.
+
+\item[Tier 1 / Tier 2 / Tier 3] The three execution paths: a precision-first memory-direct
+cache, zero-shot generation, and retrieval-augmented generation.
+
+\item[Training versus transfer] The panel split: three benchmarks the loop trains on and
+two it never trains on, the latter measuring generalisation.
+
+\item[Two clocks] The architecture's two timescales: a fast per-query pipeline that only
+reads state, and a slow per-cycle loop that is the only thing allowed to change it.
+
+\end{description}
+
+This closes the book. The architecture has been motivated, mapped, built stage by
+stage, proven where proof was available, measured across a real six-cycle trajectory,
+priced component by component, and reduced to a registry of constants and a glossary of
+terms. Every name and number in the preceding chapters can now be traced to its
+definition here or to the live code and report the book was built from.

@@ -1,0 +1,304 @@
+\chapter{Ablations: What Each Piece Is Worth}
+\label{ch:ablations}
+
+\Cref{ch:trajectory} showed the architecture with every piece switched on. This
+chapter asks the harder question: what is each piece actually worth? The honest answer
+is built from the contrasts the run already supplies, one component-level switch that
+was genuinely toggled, and a clear ledger of which lesions remain to be run. We do not
+pretend to a brute-force sweep that was not performed, and the reason that is
+defensible is the subject of the first section.
+
+\begin{intuition}[Ablation by measurement, not by brute force]
+The textbook way to price a component is to remove it, re-run everything, and measure
+the drop. That is expensive: a system with a dozen parts would need a dozen full
+re-runs. \caem{} takes a different route wherever it can. Many components leave a
+\emph{direct trace} in the trajectory already measured: the value of the router is the
+per-tier accuracy and tier shares of \Cref{ch:trajectory}; the value of
+self-improvement is the cold-start-versus-trained contrast; the value of the forgetting
+guard is what it did when it fired. Where a component's worth is already visible in a
+number we have, re-running a lesion to re-measure it would be redundant. Where it is
+not, a lesion is warranted. This chapter prices each piece by the cheapest sound
+evidence available, and is explicit about the one lesion whose clean counterfactual is
+still owed.
+\end{intuition}
+
+\section{The ablation registry, and the claim it defends}
+\label{sec:abl-registry}
+
+\caem{} ships a small, deliberate ablation registry rather than a large sweep. The
+registry pairs each lesion with the specific thesis claim it is meant to defend, and
+prunes any lesion whose claim is already settled by a direct metric.
+
+\begin{precise}[Four entries, each tied to a claim]
+The registry holds a full-system reference and three lesions. The reference, named
+\emph{full}, applies no mutation and is the anchor every delta is measured against. The
+three lesions are: \emph{no-self-improvement}, which runs the full pipeline with no
+fine-tuning so the system stays at its cold-start weights; \emph{no-forgetting-guard},
+which sets the retention tolerance to zero so every update commits regardless of how
+much it forgets; and \emph{no-retroverify}, which skips the per-cycle re-scoring of
+stored memory. Each defends a numbered claim: no-self-improvement and no-retroverify
+defend the self-improvement claim, no-retroverify additionally defends the memory-purity
+claim, and no-forgetting-guard defends the no-catastrophic-forgetting claim. The
+memory-routing claim is defended without a lesion at all, by the per-tier shares and
+accuracies already in \Cref{ch:trajectory}.
+\end{precise}
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[
+  font=\footnotesize\sffamily,
+  claim/.style={rectangle, rounded corners=4pt, draw=cbFormula!70!black, fill=cbFormula!10,
+    line width=1pt, align=center, inner sep=4pt, text width=3.0cm, minimum height=0.9cm},
+  metric/.style={rectangle, rounded corners=3pt, draw=cbExample!70!black, fill=cbExample!12,
+    line width=0.9pt, align=center, inner sep=3pt, text width=3.6cm, minimum height=0.8cm},
+  lesion/.style={rectangle, rounded corners=3pt, draw=cbPitfall!65!black, fill=cbPitfall!10,
+    line width=0.9pt, align=center, inner sep=3pt, text width=3.6cm, minimum height=0.8cm},
+  flow/.style={-{Stealth[length=2.2mm]}, line width=0.9pt, draw=cbInk!70},
+]
+  \node[claim] (c1) at (0,3.0)  {memory routing};
+  \node[claim] (c2) at (0,1.5)  {memory purity};
+  \node[claim] (c3) at (0,0.0)  {self-improvement};
+  \node[claim] (c4) at (0,-1.5) {no catastrophic\\forgetting};
+  \node[metric] (m1) at (5.6,3.0) {per-tier shares + accuracy\\(\Cref{ch:trajectory}, measured)};
+  \node[metric] (m2) at (5.6,1.5) {purity validation\\(\Cref{ch:theory}, measured)};
+  \node[metric] (m3) at (5.6,0.4) {cold-start vs trained\\(\Cref{ch:benchmarks}, measured)};
+  \node[lesion] (l1) at (5.6,-0.7) {no-retroverify\\(lesion, deferred)};
+  \node[lesion] (l2) at (5.6,-1.7) {no-forgetting-guard\\(observed at C4)};
+  \draw[flow] (c1) -- (m1);
+  \draw[flow] (c2) -- (m2);
+  \draw[flow] (c2) -- (l1);
+  \draw[flow] (c3) -- (m3);
+  \draw[flow] (c3) -- (l1);
+  \draw[flow] (c4) -- (l2);
+\end{tikzpicture}
+\caption[How each claim is defended]{The ablation registry maps each thesis claim to
+its cheapest sound evidence. Three claims are settled by a metric already in hand
+(green): routing by the per-tier trajectory, purity by the validation measurement,
+self-improvement by the cold-start-versus-trained contrast. Two lean on a lesion (red):
+no-forgetting-guard, observed naturally when the guard fired at the fourth cycle, and
+no-retroverify, whose clean counterfactual is registered but not yet run.
+(Schematic.)}
+\label{fig:abl-map}
+\end{figure}
+
+\begin{bythenumbers}[Why the sweep is small]
+An earlier design listed more than twenty candidate lesions. They were pruned against
+two questions: is the claim already defended by a direct metric, and is the evidence
+redundant with a lesion already kept? A lesion that removed the storage gate was
+dropped because the purity validation measures the gate's effect directly; a lesion
+that removed the cheap memory tier was dropped because the per-tier share trajectory
+already shows its usage; lesions on individual verifier signals were dropped because
+the signal correlation matrix shows each carries non-redundant information. What
+survived is the minimal set whose claims no existing number answers. This is a
+deliberate choice to spend evidence where it is missing, not to manufacture re-runs
+where it already exists.
+\end{bythenumbers}
+
+\section{Ablating the whole architecture, and the self-improvement slice}
+\label{sec:abl-architecture}
+
+The largest ablation is the one already drawn in \Cref{ch:benchmarks}: the eight-baseline
+panel is the architecture removed in pieces, and the decomposition is self-improvement
+removed on its own.
+
+\begin{precise}[The panel is a component-removal ladder]
+Read as ablations, the baselines of \Cref{ch:benchmarks} price the architecture from the
+bottom up. The zero-shot floor is everything removed: no routing, no retrieval, no
+memory, no verifier, no fine-tuning. Unconditional retrieval adds back grounding and
+nothing else. Vanilla fine-tuning adds back training-time learning and nothing else.
+The gap from the floor to full \caem{} is therefore the joint worth of routing,
+verification, memory, and self-improvement; and the gap from vanilla fine-tuning to
+full \caem{} isolates the deployment-time machinery from the training-time machinery. On
+the pooled panel the floor-to-cold-start step, which adds the three tiers, the verifier,
+and the router before any training, is worth about three and a half points of exact
+match (nearly nine on the training benchmarks), as \Cref{fig:headline-decomp} showed.
+\end{precise}
+
+\begin{precise}[The no-self-improvement lesion is the cold-start cycle]
+One of the three registered lesions needs no separate run, because it already exists in
+the trajectory. The no-self-improvement lesion is defined as the full pipeline with
+fine-tuning switched off, which is exactly the cold-start cycle of \Cref{ch:trajectory}.
+Pricing self-improvement is therefore the cold-start-versus-third-cycle contrast, and
+its reading is the one \Cref{ch:benchmarks} and \Cref{ch:trajectory} already established:
+the loop is close to flat on pooled exact match and worth about a fifteen percent
+reduction in the hallucination metric, a quarter on the training benchmarks. The lesion
+confirms what the metric suite was built to surface: self-improvement buys honesty, not
+raw accuracy, and removing it costs honesty rather than accuracy.
+\end{precise}
+
+\section{The retrieval-utility classifier, switched off}
+\label{sec:abl-ruc}
+
+One component was toggled cleanly on and off under a matched protocol: the
+retrieval-utility classifier of \Cref{ch:ruc}. It is the chapter's one true
+component-level ablation, and it is also the one with the most to teach, because the
+result is asymmetric.
+
+\begin{table}[t]
+\centering
+\small
+\begin{tabular}{@{}lccc@{}}
+\toprule
+\textbf{Benchmark} & \textbf{EM off $\to$ on} & \textbf{CHM off $\to$ on (\% rel)} & \textbf{retrieval share off $\to$ on} \\
+\midrule
+fact-checking      & $0.503 \to 0.503$ ($+0.0$) & $0.117 \to 0.120$ ($+2.5$)  & $92.3\% \to 70.7\%$ \\
+open-text factoid  & $0.437 \to 0.463$ ($+2.7$) & $0.123 \to 0.121$ ($-2.0$)  & $95.7\% \to 68.0\%$ \\
+commonsense        & $0.603 \to \mathbf{0.743}$ ($\mathbf{+14.0}$) & $0.131 \to \mathbf{0.086}$ ($\mathbf{-34.4}$) & $57.7\% \to 20.3\%$ \\
+implicit multi-step& $0.617 \to 0.640$ ($+2.3$) & $0.119 \to 0.128$ ($+8.1$)  & $100\% \to 76.7\%$ \\
+misconception      & $0.210 \to \mathbf{0.310}$ ($\mathbf{+10.0}$) & $0.116 \to 0.119$ ($+2.9$) & $99.0\% \to \mathbf{40.0\%}$ \\
+\midrule
+\textbf{pooled}    & $\mathbf{0.474 \to 0.532}$ ($\mathbf{+5.8}$) & $\mathbf{0.121 \to 0.115}$ ($\mathbf{-5.2}$) & $\mathbf{88.9\% \to 55.1\%}$ \\
+\bottomrule
+\end{tabular}
+\caption[The retrieval-utility classifier, on versus off]{The actual on-versus-off
+contrast for the retrieval-utility classifier at the third cycle, matched backbone and
+evaluation fold (misconception exact match by the language-model judge). With the
+classifier off, every query that fails the cheap-path gates routes unconditionally to
+retrieval; with it on, those queries route to retrieval only when the classifier
+predicts retrieval will help. The asymmetric-rescue pattern is in the bold cells.}
+\label{tab:abl-ruc}
+\end{table}
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+  width=12.2cm, height=5.4cm, ybar, bar width=8pt,
+  symbolic x coords={fact-check, factoid, commonsense, multi-step, misconception},
+  xtick=data, x tick label style={font=\scriptsize, rotate=20, anchor=east},
+  ymin=0, ymax=0.82, ylabel={exact match}, ytick={0,0.2,0.4,0.6,0.8},
+  font=\small\sffamily, tick label style={font=\scriptsize},
+  legend style={at={(0.5,1.16)}, anchor=north, legend columns=2, draw=cbInk!25, font=\scriptsize},
+  ymajorgrids, grid style={cbInk!8},
+]
+  \addplot[draw=cbInk!55, fill=cbInk!14] coordinates {
+    (fact-check,0.503)(factoid,0.437)(commonsense,0.603)(multi-step,0.617)(misconception,0.210)};
+  \addlegendentry{classifier off}
+  \addplot[draw=cbExample!70!black, fill=cbExample!28] coordinates {
+    (fact-check,0.503)(factoid,0.463)(commonsense,0.743)(multi-step,0.640)(misconception,0.310)};
+  \addlegendentry{classifier on}
+\end{axis}
+\end{tikzpicture}
+\caption[The asymmetric rescue]{The actual per-benchmark exact match with the
+retrieval-utility classifier off and on. The gains are concentrated, not uniform: the
+two benchmarks where unconditional retrieval was hurting (commonsense $+14.0$ points,
+misconception $+10.0$ points) are rescued, while the fact-checking benchmark, where
+retrieval helps, is held exactly flat. The classifier learns where grounding earns its
+cost and routes accordingly, collapsing the pooled retrieval share from $88.9\%$ to
+$55.1\%$.}
+\label{fig:abl-ruc}
+\end{figure}
+
+\begin{precise}[Asymmetric rescue, and why it is the right shape]
+The classifier lifts pooled exact match by $5.8$ points and lowers the pooled
+hallucination metric by about five percent, but the pooled numbers understate the
+mechanism. The gains are concentrated where retrieval was hurting: the commonsense
+benchmark gains fourteen points of exact match and loses a third of its hallucination
+metric, and the misconception benchmark gains ten points, while the fact-checking
+benchmark, where retrieval genuinely helps, is held flat. The retrieval share collapses
+from eighty-nine percent to fifty-five percent pooled, and by fifty-nine points on the
+misconception benchmark specifically. This is the right shape because it shows the
+classifier is not simply turning retrieval down everywhere; it is learning the
+per-benchmark sign of retrieval's value and acting on it, preserving grounding where it
+pays and withdrawing it where it amplifies the wrong answer.
+\end{precise}
+
+\begin{defence}[If an examiner asks: ``is this a clean classifier-only ablation?'']
+No, and the chapter says so in the same breath as the result. The on-arm shipped the
+classifier alongside concurrent pipeline corrections and a re-fitted composite, so the
+contrast is a \emph{bundled} on-versus-off comparison, not a single-variable isolation.
+The honest claim is that the bundle, with the classifier as its load-bearing addition,
+produces the asymmetric rescue; the arm-isolating re-run that would attribute the gain
+to the classifier alone is registered as future work. Reporting the confound next to the
+number is the difference between an ablation and a result dressed up as one. The
+mechanism, routing retrieval away from the benchmarks it hurts, is exactly what the
+classifier was designed to do, which is why the bundled gain is attributed to it even
+without the clean isolation.
+\end{defence}
+
+\section{The forgetting guard, ablated by the run itself}
+\label{sec:abl-guard}
+
+The no-forgetting-guard lesion would set the retention tolerance to zero and let every
+update commit. It was not run as a separate sweep, but the run performed the experiment
+for us, once, at the fourth cycle.
+
+\begin{precise}[The fourth cycle is the guard's natural ablation]
+At the fourth cycle the freshly fine-tuned model reached the lowest training loss of the
+entire run, about $0.07$, yet its held-out open-text factoid probe fell to $0.886$,
+below the floor. The guard aborted the cycle and rolled the weights back. With the
+forgetting guard ablated, that same update would have committed: the model with the
+best training loss and a failed retention probe would have become the next cycle's
+starting point. The guard is therefore worth exactly the degradation it refused to
+accept: an update that looked best by training loss and worst by held-out retention.
+This is the cleanest possible illustration of why training loss is not the quantity to
+trust, and why the guard reads a held-out probe instead. The clean lesion, which would
+let the loop run several cycles without the guard and measure the cumulative
+forgetting, would change which cycles commit and so needs its own run; it is registered
+but not yet performed. What the run shows is the guard catching a real degrading update
+on the one occasion it appeared.
+\end{precise}
+
+\section{The lesion still owed, and the honest ledger}
+\label{sec:abl-owed}
+
+One registered lesion has neither a direct metric nor a natural observation, and the
+chapter does not pretend otherwise.
+
+\begin{pitfall}[No-retroverify was not run]
+The no-retroverify lesion skips the per-cycle re-scoring of stored memory. Unlike
+no-self-improvement, it cannot be read off an existing cycle, because its effect is a
+\emph{divergence} that compounds over cycles: without re-verification the stored pool
+would slowly accumulate episodes that a better model would no longer trust, and only a
+parallel run under the lesion would measure how far the purity drifts. That run was not
+performed. What the trajectory does show is the work re-verification did when it ran: it
+pruned a declining fraction of the pool each cycle, about thirteen percent at the first
+committed cycle down to about four percent at the last, which is the count of episodes
+the re-scoring removed. That is evidence the mechanism is active and that its workload
+shrinks as the pool's quality rises, but it is not the counterfactual purity-without-it.
+The clean lesion is registered future work, and the book reports it as owed rather than
+quietly folding the prune-rate trace into a claim it cannot support.
+\end{pitfall}
+
+\begin{table}[t]
+\centering
+\small
+\begin{tabular}{@{}p{3.0cm}p{3.6cm}p{7.2cm}@{}}
+\toprule
+\textbf{Component} & \textbf{Evidence} & \textbf{What it is worth} \\
+\midrule
+Three-tier architecture     & baseline panel, cold start            & $+3.4$ pp pooled EM ($+8.8$ training); routing earns the accuracy \\
+Self-improvement loop       & cold-start vs trained                 & flat EM, about $-15\%$ CHM (honesty, not accuracy) \\
+Retrieval-utility classifier& on/off, bundled                       & $+5.8$ pp EM, $-5.2\%$ CHM, retrieval share $-33.8$ pp \\
+Forgetting guard            & cycle-four abort                      & caught a lowest-loss, failed-retention update \\
+Retroverification           & prune-rate trace (counterfactual owed)& removed $13\%\!\to\!4\%$ of the pool per cycle \\
+\bottomrule
+\end{tabular}
+\caption[The component ledger]{What each piece is worth, by the cheapest sound evidence
+available. Three components are priced by a metric already in hand, one by a clean
+on/off toggle (bundled), one by a natural observation, and one by an active-but-not-yet
+-counterfactually-isolated trace. The exact-match and hallucination deltas are pooled
+over the five-benchmark panel.}
+\label{tab:abl-ledger}
+\end{table}
+
+\begin{bythenumbers}[The ledger, read honestly]
+Pulling the pieces together: the three-tier architecture earns the accuracy
+(about three and a half pooled points over the floor, nearly nine on the training
+benchmarks); the self-improvement loop earns the honesty (roughly a fifteen percent
+reduction in confident wrongness while accuracy stays flat); the retrieval-utility
+classifier earns a further five-and-a-half points of accuracy by routing retrieval only
+where it helps, though that figure is bundled with concurrent fixes; the forgetting
+guard earns its keep on the one cycle it caught a degrading update; and re-verification
+is demonstrably active but its clean counterfactual is owed. No single number captures
+the system, which is the whole reason the metric suite of \Cref{ch:benchmarks} reports
+several. The architecture and the loop divide the labour between them: one makes the
+system accurate, the other makes it honest, and the components around them keep both
+properties from eroding.
+\end{bythenumbers}
+
+This closes the evaluation part. The architecture has been built stage by stage,
+proven where proof was possible, measured across a real trajectory, and priced
+component by component. \Cref{ch:constants} collects every registered constant the book
+has used into one registry, and \Cref{ch:glossary} gathers the symbols and terms, so
+that any number or name in the preceding chapters can be traced to its definition.

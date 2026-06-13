@@ -1,0 +1,407 @@
+\chapter{Stage 8: The Cycle-Boundary Self-Improvement Loop}
+\label{ch:cycle}
+
+Everything in Part II happened without the model learning anything. A query was
+triaged, routed, answered, verified, scored, and presented, and through all of it the
+weights, the calibration, and the memory were only \emph{read}. This chapter is the
+other clock: the slow, periodic loop that runs at \emph{cycle boundaries} and is the
+only place the model actually changes. It is \caem{}'s answer to the third structural
+flaw of \Cref{ch:problem}, staticness, and it is where the verified answers the
+pipeline produced are folded back into the model so that next cycle's pipeline is
+better than this one's.
+
+\begin{intuition}[The system grades its own homework, then studies it, carefully]
+The per-query pipeline does the system's homework all day and files the answers it
+trusts into memory. At a cycle boundary the system stops taking new questions, opens
+that file of verified answers, and \emph{studies them}: it fine-tunes itself on its own
+best work. But studying can go wrong, so before keeping the lesson it checks that it
+has not forgotten anything it used to know. If it has, it tears up the lesson and keeps
+yesterday's self, while keeping the new file of answers. One clock answers; the other
+clock learns, under a guard that refuses to let learning become forgetting.
+\end{intuition}
+
+\section{Two clocks, in full}
+\label{sec:cycle-clocks}
+
+\Cref{ch:bigpicture} introduced the two clocks; now we run the slow one in detail. The
+fast clock is the per-query pipeline, ticking thousands of times. The slow clock is the
+cycle: one tick processes a whole batch of queries through the fast clock and then runs
+a single training-and-maintenance block. The realised run had six ticks of the slow
+clock, cycles zero through five.
+
+\begin{precise}[Why training is periodic, not per query]
+Training on every query would be both ruinously expensive and dangerous: a gradient
+step per answer would let one bad answer move the weights immediately, with no chance
+to verify it first. Training never, and the system is static. \caem{} takes the middle
+path: it \emph{accumulates} verified answers during the fast clock and trains on them in
+a \emph{batch} at the cycle boundary, after they have all passed the gate. This is what
+lets the loop train only on answers it has had a chance to trust, and what lets a single
+guard check the whole update before committing it.
+\end{precise}
+
+\section{What one cycle does, in order}
+\label{sec:cycle-order}
+
+A cycle boundary is not one action but an ordered block, and the order is load-bearing.
+\Cref{fig:cycle-master} lays out the full sequence; the sections that follow open each
+part.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[
+  font=\small\sffamily,
+  inf/.style={rectangle, rounded corners=3pt, draw=cbIntuition!75!black, fill=cbIntuition!8,
+    line width=0.9pt, align=center, inner sep=4pt, text width=10.5cm, font=\footnotesize, minimum height=0.7cm},
+  trn/.style={rectangle, rounded corners=4pt, draw=cbExample!70!black, fill=cbExample!10,
+    line width=1pt, align=center, inner sep=4pt, text width=10.5cm, font=\footnotesize, minimum height=0.7cm},
+  fork/.style={diamond, aspect=2.6, draw=cbPitfall!75!black, fill=cbPitfall!10,
+    line width=1pt, align=center, inner sep=1pt, font=\scriptsize, text width=3.2cm},
+  bnd/.style={rectangle, rounded corners=4pt, draw=cbFormula!70!black, fill=cbFormula!8,
+    line width=1pt, align=center, inner sep=4pt, text width=10.5cm, font=\footnotesize, minimum height=0.7cm},
+  flow/.style={-{Stealth[length=2.2mm]}, line width=1pt, draw=cbInk!75},
+  no/.style={-{Stealth[length=2.2mm]}, line width=1pt, draw=cbPitfall!75, dashed},
+]
+  \node[inf] (a) at (0,5.0) {\textbf{Score the calibration fold} under the current model};
+  \node[trn] (b) at (0,4.1) {\textbf{Fine-tune (LoRA)} on collected verified episodes ($\ustored\ge0.70$)};
+  \node[fork] (g) at (-3.6,2.9) {retention\\guard\\{\scriptsize worst probe $\ge 0.93$?}};
+  \node[bnd] (c) at (0,1.7) {\textbf{Recalibrate}: refit temperature + composite, reload};
+  \node[bnd] (d) at (0,0.8) {\textbf{Retro-verify} memory under the fresh calibration};
+  \node[inf] (e) at (0,-0.1) {\textbf{Grow memory} with a fresh disjoint query chunk \;(always)};
+  \node[inf] (f) at (0,-1.0) {\textbf{Evaluate} on held-out data, no storage \;(always)};
+  \node[fork, draw=cbNumbers!75!black, fill=cbNumbers!12, text=cbNumbers!65!black] (h) at (0,-2.3)
+    {early-stop?\\{\scriptsize 2 of 3 signals}};
+  \node[bnd, text width=2.4cm, fill=cbInk!6, draw=cbInk!55] (revert) at (-6.0,2.9) {roll back to\\last good adapter};
+
+  \draw[flow] (a) -- (b);
+  \draw[flow] (b) -- (g);
+  \draw[flow] (g) -- node[right,font=\scriptsize,text=cbExample!55!black]{pass (commit)} (c);
+  \draw[no] (g) -- node[above,font=\scriptsize,text=cbPitfall!70!black]{fail (abort)} (revert);
+  \draw[flow] (c) -- (d);
+  \draw[flow] (d) -- (e);
+  \draw[flow] (e) -- (f);
+  \draw[flow] (f) -- (h);
+  \draw[no] (revert) |- (e);
+  \draw[flow] (h.south) -- ++(0,-0.5) node[below,font=\scriptsize,text=cbInk!70]{next cycle, or stop};
+\end{tikzpicture}
+\caption[One cycle, in order]{The cycle-boundary block. The model is fine-tuned on the
+verified episodes, then the retention guard decides commit or abort. On a commit
+(green) the calibration is refit, the memory re-verified, and the cycle proceeds; on an
+abort (red) the adapter rolls back to the last good state and the commit-gated steps are
+skipped. Growing the memory with fresh data and evaluating on held-out data run
+regardless (blue). Finally the early-stop gate decides whether to begin another cycle. (Schematic.)}
+\label{fig:cycle-master}
+\end{figure}
+
+\section{What it trains on: the verified episodes}
+\label{sec:cycle-data}
+
+The training data is the system's own memory, filtered. Only episodes whose stored trust
+score $\ustored$ is at least $0.70$ are collected, a threshold deliberately \emph{higher}
+than the $0.60$ storage cut of \Cref{ch:composite}: storage admits an answer to memory,
+but training demands a stricter, cleaner subset. Of those, only episodes from the three
+\emph{training} benchmarks are eligible; the two transfer benchmarks are held out so that
+generalisation is measured on data the model never trained on.
+
+\begin{precise}[The training target is the reasoning, not just the answer]
+For each eligible episode the training target is its \emph{reasoning chain}, not merely
+its final answer. The prompt is the question in the scaffolded chat format of
+\Cref{ch:tiers}, and the target the model learns to produce is the verified
+``Reasoning: \dots\ Answer: $Y$'' completion, with the prompt tokens masked out of the
+loss so only the completion is learned. This is \emph{distillation}: the model is taught
+to reproduce, from its own parameters, the grounded reasoning it previously needed
+retrieval to produce. Chains that are empty, too short, or detected as repetitive loops
+fall back to the bare answer or are filtered out, so the loop never trains on degenerate
+text.
+\end{precise}
+
+\begin{figure}[t]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[
+  font=\small\sffamily,
+  st/.style={rectangle, rounded corners=4pt, line width=1pt, align=center, inner sep=5pt,
+    text width=2.6cm, minimum height=1.1cm, drop shadow={shadow xshift=0.3ex, shadow yshift=-0.3ex, fill=black!10}},
+  flow/.style={-{Stealth[length=2.4mm]}, line width=1.1pt, draw=cbInk!75},
+]
+  \node[st, draw=cbExample!70!black, fill=cbExample!10] (mem) at (0,0)
+    {\textbf{episodic memory}\\{\footnotesize all stored episodes}};
+  \node[st, draw=cbIntuition!75!black, fill=cbIntuition!10] (col) at (3.7,0)
+    {\textbf{collect}\\{\footnotesize $\ustored\ge0.70$, training benches, no loops}};
+  \node[st, draw=cbFormula!70!black, fill=cbFormula!10] (rw) at (7.4,0)
+    {\textbf{pool-reweight}\\{\footnotesize balance benches, cap $40\%$}};
+  \node[st, draw=cbScenario!70!black, fill=cbScenario!10] (ft) at (11.1,0)
+    {\textbf{LoRA fine-tune}\\{\footnotesize 3 epochs, CE on the chain}};
+  \node[st, text width=2.0cm, draw=cbNumbers!75!black, fill=cbNumbers!12] (adp) at (14.3,0)
+    {updated\\adapter};
+  \draw[flow] (mem) -- (col);
+  \draw[flow] (col) -- (rw);
+  \draw[flow] (rw) -- (ft);
+  \draw[flow] (ft) -- (adp);
+\end{tikzpicture}}
+\caption[The training-data flow]{Where the training set comes from. The memory is
+filtered to high-trust, training-benchmark, loop-free episodes; the survivors are
+re-weighted to balance the benchmarks; and the model is fine-tuned to reproduce their
+verified reasoning chains. The output is an updated low-rank adapter. (Schematic.)}
+\label{fig:cycle-data}
+\end{figure}
+
+\subsection*{Pool reweighting: keeping one benchmark from eating the pool}
+
+Left alone, one benchmark can dominate the training pool. In an earlier version of the
+system, fact-checking episodes came to make up the entire pool and the model collapsed
+on the other benchmarks. Pool reweighting prevents this with four mechanisms working
+together.
+
+\begin{bythenumbers}[The four reweighting mechanisms]
+\begin{itemize}[leftmargin=1.3em, itemsep=1pt]
+  \item \textbf{Temperature-mixed proportions} ($T = 2.0$): the per-benchmark shares are
+  softened, turning a tenfold gap in raw counts into roughly a threefold gap in training
+  weight.
+  \item \textbf{Upsample cap} ($3\times$): a scarce benchmark's samples are replicated at
+  most three times, so balance never comes from runaway duplication.
+  \item \textbf{A floor} ($50$ samples): every benchmark gets at least this many, even
+  if smoothing would round it to nothing.
+  \item \textbf{A hard ceiling} ($40\%$): no single benchmark may exceed forty percent of
+  the final pool, with the excess water-filled to the under-represented ones.
+\end{itemize}
+A cold-start fallback seeds any benchmark with no verified episodes from a small set of
+gold-labelled examples, so the loop can train even on the first cycles.
+\end{bythenumbers}
+
+\section{The fine-tune: a small adapter, a frozen model}
+\label{sec:cycle-finetune}
+
+The actual training touches only the low-rank adapter of \Cref{sec:prereq-lora}. The
+backbone stays frozen; only the rank-thirty-two adapter on the seven projections, about
+two percent of the parameters, receives gradients. The model is trained to reproduce the
+collected chains by cross-entropy on the completion tokens.
+
+\begin{lstlisting}[caption={The fine-tune, condensed from \texttt{caem/training/self\_improvement.py}.}, label={lst:finetune}]
+loader = DataLoader(QADataset(train_pairs), batch_size=4, shuffle=True)   # micro-batch 4
+optimizer = AdamW(adapter_parameters, lr=2e-4)                            # LoRA learning rate
+for epoch in range(3):                                                    # epochs_per_cycle
+    for step, batch in enumerate(loader):
+        loss = cross_entropy(model(batch).logits, batch.labels)           # prompt masked -100
+        # LoRA path: no L2 anchor -- the frozen base bounds drift on its own
+        loss.backward()
+        if (step + 1) % 4 == 0:                                           # grad_accum -> eff. batch 16
+            clip_grad_norm(adapter_parameters, 1.0); optimizer.step(); optimizer.zero_grad()
+\end{lstlisting}
+
+\begin{pitfall}[Why there is no anchor term on the LoRA path]
+A full fine-tune of every weight would risk drifting far from the starting model, so the
+classic remedy adds an \emph{anchor} penalty to the loss, $(\lambda/2)\lVert\theta -
+\theta_{\text{prev}}\rVert^2$, pulling the new weights toward the previous cycle's. On
+the deployed low-rank path this term is \emph{switched off}, and deliberately so: the
+backbone is frozen and the adapter is tiny, so the model simply \emph{cannot} drift far,
+the bounded adapter is the anchor. The explicit penalty survives only in the
+full-fine-tune fallback (with $\lambda = 0.01$), kept for ablation. Choosing a small
+adapter over a penalised full update is the cleaner way to bound forgetting, and it is
+why the loss in the listing is plain cross-entropy.
+\end{pitfall}
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[font=\small\sffamily]
+\begin{axis}[
+  name=poolax,
+  width=7.4cm, height=5.0cm,
+  ybar, bar width=11pt,
+  xmin=0.4, xmax=5.6, xtick={1,2,3,4,5},
+  ymin=0, ymax=5600,
+  xlabel={cycle index}, ylabel={training-pool size (episodes)},
+  tick label style={font=\scriptsize}, label style={font=\scriptsize},
+  ymajorgrids, grid style={cbInk!8},
+  title={(a) training-pool growth}, title style={font=\scriptsize\bfseries},
+  nodes near coords, nodes near coords style={font=\tiny, /pgf/number format/1000 sep={}},
+]
+  \addplot[draw=cbExample!60!black, fill=cbExample!25] coordinates {
+    (1,107) (2,1474) (3,2966) (5,5006) };
+  \addplot[draw=cbPitfall!70!black, fill=cbPitfall!22] coordinates {
+    (4,3624) };
+\end{axis}
+\begin{axis}[
+  at={(poolax.east)}, anchor=west, xshift=1.1cm,
+  width=7.4cm, height=5.0cm,
+  xmin=0.6, xmax=5.4, xtick={1,2,3,4,5},
+  ymin=0.04, ymax=0.30,
+  xlabel={cycle index}, ylabel={final-epoch training cross-entropy},
+  tick label style={font=\scriptsize}, label style={font=\scriptsize},
+  ymajorgrids, grid style={cbInk!8},
+  title={(b) training loss}, title style={font=\scriptsize\bfseries},
+]
+  \addplot[draw=cbScenario!70!black, line width=1.1pt, mark=*, mark size=1.8pt] coordinates {
+    (1,0.258) (2,0.171) (3,0.109) (4,0.070) (5,0.091) };
+  \addplot[only marks, mark=*, mark size=2.6pt, draw=cbPitfall!75!black, fill=cbPitfall!30] coordinates {
+    (4,0.070) };
+  \node[font=\tiny, text=cbPitfall!70!black, anchor=south] at (axis cs:4,0.070) {abort};
+\end{axis}
+\end{tikzpicture}
+\caption[Per-cycle training trajectory]{The training trajectory of the actual deployed
+run. Panel~(a): the training-pool size grows monotonically across the committed cycles
+($107$, $1474$, $2966$, $5006$ at cycles one, two, three, and five), with the aborted
+cycle four (red) drawing on $3624$ episodes. Panel~(b): the final-epoch training
+cross-entropy falls steadily ($0.258$, $0.171$, $0.109$) and reaches its lowest value of
+the entire run, $0.070$, at cycle four (red), before rising to $0.091$ at cycle five.
+Cycle four thus reached the lowest training loss of the run yet breached the retention
+floor, the textbook signature of an over-fit update that the guard correctly caught and
+rolled back.}
+\label{fig:cycle-traj}
+\end{figure}
+
+\section{The retention guard: commit or abort}
+\label{sec:cycle-guard}
+
+A fine-tune can improve the target benchmarks while quietly eroding unrelated abilities,
+which is the catastrophic forgetting of \Cref{ch:problem}. The retention guard is the
+check that catches this before the update is kept.
+
+\begin{precise}[Pristine probes, worst-case ratio, and the floor]
+At cycle zero, before any training, the system measures its accuracy on three
+\emph{retention probes}, held-out tasks chosen to span different abilities: a
+four-option general-knowledge test, an open-text factoid test, and a five-option
+commonsense test, two hundred questions each. These cycle-zero scores are the
+\emph{pristine baseline}, anchored once and reused forever as the denominator (it is even
+persisted to disk so a resumed run does not re-anchor against an already-trained model).
+After each fine-tune the three probes are re-run, and each post-training score is divided
+by its pristine value to get a retention ratio. If the \emph{worst} of the three ratios
+falls below the floor $\rhomin = 0.93$, the cycle \emph{aborts}. The rule is a logical
+AND over the probes: all three must hold above the floor for the cycle to commit, so a
+collapse on any single ability vetoes the update.
+\end{precise}
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+  width=10.5cm, height=5.6cm,
+  ybar, bar width=20pt,
+  symbolic x coords={general-knowledge, open-text factoid, commonsense},
+  xtick=data, x tick label style={font=\scriptsize},
+  ymin=0.7, ymax=1.08, ylabel={retention ratio (post / pristine)},
+  ytick={0.7,0.8,0.9,0.93,1.0}, font=\small\sffamily, tick label style={font=\scriptsize},
+  ymajorgrids, grid style={cbInk!8},
+  nodes near coords, nodes near coords style={font=\scriptsize, /pgf/number format/fixed, /pgf/number format/precision=3},
+]
+  \addplot[draw=cbExample!60!black, fill=cbExample!25] coordinates {
+    (general-knowledge,1.018) (open-text factoid,0.886) (commonsense,0.982) };
+  \draw[cbPitfall!75!black, dashed, line width=1.2pt] (axis cs:general-knowledge,0.93) -- (axis cs:commonsense,0.93);
+  \node[font=\scriptsize, text=cbPitfall!70!black, anchor=east] at (axis cs:commonsense,0.945) {floor $\rho_{\min}=0.93$};
+\end{axis}
+\end{tikzpicture}
+\caption[The retention guard firing at cycle four]{The three retention probes measured
+at the cycle-four boundary, read from the run log. General knowledge actually improved
+slightly (ratio $1.018$) and commonsense held at $0.982$, both above the floor, but the
+open-text factoid probe fell to $0.886$, below the $0.93$ floor. Because the worst probe
+breaches the floor, the cycle aborts: the freshly trained adapter is discarded and the
+previous cycle's adapter is restored. The memory accumulated this cycle is kept.}
+\label{fig:cycle-guard}
+\end{figure}
+
+\begin{precise}[Asymmetric rollback: weights revert, memory persists]
+On an abort the adapter is rolled back to the previous cycle's snapshot, and the
+commit-gated steps below are skipped. But the \emph{episodic memory is not rolled back}:
+every episode admitted during the aborted cycle survives. This asymmetry is the core
+safety property of the whole architecture. Memory growth is monotone and high-precision
+by construction, since each episode passed the gate, so it is always safe to keep; a
+weight update is a global change with no such guarantee, so it is the thing thrown away.
+The realised run hit this fork for real at cycle four: the open-text factoid probe fell to
+$0.886$, below the floor, the adapter reverted to its cycle-three state, and the memory
+carried forward untouched. The next cycle then re-attempted training from the last good
+adapter against fresh data.
+\end{precise}
+
+\section{The rest of the boundary, and what is gated on committing}
+\label{sec:cycle-boundary-ops}
+
+If the cycle commits, four more things happen, in order, and each depends on the model
+having actually improved.
+
+\begin{description}[leftmargin=0pt, labelsep=0.5em, style=nextline]
+  \item[Recalibrate.] The calibration fold is re-scored under the new model, then the
+  temperature of \Cref{ch:upre} and the composite of \Cref{ch:composite} are re-fitted
+  and reloaded. This is the per-cycle refit of \Cref{sec:composite-training}: it keeps
+  $\ustored$ honest as the model moves underneath it.
+  \item[Re-verify the memory.] Every stored episode is re-scored through the freshly
+  recalibrated verifier. An episode whose trust has risen above the storage threshold is
+  promoted, and one that has fallen below a floor is pruned. In the deployed run a typical
+  committed cycle re-scored several thousand stored episodes and pruned only a small
+  single-digit-percentage tail; at the third cycle, for instance, all $5358$ stored
+  episodes were re-scored, $352$ were pruned, and $5006$ survived. This is how the deferred
+  fact-checking claim of $\ustored = 0.508$ from \Cref{ch:bigpicture} is finally promoted to
+  memory: the better model scores it higher, and it crosses the line. Re-verification runs
+  \emph{after} recalibration, deliberately, so it scores through the new curves rather
+  than stale ones. The aborted cycle skipped re-verification entirely, because re-scoring
+  through unchanged weights would be a no-op.
+  \item[Reconsider deferrals.] The deferred buffer of borderline answers is re-examined
+  and each entry is promoted, expired, or kept.
+  \item[Consolidate.] Near-duplicate episodes are merged into a single representative.
+\end{description}
+
+\begin{pitfall}[An abort skips the commit-gated half, but not the whole cycle]
+All four of the above, plus the re-verification, are gated on the cycle committing; an
+abort skips them, because re-scoring and re-verifying through an unchanged model would add
+nothing. But the cycle still does its \emph{unconditional} work even on an abort: it grows
+the memory with a fresh, content-hash-disjoint chunk of new questions (with storage on),
+runs the held-out evaluation (with storage off), checkpoints, and consults the early-stop
+gate. An aborted cycle loses its weight update, not its progress.
+\end{pitfall}
+
+\section{When the loop stops}
+\label{sec:cycle-stop}
+
+The loop is configured for ten cycles, but it does not always use them. After a burn-in,
+an early-stop gate watches three signals: whether the joint quality score has stopped
+rising, whether the storage rate has saturated, and whether general-knowledge retention is
+holding. When two of the three agree that the system has reached equilibrium, the loop
+stops early. In the deployed run the two signals that fired were the saturated storage
+rate and the holding general-knowledge retention, while the joint-quality saturation
+signal had not yet tripped; two of the three was enough to stop at the first eligible
+cycle after the burn-in. The realised run stopped this way at cycle five, having committed
+cycles one, two, three, and five and aborted cycle four, a commit fraction of four in
+five. The full realised trajectory is the subject of \Cref{ch:trajectory}.
+
+\section{Why this closes the static flaw}
+\label{sec:cycle-why}
+
+\begin{intuition}[Verification that compounds instead of evaporating]
+\Cref{ch:problem} argued that the deepest waste in a static model is that verification
+does not compound: effort spent confirming an answer today changes nothing tomorrow. The
+cycle loop is the mechanism that makes it compound. Every verified answer is filed in
+memory; every cycle the model studies that file and folds the knowledge into its
+parameters; and the retention guard ensures each such step is a net gain rather than a
+trade. The receipt that this is distillation and not mere caching is that, after the loop
+runs, the model answers from its own parameters, on the zero-shot tier, questions it
+previously could only answer with retrieval, and it does so at a higher accuracy than the
+retrieval tier reached at cold-start: in the deployed run the learned zero-shot tier
+reaches an exact match of about $0.57$ on its assigned queries by the third cycle, above
+the roughly $0.48$ the retrieval tier managed on its assigned queries at the cold start.
+The loop turns one-shot verification into a permanent capability.
+\end{intuition}
+
+\begin{bythenumbers}[Cycle-loop constants]
+\begin{itemize}[leftmargin=1.3em, itemsep=1pt]
+  \item Training set: episodes with $\ustored \ge 0.70$, training benchmarks only, loops filtered.
+  \item Pool reweighting: temperature $2.0$, upsample cap $3\times$, floor $50$, ceiling $40\%$.
+  \item Fine-tune: LoRA rank $32$, $\alpha = 64$, $3$ epochs, micro-batch $4$, effective batch $16$, learning rate $2\times10^{-4}$, AdamW, no anchor term.
+  \item Retention guard: three probes ($200$ each), worst-ratio floor $\rhomin = 0.93$; abort restores the adapter, memory persists.
+  \item Boundary: recalibrate, re-verify, reconsider, consolidate (all commit-gated); grow and evaluate (unconditional).
+  \item Horizon: up to $10$ cycles; early-stop on two of three equilibrium signals (realised stop at cycle five).
+\end{itemize}
+\end{bythenumbers}
+
+\begin{defence}[If an examiner asks: ``what shows the loop helps rather than just drifts?'']
+Three guards make the answer empirical, not hopeful. The training set is gated at a strict
+trust threshold, so the loop studies only high-quality answers. The retention guard
+measures held-out ability after every update and rolls back any update that regresses it,
+so a drifting cycle is caught and undone rather than committed. And the memory is curated
+against the improving model each cycle, so its quality is maintained rather than left to
+decay. The realised commit fraction of four in five, with one genuine abort, is the direct
+evidence that the guard is active and that the committed cycles are the ones that earned
+their keep.
+\end{defence}
+
+The per-query pipeline and the cycle loop are now both fully open. \Cref{ch:theory} steps
+back to the theory: the data-purity property that lets an imperfect verifier yield a
+clean memory, and the monotonicity and convergence results that the loop's behaviour is
+meant to exhibit.

@@ -1,0 +1,62 @@
+% ============================================================================
+% The CAEM Book — a from-the-ground-up teaching companion
+% "How Confidence-Aware Episodic Memory with Self-Improvement actually works"
+%
+% Source of truth: the live caem/ code first, the main thesis report second.
+% Built one component at a time; each chapter validated before the next.
+%
+% Build:  cd "caem book" && latexmk -pdf main.tex
+%   (or)  pdflatex main && pdflatex main
+% ============================================================================
+\documentclass[11pt,a4paper,oneside]{book}
+
+\input{preamble}
+
+% ----------------------------------------------------------------------------
+\begin{document}
+
+\frontmatter
+\input{chapters/00_titlepage}
+\tableofcontents
+
+\mainmatter
+
+% ---- Part I — Foundations --------------------------------------------------
+\part{Foundations}
+\include{chapters/01_problem}          % why CAEM exists
+\include{chapters/02_bigpicture}       % the 8-stage pipeline + cycle loop
+\include{chapters/03_prerequisites}    % LLMs, embeddings, calibration, NLI, LoRA, FAISS
+
+% ---- Part II — The per-query pipeline --------------------------------------
+\part{The Per-Query Pipeline}
+\include{chapters/04_stage1_upre}      % pre-routing confidence
+\include{chapters/05_stage2_memory}    % episodic memory store
+\include{chapters/06_stage3_router}    % three-tier router
+\include{chapters/07_stage3b_ruc}      % retrieval-utility classifier (centrepiece)
+\include{chapters/08_stage4_tiers}     % tier execution
+\include{chapters/09_stage5_verifier}  % nine-signal verifier
+\include{chapters/10_stage6_composite} % calibrated composite + four-outcome gate
+\include{chapters/11_stage7_output}    % the output contract
+
+% ---- Part III — The self-improvement loop ----------------------------------
+\part{The Self-Improvement Loop}
+\include{chapters/12_stage8_cycle}     % cycle boundary: LoRA, retention guard, rollback
+
+% ---- Part IV — Theory & Evaluation -----------------------------------------
+\part{Theory and Evaluation}
+\include{chapters/13_theory}           % purity, monotonicity, convergence, Tier-1 floor
+\include{chapters/14_benchmarks}       % panel, baselines, CHM/EM metrics
+\include{chapters/15_trajectory}       % the realised C0--C5 trajectory + C4 abort
+\include{chapters/16_ablations}        % RUC ablation, asymmetric rescue
+
+% ---- Part V — Appendices ---------------------------------------------------
+\appendix
+\part{Reference}
+\include{chapters/A_constants}         % the full registered-constant registry
+\include{chapters/B_glossary}          % glossary of every symbol and term
+
+% ---- Bibliography ----------------------------------------------------------
+\backmatter
+\printbibliography[heading=bibintoc,title={References}]
+
+\end{document}

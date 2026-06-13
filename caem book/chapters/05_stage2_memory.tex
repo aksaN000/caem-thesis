@@ -1,0 +1,380 @@
+\chapter{Stage 2: The Episodic Memory Store}
+\label{ch:memory}
+
+Stage 1 decided how ready the model is. Stage 2 asks a different question: have we
+answered something like this well before? The episodic memory store is \caem{}'s
+answer to the first structural flaw of \Cref{ch:problem}, statelessness. It is the
+component that lets the system say ``I have seen this, and last time I got it
+right,'' and it is the substrate that every later stage either reads from or writes
+to. This chapter covers the store as a whole: what a single memory holds, how a
+query finds its nearest match, how a new memory is admitted, and how the store
+keeps itself small and trustworthy over time.
+
+\begin{intuition}[A notebook of verified answers]
+Picture a researcher who keeps a notebook of every question they have settled, with
+the reasoning that settled it and a note of how sure they were. When a new question
+arrives, they first flip to the most similar past entry. If it is close enough and
+was confidently resolved, they reuse it instead of redoing the work. The notebook is
+curated: near-duplicate entries are merged, shaky entries are re-checked when the
+researcher learns more, and if it ever overflows, the least useful pages are torn
+out first. The episodic memory store is that notebook, made precise enough for a
+machine to keep.
+\end{intuition}
+
+\section{What a single memory holds}
+\label{sec:memory-episode}
+
+The unit of memory is an \emph{episode}: a verified triple of question, reasoning,
+and answer, wrapped in the metadata that lets the rest of the system reason about
+it. The fields fall into three groups, and the grouping is not cosmetic, because the
+groups have different mutability rules.
+
+\begin{table}[t]
+\centering
+\caption[Anatomy of an episode]{The fields of a stored episode, by group. Content
+is frozen at storage time because the fine-tune of \Cref{ch:cycle} trains directly
+on it; quality and usage evolve across cycles.}
+\label{tab:episode}
+\small
+\renewcommand{\arraystretch}{1.22}
+\begin{tabularx}{\textwidth}{@{}l >{\raggedright\arraybackslash}X@{}}
+\toprule
+\textbf{Group} & \textbf{Fields and meaning} \\
+\midrule
+\textbf{Content} (immutable)
+  & The \emph{question}, the \emph{reasoning chain} that produced the answer, the
+    short \emph{answer} string, and the $768$-dimensional unit-normalised
+    \emph{embedding}. Plus provenance: the \emph{storage cycle}, a timestamp, the
+    \emph{source benchmark}, and any benchmark tags merged in during consolidation.
+    These never change after storage, because the self-improvement loop trains on
+    them and a moving target would corrupt the dataset. \\
+\addlinespace[2pt]
+\textbf{Quality} (mutable)
+  & The stored trust score $\ustored$, the verifier signals recorded on the episode
+    ($\utoken$, $\udrop$, $\uint$, $\savg$, $\pentail$, $\pgmax$, $\pgmean$,
+    $\pgatom$, $\qarel$) together with the retired-but-recorded $h_{\text{norm}}$
+    diagnostic, the gate
+    \emph{decision} (one of store, defer, abstain, discard), and a confabulation
+    flag. These are overwritten when the episode is re-scored at a cycle boundary. \\
+\addlinespace[2pt]
+\textbf{Usage} (mutable)
+  & The \emph{retrieval count}, the running \emph{success rate} of times the episode
+    was served and accepted, a \emph{hit counter} since its last re-check, and a
+    \emph{retroverified} flag. These track how the episode performs in service and
+    drive both the trust-feedback update and the pruning score. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\begin{intuition}[Why store the reasoning, not just the answer]
+The most valuable field is often the one a cache would omit: the reasoning chain. A
+plain lookup table would store only the question and the answer. \caem{} stores the
+chain of reasoning too, because that is the transferable knowledge the
+self-improvement loop of \Cref{ch:cycle} learns from. An answer tells the model
+\emph{what}; the chain tells it \emph{how}, and the ``how'' is what generalises to
+the next, slightly different question. The memory is therefore not just a cache of
+answers but a corpus of worked solutions.
+\end{intuition}
+
+The trust score $\ustored$ deserves a forward pointer rather than a definition here.
+It is the calibrated composite produced by the verifier and gate of
+\Cref{ch:verifier,ch:composite}; for this chapter it is enough to read it as a number
+in $[0,1]$ that says how much the system trusts this episode's answer. Stage 2 only
+\emph{consumes} it, during routing; it is \emph{produced} downstream.
+
+\section{The per-query operation: encode and probe}
+\label{sec:memory-probe}
+
+In the per-query pipeline, Stage 2's active job is small and fast. The query is
+encoded into its $768$-dimensional embedding by the sentence encoder of
+\Cref{sec:prereq-embeddings}, and that vector is used to probe the store for its
+single nearest neighbour. Because every vector is unit-normalised, the
+nearest-neighbour search by inner product returns exactly the highest cosine
+similarity, and the search returns both the matched episode and that similarity
+score.
+
+\begin{lstlisting}[caption={The nearest-neighbour probe, condensed from \texttt{caem/memory/store.py}.}, label={lst:search}]
+def search(self, embedding, k=1):
+    if self.is_empty:
+        return []                                # cold start: nothing to match
+    vec = self._to_faiss_matrix(embedding)       # (1, 768) float32, unit-norm
+    sims, ids = self._index.search(vec, k)       # inner product == cosine
+    return [(self._metadata[int(i)], float(s))   # (episode, similarity)
+            for s, i in zip(sims[0], ids[0]) if i != -1]
+\end{lstlisting}
+
+Two things are worth noticing. First, an empty store returns nothing, which is the
+cold-start case: on the very first cycle the memory is empty, so every query falls
+through to generation, exactly as we saw for the FEVER claim in \Cref{ch:bigpicture}.
+Second, the search returns the episode object itself, not just an identifier, so the
+router can immediately read the neighbour's stored trust score without a second
+lookup. A companion form of the call also returns the integer identifier, which the
+pipeline uses when it later needs to update that episode's usage statistics after a
+Tier 1 hit.
+
+\begin{fromcode}[The substrate underneath]
+The search rides on the FAISS index described in \Cref{sec:prereq-faiss}. The store
+bootstraps as an \emph{exact} inner-product index so that early cycles, when the
+store is small, get exact nearest neighbours, and it \emph{auto-promotes} to the
+approximate inverted-file product-quantised index once it holds enough vectors to
+train the clustering. The index is wrapped so that episodes can be deleted by
+identifier, which matters for the pruning and consolidation operations later in this
+chapter. None of this is visible to the caller: the probe returns the nearest
+episode and a cosine score regardless of which index is active underneath.
+\end{fromcode}
+
+\section{Admission: the novelty gate}
+\label{sec:memory-novelty}
+
+When the gate of \Cref{ch:composite} decides an answer is worth storing, the store
+does not admit it blindly. It first checks \emph{novelty}: if the candidate's nearest
+existing neighbour is too similar, the candidate is judged a near-duplicate and is not
+stored. ``Too similar'' is a cosine similarity above $0.95$.
+
+\begin{intuition}[Why duplicates are actively harmful]
+A cache would happily store the same answer twice; it costs only space. For \caem{}
+a duplicate costs more than space, because the memory is also the training set. Storing
+the same verified answer many times would let a handful of popular questions dominate
+the fine-tune, teaching the model their phrasing at the expense of breadth. The novelty
+gate keeps the memory a set of \emph{distinct} solved problems rather than a frequency
+table of the common ones, which is what keeps the downstream training signal balanced.
+\end{intuition}
+
+The novelty check reuses the very same nearest-neighbour search as the per-query probe:
+it asks for the top neighbour and rejects the candidate if that neighbour's similarity
+exceeds the threshold. The threshold sits high, at $0.95$, deliberately. Paraphrases
+that are merely related should still be stored as separate episodes, because they may
+carry different reasoning; only near-identical restatements are screened out at
+admission. Genuine paraphrase clusters are handled later and more carefully by
+consolidation (\Cref{sec:memory-cycle-ops}), which can inspect the answers before
+merging rather than rejecting at the door.
+
+\section{Capacity and pruning}
+\label{sec:memory-pruning}
+
+The store has a hard capacity of one million episodes. Long before that, when it
+reaches ninety-five percent full, it triggers a prune that removes the least valuable
+fifth of its episodes. ``Least valuable'' is not ``oldest'' or ``least confident''
+alone; it is a composite \emph{Value} score that balances how good an episode is
+against how useful it has proven and how recent it is.
+
+\begin{precise}[The Value score]
+Each episode's Value combines an importance term and a recency term,
+\[
+  \text{Value} \;=\; 0.70\cdot\text{Importance} \;+\; 0.30\cdot\text{Recency},
+\]
+where importance is a weighted blend of four cues,
+\[
+  \text{Importance}
+  \;=\;
+  0.40\,\varphi \;+\; 0.30\,\frac{r}{r_{\max}} \;+\; 0.20\,\text{success} \;+\; 0.10\,\ustored,
+\]
+and recency decays exponentially with the episode's age in seconds,
+\[
+  \text{Recency} \;=\; \exp(-0.01\cdot \text{age}).
+\]
+Here $\varphi = (\text{storage cycle} + 1)/(\text{number of cycles} + 1)$ is a proxy
+for how recently the episode was stored, $r/r_{\max}$ is the episode's retrieval count
+normalised by the busiest episode's, $\text{success}$ is its running acceptance rate
+in service, and $\ustored$ is its trust score. When a prune fires, episodes are sorted
+by Value and the bottom twenty percent are removed.
+\end{precise}
+
+\begin{workedexample}[Which episode survives a prune]
+As an illustration (the capacity prune was never reached in the realised run, whose
+store peaked near ten thousand episodes against a one-million capacity),
+consider two episodes competing to stay. Episode A was stored in an early cycle, has
+never been retrieved, and carries a middling trust score. Its $\varphi$ is small, its
+retrieval and success terms are zero, and its recency has decayed, so its Value is
+low and it is a prime candidate for removal. Episode B was stored recently, has been
+retrieved many times and accepted almost every time, and carries a high trust score.
+Every term in its importance is large and its recency is near one, so its Value is
+high and it is retained. The lesson is that the store does not just keep its most
+confident episodes; it keeps the ones that have \emph{earned their place} by being
+useful in service, which is a stronger signal of value than confidence at storage
+time alone.
+\end{workedexample}
+
+\section{Living metadata: trust that adapts to service}
+\label{sec:memory-feedback}
+
+An episode's trust score is not frozen the moment it is stored. Every time the episode
+is served from memory and the answer is accepted or overridden, the store updates the
+episode's usage statistics, and once the episode has been retrieved enough times, it
+also nudges the trust score itself.
+
+\begin{lstlisting}[caption={Retrieval feedback, condensed from \texttt{caem/memory/store.py}.}, label={lst:feedback}]
+entry.retrieval_count += 1
+entry.success_rate = (old_rate * n + float(was_accepted)) / (n + 1)   # running mean
+
+if entry.retrieval_count >= 5:                  # feedback_loop_min_retrievals
+    eta = 0.01                                  # feedback_loop_eta
+    if was_accepted:
+        entry.u_stored += eta * (1.0 - entry.u_stored)    # nudge toward 1
+    else:
+        entry.u_stored -= eta * entry.u_stored            # nudge toward 0
+\end{lstlisting}
+
+The success rate is a running mean, so it reflects the episode's whole service history,
+not just its last use. The trust nudge is deliberately small and deliberately gated: it
+applies only after at least five retrievals, so that a single acceptance or rejection
+cannot swing an episode's standing, and even then it moves the score by only a small
+fraction of the remaining distance to one or zero. The effect accumulates: an episode
+that is repeatedly served and accepted drifts slowly upward in trust, while one that is
+repeatedly overridden drifts down, eventually toward the pruning threshold. There is
+also a separate hit counter that, once an episode has been served ten times since its
+last re-check, flags it for forced re-verification at the next cycle boundary, on the
+principle that a popular episode that is quietly wrong does the most damage and is worth
+re-checking early.
+
+\section{What the store does at a cycle boundary}
+\label{sec:memory-cycle-ops}
+
+Two of the store's most important operations are not driven by the per-query pipeline at
+all. They are invoked by the self-improvement loop of \Cref{ch:cycle} once per cycle,
+and we introduce them here only because they are the store's own methods; their full
+treatment belongs to that chapter.
+
+\begin{description}[leftmargin=0pt, labelsep=0.5em, style=nextline]
+  \item[Retroactive re-verification.] Every stored episode is re-scored through the
+  recalibrated verifier under the freshly fine-tuned model. An episode whose new trust
+  score falls below a floor is pruned; otherwise its quality fields are overwritten with
+  the new reading, which may raise or lower its trust. This is how the memory benefits
+  from the model getting better: yesterday's borderline episode can be re-judged
+  confidently today, and a stale confident episode can be caught and demoted. In the
+  deployed run this pass pruned a declining fraction at each committed cycle, from about
+  thirteen percent at the first cycle to about four percent by the last (about $13$, $9$,
+  $7$, $4$ percent), the signature of a store whose composition shifts toward
+  higher-confidence survivors as the model improves; the prune floor of $0.50$ sits below
+  the storage cut-point, so re-verification removes only entries that have genuinely lost
+  confidence.
+  \item[Consolidation.] Near-paraphrase episodes are clustered, and each cluster is
+  collapsed onto a single representative, the one with the highest trust. The merge is
+  guarded: it proceeds only if the cluster's answers agree after normalisation and their
+  trust scores do not spread too widely, and it never merges across the
+  training-versus-transfer boundary, so that consolidation cannot leak held-out content
+  into the training pool. The representative inherits the cluster's combined retrieval
+  history and benchmark tags. In the deployed run the clustering threshold sat at cosine
+  $0.92$ over the nearest twenty neighbours; the answer-equality guard and a trust-spread
+  guard, which rejected any cluster whose trust range exceeded $0.15$, screened most
+  candidates, and the cross-pool guard rejected every candidate straddling the
+  training-versus-transfer boundary. Across the trajectory the pass merged $57$ clusters
+  and removed $58$ episodes. Note that the consolidation threshold of $0.92$ stays
+  distinct from the admission novelty gate of $0.95$ described in
+  \Cref{sec:memory-novelty}: consolidation inspects answers and trust before merging,
+  whereas the novelty gate rejects only near-identical restatements at the door.
+\end{description}
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[
+  font=\small\sffamily,
+  ep/.style={rectangle, rounded corners=5pt, draw=cbExample!70!black,
+    fill=cbExample!12, line width=1.1pt, align=center, inner sep=6pt,
+    text width=2.7cm, minimum height=1.1cm, drop shadow={shadow xshift=0.3ex,
+    shadow yshift=-0.3ex, fill=black!10}},
+  act/.style={rectangle, rounded corners=3pt, draw=cbIntuition!75!black,
+    fill=cbIntuition!10, line width=0.9pt, align=center, inner sep=4pt,
+    text width=2.5cm, font=\footnotesize, minimum height=0.85cm},
+  fin/.style={rectangle, rounded corners=2pt, draw=cbInk!55, fill=cbInk!6,
+    line width=0.9pt, align=center, inner sep=4pt, font=\footnotesize},
+  flow/.style={-{Stealth[length=2.4mm]}, line width=1.1pt, draw=cbInk!75},
+  gone/.style={-{Stealth[length=2.4mm]}, line width=1.1pt, draw=cbPitfall!75, dashed},
+]
+  \node[fin] (gate) at (-3.2,0) {gate says\\\textbf{store}};
+  \node[ep]  (live) at (0.4,0) {\textbf{Live episode}\\in the store};
+  % feedback self-loop
+  \node[act] (fb) at (0.4,2.3) {served $\to$ trust nudge,\\usage stats};
+  % cycle-boundary ops
+  \node[act] (retro) at (4.8,1.4) {cycle boundary:\\re-verify};
+  \node[act] (cons)  at (4.8,-0.0) {cycle boundary:\\consolidate};
+  \node[act] (prune) at (4.8,-1.4) {capacity 95\%:\\prune};
+  % outcomes
+  \node[fin] (rep)  at (9.0,0.7) {merged into\\representative};
+  \node[fin, draw=cbPitfall!60, text=cbPitfall!70!black] (rm) at (9.0,-0.9) {removed};
+
+  \draw[flow] (gate) -- node[above,font=\scriptsize,text=cbInk!60]{novelty $\le 0.95$} (live);
+  \draw[flow] (live.north) to[bend left=22] (fb.east);
+  \draw[flow] (fb.west) to[bend left=22] (live.north west);
+  \draw[flow] (live) |- (retro);
+  \draw[flow] (live) -- (cons);
+  \draw[flow] (live) |- (prune);
+  \draw[flow] (retro) -| node[pos=0.25,above,font=\scriptsize,text=cbExample!55!black]{pass} (rep.north west);
+  \draw[gone] (retro) -- node[pos=0.55,above,font=\scriptsize,text=cbPitfall!70!black]{below floor} (rm);
+  \draw[flow] (cons) -- (rep);
+  \draw[gone] (cons) -- node[pos=0.5,above,font=\scriptsize,text=cbPitfall!70!black]{non-rep} (rm);
+  \draw[gone] (prune) -- (rm);
+\end{tikzpicture}
+\caption[The life of an episode]{The life of an episode. It is admitted only if it
+clears the novelty gate, then lives in the store being served (each serve nudges its
+trust and usage stats). At each cycle boundary it is re-verified (kept with an updated
+trust, or removed if it falls below the floor) and may be consolidated into a
+representative; under capacity pressure the least valuable episodes are pruned. The
+dashed paths are the only ways an episode leaves the store. (Schematic.)}
+\label{fig:episode-life}
+\end{figure}
+
+\begin{pitfall}[The memory is curated, not merely accumulated]
+It would be a mistake to picture the store as an append-only log that only ever grows.
+It is continuously curated. New episodes are screened at admission, served episodes have
+their trust nudged by experience, the whole store is re-judged each cycle as the model
+improves, paraphrase clusters are merged, and the least valuable episodes are pruned
+under capacity pressure. The store's quality is maintained by these forces acting
+together, which is what lets a single fixed trust threshold keep meaning the same thing
+as the store ages.
+\end{pitfall}
+
+\section{The store survives a rollback}
+\label{sec:memory-asymmetry}
+
+One property from \Cref{ch:bigpicture} is worth restating in the store's own terms,
+because it is the reason the memory is the system's most durable asset. When a cycle's
+fine-tune fails the retention guard and the model weights are rolled back, the episodic
+memory is \emph{not} rolled back with them. Every episode admitted during that cycle
+survives. This fired once in the deployed run; at one cycle the worst of the three
+retention probes (the held-out open-text factoid probe) fell to a ratio of $0.886$
+against its pristine baseline, below the fixed floor of $0.93$, while the
+general-knowledge probe held at $1.018$ and the commonsense probe at $0.982$; the
+adapter was restored to the previous cycle's weights, yet the store was untouched and
+kept growing across the boundary, from about five thousand to nearly ten thousand
+episodes by the final cycle.
+
+\begin{precise}[Why memory growth is safe to keep even on a failed cycle]
+The asymmetry is principled. Each episode in the store passed the four-outcome gate at
+storage time, so memory growth is monotone and high-precision by construction: adding a
+gated episode can only add a trustworthy fact. A weight update has no such guarantee; it
+is a global change that can erode unrelated capabilities, which is the catastrophic
+forgetting the whole loop is built to avoid. So the system protects the verified,
+accumulated asset (the memory) and is willing to discard the risky, reversible one (the
+adapter). This is why a rollback costs a cycle's training but never a cycle's
+remembered knowledge. The store is also checkpointed to disk each cycle, as a paired
+index and metadata file, so the accumulated memory is recoverable independently of the
+model.
+\end{precise}
+
+\begin{bythenumbers}[Episodic memory constants]
+\begin{itemize}[leftmargin=1.3em, itemsep=1pt]
+  \item Embedding: $768$-dimensional, unit-normalised; search by cosine (inner product).
+  \item Capacity: $1{,}000{,}000$ episodes; prune trigger at $95\%$ full; prune the bottom $20\%$ by Value.
+  \item Novelty: candidates with a nearest neighbour above cosine $0.95$ are not stored.
+  \item Value $= 0.70\cdot$Importance$+0.30\cdot$Recency; recency decay rate $0.01$ per second of age.
+  \item Trust feedback: nudge step $0.01$, applied only after $\geq 5$ retrievals.
+  \item Forced re-check: flagged after $10$ Tier 1 serves since the last re-verification.
+\end{itemize}
+\end{bythenumbers}
+
+\begin{defence}[If an examiner asks: ``how is this different from a retrieval cache?'']
+A cache stores answers and serves them back; the episodic store does three things a
+cache does not. It stores the \emph{reasoning}, not just the answer, because the memory
+doubles as the training corpus for the self-improvement loop. It carries a
+\emph{calibrated trust score} on every entry, so the router can weigh a match by quality
+and not only by similarity. And it is \emph{curated against its own model}: each cycle
+re-judges, merges, and prunes its contents as the model improves, so the store's
+precision is maintained rather than left to decay. A cache is a passive lookup table;
+this is an actively maintained, quality-scored knowledge base that happens to also
+answer lookups.
+\end{defence}
+
+The store can now tell the router, for any query, both how similar the nearest episode
+is and how much that episode is trusted. \Cref{ch:router} takes up Stage 3, where those
+two numbers are fused into a single dispatch score and a tier is finally chosen.

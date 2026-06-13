@@ -1,0 +1,249 @@
+% ============================================================================
+% preamble.tex — The CAEM Book
+% Defines the visual language: pedagogical callout boxes, code styling,
+% theorem environments, colour palette, and typography.
+% ============================================================================
+
+% --- Page geometry & typography ---------------------------------------------
+\usepackage[a4paper,top=1in,bottom=1in,left=1.1in,right=1.1in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{setspace}
+\onehalfspacing
+
+% --- Maths ------------------------------------------------------------------
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{amsthm}
+\usepackage{bm}
+\usepackage{mathtools}
+
+% --- Tables, graphics, colour -----------------------------------------------
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{multirow}
+\usepackage{tabularx}
+\usepackage[table,dvipsnames]{xcolor}
+\usepackage{enumitem}
+\usepackage{caption}
+
+% --- Diagrams & plots -------------------------------------------------------
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,shapes.geometric,fit,backgrounds,
+                calc,decorations.pathreplacing,shadows.blur,patterns}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.18}
+
+% --- Code listings ----------------------------------------------------------
+\usepackage{listings}
+
+% --- Callout boxes ----------------------------------------------------------
+\usepackage[most]{tcolorbox}
+\tcbuselibrary{skins,breakable}
+
+% --- Bibliography (shares the thesis reference database) --------------------
+\usepackage[backend=biber,style=numeric-comp,sorting=none,maxbibnames=99]{biblatex}
+\addbibresource{../thesis_report/bibliography/references.bib}
+
+% --- Cross-refs & links -----------------------------------------------------
+\usepackage[hidelinks,colorlinks=true,linkcolor=NavyBlue,
+            citecolor=NavyBlue,urlcolor=Maroon]{hyperref}
+\usepackage[noabbrev,capitalize]{cleveref}
+
+% --- Section / chapter styling ----------------------------------------------
+\usepackage{titlesec}
+\usepackage{titletoc}
+
+% Shorter, non-uppercase running heads (the default "CHAPTER N. FULL TITLE" in caps
+% overflows the header band on long chapter titles). Mixed-case, no "Chapter" word.
+\renewcommand{\chaptermark}[1]{\markboth{\thechapter.\ #1}{}}
+\renewcommand{\sectionmark}[1]{\markright{\thesection.\ #1}}
+
+% ============================================================================
+% COLOUR PALETTE  (a calm, readable teaching palette)
+% ============================================================================
+\definecolor{cbInk}{HTML}{1A1A2E}        % body ink
+\definecolor{cbIntuition}{HTML}{1565C0}  % blue  — intuition
+\definecolor{cbFormula}{HTML}{6A1B9A}    % purple — precise/maths
+\definecolor{cbExample}{HTML}{2E7D32}    % green — worked example
+\definecolor{cbScenario}{HTML}{00838F}   % teal  — scenario walkthrough
+\definecolor{cbPitfall}{HTML}{C62828}    % red   — common pitfall
+\definecolor{cbCode}{HTML}{37474F}       % slate — code
+\definecolor{cbDefense}{HTML}{5D4037}    % brown — examiner Q&A
+\definecolor{cbNumbers}{HTML}{EF6C00}    % orange— by the numbers
+\definecolor{cbCodeBg}{HTML}{F5F7FA}     % code background
+\definecolor{cbCodeKw}{HTML}{0B5FA5}     % code keywords
+\definecolor{cbCodeStr}{HTML}{2E7D32}    % code strings
+\definecolor{cbCodeCom}{HTML}{8A8A8A}    % code comments
+
+% ============================================================================
+% CODE STYLE  (Python excerpts straight from the CAEM source)
+% ============================================================================
+\lstdefinestyle{caempy}{
+  language=Python,
+  basicstyle=\ttfamily\footnotesize\color{cbInk},
+  keywordstyle=\color{cbCodeKw}\bfseries,
+  stringstyle=\color{cbCodeStr},
+  commentstyle=\color{cbCodeCom}\itshape,
+  numberstyle=\tiny\color{cbCodeCom},
+  numbers=left,
+  numbersep=8pt,
+  backgroundcolor=\color{cbCodeBg},
+  frame=single,
+  framerule=0pt,
+  rulecolor=\color{cbCodeBg},
+  breaklines=true,
+  breakatwhitespace=true,
+  showstringspaces=false,
+  tabsize=4,
+  xleftmargin=10pt,
+  xrightmargin=4pt,
+  aboveskip=1ex,
+  belowskip=1ex,
+  literate={τ}{{$\tau$}}1 {α}{{$\alpha$}}1 {θ}{{$\theta$}}1 {ρ}{{$\rho$}}1
+           {λ}{{$\lambda$}}1 {φ}{{$\phi$}}1 {≥}{{$\geq$}}1 {≤}{{$\leq$}}1
+           {×}{{$\times$}}1 {→}{{$\rightarrow$}}1,
+}
+\lstset{style=caempy}
+
+% ============================================================================
+% PEDAGOGICAL CALLOUT BOXES
+% ============================================================================
+% Generic builder: a titled, coloured, breakable box with an icon-ish tag.
+\newtcolorbox{cbbox}[3]{%
+  enhanced, breakable, drop fuzzy shadow=black!18, colback=#1!4, colframe=#1,
+  coltitle=white, fonttitle=\bfseries\sffamily,
+  boxrule=0.8pt, arc=2pt, left=6pt, right=6pt, top=4pt, bottom=4pt,
+  title={#2}, label={#3},
+  attach boxed title to top left={yshift=-2mm, xshift=4mm},
+  boxed title style={colback=#1, arc=1pt, boxrule=0pt},
+}
+
+% Intuition — the plain-English mental model
+\newtcolorbox{intuition}[1][Intuition]{enhanced, breakable, drop fuzzy shadow=black!18, colback=cbIntuition!4,
+  colframe=cbIntuition, coltitle=white, fonttitle=\bfseries\sffamily,
+  boxrule=0.8pt, arc=2pt, title={\,#1},
+  attach boxed title to top left={yshift=-2.4mm,xshift=4mm},
+  boxed title style={colback=cbIntuition,arc=1pt,boxrule=0pt}}
+
+% Precise — the exact maths / mechanism
+\newtcolorbox{precise}[1][The precise version]{enhanced, breakable, drop fuzzy shadow=black!18, colback=cbFormula!4,
+  colframe=cbFormula, coltitle=white, fonttitle=\bfseries\sffamily,
+  boxrule=0.8pt, arc=2pt, title={\,#1},
+  attach boxed title to top left={yshift=-2.4mm,xshift=4mm},
+  boxed title style={colback=cbFormula,arc=1pt,boxrule=0pt}}
+
+% Worked example
+\newtcolorbox{workedexample}[1][Worked example]{enhanced, breakable, drop fuzzy shadow=black!18,
+  colback=cbExample!4, colframe=cbExample, coltitle=white,
+  fonttitle=\bfseries\sffamily, boxrule=0.8pt, arc=2pt, title={\,#1},
+  attach boxed title to top left={yshift=-2.4mm,xshift=4mm},
+  boxed title style={colback=cbExample,arc=1pt,boxrule=0pt}}
+
+% Scenario — a query traced through the system
+\newtcolorbox{scenario}[1][Scenario]{enhanced, breakable, drop fuzzy shadow=black!18,
+  colback=cbScenario!4, colframe=cbScenario, coltitle=white,
+  fonttitle=\bfseries\sffamily, boxrule=0.8pt, arc=2pt, title={\,#1},
+  attach boxed title to top left={yshift=-2.4mm,xshift=4mm},
+  boxed title style={colback=cbScenario,arc=1pt,boxrule=0pt}}
+
+% Common pitfall / trap
+\newtcolorbox{pitfall}[1][Common pitfall]{enhanced, breakable, drop fuzzy shadow=black!18,
+  colback=cbPitfall!4, colframe=cbPitfall, coltitle=white,
+  fonttitle=\bfseries\sffamily, boxrule=0.8pt, arc=2pt, title={\,#1},
+  attach boxed title to top left={yshift=-2.4mm,xshift=4mm},
+  boxed title style={colback=cbPitfall,arc=1pt,boxrule=0pt}}
+
+% From the code — a pointer to the actual implementation
+\newtcolorbox{fromcode}[1][From the code]{enhanced, breakable, drop fuzzy shadow=black!18,
+  colback=cbCode!4, colframe=cbCode, coltitle=white,
+  fonttitle=\bfseries\sffamily, boxrule=0.8pt, arc=2pt, title={\,#1},
+  attach boxed title to top left={yshift=-2.4mm,xshift=4mm},
+  boxed title style={colback=cbCode,arc=1pt,boxrule=0pt}}
+
+% If an examiner asks — defence framing
+\newtcolorbox{defence}[1][If an examiner asks]{enhanced, breakable, drop fuzzy shadow=black!18,
+  colback=cbDefense!4, colframe=cbDefense, coltitle=white,
+  fonttitle=\bfseries\sffamily, boxrule=0.8pt, arc=2pt, title={\,#1},
+  attach boxed title to top left={yshift=-2.4mm,xshift=4mm},
+  boxed title style={colback=cbDefense,arc=1pt,boxrule=0pt}}
+
+% By the numbers — the registered constants
+\newtcolorbox{bythenumbers}[1][By the numbers]{enhanced, breakable, drop fuzzy shadow=black!18,
+  colback=cbNumbers!5, colframe=cbNumbers, coltitle=white,
+  fonttitle=\bfseries\sffamily, boxrule=0.8pt, arc=2pt, title={\,#1},
+  attach boxed title to top left={yshift=-2.4mm,xshift=4mm},
+  boxed title style={colback=cbNumbers,arc=1pt,boxrule=0pt}}
+
+% ============================================================================
+% THEOREM-LIKE ENVIRONMENTS (used in the theory chapter)
+% ============================================================================
+\theoremstyle{plain}
+\newtheorem{theorem}{Theorem}[chapter]
+\newtheorem{corollary}[theorem]{Corollary}
+\newtheorem{lemma}[theorem]{Lemma}
+\theoremstyle{definition}
+\newtheorem{definition}[theorem]{Definition}
+\theoremstyle{remark}
+\newtheorem{remark}[theorem]{Remark}
+
+% ============================================================================
+% CONVENIENCE MACROS  (CAEM symbols used throughout)
+% ============================================================================
+\newcommand{\upre}{u_{\text{pre}}}
+\newcommand{\ustored}{u_{\text{stored}}}
+\newcommand{\utoken}{u_{\text{token}}}
+\newcommand{\udrop}{u_{\text{dropout}}}
+\newcommand{\uint}{u_{\text{internal}}}
+\newcommand{\savg}{s_{\text{avg}}}
+\newcommand{\pentail}{p_{\text{entail}}}
+\newcommand{\pgmax}{p_{\text{ground,max}}}
+\newcommand{\pgmean}{p_{\text{ground,mean}}}
+\newcommand{\pgatom}{p_{\text{ground,atomic}}}
+\newcommand{\qarel}{q_{\text{a,rel}}}
+\newcommand{\pik}{p_{\text{IK}}}
+\newcommand{\prag}{p_{\text{RAG}}}
+\newcommand{\taustore}{\tau_{\text{store}}}
+\newcommand{\taudefer}{\tau_{\text{defer}}}
+\newcommand{\tautrain}{\tau_{\text{train}}}
+\newcommand{\tauretro}{\tau_{\text{retro}}}
+\newcommand{\tauruc}{\tau_{\text{RUC}}}
+\newcommand{\phisafe}{\phi_{\text{safe}}}
+\newcommand{\rhomin}{\rho_{\min}}
+\newcommand{\cconv}{c_{\text{conv}}}
+\newcommand{\caem}{\textsc{CAEM}}
+
+% A small inline "code path" style for naming files/functions in prose.
+\newcommand{\code}[1]{\textcolor{cbCode}{\texttt{\small #1}}}
+
+% ============================================================================
+% HEADER STYLING  (coloured chapter + section headers, a calm teaching look)
+% ============================================================================
+\definecolor{cbHeader}{HTML}{14213D}   % deep navy for chapter numerals
+
+\titleformat{\chapter}[display]
+  {\sffamily\bfseries}
+  {\raggedright\large\sffamily\color{cbIntuition}%
+     \MakeUppercase{\chaptertitlename}\ \thechapter}
+  {6pt}
+  {\Huge\color{cbHeader}\raggedright}
+  [\vspace{4pt}{\color{cbIntuition}\titlerule[1.2pt]}]
+\titlespacing*{\chapter}{0pt}{6pt}{22pt}
+
+\titleformat{\section}
+  {\sffamily\Large\bfseries\color{cbHeader}}
+  {\color{cbIntuition}\thesection}{0.7em}{}
+\titleformat{\subsection}
+  {\sffamily\large\bfseries\color{cbHeader}}
+  {\color{cbIntuition}\thesubsection}{0.6em}{}
+
+% Part pages: large centred coloured numeral + title
+\titleformat{\part}[display]
+  {\centering\sffamily\bfseries}
+  {\Large\color{cbIntuition}\MakeUppercase{\partname}\ \thepart}
+  {10pt}
+  {\Huge\color{cbHeader}}
+  [\vspace{6pt}{\color{cbIntuition}\titlerule[1.5pt]}]

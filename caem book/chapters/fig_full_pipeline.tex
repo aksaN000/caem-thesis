@@ -1,0 +1,268 @@
+% Full-page reference diagram: the complete eight-stage CAEM pipeline.
+% Ported faithfully from the main report (thesis_report/figures/system_architecture_figure.tex);
+% only the caption is rewritten for the book's cross-references and voice.
+\begin{figure}[p]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[
+    xshift=-0.9cm,
+    font=\normalsize,
+  % ---- Node styles ----
+  stage/.style  = {rectangle, draw=teal!65!black, line width=0.9pt, rounded corners=5pt,
+                   minimum height=1.5cm, minimum width=6.5cm, align=center, fill=teal!8},
+  router/.style = {rectangle, draw=teal!65!black, line width=0.9pt, rounded corners=5pt,
+                   minimum height=1.8cm, minimum width=8.5cm, align=center, fill=yellow!18},
+  mcyl/.style   = {cylinder, draw=teal!65!black, line width=0.9pt,
+                   shape border rotate=90, aspect=0.25,
+                   minimum height=3.0cm, minimum width=3.2cm, align=center, fill=teal!12},
+  tA/.style     = {rectangle, draw=green!55!black, line width=1pt, rounded corners=5pt,
+                   minimum height=1.7cm, minimum width=4.0cm, align=center, fill=green!12},
+  tB/.style     = {rectangle, draw=red!55!orange, line width=1pt, rounded corners=5pt,
+                   minimum height=1.7cm, minimum width=4.0cm, align=center, fill=red!12!orange!10},
+  tC/.style     = {rectangle, draw=red!60!black, line width=1pt, rounded corners=5pt,
+                   minimum height=1.7cm, minimum width=4.0cm, align=center, fill=red!10},
+  verify/.style = {rectangle, draw=teal!65!black, line width=1pt, rounded corners=5pt,
+                   minimum height=4.2cm, minimum width=9.5cm, align=center, fill=teal!5},
+  decide/.style = {rectangle, draw=teal!65!black, line width=0.9pt, rounded corners=5pt,
+                   minimum height=1.8cm, minimum width=9.5cm, align=center, fill=yellow!18},
+  oServe/.style = {rectangle, draw=green!60!black, line width=1pt, rounded corners=4pt,
+                   minimum height=1.4cm, minimum width=3.6cm, align=center,
+                   fill=green!30, font=\small\scshape},
+  oStore/.style = {rectangle, draw=green!60!black, line width=0.9pt, rounded corners=3pt,
+                   minimum height=1.2cm, minimum width=2.7cm, align=center,
+                   fill=green!28, font=\small\scshape},
+  oDefer/.style = {rectangle, draw=green!45!black, line width=0.9pt, rounded corners=3pt,
+                   minimum height=1.2cm, minimum width=2.7cm, align=center,
+                   fill=green!12, font=\small\scshape},
+  oAbst/.style  = {rectangle, draw=orange!75!black, line width=0.9pt, rounded corners=3pt,
+                   minimum height=1.2cm, minimum width=2.7cm, align=center,
+                   fill=orange!28, font=\small\scshape},
+  oDisc/.style  = {rectangle, draw=red!60!black, line width=0.9pt, rounded corners=3pt,
+                   minimum height=1.2cm, minimum width=2.7cm, align=center,
+                   fill=red!28, font=\small\scshape},
+  simp/.style   = {rectangle, draw=violet!60!black, line width=1pt, rounded corners=5pt,
+                   minimum height=3.2cm, minimum width=17.0cm, align=center, fill=violet!7},
+  % ---- Arrow styles ----
+  farr/.style   = {-Latex, line width=0.9pt},
+  garr/.style   = {-Latex, line width=1.1pt, green!50!black},
+  oarr/.style   = {-Latex, line width=1.1pt, color=red!55!orange},
+  rarr/.style   = {-Latex, line width=1.1pt, red!60!black},
+  darr/.style   = {<->, dashed, line width=0.9pt, teal!55!black},
+  varr/.style   = {-Latex, line width=1pt, dashed, violet!60!black},
+    elab/.style   = {font=\small\itshape, inner sep=2pt, fill=none, draw=none}
+]
+
+% ==================================================================
+% NODES   (main trunk centred at x = 6; y compressed to fit A4 page)
+% ==================================================================
+
+\node[stage]  (q)   at (6,   0.0)  {\textbf{Query $q$}};
+
+\node[stage]  (s1)  at (6,  -2.5)  {%
+    \textbf{S1\quad Pre-route confidence}\\[4pt]
+    $u_{\text{pre}} = 0.60\,u_{\text{token}} + 0.40\,(1{+}C_{\text{conv}})^{-1}$\\
+    {\scriptsize two forward passes;\;$T$ re-fit per cycle}};
+
+\node[stage]  (s2)  at (6,  -5.3)  {%
+    \textbf{S2\quad Episodic memory retrieval}\\[4pt]
+    SBERT 768-d cosine nearest-neighbour search};
+
+% Episodic memory cylinder  (right of S2, connected by dashed bidirectional arrow)
+\node[mcyl]   (mem) at (16.5,-5.3) {%
+    \textbf{Episodic}\\[2pt]\textbf{Memory}\\[3pt]$K{=}10^{6}$};
+
+\node[router] (s3)  at (6, -8.3)  {%
+    \textbf{S3\quad Three-tier router}\\[4pt]
+    $S(q)=0.70\cdot\mathrm{sim}(q,e^{*})+0.30\cdot u_{\text{stored}}(e^{*})$\\
+    {\scriptsize safety override:\;if $u_{\text{pre}}<\phi_{\text{safe}}{=}0.38$ the score is bypassed and the RUC decides Tier~2 vs Tier~3}};
+
+% ---- S3b: Retrieval-utility classifier (intercepts the safety-override and score-formula fall-throughs) ----
+\node[router, minimum height=1.5cm, minimum width=5.0cm, fill=yellow!12]
+      (ruc) at (16.5,-9.8) {%
+    \textbf{S3b\quad RUC}\\[2pt]
+    {\scriptsize 36-feature LR head;\;$p_{\text{RAG}}\gtrless\tau_{\text{RUC}}{=}0.375$}\\
+    {\scriptsize routes safety-veto and else fall-through to Tier~2 or Tier~3}};
+
+% ---- Tier row  (T1 far-left / T2 centre / T3 far-right)
+\node[tA] (t1) at (0.0, -12.2)  {%
+    \textbf{Tier 1}\\[3pt]return $e^{*}$ answer\\{\scriptsize(from verified memory)}};
+\node[tB] (t2) at (6.0, -12.2)  {%
+    \textbf{Tier 2}\\[3pt]base model CoT generation\\{\scriptsize(base model only)}};
+\node[tC] (t3) at (12.0,-12.2)  {%
+    \textbf{Tier 3}\\[3pt]RAG: DPR top-5\\{\scriptsize$\to$ cross-encoder rerank to top-3}};
+
+% ---- S4: Tier execution grouping (compact left-side label; no wrapper) ----
+\node[draw=none, inner sep=6pt, fit=(t1)(t2)(t3),
+      label={[font=\small\bfseries, teal!65!black, anchor=east, xshift=-6pt]left:S4}]
+     (s4box) {};
+
+% Tier 1 direct-serve terminal  (left side, same y-band as S5)
+\node[oServe] (serve) at (-3.5,-17.0) {%
+    \textsc{Answer served}\\{\scriptsize from verified memory}};
+
+% S5 centred at x=6, min-width=9.5 cm  ->  spans ~ x=1.25..10.75
+\node[verify] (s5)  at (6, -17.0)  {%
+    \textbf{S5\quad Nine-signal Verifier}\\[6pt]
+    \textit{Internal:}\quad$u_{\text{token}},\;u_{\text{dropout}},\;u_{\text{internal}}$\\[3pt]
+    \textit{Sample-set:}\quad$s_{\text{avg}},\;p_{\text{entail}}$\\[3pt]
+    \textit{Grounding:}\quad$p_{\text{ground}}^{\max},\;p_{\text{ground}}^{\text{mean}},\;p_{\text{ground}}^{\text{atomic}}$\\[3pt]
+    \textit{Relevance:}\quad$q_{\text{a,rel}}$\\[5pt]
+    {\footnotesize\textbf{confabulation gate:}\;
+     $u_{\text{internal}}{\geq}0.70\;\wedge\;p_{\text{ground}}^{\max}{\leq}0.20
+     \;\Rightarrow\;$\textsc{Discard (early exit)}}};
+
+\node[decide] (s6)  at (6, -21.0)  {%
+    \textbf{S6\quad Four-outcome storage decision}\\[5pt]
+    {\scriptsize
+    $u_{\text{stored}}{\geq}0.60\Rightarrow\textsc{Store}$\quad
+    $u_{\text{stored}}{\geq}0.45\Rightarrow\textsc{Deferred}$\quad
+    $p_{\text{ground}}^{\max}{<}0.20\Rightarrow\textsc{Abstain}$\quad
+    \textit{else:}\;\textsc{Discard}}};
+
+% Terminal outcome boxes  (y = -24.5)
+\node[oStore] (out1) at (2.0, -24.5)  {\textsc{Store}\\{\tiny write + train-flag}};
+\node[oDefer] (out2) at (5.0, -24.5)  {\textsc{Deferred}\\{\tiny write, no train}};
+\node[oAbst]  (out3) at (8.0, -24.5)  {\textsc{Abstain}\\{\tiny principled refusal}};
+\node[oDisc]  (out4) at (11.0,-24.5)  {\textsc{Discard}\\{\tiny suppressed}};
+
+% ---- S7: Memory write grouping (compact left-side label; no wrapper) ----
+\node[draw=none, inner sep=6pt, fit=(out1)(out2)(out3)(out4),
+      label={[font=\small\bfseries, teal!65!black, anchor=east, xshift=-6pt]left:S7}]
+     (s7box) {};
+
+% S8: between-cycle self-improvement  (wide band at bottom)
+\node[simp] (s8) at (6, -27.5) {%
+    \textbf{S8\quad Between-cycle self-improvement loop}
+    \quad\textit{(runs once at each cycle boundary, not per query)}\\[6pt]
+    (1)~Retroverify all stored entries
+        ($\tau_{\text{retro}}{=}0.50$;\;upward-only: never demotes a previously verified entry)\\[3pt]
+    (2)~Curate training pool ($\tau_{\text{train}}{=}0.70$;\;pool-reweighting layer)\quad
+    (3)~Fine-tune:\;$\mathcal{L}(\theta)=\mathcal{L}_{\text{CE}}
+        +\tfrac{\lambda}{2}\|\theta-\theta_{\text{prev}}\|^2$,\;$\lambda{=}0.01$\\[3pt]
+    (4)~Abort guard:\;$\rho=A_{\text{post}}/A_{\text{pre}}\geq0.93$;\;
+        roll back to $\theta_{\text{prev}}$ if violated};
+
+% ==================================================================
+% ARROWS
+% ==================================================================
+
+% ---- Main trunk ----
+\draw[farr] (q.south)  -- (s1.north);
+\draw[farr] (s1.south) -- node[elab,right]{$u_{\text{pre}}$} (s2.north);
+\draw[farr] (s2.south) -- node[elab,right]{$u_{\text{pre}}$ + query embedding} (s3.north);
+
+% ---- S2 <-> Episodic memory  (bidirectional dashed) ----
+\draw[darr] (s2.east)
+    -- node[elab,above,pos=0.55,align=center]{%
+        retrieve $e^{*}$\;:\;$\mathrm{sim}(q,e^{*})$,\\$u_{\text{stored}}(e^{*})$}
+    (mem.west);
+
+% ---- S3 -> three tiers ----
+\coordinate (br) at (6, -9.8);   % branch waypoint below S3
+\draw[farr] (s3.south) -- (br);
+
+% Tier 1 (green): branch LEFT, condition label above horizontal leg
+\draw[garr]
+    (br) --
+    node[elab,above,pos=0.45]{\textbf{if}\;$S(q)\geq0.90$}
+    (0.0,-9.8) -- (t1.north);
+
+% Tier 2 (orange): straight down, condition label to the LEFT
+\draw[oarr]
+    (br) --
+    node[elab,left,pos=0.5]{\textbf{elif}\;$\mathrm{sim}(q,e^{*})\geq0.75$}
+    (t2.north);
+
+% Score-formula else + safety-override both reach the RUC (S3b), not Tier 3 directly
+\draw[farr]
+    (br) --
+    node[elab,above,pos=0.6]{\textbf{else}\;\textbf{or}\;$u_{\text{pre}}<\phi_{\text{safe}}$}
+    (ruc.west);
+
+% RUC -> Tier 3 (retrieval-augmented) when p_RAG >= tau_RUC
+\draw[rarr]
+    (ruc.south) --
+    (ruc.south |- t3.east) --
+    node[elab,above,pos=0.5]{$p_{\text{RAG}}\ge\tau_{\text{RUC}}$}
+    (t3.east);
+
+% RUC -> Tier 2 (zero-shot) when p_RAG < tau_RUC; direct diagonal to t2
+\draw[oarr]
+    (ruc.south west) --
+    node[elab,above=2pt,sloped,pos=0.5]{$p_{\text{RAG}}<\tau_{\text{RUC}}$}
+    (t2.north east);
+
+% ---- Tier 1 bypass: route LEFT then DOWN, well outside S5 ----
+\coordinate (t1byp1) at (0.0, -14.0);    % just below T1
+\coordinate (t1byp2) at (-3.5,-14.0);    % far left
+\draw[garr]
+    (t1.south) -- (t1byp1) --
+    node[elab,below,pos=0.5]{\textit{bypass S5 and S6: episode already verified at storage time}}
+    (t1byp2) -- (serve.north);
+
+% ---- T2 -> S5 ----
+\draw[oarr]
+    (t2.south) --
+    node[elab,right,pos=0.45]{answer + reasoning chain}
+    (t2 |- s5.north);
+
+% ---- T3 -> S5 routed on the right to avoid center-label overlap ----
+\draw[rarr]
+    (t3.south) --
+    (12.0,-14.2) --
+    (13.6,-14.2) --
+    node[elab,right,pos=0.55]{answer + reasoning chain}
+    (13.6,-16.9) --
+    (s5.east);
+
+% ---- S5 -> S6 ----
+\draw[farr]
+    (s5.south) --
+    node[elab,right]{outputs:\;$u_{\text{stored}},\;p_{\text{contra}},\;p_{\text{ground}}^{\max}$}
+    (s6.north);
+
+% ---- S6 fan-out -> terminal boxes ----
+\coordinate (br2) at (6,-22.8);
+\draw[farr] (s6.south) -- (br2);
+\draw[farr] (br2) -| (out1.north);
+\draw[farr] (br2) -| (out2.north);
+\draw[farr] (br2) -| (out3.north);
+\draw[farr] (br2) -| (out4.north);
+
+% ---- Store + Deferred accumulate into S8 at cycle end ----
+\draw[varr]
+    (out1.south) -- ++(0,-0.3) -|
+    node[elab,left,pos=0.05]{\textit{cycle end}}
+    ($(s8.north)+(-2.5,0)$);
+\draw[varr]
+    (out2.south) -- ++(0,-0.3) -|
+    ($(s8.north)+(-0.8,0)$);
+
+% ---- S8 -> S1 : outer cycle loop ----
+\draw[varr]
+    (s8.west)
+    -- ++(-5.5, 0) coordinate (ll)
+    -- node[elab,left,pos=0.45,align=left]{%
+        \textbf{Cycle $n{+}1$ begins}\\[3pt]
+        S1 receives\\
+        $\theta_{\text{new}}$ (fine-tuned)\\[1pt]
+        or $\theta_{\text{prev}}$ (restored\\
+        if abort guard fired)}
+    (ll |- s1.west)
+    -- (s1.west);
+
+\end{tikzpicture}%
+}
+\caption[The complete eight-stage pipeline]{The complete eight-stage \caem{} pipeline
+on a single page, reproduced from the main report. Stages S1 to S8 are each opened in
+their own chapter across Parts~II and~III; the retrieval-utility classifier
+(Stage S3b, \Cref{ch:ruc}) sits between the three-tier router and the
+retrieval-augmented tier, intercepting the safety-veto and score-formula
+fall-through dispatches and redirecting retrieval-hurt queries to the zero-shot tier.
+The nine deployed verifier signals at S5 are the registered set minus the
+internal-state norm (registered then retired at the cold-start audit) and the
+contradiction probability (structurally zero under the deployed natural-language
+inference judge). The outer dashed arrow is the cycle-boundary handoff from the close
+of one cycle to the start of the next.}
+\label{fig:full-pipeline}
+\end{figure}

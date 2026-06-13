@@ -1,0 +1,523 @@
+\chapter{Stage 5: The Nine-Signal Verifier}
+\label{ch:verifier}
+
+A tier has produced a fresh answer. Stage 5 is where the system decides how much
+to believe it. This is the heart of \caem{}'s trust machinery and the direct
+answer to the overconfidence flaw of \Cref{ch:problem}: rather than read the
+model's own confidence, which we saw is barely better than chance, the verifier
+gathers many independent signals about the answer and weighs them together. This
+chapter covers how each raw signal is produced. The next chapter, \Cref{ch:composite},
+covers how they are calibrated, fused into one number, and turned into a decision.
+
+\begin{intuition}[A panel of specialists, not a single judge]
+No single test reliably catches a confident falsehood. So the verifier convenes a
+panel. One specialist asks whether the model was internally sure. Another asks
+whether the model agrees with itself when made to answer several times. A third
+checks the answer against retrieved evidence, sentence by sentence. A fourth asks
+whether the answer even addresses the question. Each specialist is fallible alone,
+but a confident lie has to fool all of them at once, and that is much harder than
+fooling any one. The verifier's strength is not any single signal; it is the
+diversity of the panel.
+\end{intuition}
+
+\section{Four families, nine headline signals}
+\label{sec:verifier-families}
+
+The signals group into four families, each probing a different way an answer can be
+wrong. \Cref{fig:families} is the map to keep in view for the whole chapter.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[
+  font=\small\sffamily,
+  fam/.style={rectangle, rounded corners=5pt, line width=1.1pt, align=left,
+    inner sep=6pt, text width=5.2cm, minimum height=2.0cm,
+    drop shadow={shadow xshift=0.3ex, shadow yshift=-0.3ex, fill=black!10}},
+  core/.style={rectangle, rounded corners=4pt, draw=cbInk!55, fill=cbInk!8,
+    line width=1pt, align=center, inner sep=5pt, text width=2.6cm, font=\footnotesize},
+  flow/.style={-{Stealth[length=2.4mm]}, line width=1pt, draw=cbInk!65},
+]
+  \node[fam, draw=cbIntuition!75!black, fill=cbIntuition!8] (f1) at (0,2.1)
+    {\textbf{\textcolor{cbIntuition!75!black}{Internal calibration}}\\[2pt]
+     {\footnotesize Was the model itself sure?}\\[3pt]
+     {\footnotesize $\utoken$, $\udrop$, $\uint$}};
+  \node[fam, draw=cbScenario!70!black, fill=cbScenario!8] (f2) at (6.4,2.1)
+    {\textbf{\textcolor{cbScenario!60!black}{Self-consistency}}\\[2pt]
+     {\footnotesize Does it agree with itself?}\\[3pt]
+     {\footnotesize $\savg$, $\pentail$ \;\;(over $M{=}3$ chains)}};
+  \node[fam, draw=cbExample!70!black, fill=cbExample!10] (f3) at (0,-0.9)
+    {\textbf{\textcolor{cbExample!50!black}{External grounding}}\\[2pt]
+     {\footnotesize Does the evidence support it?}\\[3pt]
+     {\footnotesize $\pgmax$, $\pgmean$, $\pgatom$}};
+  \node[fam, draw=cbNumbers!75!black, fill=cbNumbers!10] (f4) at (6.4,-0.9)
+    {\textbf{\textcolor{cbNumbers!65!black}{Relevance}}\\[2pt]
+     {\footnotesize Does it answer the question?}\\[3pt]
+     {\footnotesize $\qarel$}};
+  \node[core] (comp) at (3.2,-3.0) {to the calibrated composite (\Cref{ch:composite})};
+  \foreach \f in {f1,f2,f3,f4} \draw[flow] (\f) -- (comp);
+\end{tikzpicture}
+\caption[The four signal families]{The nine headline signals, grouped into four
+families, each probing a different failure mode. Every family feeds the calibrated
+composite of \Cref{ch:composite}. A confident wrong answer must satisfy all four at
+once to be trusted. (Schematic.)}
+\label{fig:families}
+\end{figure}
+
+\begin{pitfall}[``Nine signals'' is exact: the composite computes more than it uses]
+The verifier is named for the nine signals of \Cref{fig:families}, and that is
+exactly how many drive a decision: the calibrated composite of \Cref{ch:composite}
+reads precisely those nine. The verifier nonetheless \emph{computes} more than it
+uses. Two entity checks, an alias overlap and a head-noun consistency
+(\Cref{sec:verifier-entity}), were trialed in an earlier revision and then retired
+from the composite; two original signals, a semantic-entropy measure and a
+contradiction probability (\Cref{sec:verifier-retired}), were retired as well. All
+four are still computed and recorded for diagnostics, but none contributes to the
+trust score in the deployed configuration. So ``nine'' is not a headline
+simplification; it is the exact count of signals that move the gate.
+\end{pitfall}
+
+\section{How the signals are produced, cheaply}
+\label{sec:verifier-dataflow}
+
+Several signals would be expensive computed naively, so the verifier produces them
+from a small number of shared generations. The key economy is that the model is
+made to answer the same query a few times, and those few generations are reused
+across multiple signals. \Cref{fig:verifier-flow} traces the production.
+
+\begin{figure}[t]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[
+  font=\small\sffamily,
+  inp/.style={rectangle, rounded corners=2pt, draw=cbInk!55, fill=cbInk!6,
+    line width=1pt, align=center, inner sep=5pt, text width=2.3cm},
+  gen/.style={rectangle, rounded corners=4pt, draw=cbScenario!70!black, fill=cbScenario!12,
+    line width=1pt, align=center, inner sep=5pt, text width=3.0cm,
+    drop shadow={shadow xshift=0.3ex, shadow yshift=-0.3ex, fill=black!10}},
+  sigb/.style={rectangle, rounded corners=3pt, draw=cbFormula!70!black, fill=cbFormula!10,
+    line width=0.9pt, align=center, inner sep=3pt, text width=2.0cm, font=\footnotesize,
+    minimum height=0.7cm},
+  flow/.style={-{Stealth[length=2.4mm]}, line width=1pt, draw=cbInk!70},
+]
+  \node[inp] (qa) at (0,0) {query + fresh answer};
+
+  \node[gen] (mchain) at (3.8,2.4) {\textbf{$M{=}3$ chains}\\{\footnotesize one generate call, $T{=}0.7$}};
+  \node[gen] (drop)   at (3.8,0.0) {\textbf{$K{=}5$ dropout passes}\\{\footnotesize plus teacher forcing}};
+  \node[gen] (ret)    at (3.8,-2.4) {\textbf{retrieve 20 $\to$ rerank 3}\\{\footnotesize top passages}};
+
+  \node[sigb, fill=cbScenario!12, draw=cbScenario!70!black] (savg)  at (8.0,3.2) {$\savg$};
+  \node[sigb, fill=cbScenario!12, draw=cbScenario!70!black] (pent)  at (8.0,2.4) {$\pentail$};
+  \node[sigb, fill=cbScenario!12, draw=cbScenario!70!black] (ehead) at (8.0,1.6) {entity-head};
+  \node[sigb, fill=cbIntuition!12, draw=cbIntuition!75!black] (utok) at (8.0,0.5) {$\utoken$};
+  \node[sigb, fill=cbIntuition!12, draw=cbIntuition!75!black] (udro) at (8.0,-0.3) {$\udrop\!\to\!\uint$};
+  \node[sigb, fill=cbExample!12, draw=cbExample!70!black] (pg)   at (8.0,-1.6) {$\pgmax$\\$\pgmean$\\$\pgatom$};
+  \node[sigb, fill=cbNumbers!12, draw=cbNumbers!75!black] (qar)  at (8.0,-2.4) {$\qarel$};
+  \node[sigb, fill=cbExample!12, draw=cbExample!70!black] (alias) at (8.0,-3.2) {alias-overlap};
+
+  \node[inp, text width=2.2cm] (out) at (11.6,0) {nine composite signals\\{\footnotesize(+ recorded diagnostics)}};
+
+  \draw[flow] (qa) -- (mchain);
+  \draw[flow] (qa) -- (drop);
+  \draw[flow] (qa) -- (ret);
+  \draw[flow] (mchain) -- (savg);
+  \draw[flow] (mchain) -- (pent);
+  \draw[flow] (mchain) -- (ehead);
+  \draw[flow] (drop) -- (utok);
+  \draw[flow] (drop) -- (udro);
+  \draw[flow] (ret) -- (pg);
+  \draw[flow] (ret) -- (qar);
+  \draw[flow] (ret) -- (alias);
+  \foreach \s in {savg,pent,ehead,utok,udro,pg,qar,alias} \draw[flow] (\s) -- (out);
+\end{tikzpicture}}
+\caption[The verifier data flow]{The verifier produces all signals from three
+shared computations: one generation of $M{=}3$ reasoning chains (reused by three
+signals), $K{=}5$ dropout passes plus a teacher-forcing pass for the internal
+signals, and one retrieve-and-rerank for the grounding and relevance signals.
+Generating the three chains once and reusing them is the central economy of the
+stage. (Schematic.)}
+\label{fig:verifier-flow}
+\end{figure}
+
+\begin{precise}[The canonical answer claim: one surface for every signal]
+Before any signal reads the answer, the answer is rewritten into a \emph{canonical
+claim}, and every signal that touches the answer reads that same canonical form.
+A multiple-choice letter such as ``C'' is expanded to its full option text; a bare
+entity such as ``Paris'' is wrapped as ``Answer: Paris.''; an already-declarative
+answer such as a fact-check verdict passes through unchanged. The reason is
+uniformity: the grounding signals, the entailment signal, and the relevance signal
+must all score the \emph{same} propositional surface, or their numbers would not be
+comparable across benchmarks and the single calibrated threshold of
+\Cref{ch:composite} could not govern them all. Canonicalisation is the small,
+unglamorous step that makes the whole panel speak one language.
+\end{precise}
+
+\section{Family one: internal calibration}
+\label{sec:verifier-internal}
+
+The first family reads the generator itself, at no external cost. It contains three
+signals. The token confidence $\utoken$ is the geometric mean of the per-token
+probabilities of the answer, the same quantity we met in \Cref{ch:upre}, here
+computed by teacher-forcing the produced answer rather than from a short decode. The
+dropout disagreement $\udrop$ measures stability under perturbation: the model is
+made to answer five times with dropout left switched on, and the signal is the
+fraction of those five samples that disagree with the plurality answer. The two are
+combined into a single internal confidence,
+\[
+  \uint \;=\; 0.5\,\utoken \;+\; 0.5\,(1 - \udrop),
+\]
+weighting token reliability and answer stability equally.
+
+\begin{lstlisting}[caption={Dropout disagreement, condensed from \texttt{caem/verification/verifier.py}.}, label={lst:udropout}]
+samples = model.generate(num_return_sequences=5, do_sample=True,    # K=5, dropout ON
+                         temperature=0.7)                           # model.train() mode
+answers = [extract_answer(s) for s in samples]                      # short form of each
+plurality = most_common(answers)
+u_dropout = 1.0 - answers.count(plurality) / 5                      # fraction that disagree
+\end{lstlisting}
+
+\begin{intuition}[Two ways to be unsure]
+The two internal signals catch different doubts. Token confidence is low when the
+model hedged \emph{within} a single answer, spreading probability over many next
+tokens. Dropout disagreement is high when the model is unstable \emph{across}
+answers, landing on different conclusions when nudged. A model can be fluent within
+one answer yet unstable across attempts, or stable across attempts yet hesitant
+within each; combining the two catches both. Both are cheap and require no external
+model, which is why they anchor the panel.
+\end{intuition}
+
+\section{Family two: self-consistency}
+\label{sec:verifier-consistency}
+
+The second family makes the model talk to itself. It generates $M=3$ reasoning
+chains for the query, sampled at a temperature of $0.7$, in a single batched call,
+and two signals read those three chains. The semantic consistency $\savg$ is the
+mean similarity across all unique pairs of chains, measured by embedding each chain
+and taking cosine similarity; high values mean the model keeps reaching the same
+place by different routes~\cite{wang2023selfconsistency}. The chain-to-answer
+entailment $\pentail$ asks a sharper question: does each chain actually
+\emph{entail} the served answer? Each chain is run through the natural-language-
+inference judge against the canonical answer, and the signal is the mean entailment.
+
+\begin{intuition}[Agreement is not the same as support]
+Why two signals from the same three chains? Because chains can agree with each other
+yet not support the answer that was served. Imagine three chains that all reason
+toward one conclusion, but the answer the system actually returned was a different
+one: $\savg$ would be high (the chains agree) while $\pentail$ would be low (they do
+not entail the served answer). That gap is a real failure mode, an answer
+disconnected from the reasoning meant to justify it, and it is exactly what
+$\pentail$ exists to catch. Generating the chains once and reading them two ways is
+both cheaper and more informative than two separate tests.
+\end{intuition}
+
+\section{Family three: external grounding}
+\label{sec:verifier-grounding}
+
+The third family is the strongest evidence that an answer is true rather than merely
+confident: does retrieved evidence support it? The verifier retrieves twenty
+candidate passages for the query, reranks them with a cross-encoder to the best
+three, and scores the canonical answer against those three passages with the
+natural-language-inference judge. Three signals read the result, and they differ in
+how forgiving they are.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[
+  font=\small\sffamily,
+  ans/.style={rectangle, rounded corners=4pt, draw=cbInk!55, fill=cbInk!6,
+    line width=1pt, align=center, inner sep=5pt, text width=3.2cm},
+  pass/.style={rectangle, rounded corners=3pt, draw=cbExample!60!black, fill=cbExample!8,
+    line width=0.9pt, align=left, inner sep=4pt, text width=2.6cm, font=\footnotesize},
+  res/.style={rectangle, rounded corners=3pt, draw=cbFormula!70!black, fill=cbFormula!10,
+    line width=0.9pt, align=center, inner sep=4pt, text width=3.4cm, font=\footnotesize},
+  atom/.style={rectangle, rounded corners=2pt, draw=cbNumbers!70!black, fill=cbNumbers!10,
+    line width=0.8pt, align=left, inner sep=3pt, text width=3.0cm, font=\scriptsize},
+]
+  \node[ans] (a) at (0,1.0) {canonical answer claim};
+  \node[pass] (p1) at (3.6,2.0) {passage 1\hfill\textbf{0.94}};
+  \node[pass] (p2) at (3.6,1.0) {passage 2\hfill\textbf{0.55}};
+  \node[pass] (p3) at (3.6,0.0) {passage 3\hfill\textbf{0.40}};
+  \draw[-{Stealth[length=2mm]}, cbInk!55] (a) -- (p1);
+  \draw[-{Stealth[length=2mm]}, cbInk!55] (a) -- (p2);
+  \draw[-{Stealth[length=2mm]}, cbInk!55] (a) -- (p3);
+
+  \node[res, fill=cbFormula!14] (gmax)  at (8.1,2.0) {$\pgmax = \max = \mathbf{0.94}$\\{\scriptsize best single passage}};
+  \node[res] (gmean) at (8.1,1.0) {$\pgmean = \mathrm{mean} = \mathbf{0.63}$\\{\scriptsize average support}};
+  \node[res] (gatom) at (8.1,-0.6) {$\pgatom = \min_{\text{atoms}} = \mathbf{0.40}$\\{\scriptsize weakest atomic fact}};
+  \draw[-{Stealth[length=2mm]}, cbInk!40] (p1) -- (gmax);
+  \draw[-{Stealth[length=2mm]}, cbInk!40] (p2) -- (gmean);
+
+  \node[atom] (atoms) at (3.6,-1.7) {decompose answer:\\$\bullet$ atom A \hfill 0.91\\$\bullet$ atom B \hfill 0.40\\$\bullet$ atom C \hfill 0.78};
+  \draw[-{Stealth[length=2mm]}, cbNumbers!60!black] (a) to[bend right=18] (atoms);
+  \draw[-{Stealth[length=2mm]}, cbNumbers!60!black] (atoms) -- (gatom);
+\end{tikzpicture}
+\caption[The grounding trio]{Three readings of the same evidence, in rising
+strictness. $\pgmax$ takes the single best passage and is the most forgiving;
+$\pgmean$ averages the top three; $\pgatom$ decomposes the answer into atomic facts,
+scores each against the passages, and reports the \emph{weakest} one. A long answer
+with one unsupported fact passes the first two and fails the third. (Numbers are
+illustrative.)}
+\label{fig:grounding-trio}
+\end{figure}
+
+\begin{precise}[Max, mean, and the weakest link]
+The maximum grounding $\pgmax$ is the entailment of the single best-supporting
+passage, the most forgiving reading; it is also the signal the early-exit gate of
+\Cref{sec:verifier-earlyexit} watches. The mean grounding $\pgmean$ averages over
+the three passages, a steadier estimate of overall support. The atomic grounding
+$\pgatom$ is the strict one: it decomposes the answer into atomic facts in the
+FActScore style~\cite{min-etal-2023-factscore}, scores each fact against the
+passages, and returns the \emph{weakest} fact's support, on the principle that one
+unsupported claim in an otherwise-grounded answer is still a fabrication. Because
+decomposition is meaningless for very short answers, it is gated by length: answers
+under twelve tokens skip it and fall back to the mean. The three together span the
+range from ``is there any support at all?'' to ``is every part supported?''
+\end{precise}
+
+\subsection*{The two natural-language-inference judges}
+
+The grounding and entailment signals all rest on a judge that scores whether a
+premise entails a hypothesis. \caem{} uses two judges and dispatches between them by
+the length of the hypothesis, as \Cref{fig:nli-dispatch} shows.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[font=\small\sffamily]
+  % token budget bar
+  \fill[cbDefense!18] (0,0) rectangle (1.2,0.6);
+  \node[font=\scriptsize] at (0.6,0.3) {4};
+  \fill[cbScenario!20] (1.2,0) rectangle (4.0,0.6);
+  \node[font=\scriptsize] at (2.6,0.3) {100 premise};
+  \fill[cbIntuition!18] (4.0,0) rectangle (12.0,0.6);
+  \node[font=\scriptsize] at (8.0,0.3) {408 hypothesis budget};
+  \draw[cbInk!50, line width=0.8pt] (0,0) rectangle (12.0,0.6);
+  \node[font=\scriptsize, anchor=west] at (0,0.95) {MiniCheck encoder window: $512 = 4 \text{ overhead} + 100 \text{ premise} + 408 \text{ hypothesis}$};
+  % dispatch
+  \node[font=\small\sffamily, anchor=west] at (0,-0.9)
+    {hypothesis $\le 408$ tokens \;$\Rightarrow$\; \textcolor{cbScenario!60!black}{\textbf{MiniCheck}} (fast specialist)};
+  \node[font=\small\sffamily, anchor=west] at (0,-1.6)
+    {hypothesis $> 408$ tokens \;$\Rightarrow$\; \textcolor{cbIntuition!70!black}{\textbf{Frozen Qwen}} (long context, Platt-scaled to MiniCheck's scale)};
+\end{tikzpicture}
+\caption[The length-dispatched NLI judges]{Entailment is judged by a fast specialist
+for short hypotheses and a long-context model for long ones. The split point of
+$408$ tokens is the hypothesis budget left once the specialist's $512$-token window
+reserves four tokens of overhead and a hundred tokens of premise. The long-context
+judge is Platt-scaled on a shared fold so both judges report on one comparable
+probability scale. In the deployed run, however, the long-context judge was set aside
+because its post-hoc probability fit did not clear the required correlation floor, so
+the shipped verifier ran the fast specialist for every prediction and truncated the
+rare longer hypotheses at that checker's window; this is recorded among the threats. (Schematic.)}
+\label{fig:nli-dispatch}
+\end{figure}
+
+Two further refinements keep the grounding honest. For refutation tasks such as
+fact-checking, a \emph{directional} scorer rewrites the hypothesis so the judge is
+asked whether the passages support the \emph{truth} of the claim rather than the
+claim as stated, which is the correct question when the right answer may be
+``refutes.'' And the ensemble of judges is combined conservatively: for entailment
+the minimum across judges is taken, so every judge must agree before the answer is
+counted as grounded.
+
+\section{Family four: relevance, and two entity guards}
+\label{sec:verifier-entity}
+
+The fourth family contains a single headline signal, the question-answer relevance
+$\qarel$. A cross-encoder scores whether the answer actually addresses the question,
+turning its logit into a probability. This closes a subtle failure mode: an answer
+that is fluent, internally consistent, and even grounded in a retrieved passage, but
+simply off-topic, answering a different question than the one asked. Grounding alone
+cannot catch this, because the off-topic answer may be perfectly true; only a direct
+question-to-answer comparison does.
+
+Two further signals were trialed for this family in an earlier revision. Both are
+still computed on every query, but a later per-benchmark calibration retired them
+from the composite, so they survive as recorded diagnostics rather than decision
+signals; the composite stayed lean at nine.
+
+\begin{description}[leftmargin=0pt, labelsep=0.5em, style=nextline]
+  \item[Alias overlap.] Checks whether the named entities in the answer match the
+  entities in the retrieved passages \emph{up to Wikidata aliases}, so that
+  ``William Jefferson Clinton'' and ``Bill Clinton'' count as the same entity. It
+  catches grounding failures that the entailment judge misses on surface form alone.
+  \item[Entity-head consistency.] Reuses the three self-consistency chains and checks
+  whether they name the \emph{same} head entity. It catches the case where the chains
+  read as similar prose, so $\savg$ is high, yet they actually name different people
+  or places. It costs no extra generation, since the chains already exist.
+\end{description}
+
+\begin{intuition}[Why they were trialed, and why the composite stayed at nine]
+Each was introduced to close a specific, observed failure: a correct entity rejected
+for using a different surface name, and three chains that looked consistent but
+disagreed on who they were talking about. On the calibration fold, however, their
+fitted contribution to the composite turned out negligible, so they were retired
+from the trust score and kept only as cheap diagnostics. This is the panel
+philosophy meeting its discipline: a specialist earns a vote in the composite only
+if the calibration data show it adds discrimination, and these two did not, so the
+deciding panel stays at nine.
+\end{intuition}
+
+\section{The confabulation early-exit}
+\label{sec:verifier-earlyexit}
+
+Stage 5 contains one hard rule that fires before any fusion: the confabulation
+early-exit. If, at query time, the model's internal confidence is high while the
+best passage barely supports the answer, the verifier short-circuits, returning a
+discard verdict and sending the query to regeneration without computing the
+composite at all.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[scale=5.4, font=\small\sffamily]
+  % danger region: u_internal >= 0.70 AND p_ground_max <= 0.20
+  \fill[cbPitfall!18] (0.70,0) rectangle (1.0,0.20);
+  \fill[cbExample!8] (0,0.20) rectangle (1.0,1.0);
+  \fill[cbExample!8] (0,0) rectangle (0.70,0.20);
+  % boundaries
+  \draw[cbPitfall!70!black, dashed, line width=0.7pt] (0.70,0) -- (0.70,0.20);
+  \draw[cbPitfall!70!black, dashed, line width=0.7pt] (0.70,0.20) -- (1.0,0.20);
+  % axes
+  \draw[->, cbInk!65, line width=0.8pt] (0,0) -- (1.06,0) node[right, font=\footnotesize] {$\uint$};
+  \draw[->, cbInk!65, line width=0.8pt] (0,0) -- (0,1.06) node[above, font=\footnotesize] {$\pgmax$};
+  \foreach \x in {0.5,0.7,1.0} \draw[cbInk!40] (\x,0) -- (\x,-0.02) node[below,font=\scriptsize]{\x};
+  \foreach \y in {0.2,0.5,1.0} \draw[cbInk!40] (0,\y) -- (-0.02,\y) node[left,font=\scriptsize]{\y};
+  % labels
+  \node[font=\footnotesize\bfseries, text=cbPitfall!70!black, align=center] at (0.85,0.10) {confabulation\\DISCARD + regenerate};
+  \node[font=\footnotesize, text=cbExample!45!black, align=center] at (0.40,0.62) {proceed to the composite (\Cref{ch:composite})};
+\end{tikzpicture}
+\caption[The confabulation early-exit]{The one hard gate inside Stage 5. When
+internal confidence is high ($\uint \ge 0.70$) but the best passage barely supports
+the answer ($\pgmax \le 0.20$), the answer is a confident fabrication: the model is
+sure of something the evidence does not back. The verifier discards it immediately
+and regenerates, without bothering to compute the rest of the composite. Everywhere
+else, it proceeds. (Schematic.)}
+\label{fig:early-exit}
+\end{figure}
+
+\begin{precise}[Why this rule, and why only at query time]
+The early-exit encodes the single most dangerous combination of signals: high
+internal confidence paired with near-zero grounding is the textbook signature of
+confabulation, an answer the model believes and the world does not support.
+Catching it with a hard rule, rather than letting the calibrated composite weigh it,
+guarantees that this specific pathology is always escalated rather than occasionally
+averaged away. The rule fires only at query time, not during the cycle-boundary
+re-verification of \Cref{ch:cycle}: after the model has been fine-tuned on its own
+chains, high internal confidence is partly an artefact of having memorised them, so
+the signal is no longer trustworthy as a confabulation flag, and re-verification
+relies on its own grounding-based pruning instead.
+\end{precise}
+
+\section{What the verifier emits}
+\label{sec:verifier-output}
+
+The verifier returns a record carrying all the signals it computes, the nine that
+feed the composite plus the recorded diagnostics, the canonical
+answer it scored, the retrieved passages and atomic facts it used, and, after the
+fusion of \Cref{ch:composite}, the composite trust score and the gate decision. Every
+signal defaults to a neutral one-half on failure, so a missing dependency degrades
+the panel gracefully rather than crashing it or silently scoring zero.
+
+The two readings we have followed since \Cref{ch:bigpicture} diverge sharply at this
+stage, and \Cref{fig:fingerprint} plots their reported signal values side by side.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+  width=7.6cm, height=6.0cm,
+  ybar, bar width=10pt,
+  symbolic x coords={ground-max, s-avg, q-rel, composite},
+  xtick=data, x tick label style={rotate=30, anchor=east, font=\scriptsize},
+  ymin=0, ymax=1, ylabel={signal value}, font=\small\sffamily,
+  tick label style={font=\scriptsize}, title={\footnotesize FEVER claim (deferred, later stored; illustrative)},
+  ymajorgrids, grid style={cbInk!8},
+  nodes near coords, nodes near coords style={font=\tiny, /pgf/number format/fixed, /pgf/number format/precision=2},
+]
+  \addplot[draw=cbExample!60!black, fill=cbExample!30] coordinates {
+    (ground-max,0.94) (s-avg,0.85) (q-rel,0.69) (composite,0.51) };
+  \draw[cbNumbers!70!black, dashed] (axis cs:ground-max,0.60) -- (axis cs:composite,0.60);
+\end{axis}
+\begin{axis}[
+  xshift=8.4cm,
+  width=7.6cm, height=6.0cm,
+  ybar, bar width=10pt,
+  symbolic x coords={u-token, s-avg, p-entail, ground-max, ground-atom, q-rel, composite},
+  xtick=data, x tick label style={rotate=30, anchor=east, font=\scriptsize},
+  ymin=0, ymax=1, font=\small\sffamily,
+  tick label style={font=\scriptsize}, title={\footnotesize trivia question (abstained, deployed reading)},
+  ymajorgrids, grid style={cbInk!8},
+  nodes near coords, nodes near coords style={font=\tiny, /pgf/number format/fixed, /pgf/number format/precision=2},
+]
+  \addplot[draw=cbPitfall!70!black, fill=cbPitfall!25] coordinates {
+    (u-token,0.02) (s-avg,0.80) (p-entail,0.12) (ground-max,0.11) (ground-atom,0.09) (q-rel,0.50) (composite,0.13) };
+\end{axis}
+\end{tikzpicture}
+\caption[Two signal fingerprints]{Signal readings for the two running episodes. The
+fact-checking claim (left) is an illustrative hand-authored walkthrough of the
+defer-then-promote path: it grounds strongly in its best passage and is internally
+consistent, lifting its composite into the deferral band, from which it is promoted to
+storage on the next cycle. The trivia question (right) carries the actual deployed
+cold-start verifier readings for the running episode, and is the chapter's own
+``agreement is not support'' point made visible: the three chains agree with one
+another ($\savg = 0.80$) yet do not entail the served answer ($\pentail = 0.12$), and
+with grounding also near zero the calibrated composite settles at $\ustored = 0.13$,
+below the deferral cut of $0.45$, and with $\pgmax = 0.11$ also below the grounding floor
+of $0.20$, so the episode is abstained rather than silently discarded. The dashed line marks
+the storage threshold (\Cref{ch:composite}).}
+\label{fig:fingerprint}
+\end{figure}
+
+\section{Honest limitations}
+\label{sec:verifier-retired}
+
+Three caveats keep the verifier in proportion.
+
+\begin{pitfall}[The verifier scores the answer, not the reasoning]
+Every active signal scores the canonical \emph{answer} claim, never the individual
+steps of the reasoning chain. The verifier therefore cannot distinguish a right
+answer reached by sound reasoning from a right answer reached by a lucky wrong step,
+nor can it credit a chain that reasons correctly but states the wrong final answer.
+The model's logic is judged only insofar as it surfaces in the final answer text.
+This is a known limitation, logged for future work; the panel is wide across
+\emph{kinds} of evidence but shallow in the sense that it reads one claim, not a
+derivation.
+\end{pitfall}
+
+\begin{pitfall}[Two signals were retired]
+Two of the original signals no longer drive decisions. A semantic-entropy signal,
+measuring the diversity of many resampled answers, was retired because its learned
+weight in the composite shrank to nearly zero, so it added cost without information.
+A contradiction probability was retired because the default short-hypothesis judge
+reports only whether a passage \emph{supports} a claim, with no separate
+contradiction verdict, so the signal was structurally always zero. Both remain in
+the output record for diagnostics, but neither affects a decision; \caem{} relies on
+\emph{low grounding} rather than an explicit contradiction veto.
+\end{pitfall}
+
+\begin{bythenumbers}[Verifier constants]
+\begin{itemize}[leftmargin=1.3em, itemsep=1pt]
+  \item Self-consistency chains: $M = 3$, sampled at temperature $0.7$, generated once and reused.
+  \item Dropout passes: $K = 5$, dropout active, temperature $0.7$.
+  \item Internal confidence: $\uint = 0.5\,\utoken + 0.5\,(1-\udrop)$.
+  \item Grounding retrieval: top $20$ candidates, reranked to the best $3$ passages.
+  \item Atomic decomposition: applied only to answers of at least $12$ tokens.
+  \item NLI dispatch: MiniCheck for hypotheses $\le 408$ tokens, Frozen Qwen above.
+  \item Early-exit: $\uint \ge 0.70$ and $\pgmax \le 0.20$ forces a discard at query time.
+  \item Failure default: every signal returns a neutral $0.5$ on error.
+\end{itemize}
+\end{bythenumbers}
+
+\begin{defence}[If an examiner asks: ``why so many signals, rather than one strong one?'']
+Because the literature shows there is no single strong one: single-signal correctness
+predictors barely beat chance (\Cref{ch:problem}). The contribution is not a better
+individual detector but a \emph{panel} spanning four independent failure modes,
+internal doubt, self-disagreement, ungrounded claims, and off-topic answers, so that
+a wrong answer must defeat all of them at once. The diversity is the design. And the
+panel is deliberately conservative at every turn: signals default to neutral on
+failure, the entailment ensemble takes the minimum so all judges must agree, and a
+hard early-exit rule guarantees the worst pathology is always escalated rather than
+averaged away.
+\end{defence}
+
+The verifier has now produced a vector of calibrated-but-separate signals.
+\Cref{ch:composite} takes up Stage 6: how those signals are each calibrated, fused
+into a single trustworthy probability, and turned into the four-outcome decision that
+governs storage.

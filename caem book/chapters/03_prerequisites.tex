@@ -1,0 +1,463 @@
+\chapter{Prerequisites: The Concepts We Need First}
+\label{ch:prereq}
+
+\Cref{ch:bigpicture} gave the map. Before we descend into each box, this chapter
+assembles the toolbox. Five ideas recur in every later chapter, namely the
+language model that generates, the embeddings that measure meaning, the
+similarity search that scales them, the calibration that makes a score
+trustworthy, the entailment test that grounds an answer, and the low-rank
+adaptation that lets the model learn without forgetting. None of these is unique
+to \caem{}, but each is used in a specific way, with specific numbers, that the
+rest of the book assumes. We treat each as a self-contained briefing: the general
+idea first, then exactly how \caem{} uses it, taken from the live code.
+
+\begin{intuition}[Why a whole chapter on background]
+Every component of \caem{} is a familiar tool put to a precise purpose. The
+verifier is mostly entailment and calibration; the router is mostly embeddings and
+similarity search; the self-improvement loop is mostly low-rank adaptation under a
+guard. If the tools are clear, the architecture reads as a series of natural
+choices rather than a wall of jargon. So this chapter front-loads the toolbox
+once, and the later chapters simply reach for it.
+\end{intuition}
+
+\section{The generator: what a decoder language model does}
+\label{sec:prereq-llm}
+
+At the centre of \caem{} sits one frozen language model that produces text. It is
+worth being precise about what ``produces text'' means, because two of the
+verifier's nine signals are read directly off the mechanics below.
+
+A modern generator is an \emph{autoregressive decoder}. It reads a sequence of
+tokens, which are sub-word units rather than whole words, and predicts the next
+token, one at a time. For each position it produces a vector of \emph{logits},
+one real number per token in its vocabulary. A softmax turns those logits into a
+probability distribution over the vocabulary, and the model either takes the most
+probable token (\emph{greedy decoding}) or samples from the distribution. The
+chosen token is appended to the sequence and the process repeats until a stop
+token appears.
+
+\begin{precise}[From logits to a per-token probability]
+For vocabulary position $v$ at step $t$, the model emits a logit $z_{t,v}$. The
+probability of token $v$ is the softmax
+\[
+  p_t(v) \;=\; \frac{\exp(z_{t,v})}{\sum_{w}\exp(z_{t,w})}.
+\]
+The probability the model assigned to the token it \emph{actually} produced,
+$p_t(\hat v_t)$, is the raw material of the token-level confidence signal. A
+sequence the model found easy has high per-token probabilities; a sequence it was
+unsure about has low ones. Aggregating these across the generated answer, by a
+geometric mean of the per-token probabilities, gives the $\utoken$ signal that
+appears in both the pre-routing confidence of \Cref{ch:upre} and the verifier of
+\Cref{ch:verifier}.
+\end{precise}
+
+Two further ideas matter. \textbf{Temperature} rescales the logits before the
+softmax: dividing by a temperature above one flattens the distribution and makes
+sampling more random, while dividing by a value below one sharpens it. We will
+meet temperature again, in a completely different role, as a \emph{calibration}
+knob in \Cref{sec:prereq-calibration}; the two uses share a formula but not a
+purpose. \textbf{Chain-of-thought} is the practice of having the model generate
+intermediate reasoning before its final answer. \caem{} uses a scaffolded form,
+prompting the model to emit a \emph{Reasoning} field and then an \emph{Answer}
+field, so that the reasoning is available for inspection and the short answer is
+cleanly extractable.
+
+\begin{fromcode}[The specific generator]
+The backbone is \code{Qwen-2.5-3B-Instruct}, a three-billion-parameter
+instruction-tuned decoder, used through the chat-markup prompt format. Generation
+is \emph{greedy} (\code{do\_sample=False}) for reproducibility, capped at $512$
+new tokens for both the zero-shot and retrieval paths. Crucially, the backbone is
+\textbf{frozen}: across the entire run its original weights never change. The only
+thing that trains is a small adapter bolted onto it, which we cover in
+\Cref{sec:prereq-lora}. Freezing the backbone is not an incidental choice; it is
+the mechanism that bounds the catastrophic forgetting of \Cref{ch:problem}.
+\end{fromcode}
+
+\section{Embeddings: turning meaning into geometry}
+\label{sec:prereq-embeddings}
+
+The memory in \caem{} has to answer one question quickly: have we seen a query
+like this one before? Comparing raw strings cannot do this, because ``Who wrote
+\emph{Hamlet}?'' and ``Name the author of \emph{Hamlet}'' share almost no
+characters yet mean the same thing. Embeddings solve this by mapping text to
+points in a high-dimensional space, arranged so that similar meanings sit close
+together.
+
+\begin{intuition}[An embedding is a meaning-coordinate]
+Imagine every possible sentence placed somewhere in a space with hundreds of
+axes, positioned so that sentences with similar meaning land near one another and
+unrelated sentences land far apart. An embedding model is the function that
+computes those coordinates. Once two sentences are points, ``are they similar?''
+becomes ``are these two points close?'', which is a geometry question a computer
+answers in microseconds.
+\end{intuition}
+
+The standard closeness measure for embeddings is \emph{cosine similarity}, the
+cosine of the angle between two vectors. It is $1$ when the vectors point the same
+way, $0$ when they are orthogonal, and $-1$ when they are opposed. For two
+vectors $\mathbf{a}$ and $\mathbf{b}$,
+\[
+  \cos(\mathbf{a}, \mathbf{b})
+  \;=\;
+  \frac{\mathbf{a} \cdot \mathbf{b}}{\lVert \mathbf{a}\rVert\,\lVert \mathbf{b}\rVert}.
+\]
+There is a useful trick here. If every embedding is \emph{normalised} to unit
+length in advance, the denominator becomes one, and cosine similarity collapses
+to a plain dot product. That single optimisation is why \caem{} normalises every
+embedding the moment it is produced: it lets the similarity search use the fastest
+possible inner-product machinery while still computing true cosine similarity.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[font=\small\sffamily, scale=1.0]
+  % unit circle
+  \draw[cbInk!25, line width=0.8pt] (0,0) circle (2.4);
+  \draw[->, cbInk!50] (-2.9,0) -- (2.9,0);
+  \draw[->, cbInk!50] (0,-2.9) -- (0,2.9);
+  % vector a
+  \draw[-{Stealth[length=2.4mm]}, line width=1.4pt, cbIntuition]
+    (0,0) -- (2.4*0.866, 2.4*0.5)
+    node[anchor=south west] {\,``Who wrote \emph{Hamlet}?''};
+  % vector b (close)
+  \draw[-{Stealth[length=2.4mm]}, line width=1.4pt, cbExample]
+    (0,0) -- (2.4*0.985, 2.4*0.174)
+    node[anchor=west] {\,``Name the author of \emph{Hamlet}''};
+  % vector c (far)
+  \draw[-{Stealth[length=2.4mm]}, line width=1.4pt, cbPitfall]
+    (0,0) -- (2.4*0.0, 2.4*1.0)
+    node[anchor=south] {``What is the boiling point of water?''};
+  % angle arc between a and b (small)
+  \draw[cbInk!55, line width=0.8pt] (1.2,0.69) arc (30:10:1.38);
+  \node[font=\scriptsize, cbInk!70] at (1.95,0.55) {small angle};
+  \node[font=\scriptsize, cbInk!70] at (0.55,1.55) {large angle};
+  \node[font=\scriptsize, cbInk!60] at (0,-2.75) {(all vectors normalised to the unit circle)};
+\end{tikzpicture}
+\caption[Cosine similarity as geometry]{Cosine similarity is the cosine of the
+angle between two normalised embeddings. The two paraphrases of the same question
+(blue and green) point in nearly the same direction, so their cosine similarity is
+high. The unrelated question (red) points elsewhere, so its similarity is low.
+Once vectors are normalised to unit length, this cosine equals their dot product. (Schematic.)}
+\label{fig:cosine}
+\end{figure}
+
+\begin{fromcode}[The specific embedding model]
+The encoder is \code{sentence-transformers/all-mpnet-base-v2}, a sentence-level
+embedding model that maps any text to a $768$-dimensional vector. \caem{} stores
+the output as $32$-bit floats and L2-normalises every vector to unit length, so
+that an inner product equals cosine similarity exactly. The code guards this
+invariant aggressively: it validates the dimension on load (refusing a model that
+does not produce $768$ dimensions) and re-normalises defensively if any vector's
+length drifts from one. This same embedding is reused three times per query, for
+the memory search, for grounding in the verifier, and for retrieval in the
+retrieval-augmented tier.
+\end{fromcode}
+
+\section{Similarity search at scale: FAISS}
+\label{sec:prereq-faiss}
+
+Cosine similarity tells us how to compare \emph{two} vectors. But the memory may
+hold up to a million episodes, and the retrieval corpus holds tens of millions of
+passages. Comparing a query against every stored vector one by one would be far
+too slow. This is the problem that a vector index solves, and \caem{} uses the
+FAISS library for it.
+
+There are two regimes, and \caem{} uses both. An \textbf{exact} index compares
+the query against every vector but does so with heavily optimised inner-product
+arithmetic; it returns the true nearest neighbour every time, and it is fast
+enough while the collection is small. An \textbf{approximate} index trades a sliver
+of accuracy for a large speed gain, and becomes necessary at scale. The
+approximate scheme \caem{} uses combines two techniques:
+
+\begin{description}[leftmargin=0pt, labelsep=0.5em, style=nextline]
+  \item[Inverted file (IVF).] The vectors are clustered into a fixed number of
+  cells, each with a representative centroid. At search time the query is compared
+  only against the vectors in the few cells whose centroids are nearest, rather
+  than the whole collection. The number of cells is the \emph{nlist} parameter and
+  the number probed per query is \emph{nprobe}; together they trade recall against
+  speed.
+  \item[Product quantisation (PQ).] Each vector is split into sub-vectors, and
+  each sub-vector is replaced by the index of the nearest entry in a small learned
+  codebook. This compresses each vector to a handful of bytes, so that millions of
+  vectors fit in memory and the distance arithmetic runs on the compact codes.
+\end{description}
+
+\begin{fromcode}[The two indexes inside \caem{}]
+The episodic memory of \Cref{ch:memory} bootstraps as an \emph{exact}
+inner-product index wrapped so that entries can be deleted by identifier, and then
+\textbf{auto-promotes} to an approximate inverted-file product-quantised index once
+it holds enough vectors to train the clustering (a threshold of twenty thousand
+points; cells $=4096$, probes $=32$, sixty-four sub-quantisers at eight bits
+each). Early cycles therefore enjoy exact search, and only large stores pay the
+approximate-search tax. The retrieval corpus of \Cref{ch:tiers} is far larger and
+is approximate from the start, with a finer clustering (cells $=32768$, probes
+$=64$). The memory's novelty rule also rides on this search: a candidate episode
+whose nearest stored neighbour exceeds a cosine similarity of $0.95$ is judged a
+near-duplicate and is not stored again.
+\end{fromcode}
+
+\begin{bythenumbers}[The vector machinery at a glance]
+\begin{itemize}[leftmargin=1.3em, itemsep=1pt]
+  \item Embedding model: \code{all-mpnet-base-v2}, $768$ dimensions, unit-normalised.
+  \item Episodic memory: exact index up to $20{,}000$ vectors, then inverted-file
+  product-quantised; capacity $1{,}000{,}000$; novelty threshold $0.95$.
+  \item Retrieval corpus: tens of millions of passages, approximate from the start.
+  \item Similarity: cosine, computed as an inner product on normalised vectors.
+\end{itemize}
+\end{bythenumbers}
+
+\section{Calibration: making a score mean something}
+\label{sec:prereq-calibration}
+
+This is the most important idea in the chapter, because it is the idea
+\Cref{ch:problem} identified as the missing piece. A model can be accurate and yet
+\emph{miscalibrated}: its confidence numbers do not match its actual hit rate. We
+say a score is \emph{calibrated} when it can be read as a probability. If we
+collect every answer a calibrated system rated $0.7$, then close to seventy
+percent of them should be correct. Calibration is what lets a single fixed
+threshold mean the same thing across very different questions.
+
+\begin{intuition}[Calibrated versus merely high]
+A confidence score is useful only if it is honest. A weather forecaster who says
+``seventy percent chance of rain'' is well calibrated if it rains on about seventy
+percent of such days, regardless of whether the forecaster is usually optimistic or
+pessimistic. A language model, left alone, is a badly calibrated forecaster: it
+says ninety percent and is right sixty percent of the time. Calibration is the
+post-processing step that bends those raw scores back onto the line where the
+number equals the frequency.
+\end{intuition}
+
+The standard way to measure the gap is the \emph{reliability diagram}: bucket
+predictions by their stated confidence, and plot the average confidence in each
+bucket against the actual accuracy in that bucket. A perfectly calibrated system
+lies on the diagonal. The average vertical gap, weighted by bucket size, is the
+\emph{expected calibration error}, and a curve sitting below the diagonal is the
+signature of overconfidence.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+  width=9.2cm, height=6.4cm,
+  xlabel={stated confidence}, ylabel={actual accuracy},
+  xmin=0, xmax=1, ymin=0, ymax=1,
+  xtick={0,0.25,0.5,0.75,1}, ytick={0,0.25,0.5,0.75,1},
+  axis lines=left, font=\small\sffamily,
+  legend style={at={(0.03,0.97)}, anchor=north west, draw=cbInk!25,
+    font=\scriptsize, fill=white},
+  tick label style={font=\scriptsize},
+  grid=both, grid style={cbInk!8},
+]
+  % perfect calibration diagonal
+  \addplot[cbInk!55, dashed, line width=1pt, domain=0:1, samples=2] {x};
+  \addlegendentry{perfectly calibrated}
+  % overconfident curve (below diagonal)
+  \addplot[cbPitfall, line width=1.4pt, mark=*, mark size=1.4pt] coordinates {
+    (0.1,0.07) (0.25,0.16) (0.4,0.27) (0.55,0.39) (0.7,0.5) (0.85,0.62) (0.95,0.72)
+  };
+  \addlegendentry{raw model (overconfident)}
+  % calibrated curve (close to diagonal)
+  \addplot[cbExample, line width=1.4pt, mark=square*, mark size=1.3pt] coordinates {
+    (0.1,0.11) (0.25,0.24) (0.4,0.41) (0.55,0.53) (0.7,0.69) (0.85,0.84) (0.95,0.94)
+  };
+  \addlegendentry{after calibration}
+\end{axis}
+\end{tikzpicture}
+\caption[A reliability diagram]{A reliability diagram (schematic, drawn to illustrate
+the concept). The raw model (red) sits well below the diagonal: when it says $0.85$
+it is right only about $0.62$ of the time, the overconfidence of \Cref{ch:problem}.
+Calibration (green) bends the scores back toward the diagonal, so a stated confidence
+can be read as an actual probability. The vertical gap to the diagonal, averaged over
+buckets, is the expected calibration error.}
+\label{fig:reliability}
+\end{figure}
+
+\caem{} uses four calibration tools, each for a different signal, and it is worth
+naming them once here so the later chapters can refer back.
+
+\begin{description}[leftmargin=0pt, labelsep=0.5em, style=nextline]
+  \item[Temperature scaling.] The simplest fix: divide the score's logit by a
+  single learned temperature before the sigmoid. One number, fit to minimise the
+  calibration error, slides the whole confidence curve toward the diagonal. \caem{}
+  uses this for the pre-routing confidence of \Cref{ch:upre}, with a \emph{separate
+  temperature per benchmark}.
+  \item[Isotonic regression.] A more flexible, non-parametric fit that learns any
+  monotone mapping from raw score to calibrated probability. It can bend the curve
+  into any increasing shape, which matters when a signal is informative but not
+  linearly so. \caem{} fits one isotonic curve \emph{per verifier signal} and
+  combines them, as the next paragraph describes.
+  \item[Platt scaling.] A logistic fit, two parameters, that puts the output of one
+  model onto the probability scale of another. \caem{} uses it to align the
+  long-context entailment judge with the short-context one (\Cref{sec:prereq-nli}),
+  so that both judges report comparable numbers.
+  \item[Shrinkage toward a pool.] When a per-benchmark fit is estimated from only a
+  few hundred labelled examples, it overfits. The fix is to pull each per-benchmark
+  curve partway toward the pooled curve estimated from all benchmarks at once.
+  \caem{} sets this shrinkage weight to $0.6$, keeping moderate per-benchmark
+  adaptation while regularising the weakest benchmarks.
+\end{description}
+
+\begin{precise}[How the nine signals become one calibrated number]
+The verifier's composite is built so that the final score \emph{is} a calibrated
+probability rather than an arbitrary weighted sum. Each of the underlying signals is
+passed through its own isotonic curve, which converts the raw signal into a
+calibrated per-signal probability and hence a log-odds contribution. The
+contributions are summed, and a sigmoid turns the total back into a probability.
+A signal that carries no information fits a nearly flat curve and contributes close
+to zero log-odds automatically, with no manual zeroing. A signal whose useful
+direction flips between benchmarks, for instance a relevance score that means
+opposite things on a fact-checking task and an open-ended question, is handled
+because its curve is fit per benchmark and can decrease on one and increase on
+another. This is why a single pair of storage thresholds can govern five different
+benchmarks: the comparison happens after every signal has been mapped onto the same
+probability scale.
+\end{precise}
+
+\section{Natural-language inference: entailment as a grounding test}
+\label{sec:prereq-nli}
+
+The verifier's strongest evidence that an answer is grounded is not whether the
+model felt confident, but whether the retrieved evidence actually \emph{supports}
+the answer. The tool for that is natural-language inference.
+
+Natural-language inference asks, given a \emph{premise} and a \emph{hypothesis},
+whether the premise entails the hypothesis, contradicts it, or is neutral. \caem{}
+puts the retrieved passage in the premise slot and the model's answer in the
+hypothesis slot, and reads the entailment probability as a grounding score: a high
+value means the evidence backs the answer, a low value means the answer floats free
+of its evidence. This is the heart of the difference between a grounded answer and
+a confabulation that merely sounds right.
+
+\begin{pitfall}[Entailment is directional, and absence of support is not contradiction]
+Two traps lurk here. First, entailment is \emph{directional}: ``the passage entails
+the answer'' is the claim we want, not the reverse. Second, the two judges \caem{}
+uses report only an entailment probability and treat \emph{not supported} the same
+as \emph{neutral}; they do not raise a separate contradiction alarm. \caem{}
+therefore relies on \emph{low grounding} as its low-support signal rather than a
+hard contradiction veto. A reader who expects a three-way support, refute, neutral
+verdict from these judges will misread the verifier; the operative signal is the
+continuous grounding probability, not a discrete label.
+\end{pitfall}
+
+\begin{fromcode}[Two judges, dispatched by length]
+\caem{} runs entailment through an adaptive dispatcher with two judges behind it.
+A specialised, fast checker handles short hypotheses, and a long-context model
+handles long ones. The split point is $408$ tokens, and it is not arbitrary: the
+fast checker's encoder caps at $512$ tokens, of which $4$ are reserved for prompt
+overhead and $100$ for a minimum slice of premise, leaving $512 - 4 - 100 = 408$
+tokens of hypothesis that fit without truncation. Anything longer routes to the
+long-context judge, whose output is Platt-scaled (\Cref{sec:prereq-calibration})
+against the fast checker on a shared five-hundred-sample fold, so the two report
+numbers on the same scale. The dispatcher is deliberately invisible to the rest of
+the verifier, which sees one entailment probability and never needs to know which
+judge produced it. One honest caveat applies to the deployed run: the long-context
+judge was set aside because its post-hoc probability fit did not clear the required
+correlation floor, so the shipped verifier ran the fast checker for every
+prediction, with longer hypotheses truncated at the checker's window (a limitation
+recorded among the threats).
+\end{fromcode}
+
+\section{Low-rank adaptation: learning without forgetting}
+\label{sec:prereq-lora}
+
+The last tool is the one that powers the self-improvement loop. The challenge from
+\Cref{ch:problem} was that retraining a model on new material tends to erase its
+old capabilities. Low-rank adaptation, or LoRA, is the technique that lets \caem{}
+retrain on its own verified answers each cycle while bounding that risk.
+
+\begin{intuition}[Freeze the library, add a thin notebook]
+Picture the model's knowledge as a vast reference library that took enormous effort
+to assemble. Naive fine-tuning rewrites pages of that library to absorb new facts,
+and in doing so smudges unrelated pages, which is catastrophic forgetting. LoRA
+instead leaves the library completely untouched and attaches a thin notebook beside
+it. The notebook is small, it is the only thing that gets written, and at any time
+it can be torn out and the library is exactly as it was. \caem{} writes a fresh
+page into that notebook each cycle, and the retention guard of \Cref{ch:cycle} is
+the rule that tears the page out if it made things worse.
+\end{intuition}
+
+The mechanism is a low-rank matrix. A weight matrix $W$ inside the frozen model maps
+an input $\mathbf{x}$ to an output $W\mathbf{x}$. LoRA freezes $W$ and adds a
+trainable correction built from two small matrices, $A$ and $B$, whose product has a
+deliberately low rank $r$:
+\[
+  \mathbf{h} \;=\; W\mathbf{x} \;+\; \frac{\alpha}{r}\,B A\,\mathbf{x},
+  \qquad
+  A \in \mathbb{R}^{r \times k},\;
+  B \in \mathbb{R}^{d \times r},\;
+  r \ll \min(d, k).
+\]
+Only $A$ and $B$ are learned; $W$ never moves. The scalar $\alpha/r$ controls how
+strongly the correction is applied. Because $r$ is tiny, the number of trainable
+parameters is a small fraction of the matrix it corrects.
+
+\begin{workedexample}[Why ``low rank'' is such a large saving]
+Take a single square projection of size $d \times d$. Training it fully means
+learning $d^2$ numbers. LoRA instead learns $A$ and $B$ with $r\,d$ numbers each,
+for $2rd$ in total. With a rank of $r=32$ and a typical projection a couple of
+thousand wide, $2rd$ is on the order of a few percent of $d^2$, roughly a thirty-fold
+reduction \emph{on that one matrix}. Aggregated over the handful of projections
+\caem{} adapts, the trainable footprint comes to roughly two percent of the full
+model. The other ninety-eight percent stays frozen, which is exactly the property
+that keeps a cycle's update from rewriting unrelated knowledge.
+\end{workedexample}
+
+\begin{fromcode}[The specific adapter]
+\caem{} adapts with rank $r=32$ and scaling $\alpha=64$ (the standard ``alpha equals
+twice the rank'' rule, giving a correction scale of two), a dropout of $0.05$, and a
+learning rate of $2\times 10^{-4}$. The adapter is attached to all seven linear
+projections of each transformer block: the four attention projections (query, key,
+value, output) and the three feed-forward projections (gate, up, down). This is the
+``adapt every linear layer'' recommendation from the LoRA-scaling literature.
+Because the base is frozen, the explicit anchor term that a full fine-tune would
+need to stay near its starting point is dropped on the LoRA path; the freezing does
+that job for free. This adapter is the only thing the self-improvement loop of
+\Cref{ch:cycle} ever changes, and rolling a cycle back means nothing more than
+discarding the latest version of these two small matrices per projection.
+\end{fromcode}
+
+\section{How the toolbox maps onto the architecture}
+\label{sec:prereq-map}
+
+Each tool reappears at a definite place, and it helps to fix the correspondence
+before moving on. \Cref{tab:prereq-map} is that correspondence.
+
+\begin{table}[t]
+\centering
+\caption[Concept-to-stage map]{Where each prerequisite concept does its work in the
+chapters ahead.}
+\label{tab:prereq-map}
+\small
+\renewcommand{\arraystretch}{1.25}
+\begin{tabularx}{\textwidth}{@{}l >{\raggedright\arraybackslash}X l@{}}
+\toprule
+\textbf{Concept} & \textbf{Where it does its work in \caem{}} & \textbf{Chapter} \\
+\midrule
+Per-token probability & The $\utoken$ signal in pre-routing and verification
+  & \Cref{ch:upre,ch:verifier} \\
+Embeddings + cosine & Encoding queries and matching them to stored episodes
+  & \Cref{ch:memory,ch:router} \\
+FAISS search & Memory lookup and retrieval-corpus search at scale
+  & \Cref{ch:memory,ch:tiers} \\
+Calibration & Honest pre-routing confidence and the calibrated composite
+  & \Cref{ch:upre,ch:composite} \\
+Entailment (NLI) & Grounding the answer against retrieved evidence
+  & \Cref{ch:verifier} \\
+Low-rank adaptation & Learning from verified answers without forgetting
+  & \Cref{ch:cycle} \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\begin{defence}[If an examiner asks: ``which of these tools are novel?'']
+None of the six tools is novel, and the thesis does not claim them. Embeddings,
+similarity search, calibration, entailment, and low-rank adaptation are all standard
+machinery. The contribution of \caem{} is not a new tool but the \emph{architecture}
+that composes them: a calibrated confidence deciding how hard to work, an
+entailment-grounded composite gating a four-outcome admission rule, and a low-rank
+update under a retention guard closing the loop. The novelty is in the wiring, and
+the wiring is what the rest of the book is about.
+\end{defence}
+
+With the toolbox assembled, we are ready to open the first box. \Cref{ch:upre}
+begins the per-query pipeline with the pre-routing confidence, the single number
+that decides, before any answer is generated, how much work a query deserves.

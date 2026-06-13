@@ -1,0 +1,15 @@
+# LaTeX build intermediates. The .tex sources and the rendered main.pdf are tracked.
+*.aux
+*.log
+*.toc
+*.lof
+*.lot
+*.out
+*.bbl
+*.bcf
+*.blg
+*.fls
+*.fdb_latexmk
+*.run.xml
+*.synctex.gz
+*-SAVE-ERROR

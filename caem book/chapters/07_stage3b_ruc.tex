@@ -1,0 +1,439 @@
+\chapter{Stage 3b: The Retrieval-Utility Classifier}
+\label{ch:ruc}
+
+This is the chapter the architecture builds toward. The router of \Cref{ch:router}
+sends every query it cannot place on a cheap tier to retrieval, as a fallback. That
+fallback rests on an assumption that turns out to be false: that retrieval always
+helps. The retrieval-utility classifier is \caem{}'s correction. It is a small
+learned model that sits on the two fall-through paths and decides, per query,
+whether retrieval will genuinely help the generator or quietly hurt it. It is the
+newest component of the system and the one that most directly improves the
+architecture's behaviour on the questions where ordinary retrieval-augmented
+generation fails.
+
+\begin{intuition}[Retrieval is a tool, not a reflex]
+Retrieval-augmented generation is usually framed as strictly safer: ground the
+model in evidence and it hallucinates less. That is true on the questions where the
+evidence supports the right answer. It is false on a specific and important class of
+questions, the ones built around a common misconception or the ones the model
+already knows well, where the retrieved passages either reinforce the trap or
+distract from a stronger parametric answer. On those, retrieval makes the answer
+\emph{worse}. The retrieval-utility classifier learns to tell the two cases apart,
+so that retrieval becomes a tool used when it helps rather than a reflex applied to
+everything.
+\end{intuition}
+
+\section{The wrong-default failure mode}
+\label{sec:ruc-motivation}
+
+The empirical anchor for this chapter is a regression the architecture showed
+\emph{before} the classifier existed. On misconception-bait benchmarks, exact-match
+accuracy declined cycle over cycle. The cause was not the verifier and not the
+memory; it was the unconditional retrieval dispatch feeding the self-improvement
+loop. When a misconception question was sent to retrieval, the retrieved passages
+nudged the generator toward the popular-but-wrong answer, the verifier sometimes let
+that confident answer through, and the self-improvement loop of \Cref{ch:cycle} then
+folded the retrieval-amplified error into the model's own weights. Each cycle made
+the model a little more confidently wrong on exactly the questions designed to catch
+it.
+
+\begin{precise}[The tier-conditional self-improvement hypothesis]
+The classifier's deeper purpose is to make self-improvement \emph{benchmark
+conditional}. The self-improvement loop trains on the answers the system produced and
+trusted, so the \emph{tier} that produced an answer determines what the model learns
+from it. If retrieval-hurt queries are routed to retrieval, the loop ingests
+retrieval-polluted answers and the model drifts on those benchmarks. If instead
+those queries are routed to zero-shot generation, the loop ingests clean parametric
+answers and the model improves. The classifier is therefore not only a
+per-query cost optimiser; it is the gate that decides \emph{which kind of answer
+enters the training pool} for each query. Routing retrieval-helpful queries to the
+grounded tier and retrieval-hurt queries to the zero-shot tier lets the loop learn
+grounded reasoning where grounding helps and clean parametric reasoning where it does
+not, which is what allows one self-improvement loop to raise accuracy across a panel
+of benchmarks that reward opposite things.
+\end{precise}
+
+\begin{bythenumbers}[The asymmetric-rescue payoff, with one caveat]
+The deployed on/off ablation puts numbers on the mechanism. Turning the classifier on
+lifts pooled exact match by about $5.8$ percentage points and collapses the
+retrieval-tier share by about $34$ points, and the gains are concentrated exactly where
+retrieval was hurting: the commonsense probe rises by about $14$ points and the
+misconception probe (exact match judged by the language-model judge) by about $10$
+points, while the retrieval-helpful fact-checking benchmark stays flat. The pattern is
+the asymmetric rescue the hypothesis predicts: lift the benchmarks retrieval was hurting
+without disturbing the one it was helping. One caveat keeps the contrast honest. This is
+a bundled on/off comparison, with the classifier enabled alongside concurrent pipeline
+corrections, not a clean classifier-only isolation, so the figures bound the joint
+effect of the change rather than attribute every point to the classifier alone.
+\end{bythenumbers}
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[
+  font=\small\sffamily,
+  q/.style={rectangle, rounded corners=3pt, draw=cbInk!55, fill=cbInk!6,
+    line width=0.9pt, align=center, inner sep=4pt, text width=3.0cm, font=\footnotesize},
+  tA/.style={rectangle, rounded corners=4pt, draw=cbPitfall!75!black, fill=cbPitfall!10,
+    line width=1pt, align=center, inner sep=4pt, text width=3.3cm, font=\footnotesize},
+  tB/.style={rectangle, rounded corners=4pt, draw=cbExample!70!black, fill=cbExample!12,
+    line width=1pt, align=center, inner sep=4pt, text width=3.3cm, font=\footnotesize},
+  pool/.style={rectangle, rounded corners=4pt, draw=cbFormula!70!black, fill=cbFormula!10,
+    line width=1pt, align=center, inner sep=4pt, text width=2.4cm, font=\footnotesize},
+  flow/.style={-{Stealth[length=2.2mm]}, line width=1pt, draw=cbInk!70},
+]
+  % row 1: without RUC
+  \node[font=\footnotesize\bfseries, text=cbPitfall!70!black, anchor=west] at (-0.2,3.0) {Without the classifier};
+  \node[q]  (q1) at (0.6,2.3) {retrieval-hurt query\\(misconception bait)};
+  \node[tA] (t1) at (4.6,2.3) {Tier 3 retrieval $\to$ passage-amplified \emph{wrong} answer};
+  \node[pool] (p1) at (8.8,2.3) {SIL pool\\learns the error};
+  \draw[flow] (q1) -- (t1);
+  \draw[flow] (t1) -- (p1);
+  \node[font=\scriptsize, text=cbPitfall!70!black, anchor=west] at (10.2,2.3) {model drifts};
+  % row 2: with RUC
+  \node[font=\footnotesize\bfseries, text=cbExample!55!black, anchor=west] at (-0.2,1.0) {With the classifier};
+  \node[q]  (q2) at (0.6,0.3) {retrieval-hurt query\\(misconception bait)};
+  \node[tB] (t2) at (4.6,0.3) {Tier 2 zero-shot $\to$ clean \emph{parametric} answer};
+  \node[pool] (p2) at (8.8,0.3) {SIL pool\\learns clean reasoning};
+  \draw[flow] (q2) -- (t2);
+  \draw[flow] (t2) -- (p2);
+  \node[font=\scriptsize, text=cbExample!55!black, anchor=west] at (10.2,0.3) {model improves};
+\end{tikzpicture}
+\caption[Tier-conditional self-improvement]{Why the classifier matters beyond cost.
+On a retrieval-hurt query, the unconditional dispatch (top) sends a
+passage-amplified wrong answer into the self-improvement pool, and the model drifts
+on that benchmark cycle over cycle. The classifier (bottom) routes the same query to
+zero-shot generation, so a clean parametric answer enters the pool and the model
+improves. The classifier decides not just which tier answers, but which kind of
+answer the loop learns from. (Schematic.)}
+\label{fig:tier-conditional}
+\end{figure}
+
+\section{Where the classifier fires, and where it does not}
+\label{sec:ruc-where}
+
+The classifier is a refinement, not a replacement, so it is important to be exact
+about its reach. It is consulted at exactly the two points in \Cref{ch:router} that
+would otherwise route unconditionally to retrieval: the safety-override path and the
+score fall-through. At both, the router's default is the grounded tier, and the
+classifier is given the chance to redirect that default to zero-shot generation
+instead.
+
+\begin{pitfall}[The classifier never overrides a cheap-tier decision]
+A query that earns Tier 1 on its combined score, or Tier 2 on its similarity, never
+consults the classifier at all. The memory-direct and similarity-based zero-shot
+decisions stand on their own. The classifier only ever chooses between the grounded
+tier and the zero-shot tier \emph{for queries the router was about to send to
+retrieval}. Its job is to split the retrieval fallback into ``really retrieve'' and
+``actually, generate directly,'' and nothing more. This keeps its influence
+localised and its failures bounded: a misfire can only move a query between the two
+most expensive tiers, never onto the memory-direct path.
+\end{pitfall}
+
+Concretely, the classifier reads a feature vector for the query, produces a
+probability $\prag$ that retrieval is the better path, and the router escalates to the
+grounded tier if and only if that probability clears a threshold. When no classifier
+is wired in, or the query text is unavailable, the router falls back to its old
+behaviour and routes the fall-through to retrieval, so the classifier degrades safely
+to the pre-classifier system.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[
+  font=\small\sffamily,
+  src/.style={rectangle, rounded corners=3pt, draw=cbInk!55, fill=cbInk!6,
+    line width=0.9pt, align=center, inner sep=5pt, text width=3.2cm, font=\footnotesize},
+  ruc/.style={rectangle, rounded corners=5pt, draw=cbFormula!75!black, fill=cbFormula!10,
+    line width=1.2pt, align=center, inner sep=6pt, text width=3.0cm,
+    drop shadow={shadow xshift=0.3ex, shadow yshift=-0.3ex, fill=black!10}},
+  t3/.style={rectangle, rounded corners=4pt, draw=cbScenario!70!black, fill=cbScenario!12,
+    line width=1pt, align=center, inner sep=5pt, text width=2.5cm, font=\footnotesize},
+  t2/.style={rectangle, rounded corners=4pt, draw=cbIntuition!75!black, fill=cbIntuition!12,
+    line width=1pt, align=center, inner sep=5pt, text width=2.5cm, font=\footnotesize},
+  flow/.style={-{Stealth[length=2.4mm]}, line width=1.1pt, draw=cbInk!75},
+]
+  \node[src] (veto) at (0,1.0) {safety override\\($\upre < 0.38$)};
+  \node[src] (fall) at (0,-1.0) {score fall-through\\(no cheap tier earned)};
+  \node[ruc] (ruc) at (4.2,0) {\textbf{Retrieval-utility classifier}\\$\prag = \Pr(\text{RAG helps})$};
+  \node[t3] (t3) at (8.6,1.0) {\textbf{Tier 3}\\retrieve + ground};
+  \node[t2] (t2) at (8.6,-1.0) {\textbf{Tier 2}\\zero-shot};
+  \draw[flow] (veto) -- (ruc);
+  \draw[flow] (fall) -- (ruc);
+  \draw[flow] (ruc) -- node[above, font=\scriptsize, text=cbScenario!60!black]{$\prag \ge 0.375$} (t3);
+  \draw[flow] (ruc) -- node[below, font=\scriptsize, text=cbIntuition!65!black]{$\prag < 0.375$} (t2);
+\end{tikzpicture}
+\caption[Where the classifier sits]{The classifier intercepts the two router
+outcomes that default to retrieval. It emits a probability that retrieval helps; the
+router commits to the grounded tier above the threshold and to zero-shot generation
+below it. Tier 1 and similarity-based Tier 2 decisions never reach this box. (Schematic.)}
+\label{fig:ruc-where}
+\end{figure}
+
+\section{What the classifier is}
+\label{sec:ruc-what}
+
+For all its importance, the classifier is deliberately simple: a logistic regression
+on a standardised feature vector. There is no neural network, no fine-tuning, and no
+dependence on the generator's weights at inference. Thirty-six engineered features
+are assembled for the query, standardised to zero mean and unit variance, and fed to
+a logistic regression that outputs $\prag$. The decision is a threshold at
+$\tauruc = 0.375$.
+
+\begin{lstlisting}[caption={The classifier's prediction, condensed from \texttt{caem/routing/ruc.py}.}, label={lst:ruc-predict}]
+feats = build_feature_vector(question,                 # 23 surface-form features
+                             top1_passage_sim,         # + retrieval-evidence features
+                             top1_passage_entity_overlap,
+                             p_ik,                      # + self-knowledge probe
+                             **extra_features)          # 36 features in total
+x     = [feats[f] for f in feature_order]
+x_s   = scaler.transform([x])                          # standardise (zero mean, unit var)
+p_rag = lr.predict_proba(x_s)[0, 1]                    # P(retrieval is the better path)
+decision = "RAG" if p_rag >= 0.375 else "DIRECT"       # tau_RUC = 0.375
+\end{lstlisting}
+
+\begin{intuition}[Why a logistic regression and not a neural network]
+A more powerful model is tempting, but three reasons make the linear choice the right
+one here. First, the decision is binary and the signal is concentrated in a handful
+of features, so a linear boundary already separates the classes well. Second, a
+logistic regression's coefficients are directly readable, which lets us audit
+\emph{why} the classifier routes a query the way it does, a property we use in
+\Cref{sec:ruc-pik}. Third, with only a few thousand labelled queries, a linear model
+with strong regularisation generalises where a larger model would overfit. The
+classifier is small on purpose; its leverage comes from the labels it was trained on,
+not from its capacity.
+\end{intuition}
+
+\section{The features, by family}
+\label{sec:ruc-features}
+
+The thirty-six features fall into three families, distinguished by what they cost to
+compute and what they capture. \Cref{tab:ruc-features} lays them out.
+
+\begin{table}[t]
+\centering
+\caption[The classifier's feature families]{The thirty-six features, by family. The
+surface-form family is computed inline from the question text; the retrieval-evidence
+family is supplied by the pipeline from a cheap top-passage lookup; the self-knowledge
+probe is read from the base model.}
+\label{tab:ruc-features}
+\small
+\renewcommand{\arraystretch}{1.22}
+\begin{tabularx}{\textwidth}{@{}l c >{\raggedright\arraybackslash}X@{}}
+\toprule
+\textbf{Family} & \textbf{Count} & \textbf{What it captures} \\
+\midrule
+\textbf{Question surface form}
+  & 23
+  & Cheap, text-only cues: question length, presence of negation, temporal,
+    numerical, and misconception-bait phrasing; the interrogative type (who, what,
+    when, where, why, how, yes-no); named-entity count and entity popularity;
+    adversarial, opinion-seeking, and open-ended phrasing; and answer-type matches
+    between the question and the top passage (does the question want a year or a
+    number, and does the passage contain one). \\
+\addlinespace[2pt]
+\textbf{Retrieval evidence}
+  & 12
+  & Whether the corpus actually has good evidence: the top passage's similarity and
+    entity overlap with the question; the top-five similarity spread (max, mean,
+    standard deviation); cross-encoder rerank scores (top one, top-five mean and
+    spread); pairwise entailment among the retrieved passages (mean, minimum,
+    spread), which measures whether the passages agree; and a binary Wikidata
+    entity hit. \\
+\addlinespace[2pt]
+\textbf{Self-knowledge}
+  & 1
+  & The probe $\pik$: the base model's own estimate of whether it can answer the
+    question correctly without retrieval. This single feature carries the most
+    weight of any in the model. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+The three families answer three complementary questions. The surface-form family asks
+\emph{what kind of question is this}, catching the misconception-bait and
+opinion-seeking phrasings where retrieval tends to hurt. The retrieval-evidence family
+asks \emph{does the corpus actually have something useful}, since retrieval cannot
+help when the passages are irrelevant or disagree with one another. And the
+self-knowledge probe asks \emph{does the model already know this}, because a question
+the model can answer from its own parameters gains nothing from retrieval and may be
+distracted by it.
+
+\section{The star feature: the self-knowledge probe}
+\label{sec:ruc-pik}
+
+If one feature defines the classifier, it is the self-knowledge probe $\pik$. It is by
+far the strongest, with a coefficient about two and a half times the next largest in
+absolute value (about $-1.77$ on standardised features against about $+0.70$ for the
+next feature), and its sign is exactly what the design intends.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+  width=11.6cm, height=7.2cm,
+  xbar, y axis line style={opacity=0},
+  axis x line=bottom, x axis line style={cbInk!40},
+  xlabel={logistic-regression coefficient (standardised features)},
+  xmin=-2.0, xmax=1.0,
+  enlarge y limits=0.06, bar width=8pt,
+  ytick=data, font=\small\sffamily, tick label style={font=\scriptsize},
+  symbolic y coords={numerical cue, interrog what, top5 sim std, interrog who,
+    interrog when, rerank top5 mean, interrog yes/no, rerank top5 std,
+    negation, self-knowledge},
+  nodes near coords, nodes near coords style={font=\tiny, /pgf/number format/fixed,
+    /pgf/number format/precision=2},
+  xmajorgrids, grid style={cbInk!8},
+]
+  \addplot[draw=cbFormula!70!black, fill=cbFormula!25] coordinates {
+    (-1.77,self-knowledge) (0.70,negation) (0.49,rerank top5 std)
+    (-0.38,interrog yes/no) (0.37,rerank top5 mean) (-0.35,interrog when)
+    (-0.28,interrog who) (0.24,top5 sim std) (-0.23,interrog what)
+    (0.22,numerical cue)
+  };
+  \draw[cbInk!50, dashed] (axis cs:0,numerical cue) -- (axis cs:0,self-knowledge);
+\end{axis}
+\end{tikzpicture}
+\caption[Top features by weight]{The ten features with the largest coefficients.
+Negative coefficients (left) push toward zero-shot generation; positive coefficients
+(right) push toward retrieval. The self-knowledge probe $\pik$ dominates, and its
+strong negative weight encodes the intended rule: the more the model already knows,
+the less it should retrieve. The negation cue carries the largest positive weight, with
+the rerank-spread features close behind, escalating to retrieval when the corpus has
+useful, varied evidence. (Learned coefficients from the deployed classifier.)}
+\label{fig:ruc-coefs}
+\end{figure}
+
+\begin{precise}[What the probe is, and why the adapter is switched off]
+The probe is a direct-correctness estimator in the style of
+Kadavath et al.~\cite{kadavath2022language}: a small head reads the base model's
+last-token hidden state on the question and predicts the probability that the model
+would answer correctly. Its coefficient in the classifier is strongly negative
+(about $-1.77$ on standardised features), which is exactly right: a high probe value
+means the model already knows the answer, so retrieval is unlikely to help and the
+query should go to zero-shot generation. On its own the probe reaches a mean
+out-of-fold area under the ROC curve of about $0.77$, so it is usefully predictive but
+imperfect, which is precisely why it is one feature among many rather than the whole
+decision. One implementation detail is load-bearing:
+the probe is computed with the low-rank adapter of \Cref{ch:cycle} \emph{disabled}, so
+that it reads the frozen base model's self-knowledge on the same distribution the
+probe was trained on, rather than the shifting fine-tuned distribution. Measuring the
+base model's knowledge, not the adapter's, keeps the signal stable across cycles.
+\end{precise}
+
+\section{How the classifier was trained}
+\label{sec:ruc-training}
+
+The classifier's leverage comes from its labels, so the labelling deserves care. The
+question for every training query is not whether the answer is right, but whether
+\emph{retrieval} produced a better answer than \emph{zero-shot generation}. To label a
+query, both paths are run: a zero-shot answer and a retrieval-augmented answer are each
+scored through the verifier of \Cref{ch:verifier}. The query is labelled positive
+(retrieval helps) when the retrieval answer wins and negative (retrieval hurts) when the
+zero-shot answer wins.
+
+\begin{pitfall}[Train only on the disagreements]
+Most queries are ties: both paths get it right, or both get it wrong. Those carry no
+signal about \emph{which path to choose}, and including them would swamp the classifier
+with uninformative examples and waste expensive verifier calls. So the training set is
+filtered to the queries where the two paths \emph{disagree}, one right and one wrong.
+This is both a statistical choice, concentrating the model on the decision boundary that
+matters, and a cost choice, since only the disagreements need the double verifier
+scoring. The shipped classifier was trained on roughly $3{,}200$ such disagreement
+queries.
+\end{pitfall}
+
+\begin{bythenumbers}[Training and validation]
+\begin{itemize}[leftmargin=1.3em, itemsep=1pt]
+  \item Training set: $3{,}208$ disagreement queries ($1{,}846$ retrieval-helps,
+  $1{,}362$ retrieval-hurts) drawn from \emph{eight} benchmarks, deliberately broader
+  than the five-benchmark \caem{} panel so the classifier learns a transferable
+  retrieval-utility signal.
+  \item Model selection: nested cross-validation, five outer folds and five inner
+  folds, with the regularisation strength and the decision threshold both chosen on
+  held-out inner folds (final strength $C = 0.5$, threshold $\tauruc = 0.375$).
+  \item Discrimination: pooled out-of-fold area under the ROC curve of $0.850$, with
+  per-benchmark values ranging from $0.69$ on OpenBookQA to $0.94$ on TriviaQA.
+\end{itemize}
+\end{bythenumbers}
+
+The nested cross-validation matters because two things are being chosen at once, the
+regularisation strength and the threshold, and choosing either on the data used to
+report performance would inflate the result. The outer folds give an honest estimate;
+the inner folds do the choosing. The threshold landed below one half, at $0.375$,
+because the cost of the two errors is asymmetric and the sweep that maximised net
+utility preferred to retrieve a little more readily than a symmetric cutoff would.
+
+\section{Honest limitations}
+\label{sec:ruc-threats}
+
+Two caveats keep the classifier in proportion.
+
+\begin{pitfall}[Not every coefficient sign matches the naive intuition]
+A registered audit checks whether the learned coefficients carry the signs the design
+expects. The self-knowledge probe passes cleanly, and the rerank score passes, but the
+top-passage similarity does not: its coefficient is mildly negative where a naive reading
+would expect positive, so the audit records an overall fail on that check. The likely
+reason is correlation among the retrieval features, with the richer rerank and
+passage-agreement signals absorbing the useful part of raw similarity and leaving its
+residual coefficient small and oppositely signed. It is reported transparently rather
+than hidden, and it does not change the deployed behaviour, since discrimination is
+measured on held-out folds, not on coefficient signs. It is a reminder that a linear
+model's individual weights are interpretable only up to the correlations among its
+inputs.
+\end{pitfall}
+
+\begin{pitfall}[Discrimination is uneven across benchmarks]
+The pooled discrimination of $0.850$ hides real variation. The classifier separates the
+two classes very well on TriviaQA and HaluEvalQA, and only modestly on FEVER, OpenBookQA,
+and CommonsenseQA, where the retrieval-helps and retrieval-hurts queries look more alike
+on these features. The classifier is therefore most valuable on the open-domain factoid
+and misconception-bait benchmarks and least decisive on the short, self-contained ones,
+which is consistent with where the wrong-default failure mode bites hardest.
+\end{pitfall}
+
+\section{The classifier in the lineage of selective retrieval}
+\label{sec:ruc-lineage}
+
+\begin{defence}[If an examiner asks: ``how is this different from prior selective-retrieval work?'']
+The idea that retrieval should be conditional is not new, and the thesis does not claim
+it. A line of work reaches the same diagnosis: that an unconditional retrieval dispatch
+leaves accuracy on the table relative to a per-query routing decision, including
+when-not-to-retrieve on PopQA~\cite{mallen2023whennot}, self-knowledge
+routing~\cite{wang2023skr}, Adaptive-RAG~\cite{jeong2024adaptive}, and
+Probing-RAG~\cite{baek2025probing}. \caem{}'s classifier sits in that lineage with two
+distinguishing features. It is positioned \emph{downstream} of a memory-coverage and a
+readiness mechanism, so it refines only the residual queries those mechanisms could not
+place, rather than gating every query. And its labels are tied to \caem{}'s own
+verifier-scored disagreements between the two paths, so it learns retrieval utility as
+\emph{this} system experiences it, and feeds directly into the tier-conditional
+self-improvement of \Cref{sec:ruc-motivation}, which the selective-retrieval line does
+not address because those systems do not have a self-improvement loop to protect.
+\end{defence}
+
+\section{The two readings, refined}
+\label{sec:ruc-scenarios}
+
+Both of our running queries pass through the classifier, and it sends them opposite ways.
+
+\begin{scenario}[The FEVER claim: redirected to zero-shot]
+The claim ``The French Revolution began before 1792'' reaches the classifier through the
+score fall-through on the empty cycle-zero memory. The query is short, self-contained, and
+the kind of fact the base model knows, so the self-knowledge probe reads moderately high
+and the surface-form features mark it as a simple declarative claim. The classifier returns
+a low $\prag$, below $0.375$, and the router redirects the default retrieval dispatch to
+zero-shot generation. The model labels the claim from its own knowledge, which is the right
+call and avoids dragging in passages that could only muddy a fact it already holds.
+\end{scenario}
+
+\begin{scenario}[The TriviaQA question: confirmed for retrieval]
+The question ``\,`If I Ruled The World' comes from which musical?'' reaches the classifier
+through the safety override. Here the self-knowledge probe reads low, the model does not
+confidently know the answer, and the retrieval-evidence features show that the corpus holds
+relevant, agreeing passages. The classifier returns a high $\prag$, above $0.375$, and
+confirms the grounded dispatch. Retrieval is genuinely the better path here, and the
+classifier agrees with the safety override rather than countermanding it.
+\end{scenario}
+
+These two cases are the classifier's whole job in miniature: send the question the model
+already knows to its own parameters, and send the question it does not know to the
+evidence. \Cref{ch:tiers} now takes up Stage 4, where the chosen tier finally runs and
+produces an answer to be judged.

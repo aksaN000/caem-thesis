@@ -1,0 +1,408 @@
+\chapter{The Theory: Purity, Monotonicity, Convergence}
+\label{ch:theory}
+
+The architecture chapters established \emph{how} \caem{} works. This chapter asks
+\emph{why it should work at all}, and answers the question \Cref{ch:problem} left open:
+if the verifier is imperfect, why does the memory not slowly fill with the verifier's
+mistakes? The answer is a small set of results about the \emph{stored pool}. We teach
+each one from the ground up, state precisely what it does and does not claim, and pair
+it with what the realised run actually showed.
+
+\begin{intuition}[The one question the theory must answer]
+Every gate in \caem{} is fallible. The verifier is better than chance but not perfect,
+so it will sometimes admit a wrong answer. The natural worry is a feedback spiral: the
+verifier's errors enter memory, the loop trains on them, the model degrades, and the
+errors compound. The theory's job is to show that this does not happen, that under a
+mild condition the stored pool ends up \emph{cleaner} than the verifier itself, and that
+the system contracts toward a stable, high-purity state rather than spiralling. The
+whole chapter is the unpacking of that promise.
+\end{intuition}
+
+\section{What the theorems are about, and what they are not}
+\label{sec:theory-scope}
+
+Before any result, one scope statement, because it governs how every claim should be
+read.
+
+\begin{pitfall}[These are pool-purity guarantees, not model-accuracy guarantees]
+The theorems bound the \emph{purity of the stored memory pool}: the fraction of stored
+episodes whose answer is correct. They do \emph{not} bound the exact-match accuracy of
+the fine-tuned model. The two are different quantities flowing through different
+channels: the pool purity is a property of what the gate admits, while the model's
+accuracy is a property of what gradient descent does with the training pool. A cycle in
+which the model's accuracy on some benchmark dips is therefore \emph{not} a violation of
+these theorems; it is simply outside their scope. Keeping this distinction sharp is what
+lets the theory make clean, provable claims about the memory while the messier question
+of the trained model's accuracy is handled empirically in \Cref{ch:trajectory}. When this
+chapter says ``purity,'' it always means the stored pool, never the model.
+\end{pitfall}
+
+\begin{precise}[Pool purity, defined]
+Let $\mathcal{M}_t$ be the set of episodes in memory at the end of cycle $t$. Its
+\emph{purity} is
+\[
+  \pi_t \;:=\; \Pr\big(\text{answer correct} \,\big|\, \text{episode} \in \mathcal{M}_t\big),
+\]
+the chance that a randomly drawn stored episode is right. Purity one means a spotless
+pool; purity equal to the base model's accuracy means the gate added nothing. The
+theory is the study of how $\pi_t$ behaves across cycles.
+\end{precise}
+
+\section{The data-purity result: why an imperfect verifier is enough}
+\label{sec:theory-purity}
+
+This is the heart of the chapter and the direct answer to \Cref{ch:problem}'s objection.
+It rests on two quantities. The \emph{base accuracy} $p$ is how often the generator is
+right before any filtering. The \emph{balanced accuracy} $\alpha$ is how good the gate is
+at telling right from wrong, averaged over the two cases, with $\alpha = 1/2$ meaning a
+coin flip and $\alpha = 1$ a perfect judge.
+
+\begin{precise}[The purity identity]
+If the gate admits an answer, what is the chance it is actually correct? By Bayes' rule,
+writing the gate's true-positive and true-negative rates both as $\alpha$ for clarity,
+\[
+  \pi \;=\; \frac{p\,\alpha}{p\,\alpha \;+\; (1-p)(1-\alpha)}.
+\]
+Read the denominator as ``ways to be admitted'': a correct answer admitted (rate
+$p\,\alpha$) plus a wrong answer wrongly admitted (rate $(1-p)(1-\alpha)$). The purity is
+the first term's share. The crucial algebraic fact is that whenever $\alpha > 1/2$, this
+$\pi$ is strictly greater than $p$: \textbf{the pool is purer than the unfiltered
+generator}, and for a strong enough generator it is purer than the verifier's own
+accuracy. A gate only modestly better than a coin flip still manufactures a clean pool.
+\end{precise}
+
+\begin{intuition}[Why a so-so judge produces a clean pool]
+The trick is that the gate is applied to a \emph{population}, and base rates do the heavy
+lifting. Suppose the generator is right $60\%$ of the time and the gate is right $70\%$ of
+the time. Among the answers the gate admits, the correct ones were both common to begin
+with and likely to be passed, while the wrong ones were less common and likely to be
+caught. The arithmetic above turns those two advantages into an admitted-pool purity of
+about $78\%$, higher than either the generator's $60\%$ or the gate's $70\%$. This is the
+base-rate argument \Cref{ch:problem} promised, and it is why \caem{} does not need a
+perfect verifier, only one that beats a coin flip on the claims it scores.
+\end{intuition}
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+  width=10.6cm, height=6.6cm,
+  xlabel={base accuracy $p$ (generator correct rate)},
+  ylabel={pool purity $\pi$},
+  xmin=0, xmax=1, ymin=0, ymax=1,
+  xtick={0,0.25,0.5,0.75,1}, ytick={0,0.25,0.5,0.75,1},
+  axis lines=left, font=\small\sffamily, tick label style={font=\scriptsize},
+  legend style={at={(0.97,0.05)}, anchor=south east, draw=cbInk!25, font=\scriptsize, fill=white},
+  grid=both, grid style={cbInk!8}, domain=0:1, samples=120,
+]
+  \addplot[cbInk!45, dashed, line width=1pt] {x};
+  \addlegendentry{$\pi = p$ (no gate)}
+  \addplot[cbIntuition, line width=1.4pt] {0.6*x/(0.6*x + 0.4*(1-x))};
+  \addlegendentry{$\alpha = 0.6$}
+  \addplot[cbScenario, line width=1.4pt] {0.7*x/(0.7*x + 0.3*(1-x))};
+  \addlegendentry{$\alpha = 0.7$}
+  \addplot[cbExample!70!black, line width=1.4pt] {0.8*x/(0.8*x + 0.2*(1-x))};
+  \addlegendentry{$\alpha = 0.8$}
+  \addplot[cbScenario!60!cbInk, line width=1.4pt, densely dotted] {0.67*x/(0.67*x + 0.33*(1-x))};
+  \addlegendentry{$\alpha \approx 0.67$ (deployed)}
+  \addplot[cbExample, only marks, mark=*, mark size=2.6pt] coordinates {(0.54,0.71)};
+  \addlegendentry{deployed point}
+\end{axis}
+\end{tikzpicture}
+\caption[The purity identity]{Pool purity $\pi$ as a function of base accuracy $p$, for
+three gate qualities $\alpha$. Every curve lies \emph{above} the diagonal $\pi = p$
+whenever $\alpha > 1/2$: the gate makes the pool purer than the unfiltered generator. A
+gate that is only modestly better than chance ($\alpha = 0.6$) still lifts a
+$60\%$-accurate generator to a pool purity near $0.69$, and a $\alpha = 0.7$ gate lifts it
+to about $0.78$, above the gate's own accuracy. The dotted curve at $\alpha \approx 0.67$
+and the marked operating point are the deployed cold-start gate: at the realised base rate
+$p \approx 0.54$ the identity predicts a pool purity near $0.71$, which sits just under the
+realised calibration-fold purity band of $0.72$ to $0.75$, so the deployed run lands in the
+band the identity anticipates. (Curve family illustrative; the marked point and the
+$\alpha \approx 0.67$ curve are from the deployed cold-start fold.)}
+\label{fig:purity}
+\end{figure}
+
+\subsection*{The cross-cycle floor}
+
+The identity is the expected purity for one admission. The first theorem turns it into a
+guarantee that holds \emph{every} cycle, accounting for the fact that the pool is the
+union of newly admitted episodes and old episodes that survived re-verification.
+
+\begin{precise}[Pool purity invariant]
+Let $\pi_{\text{store}}$ be the gate's calibration-fold precision at the storage
+threshold, and $\pi_{\text{retro}}$ the precision of episodes that survive the
+retroactive re-verification prune. Then for every cycle,
+\[
+  \pi_{t+1} \;\ge\; \min\!\big(\pi_{\text{store}},\, \pi_{\text{retro}}\big).
+\]
+The reasoning is a one-line convexity argument: next cycle's pool is the disjoint union
+of survivors (each at least $\pi_{\text{retro}}$ pure) and new admissions (each at least
+$\pi_{\text{store}}$ pure), and the purity of a union sits between the two, hence above
+the smaller. The bound is one-sided and can be re-checked from each cycle's own
+calibration fold, which makes it a falsifiable contract rather than an aspiration.
+\end{precise}
+
+\begin{bythenumbers}[The floor, and what the run showed]
+The registered floor is $\pi_{\text{store}} \approx 0.64$ at the storage threshold
+$\taustore = 0.60$, with the retroactive prune at $\tauretro = 0.50$ supplying the second
+floor. Across the realised six cycles the pooled calibration-fold purity stayed in the
+band $0.72$ to $0.75$, clearing the floor by eight to eleven points at every cycle. The
+guarantee held, with margin to spare. A reading below the floor would have falsified
+either the exchangeability assumption or the prune contract; none was observed.
+\end{bythenumbers}
+
+\begin{pitfall}[The floor is a pooled guarantee, and one benchmark dips below it]
+The floor is stated on the \emph{pooled} training-panel axis, not per benchmark, because
+the assumption it rests on (that the calibration fold and the candidate pool are
+interchangeable) holds on the pooled axis but not necessarily on each benchmark's slice.
+On the realised run the FEVER per-benchmark reading dips just below $0.64$ at cycles one
+through four (in the band $0.61$ to $0.63$) and recovers at cycle five. This is reported
+transparently because it is real, but it is not a falsification: it is a per-benchmark
+diagnostic outside the pooled scope the theorem actually claims. Stating the scope
+precisely is what lets the dip be informative rather than alarming.
+\end{pitfall}
+
+\section{Monotonicity: a better generator stores more}
+\label{sec:theory-monotone}
+
+The second theorem connects the loop's effect on the generator to the gate's behaviour.
+As the self-improvement loop sharpens the generator, the calibration-fold separation
+between correct and incorrect answers, measured by Cohen's $d$ (a standard effect size:
+the gap between the two groups' means in units of their spread), widens. The theorem asks
+what that does to the storage rate $\sigma$, the fraction of answers admitted.
+
+\begin{precise}[Sign of the storage-rate response]
+Modelling the storage score as approximately Gaussian within each correctness class, the
+direction in which the storage rate moves as the separation $d$ grows is
+\[
+  \operatorname{sign}\!\Big(\frac{\partial \sigma}{\partial d}\Big)
+  \;=\; \operatorname{sign}\big(p_+\phi_+ - p_-\phi_-\big),
+\]
+where $\phi_\pm$ are the densities of the correct and incorrect classes at the threshold.
+In words: when the operating point sits in the high-precision regime, where the correct
+class has more mass at the threshold than the incorrect class, a better generator (larger
+$d$) admits \emph{more} answers, $\sigma_{t+1} \ge \sigma_t$. Improving the model and
+holding the threshold fixed lets more of its now-better answers clear the bar.
+\end{precise}
+
+\begin{pitfall}[The realised receipt is honest about being partial]
+This is the theorem whose empirical support is weakest, and the thesis says so. Of the
+three observable cycle-to-cycle transitions, one aligns strongly with the prediction, one
+is too small to read, and one moves the opposite way. The reverse-sign transition is not
+treated as a refutation but is attributed to two effects the simple Gaussian model leaves
+out: the composite is re-fitted each cycle (so the storage score is not a fixed function),
+and the within-class spread contracts across cycles (so the shared-variance assumption is
+approximate). A clean test would freeze the composite for a cycle and let only the
+generator move, which is registered as future work. Reporting a load-bearing theorem with
+a partial receipt, and naming exactly why, is the honest posture.
+\end{pitfall}
+
+\section{Convergence: the gap contracts to a stable band}
+\label{sec:theory-convergence}
+
+The third theorem describes the long-run trajectory of purity. Writing $\pi_\infty$ for
+the asymptotic purity and $G_t = |\pi_t - \pi_\infty|$ for the remaining gap, the gate-plus-loop
+update behaves as a contraction.
+
+\begin{precise}[Contraction envelope, and why it is reframed]
+Under a stationarity assumption on the per-cycle storage rate and separation, the gap
+shrinks geometrically in expectation,
+\[
+  \mathbb{E}[G_t] \;\le\; (1-r)^t\, G_0, \qquad r \in (0,1).
+\]
+Each cycle admits fresh high-purity episodes and re-scores old ones under the improved
+generator, and the expected purity moves a fixed fraction $r$ of the way toward its limit.
+But six cycles is far too short to estimate a rate $r$ cleanly, so the claim the thesis
+actually registers is the weaker, testable one: \emph{bounded-band stationarity}, that
+$\pi_t$ stays inside a narrow band rather than diverging. On the realised run the
+calibration-fold purity traced a band of width below $0.03$, consistent with contraction
+and inconsistent with a spiral; the sharper geometric-rate test is deferred to a longer
+horizon.
+\end{precise}
+
+\begin{intuition}[The idealised limit, and why reality sits below it]
+A companion identity shows that, in an idealised world where the verifier's quality stays
+fixed above one half and nothing else interferes, the purity recurrence climbs strictly
+toward one: keep filtering with a better-than-chance gate and the pool tends to perfection.
+\caem{} does not reach that ideal, and the theory says why. Three deliberate regularisers
+pin the realised ceiling strictly below one: the frozen backbone and bounded adapter cap
+how far the model can move, the retention guard turns any regressive cycle into a no-op, and
+the finite capacity of the generator and the retrieval corpus impose a hard floor on error.
+The gap between the realised plateau and the theoretical one is the price of these safety
+mechanisms, not a failure of the mathematics.
+\end{intuition}
+
+\section{The Tier-1 floor: memory hallucination is bounded by pool impurity}
+\label{sec:theory-tier1}
+
+The first corollary cashes the purity guarantee out into a user-facing rate. The
+memory-direct tier serves a stored answer verbatim, so its error rate is exactly the
+pool's impurity. Hence
+\[
+  \limsup_{t\to\infty}\, \mathrm{CHM}_1(t) \;\le\; \max\!\big(1-\pi_{\text{store}},\, 1-\pi_{\text{retro}}\big),
+\]
+where $\mathrm{CHM}_1$ is the memory tier's hallucination metric and $\limsup$ is the
+long-run worst case (it tolerates bounded wobble rather than demanding a smooth descent).
+
+\begin{pitfall}[A capability bound, not a trajectory]
+This corollary must be read as a statement of \emph{capability}, not a measured curve. By
+design the evaluation set is held disjoint from the training stream, so the memory tier
+fires on almost nothing during evaluation, seven times across nine thousand held-out
+queries, every one returning the correct stored answer. The asymptotic hallucination rate
+of a tier that rarely fires is not observable on this horizon. So the corollary says ``the
+memory tier cannot hallucinate faster than the pool is impure,'' a sound bound, and the
+realised receipt is the targeted routing probe rather than a trajectory. The conservative
+ceiling of about $0.36$ from the cold-start fold comfortably overshoots the realised pool
+impurity of roughly $0.25$, which the retroactive prune tightens further.
+\end{pitfall}
+
+\section{Self-correction: bad episodes are pruned in finite time}
+\label{sec:theory-selfcorrect}
+
+The most reassuring corollary addresses the feedback-spiral worry head on. Each stored
+episode is re-scored at every cycle boundary by the same verifier against the improved
+generator. Treat surviving a re-verification pass as a noisy yes/no test of the episode's
+correctness.
+
+\begin{precise}[Why a wrong episode cannot survive forever]
+For a truly correct episode, each pass is more likely to keep it than drop it; for a wrong
+one, more likely to drop it than keep it, provided the verifier's balanced accuracy stays
+above one half. The evidence from repeated passes \emph{multiplies}: the likelihood ratio
+in favour of correctness, given survival of $k$ passes, grows without bound, so the chance
+a survivor is actually correct tends to one. Concretely, a wrong episode's per-cycle prune
+probability is at least $\delta = 2\alpha - 1 > 0$, so its expected survival time is at most
+$1/\delta$ cycles, a finite number. Hallucinations do not accumulate; they are flushed.
+\end{precise}
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+  width=10.4cm, height=5.6cm,
+  xlabel={re-verification passes survived $k$}, ylabel={chance a wrong episode survives},
+  xmin=0, xmax=8, ymin=0, ymax=1, xtick={0,2,4,6,8}, ytick={0,0.25,0.5,0.75,1},
+  axis lines=left, font=\small\sffamily, tick label style={font=\scriptsize},
+  legend style={at={(0.97,0.97)}, anchor=north east, draw=cbInk!25, font=\scriptsize, fill=white},
+  grid=both, grid style={cbInk!8}, domain=0:8, samples=9,
+]
+  \addplot[cbPitfall, line width=1.4pt, mark=*, mark size=1.2pt] {0.8^x};
+  \addlegendentry{$\alpha=0.6$ \,($\delta=0.2$)}
+  \addplot[cbNumbers!75!black, line width=1.4pt, mark=square*, mark size=1.2pt] {0.6^x};
+  \addlegendentry{$\alpha=0.7$ \,($\delta=0.4$)}
+  \addplot[cbExample!70!black, line width=1.4pt, mark=triangle*, mark size=1.4pt] {0.4^x};
+  \addlegendentry{$\alpha=0.8$ \,($\delta=0.6$)}
+\end{axis}
+\end{tikzpicture}
+\caption[Self-correction]{(Illustrative.) A wrong episode's chance of surviving $k$
+re-verification passes decays geometrically, at a rate set by the verifier's margin over
+chance $\delta = 2\alpha-1$. Even a modest gate ($\alpha=0.6$) drives the survival chance
+below ten percent within ten passes; a stronger gate flushes errors in a handful. This is
+why repeated re-verification prevents a feedback spiral rather than causing one. The
+deployed run carries no per-episode $k$-pass survival record; the directional receipt that
+the chapter does report, the per-cycle prune rate declining from about thirteen to four
+percent, is a distinct aggregate quantity rather than a measurement of these curves.}
+\label{fig:selfcorrect}
+\end{figure}
+
+\begin{bythenumbers}[The directional receipt]
+The clean prediction (every wrong episode pruned eventually) is asymptotic and not testable
+in six cycles, so the registered receipt is directional: the per-cycle prune rate should
+decline as the pool's quality rises. It did, monotonically, from thirteen percent at cycle
+one to nine, then seven, then four percent at cycle five, as the verifier found fewer
+low-quality entries to remove. The trend is the supported reading; an exact rate is deferred
+to a longer run.
+\end{bythenumbers}
+
+\section{Stochastic equilibrium: learning under a guard that sometimes says no}
+\label{sec:theory-equilibrium}
+
+The last corollary folds the retention guard of \Cref{ch:cycle} into the convergence picture.
+Because a cycle commits only when the worst retention probe holds above the floor, the commit
+events form a coin-flip sequence with some success rate $\pi_{\text{commit}}$, and the
+contraction runs only on the cycles that commit. Three consequences follow.
+
+\begin{description}[leftmargin=0pt, labelsep=0.5em, style=nextline]
+  \item[The commit rate is a real fraction.] On any trajectory where the guard ever fires,
+  $\pi_{\text{commit}}$ lies strictly between zero and one. The realised sequence of commit
+  decisions was keep, keep, keep, abort, keep, a commit fraction of four in five, with
+  worst-probe ratios $1.006$, $0.949$, $0.976$, $0.886$, $0.958$ against the floor $0.93$.
+  \item[Calendar progress slows, but does not stop.] The contraction envelope on the calendar
+  timeline becomes $(1 - \pi_{\text{commit}}\cdot r)^t$: aborted cycles simply do not advance
+  the model, so convergence is paced by the commit rate.
+  \item[Memory grows regardless.] The fresh-data path runs on every cycle, committed or not,
+  so the memory and the per-tier coverage grow monotonically even across an abort. This is the
+  asymmetric rollback of \Cref{ch:cycle} stated as an invariant: weights advance only on commits,
+  but memory advances always.
+\end{description}
+
+\section{The results, assembled}
+\label{sec:theory-map}
+
+The results lock together, as \Cref{fig:theory-map} shows. The purity identity and its
+cross-cycle floor establish that the pool stays clean; monotonicity describes how the gate
+responds as the generator improves; convergence bounds the trajectory to a stable band;
+the Tier-1 floor turns pool purity into a user-facing rate; self-correction guarantees errors
+are flushed; and stochastic equilibrium accounts for the guard. Together they answer
+\Cref{ch:problem}'s objection in full: an imperfect verifier is enough, errors do not
+compound, and the system contracts toward a stable, high-purity state.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[
+  font=\small\sffamily,
+  th/.style={rectangle, rounded corners=4pt, draw=cbFormula!70!black, fill=cbFormula!8,
+    line width=1pt, align=center, inner sep=4pt, text width=3.0cm, font=\footnotesize, minimum height=0.9cm},
+  cor/.style={rectangle, rounded corners=4pt, draw=cbExample!70!black, fill=cbExample!8,
+    line width=1pt, align=center, inner sep=4pt, text width=3.0cm, font=\footnotesize, minimum height=0.9cm},
+  flow/.style={-{Stealth[length=2.4mm]}, line width=1pt, draw=cbInk!70},
+]
+  \node[th] (bayes) at (0,1.4) {\textbf{purity identity}\\{\footnotesize $\alpha>1/2 \Rightarrow \pi>p$}};
+  \node[th] (floor) at (4.2,1.4) {\textbf{purity floor}\\{\footnotesize $\pi_{t+1}\ge\min(\cdot,\cdot)$}};
+  \node[th] (mono) at (0,-0.4) {\textbf{monotonicity}\\{\footnotesize better gen.\ stores more}};
+  \node[th] (conv) at (4.2,-0.4) {\textbf{convergence}\\{\footnotesize bounded band}};
+  \node[cor] (tier1) at (8.6,1.4) {\textbf{Tier-1 floor}\\{\footnotesize $\mathrm{CHM}_1\le 1-\pi$}};
+  \node[cor] (self) at (8.6,0.0) {\textbf{self-correction}\\{\footnotesize errors pruned in $\le 1/\delta$}};
+  \node[cor] (eq) at (8.6,-1.4) {\textbf{stochastic equilibrium}\\{\footnotesize commit-paced, memory grows}};
+  \draw[flow] (bayes) -- (floor);
+  \draw[flow] (floor) -- (tier1);
+  \draw[flow] (mono) -- (conv);
+  \draw[flow] (conv) -- (eq);
+  \draw[flow] (floor) -- (self);
+  \draw[flow] (conv) -- (tier1);
+\end{tikzpicture}
+\caption[How the results lock together]{The dependency map. The purity identity (an
+imperfect gate yields a clean pool) underpins the cross-cycle floor; the floor and the
+convergence bound feed the Tier-1 hallucination ceiling and the finite-time self-correction;
+monotonicity and convergence, qualified by the retention guard, give the stochastic
+equilibrium. Purple nodes are the three load-bearing theorems; green are the corollaries. (Schematic.)}
+\label{fig:theory-map}
+\end{figure}
+
+\begin{defence}[If an examiner asks: ``do these theorems prove CAEM reduces hallucination?'']
+They prove a precise, bounded thing and not a sweeping one. They establish that the stored
+\emph{memory pool} stays clean under a verifier only modestly better than chance, that it
+cannot spiral, and that the memory tier's error is bounded by the pool's impurity. They do
+\emph{not} prove that the fine-tuned model's accuracy rises on every benchmark; that is a
+property of the training gradient, outside the pool-level scope, and is settled empirically
+in \Cref{ch:trajectory}. The honest framing is that the theory secures the data foundation,
+a clean, self-correcting memory, and the empirical chapters measure what the model built on
+that foundation actually achieves. Several results carry partial or asymptotic receipts at
+the six-cycle horizon, and each is reported with its scope rather than overclaimed.
+\end{defence}
+
+\begin{bythenumbers}[The theory in constants]
+\begin{itemize}[leftmargin=1.3em, itemsep=1pt]
+  \item Precondition: verifier balanced accuracy $\alpha > 1/2$ on the claims it scores.
+  \item Purity floor: $\min(\pi_{\text{store}}, \pi_{\text{retro}})$, registered at $\approx 0.64$; realised band $0.72$ to $0.75$.
+  \item Tier-1 hallucination ceiling: $\max(1-\pi_{\text{store}}, 1-\pi_{\text{retro}})$; realised pool impurity $\approx 0.25$.
+  \item Self-correction: wrong episode expected survival $\le 1/\delta$ cycles, $\delta = 2\alpha - 1$; prune rate fell $13\% \to 4\%$.
+  \item Commit fraction: $\pi_{\text{commit}} = 4/5$ realised; convergence paced by $(1-\pi_{\text{commit}} r)^t$.
+  \item Scope: all results bound the \emph{stored pool}, not the model's exact-match accuracy.
+\end{itemize}
+\end{bythenumbers}
+
+The theory secures the foundation. \Cref{ch:benchmarks} turns to measurement: the five
+benchmarks, the eight external baselines, and the metrics, the exact-match and
+composite-hallucination axes, that the next chapters use to report what the realised system
+achieved.

@@ -1,0 +1,744 @@
+\chapter{Stage 6: The Calibrated Composite and Four-Outcome Gate}
+\label{ch:composite}
+
+The verifier of \Cref{ch:verifier} produced nine numbers. Stage 6 turns those nine
+numbers into one, the stored trust score $\ustored$, and then turns that one number
+into an action. This is the chapter where the whole architecture's promise comes
+due: the number it produces must be an \emph{honest probability}, so that a single
+fixed threshold can mean the same thing on a fact-check, a trivia question, and a
+multiple-choice item. We build the number from the ground up, teaching every piece,
+and then we open the gate that reads it.
+
+\begin{intuition}[Two jobs, in order]
+Stage 6 has two jobs. The first is \emph{fusion}: take nine signals that live on
+different scales and point in different directions and combine them into one
+calibrated probability that the answer is correct. The second is \emph{decision}:
+compare that probability against fixed cut-points and commit to one of four actions,
+store, defer, abstain, or discard. The fusion is where the cleverness lives; the
+decision is deliberately simple, because all the hard calibration work has already
+been done by the time the gate reads the number.
+\end{intuition}
+
+\section{Why fusion is hard: scales and sign-flips}
+\label{sec:composite-problem}
+
+The naive way to combine nine signals is a weighted average. It fails here for a
+concrete reason that is worth seeing before we fix it.
+
+\begin{intuition}[The same signal can mean opposite things on different benchmarks]
+Consider the question-answer relevance signal $\qarel$, which measures how well the
+answer addresses the question. On an open-ended trivia question, a high relevance is
+good news: an answer that squarely addresses the question is more likely correct. On
+a fact-checking claim, where the ``answer'' is a verdict like \emph{supports} or
+\emph{refutes}, a very high surface relevance can actually be \emph{bad} news,
+because the model is echoing the claim's framing rather than judging it. Measured on
+the calibration data, this signal correlates \emph{negatively} with correctness on
+the fact-checking benchmark and \emph{positively} on the trivia benchmark. A single
+fixed weight, positive or negative, must be wrong on one of them. No weighted
+average can serve both.
+\end{intuition}
+
+\begin{bythenumbers}[The sign-flip, measured]
+On the cold-start calibration fold, the relevance signal $\qarel$ correlates with
+correctness at a Pearson coefficient of about $-0.275$ on FEVER, a moderate
+\emph{negative} relation, and about $+0.068$ on TriviaQA, a \emph{positive} one. The
+sign itself differs between benchmarks, so the isotonic fit of
+\Cref{sec:composite-isotonic} learns a \emph{decreasing} curve on FEVER and an
+\emph{increasing} one on TriviaQA. A single fixed weight, positive or negative, must
+be wrong on one of them. The flip is not even stable over time: by the third cycle,
+after the generator had been fine-tuned, the measured FEVER relation had drifted to
+weakly positive, which is one reason the calibration is re-fitted every cycle
+(\Cref{sec:composite-training}). This single measurement rules out any shared
+fixed-weight combination and motivates the per-signal, per-benchmark calibration that
+follows.
+\end{bythenumbers}
+
+The composite solves this in three steps, drawn in \Cref{fig:composite-pipeline}.
+First, each signal is passed through its own \emph{calibration curve} that converts
+its raw value into a probability of correctness, learning the right direction
+automatically. Second, those curves are fitted separately per benchmark and gently
+blended toward a shared curve to avoid overfitting. Third, the per-signal
+probabilities are combined into one score through a learned weighting. We take each
+step in turn.
+
+\begin{figure}[t]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[
+  font=\small\sffamily,
+  sig/.style={rectangle, rounded corners=3pt, draw=cbScenario!70!black, fill=cbScenario!10,
+    line width=0.9pt, align=center, inner sep=4pt, text width=2.0cm, font=\footnotesize,
+    minimum height=0.8cm},
+  stp/.style={rectangle, rounded corners=4pt, line width=1pt, align=center,
+    inner sep=5pt, text width=2.7cm, minimum height=1.3cm,
+    drop shadow={shadow xshift=0.3ex, shadow yshift=-0.3ex, fill=black!10}},
+  num/.style={rectangle, rounded corners=4pt, draw=cbNumbers!75!black, fill=cbNumbers!12,
+    line width=1.1pt, align=center, inner sep=5pt, text width=1.8cm, minimum height=1.0cm,
+    drop shadow={shadow xshift=0.3ex, shadow yshift=-0.3ex, fill=black!10}},
+  flow/.style={-{Stealth[length=2.4mm]}, line width=1pt, draw=cbInk!75},
+]
+  \node[sig] (s) at (0,0) {\textbf{nine signals}\\{\footnotesize raw values}};
+  \node[stp, draw=cbIntuition!75!black, fill=cbIntuition!10] (iso) at (3.4,0)
+    {\textbf{1. per-signal}\\\textbf{isotonic}\\{\footnotesize raw $\to P_i$}};
+  \node[stp, draw=cbFormula!70!black, fill=cbFormula!10] (shr) at (7.0,0)
+    {\textbf{2. per-benchmark}\\\textbf{+ shrinkage}\\{\footnotesize $\alpha=0.6$ toward pooled}};
+  \node[stp, draw=cbExample!70!black, fill=cbExample!10] (boost) at (10.6,0)
+    {\textbf{3. log-odds sum}\\\textbf{+ boost}\\{\footnotesize $\sigma(\sum w_i \ell_i + b)$}};
+  \node[num] (u) at (13.9,0) {$\ustored$\\{\footnotesize $\in[0,1]$}};
+  \draw[flow] (s) -- (iso);
+  \draw[flow] (iso) -- (shr);
+  \draw[flow] (shr) -- (boost);
+  \draw[flow] (boost) -- (u);
+\end{tikzpicture}}
+\caption[The composite pipeline]{The three-step composite. Each raw signal is first
+mapped to a calibrated probability $P_i$ by its own monotone curve; the curves are
+fitted per benchmark and shrunk toward a pooled curve; and the per-signal
+probabilities are combined in log-odds space through a learned weighting and a
+sigmoid into the single trust score $\ustored$. (Schematic.)}
+\label{fig:composite-pipeline}
+\end{figure}
+
+\section{Step one: turning one raw signal into a calibrated probability}
+\label{sec:composite-isotonic}
+
+The first step solves a small version of the whole problem: take one signal, say the
+top-passage entailment, and convert its raw value into a probability that the answer
+is correct. The tool is \emph{isotonic regression}, and because the rest of the
+chapter rests on it, we teach it from scratch.
+
+\begin{intuition}[What ``calibrated'' means here]
+A raw signal is just a number on some scale; its value of $0.8$ has no inherent
+meaning. We want to replace it with a probability: ``answers for which this signal
+reads $0.8$ turn out correct seventy percent of the time, so map $0.8 \mapsto 0.70$.''
+A function that does this faithfully, so that the output really is the empirical
+fraction correct, is a \emph{calibration curve}. Once every signal has been put
+through its own calibration curve, all nine speak the same language: probability of
+correctness.
+\end{intuition}
+
+\subsection*{Isotonic regression and the monotone step function}
+
+To learn the curve we use a labelled \emph{calibration fold}: a held-out set of
+answers for which we know the raw signal value and the ground-truth correctness (one
+if the answer was right, zero if wrong). Plotting correctness against the signal
+gives a cloud of zeros and ones. We want a curve through that cloud, and we impose
+one assumption: the curve must be \emph{monotone}, that is, always non-decreasing (or
+always non-increasing). The assumption is principled, since a well-designed signal
+should not reverse direction in the middle of its range, and it is exactly what makes
+the fit data-efficient.
+
+\begin{precise}[Isotonic regression, the pool-adjacent-violators idea]
+Isotonic regression finds the monotone function that best fits the labelled points
+in the least-squares sense. The classic algorithm is intuitive: sort the points by
+signal value, walk left to right, and wherever the running fitted values would
+violate monotonicity (a later average dips below an earlier one), \emph{pool} those
+adjacent points and replace them with their shared average. Repeated, this produces a
+\emph{step function}: a piecewise-constant curve that jumps up at a set of breakpoints
+called \emph{knots} and is flat between them. \caem{} stores each signal's curve as
+its list of knot positions and knot heights, and at run time reads off a value by
+linear interpolation between the two surrounding knots. The output is clipped to the
+range $[0.02,\,0.98]$ so that no single signal can claim certainty, and a signal needs
+at least fifty calibration points to earn a curve at all; below that it is dropped and
+contributes nothing.
+\end{precise}
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+  width=10.5cm, height=6.2cm,
+  xlabel={raw $\pgmax$ (top-passage grounding)},
+  ylabel={$P(\text{correct})$},
+  xmin=0, xmax=1, ymin=-0.08, ymax=1.08,
+  xtick={0,0.25,0.5,0.75,1}, ytick={0,0.25,0.5,0.75,1},
+  axis lines=left, font=\small\sffamily, tick label style={font=\scriptsize},
+  legend style={at={(0.03,0.97)}, anchor=north west, draw=cbInk!25, font=\scriptsize, fill=white},
+  grid=both, grid style={cbInk!8},
+]
+  % schematic 0/1 cloud (the underlying fold points are not stored; shown for intuition)
+  \addplot[only marks, mark=*, mark size=1.0pt, cbPitfall!45] coordinates {
+    (0.02,0.02)(0.05,0.0)(0.09,0.03)(0.15,0.0)(0.22,0.02)(0.31,0.0)(0.40,0.03)(0.55,0.0)(0.66,0.02)(0.04,0.0)(0.12,0.02)(0.27,0.0)};
+  \addlegendentry{incorrect ($\mathrm{em}=0$), schematic}
+  \addplot[only marks, mark=*, mark size=1.0pt, cbExample!50] coordinates {
+    (0.39,1.0)(0.50,0.98)(0.66,1.0)(0.78,0.98)(0.87,1.0)(0.93,0.98)(0.96,1.0)(0.97,0.98)(0.99,1.0)(0.70,1.0)(0.85,0.98)(0.60,1.0)};
+  \addlegendentry{correct ($\mathrm{em}=1$), schematic}
+  % REAL deployed isotonic step function for p_ground_max (global, cycle 3)
+  \addplot[const plot, cbIntuition, line width=1.6pt] coordinates {
+    (0,0.385)(0.006,0.486)(0.049,0.500)(0.069,0.510)(0.153,0.539)(0.254,0.575)(0.369,0.583)(0.389,0.638)(0.664,0.670)(0.867,0.721)(0.961,0.778)(0.969,0.923)(0.988,0.929)};
+  \addlegendentry{deployed $\pgmax$ calibration}
+  % read-off example
+  \draw[dashed, cbNumbers!80!black] (axis cs:0.50,0) -- (axis cs:0.50,0.638) -- (axis cs:0,0.638);
+  \node[font=\scriptsize, cbNumbers!70!black, anchor=west] at (axis cs:0.04,0.70) {$0.50 \mapsto 0.64$};
+\end{axis}
+\end{tikzpicture}
+\caption[An isotonic calibration curve]{The blue step function is the \emph{actual
+deployed} calibration curve for the top-passage grounding signal $\pgmax$, read
+directly from the cycle-three calibration file. Isotonic regression fitted this
+monotone curve from the labelled calibration fold and \caem{} reads it by linear
+interpolation: a raw grounding of $0.50$ maps to a calibrated
+$P(\text{correct}) \approx 0.64$, and a raw value near $1.0$ maps to about $0.93$.
+The curve never reaches the corners because the output is clamped into $[0.02, 0.98]$,
+so no single signal asserts certainty. The scattered points are schematic, drawn only
+to show the labelled cloud the curve is fitted through; the per-sample fold values are
+not stored in the calibration file.}
+\label{fig:isotonic}
+\end{figure}
+
+\subsection*{Learning the direction automatically}
+
+The sign-flip of \Cref{sec:composite-problem} is handled here, for free. Before
+fitting, the procedure measures the correlation between the raw signal and
+correctness; if it is positive it fits a non-decreasing curve, and if it is negative
+it fits a non-increasing one. No hand-coded table of per-signal directions is needed.
+\Cref{fig:signflip} shows the same relevance signal calibrated in opposite directions
+on the two benchmarks.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+  name=l, width=6.9cm, height=5.2cm,
+  title={\footnotesize FEVER: relevance reads \emph{down} ($r=-0.275$)},
+  xlabel={$\qarel$ (raw)}, ylabel={$P(\text{correct})$},
+  xmin=0.5,xmax=0.75,ymin=0,ymax=1, xtick={0.5,0.6,0.7}, ytick={0,0.5,1},
+  axis lines=left, font=\small\sffamily, tick label style={font=\scriptsize}, grid=both, grid style={cbInk!8},
+]
+  % REAL cold-start FEVER q_a_relevance knots (decreasing)
+  \addplot[cbPitfall, line width=1.5pt, const plot] coordinates {
+    (0.567,0.793)(0.582,0.627)(0.665,0.634)(0.666,0.604)(0.678,0.591)(0.682,0.578)(0.687,0.558)(0.689,0.435)(0.705,0.412)(0.726,0.514)};
+\end{axis}
+\begin{axis}[
+  name=r, xshift=7.7cm, width=6.9cm, height=5.2cm,
+  title={\footnotesize TriviaQA: relevance reads \emph{up} ($r=+0.068$)},
+  xlabel={$\qarel$ (raw)},
+  xmin=0.5,xmax=0.75,ymin=0,ymax=1, xtick={0.5,0.6,0.7}, ytick={0,0.5,1},
+  axis lines=left, font=\small\sffamily, tick label style={font=\scriptsize}, grid=both, grid style={cbInk!8},
+]
+  % REAL cold-start TriviaQA q_a_relevance knots (increasing)
+  \addplot[cbExample!70!black, line width=1.5pt, const plot] coordinates {
+    (0.500,0.020)(0.5005,0.085)(0.5052,0.214)(0.7082,0.335)(0.7098,0.585)(0.7311,0.720)};
+\end{axis}
+\end{tikzpicture}
+\caption[The same signal, calibrated both ways]{The two curves are the \emph{actual
+deployed} relevance calibrations from the cold-start calibration file, fitted
+independently per benchmark. On FEVER (left) higher relevance correlates with
+\emph{lower} correctness (Pearson $r=-0.275$), so isotonic learns a decreasing curve;
+on TriviaQA (right) it correlates with \emph{higher} correctness ($r=+0.068$), so the
+curve increases. The relevance score itself lives in a narrow band near $0.5$ to
+$0.73$, which is why the axes are zoomed. The auto-detected direction is what lets one
+signal serve both benchmarks honestly; the jaggedness of the FEVER curve, fitted on
+only a few hundred points, is exactly what the shrinkage of the next section tames.}
+\label{fig:signflip}
+\end{figure}
+
+\begin{pitfall}[Why isotonic, and not the simpler temperature or histogram]
+Three reasons, each grounded in the report's design rationale. A single-parameter
+fit like the temperature scaling of \Cref{ch:upre} can only soften or sharpen; it
+cannot bend, and several signals (notably entailment, which saturates near the top of
+its range) need a genuine bend. A histogram, which just bins the signal and reports
+each bin's hit rate, wastes the small calibration fold by giving every bin its own
+independent count; isotonic shares information across neighbouring values through its
+monotone structure and so needs far less data. And isotonic reads its direction off
+the data, which is precisely what the sign-flip demands. Temperature scaling is right
+for the one-dimensional pre-routing confidence; isotonic is right for these nine.
+\end{pitfall}
+
+\section{Step two: per-benchmark curves, shrunk toward a shared one}
+\label{sec:composite-shrinkage}
+
+Fitting one curve per signal across all data would average away the sign-flip. So the
+composite fits a curve per signal \emph{per benchmark}. But a per-benchmark fold is
+small, only a few hundred answers, and a flexible curve fitted on little data
+\emph{overfits}: it chases noise and generalises worse than a coarser fit. The
+composite controls this with \emph{shrinkage}.
+
+\begin{precise}[James-Stein shrinkage toward the pooled curve]
+Two curves are fitted for each signal: a \emph{pooled} curve on all benchmarks
+together, and a \emph{per-benchmark} curve on each benchmark's slice alone. The
+deployed curve is a convex blend of the two, taken at every knot,
+\[
+  \text{curve}^{b}(x) \;=\; \alpha \cdot \text{curve}^{b}_{\text{local}}(x)
+  \;+\; (1-\alpha)\cdot \text{curve}^{\text{pooled}}(x),
+  \qquad \alpha = 0.6.
+\]
+At $\alpha=1$ the deployed curve is purely local (maximally adapted, maximally
+overfit); at $\alpha=0$ it is the pooled curve (no per-benchmark adaptation). The
+locked value $\alpha=0.6$ keeps a moderate per-benchmark adaptation while pulling each
+local curve most of the way back toward the shared one. This is the James-Stein idea:
+an estimate from little data is improved by shrinking it toward a pooled prior. The
+pooled curve also serves as the fallback for any query whose benchmark is unknown at
+deployment.
+\end{precise}
+
+\begin{bythenumbers}[Why $\alpha = 0.6$ was chosen]
+The locked value comes from a cycle-zero diagnostic. Fitting pure per-benchmark
+curves ($\alpha = 1$) made the weak-signal benchmarks \emph{worse}: their ability to
+separate correct from incorrect answers, measured by the area under the
+receiver-operating curve of the stored trust score, fell by roughly five to six
+points below the pooled fit (from about 0.645 to 0.592 on the misconception probe and
+from about 0.573 to 0.512 on the multi-step-reasoning probe), because roughly five
+hundred answers per benchmark is too little for the flexible local curve. Blending at $\alpha = 0.6$ moved those readings back to parity with the pooled
+fit while preserving a real gain on the strong-signal benchmarks. Shrinkage buys
+robustness on the benchmarks that need it without surrendering adaptation on the ones
+that can afford it.
+\end{bythenumbers}
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+  width=10.5cm, height=5.8cm,
+  xlabel={raw $\pgmax$ (grounding) on the commonsense fold}, ylabel={$P(\text{correct})$},
+  xmin=0,xmax=1, ymin=0.3,ymax=1, xtick={0,0.25,0.5,0.75,1}, ytick={0.5,0.75,1},
+  axis lines=left, font=\small\sffamily, tick label style={font=\scriptsize},
+  legend style={at={(0.03,0.97)}, anchor=north west, draw=cbInk!25, font=\scriptsize, fill=white},
+  grid=both, grid style={cbInk!8},
+]
+  % REAL reconstructed pure-local commonsense curve (alpha=1): local=(deployed-0.4*pooled)/0.6
+  \addplot[cbPitfall!60, line width=1.3pt, const plot, dashed] coordinates {
+    (0.006,0.528)(0.016,0.664)(0.062,0.699)(0.219,0.733)(0.945,0.733)(0.949,0.800)(0.969,0.980)(0.984,0.980)};
+  \addlegendentry{per-benchmark, $\alpha{=}1$ (overfit)}
+  % REAL pooled (global) p_ground_max curve
+  \addplot[cbInk!55, line width=1.3pt, const plot] coordinates {
+    (0,0.385)(0.05,0.500)(0.15,0.539)(0.37,0.583)(0.39,0.638)(0.66,0.670)(0.87,0.721)(0.97,0.923)(0.99,0.929)};
+  \addlegendentry{pooled (smooth prior)}
+  % REAL deployed commonsense blend (alpha=0.6)
+  \addplot[cbExample!65!black, line width=1.8pt, const plot] coordinates {
+    (0.006,0.511)(0.016,0.595)(0.062,0.619)(0.219,0.655)(0.945,0.728)(0.949,0.769)(0.969,0.957)(0.984,0.959)};
+  \addlegendentry{blended, $\alpha{=}0.6$ (deployed)}
+\end{axis}
+\end{tikzpicture}
+\caption[Shrinkage toward the pooled curve]{All three curves are real, for the
+grounding signal $\pgmax$ on the commonsense benchmark. The pure per-benchmark fit
+(red, dashed, reconstructed from the deployed blend) climbs steeply: on that small
+fold grounding looks far more informative than it robustly is, since its true
+correlation there is only about $+0.095$. The pooled curve (grey), fitted across all
+benchmarks, rises gently and is well supported. The deployed curve (green) is their
+$\alpha=0.6$ blend, sitting between the two and damping the local curve's
+over-eagerness back toward the pooled prior.}
+\label{fig:shrinkage}
+\end{figure}
+
+\section{Step three: combining nine probabilities into one}
+\label{sec:composite-boost}
+
+After steps one and two, each of the nine signals has produced a calibrated
+probability $P_i$ that the answer is correct. We must fuse the nine into one. Doing
+this well needs one more idea, the \emph{log-odds}, which we teach now.
+
+\begin{intuition}[Log-odds: the natural currency for combining evidence]
+A probability $P$ lives in $[0,1]$, which is awkward for adding evidence: two pieces
+of strong evidence cannot push past $1$. The \emph{odds} $P/(1-P)$ live in
+$[0,\infty)$, and the \emph{log-odds} $\ell = \log\!\big(P/(1-P)\big)$ live on the
+whole real line, with $\ell = 0$ meaning ``even chance'' ($P = 0.5$), positive
+meaning ``likely correct,'' and negative ``likely wrong.'' Log-odds are the right
+currency because independent pieces of evidence \emph{add} in log-odds space, so
+accumulating evidence becomes plain addition rather than an awkward combination of
+bounded fractions. So the composite converts
+each $P_i$ to its log-odds $\ell_i$, adds them up, and converts the total back to a
+probability with the sigmoid $\sigma(z) = 1/(1+e^{-z})$, the inverse of the log-odds
+map.
+\end{intuition}
+
+\begin{precise}[The log-odds sum, with a learned boost]
+The composite score is
+\[
+  \ustored \;=\; \sigma\!\Big(\, b \;+\; \sum_{i=1}^{9} w_i\,\ell_i \,\Big),
+  \qquad
+  \ell_i = \log\!\frac{P_i}{1-P_i},
+\]
+where $P_i$ is the calibrated probability from signal $i$. With every weight $w_i = 1$
+and intercept $b = 0$ this is the plain log-odds sum, which treats the nine signals as
+independent evidence. \caem{} goes one step further and \emph{learns} the weights
+$w_i$ and intercept $b$, which is the \emph{boost layer}.
+\end{precise}
+
+\subsection*{The boost layer is a logistic regression}
+
+The boost layer is a logistic regression, and since the term has not yet been taught,
+here it is in full.
+
+\begin{intuition}[What a logistic regression is, and how it is trained]
+A logistic regression predicts a probability from a set of input features. It forms a
+weighted sum of the features plus a constant, $z = b + \sum_i w_i x_i$, and squashes
+that sum through the sigmoid to get a probability $\sigma(z)$. \emph{Training} it
+means choosing the weights $w_i$ and the constant $b$ that make those predicted
+probabilities match the known labels as closely as possible, measured by the
+\emph{log-loss} (the negative log-likelihood, which rewards confident-correct
+predictions and punishes confident-wrong ones). The fit is found by standard convex
+optimisation; there is one global best answer. Here the features $x_i$ are the nine
+per-signal log-odds $\ell_i$, and the labels are the calibration fold's correctness
+flags, so the boost learns \emph{how much to trust each signal} relative to the
+others.
+\end{intuition}
+
+\begin{precise}[Regularisation, and why it is set very strong]
+Left unconstrained, a logistic regression on correlated features can learn large,
+unstable weights that overfit the calibration fold. \emph{Regularisation} penalises
+large weights; its strength is set by a constant $C$, where a \emph{smaller} $C$ means
+a \emph{stronger} penalty and weights kept closer to zero. \caem{} fits the boost with
+$C = 0.01$, a deliberately strong penalty. The reason is that the per-signal isotonic
+curves have already done the heavy calibration; the boost is only a gentle correction
+for residual correlations among signals (for instance, the two internal-confidence
+signals partly measure the same thing). Strong regularisation keeps the boost close to
+the plain log-odds sum, correcting only what the data clearly support and refusing to
+chase noise on a small fold.
+\end{precise}
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+  width=12.0cm, height=7.0cm,
+  xbar, y axis line style={opacity=0}, axis x line=bottom, x axis line style={cbInk!40},
+  xlabel={contribution to the log-odds sum (toward correct $\rightarrow$)},
+  xmin=-0.32, xmax=0.40, enlarge y limits=0.07, bar width=8pt,
+  ytick=data, font=\small\sffamily, tick label style={font=\scriptsize},
+  symbolic y coords={base rate, internal, ground-atomic, ground-mean, token, ground-max, dropout, s-avg, q-relevance, entailment},
+  nodes near coords, nodes near coords style={font=\tiny, /pgf/number format/fixed, /pgf/number format/precision=3},
+  xmajorgrids, grid style={cbInk!8},
+]
+  \addplot[draw=cbExample!70!black, fill=cbExample!22] coordinates {
+    (0.310,entailment) (0.024,q-relevance) (0.010,s-avg) (0.004,dropout) (0.003,ground-max)
+    (-0.001,token) (-0.014,ground-mean) (-0.014,ground-atomic) (-0.054,internal) (-0.237,base rate)
+  };
+  \draw[cbInk!50, dashed] (axis cs:0,base rate) -- (axis cs:0,entailment);
+\end{axis}
+\end{tikzpicture}
+\caption[Signals voting in log-odds space]{The \emph{actual} per-signal log-odds
+decomposition for a real FEVER claim, ``Drake Bell is a model,'' computed from the
+deployed cycle-three calibration. The top-passage entailment is the one strong vote
+that the answer is correct ($+0.310$), but it is almost entirely cancelled by the
+FEVER base-rate prior carried in the boost intercept ($-0.237$) and the low
+internal-confidence signal ($-0.054$); grounding lands near neutral because the
+retrieved passage barely supports the claim. The ten contributions sum to a
+hair-positive $+0.032$, and the sigmoid maps that to $\ustored = 0.508$, which the
+gate reads as a deferral rather than a store.}
+\label{fig:logodds}
+\end{figure}
+
+\section{How the composite is fitted: the training phase}
+\label{sec:composite-training}
+
+Everything so far has described how the composite \emph{runs}. But nothing in it is
+hand-set: every knot height of every isotonic curve, and every weight of the boost
+layer, is \emph{learned from data}. That learning happens in a phase kept strictly
+separate from the phase in which the composite is used, and the separation is the
+key to understanding when and how the composite is trained.
+
+\begin{intuition}[Two phases: fit-time and predict-time]
+The composite has a \emph{fit-time} and a \emph{predict-time}, and they never
+overlap. At fit-time the curves and weights are \emph{estimated} from a batch of
+labelled examples, the way any supervised model is trained. At predict-time, when a
+real query arrives, those curves and weights are \emph{frozen}: a signal value is
+simply looked up on its stored curve and the stored weights are simply applied. No
+fitting happens while answering a query. The composite is trained in batches and
+applied one query at a time, exactly mirroring the two clocks of the whole system in
+\Cref{ch:bigpicture}.
+\end{intuition}
+
+\subsection*{The training data: a labelled calibration fold}
+
+The composite is fitted on a \emph{calibration fold}: a held-out set of roughly
+fifteen hundred answers, each one carrying two things, the nine raw signal values the
+verifier computed for it, and a \emph{correctness label}, written $\mathrm{em}$, that
+is one if the answer was actually right and zero if it was wrong (on TruthfulQA the
+correctness is decided by the language-model judge of \Cref{ch:benchmarks} rather than
+by string match). In machine-learning terms the nine signals are the \emph{inputs} and
+$\mathrm{em}$ is the \emph{target}: the composite learns the mapping from signals to
+the probability that $\mathrm{em} = 1$. The fold is held out in the strict sense that
+the generator never trains on it; it exists only to teach the calibration what each
+signal's values are worth.
+
+\subsection*{Fitting the curves, then the weights}
+
+Fitting proceeds in the same three steps the composite later runs, but now estimating
+rather than applying.
+
+\begin{enumerate}[leftmargin=1.6em, itemsep=2pt]
+  \item \textbf{Each isotonic curve is fitted} by taking that signal's
+  (value,\,$\mathrm{em}$) pairs across the fold and running the
+  pool-adjacent-violators procedure of \Cref{sec:composite-isotonic} to get the
+  monotone step function and its knots. The direction is read from the sign of the
+  signal-to-correctness correlation, and a signal with fewer than fifty usable pairs
+  is dropped. This is done per benchmark and per pooled union, then blended by the
+  shrinkage of \Cref{sec:composite-shrinkage}.
+  \item \textbf{The boost weights are fitted} by building a table whose rows are the
+  fold's answers and whose columns are that answer's nine per-signal calibrated
+  log-odds (computed by passing each signal through the curve just fitted). A logistic
+  regression is then trained on this table against the $\mathrm{em}$ labels, choosing
+  the weights and intercept that minimise the log-loss under the strong regularisation
+  $C = 0.01$. At least fifty complete rows are required, or the boost is skipped and
+  the plain log-odds sum is used.
+  \item \textbf{The result is serialised}: the curves (as knot lists) and the boost
+  weights are written to a calibration file, which is all that predict-time needs.
+\end{enumerate}
+
+\begin{lstlisting}[caption={Fitting the composite, condensed from \texttt{caem/verification/cal\_prob\_composite.py}.}, label={lst:fit}]
+for sig in signals:                                  # one isotonic curve per signal
+    vals, labels = collect(fold, sig)                 # (signal value, em) pairs from the fold
+    if len(vals) < 50: continue                       # too little data -> drop the signal
+    direction = "increasing" if corr(vals, labels) >= 0 else "decreasing"  # auto-direction
+    curve[sig] = isotonic_fit(vals, labels, direction)   # pool-adjacent-violators -> knots
+
+X = [[log_odds(curve[s].predict(row[s])) for s in signals] for row in fold]  # per-signal log-odds
+y = [row["em"] for row in fold]                       # correctness labels
+boost = LogisticRegression(C=0.01).fit(X, y)          # minimise log-loss -> weights + intercept
+save(curve, boost.coef_, boost.intercept_)            # serialise to composite_calibration.json
+\end{lstlisting}
+
+\subsection*{When it is fitted: once at cold-start, then every cycle}
+
+The composite is fitted for the first time at \emph{cold-start} (cycle zero), on the
+cycle-zero calibration fold, and the file it produces is the one the system ships with.
+It is then \emph{re-fitted at every cycle boundary that commits}, on the same fold
+\emph{re-scored under the updated model}. \Cref{fig:composite-train} draws the two
+lanes.
+
+\begin{figure}[t]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[
+  font=\small\sffamily,
+  lane/.style={rectangle, rounded corners=6pt, line width=1pt, inner sep=4pt},
+  tb/.style={rectangle, rounded corners=3pt, draw=cbFormula!70!black, fill=cbFormula!10,
+    line width=0.9pt, align=center, inner sep=4pt, text width=2.6cm, font=\footnotesize, minimum height=0.9cm},
+  ab/.style={rectangle, rounded corners=3pt, draw=cbExample!70!black, fill=cbExample!10,
+    line width=0.9pt, align=center, inner sep=4pt, text width=2.6cm, font=\footnotesize, minimum height=0.9cm},
+  store/.style={rectangle, rounded corners=3pt, draw=cbNumbers!75!black, fill=cbNumbers!12,
+    line width=1pt, align=center, inner sep=4pt, text width=2.2cm, font=\footnotesize, minimum height=0.9cm},
+  flow/.style={-{Stealth[length=2.4mm]}, line width=1pt, draw=cbInk!75},
+]
+  % TRAIN lane
+  \node[font=\footnotesize\bfseries, text=cbFormula!75!black, anchor=west] at (-0.4,2.6)
+    {FIT-TIME \;(cold-start, then each committed cycle)};
+  \node[tb] (fold) at (0.6,1.7) {labelled fold\\{\footnotesize 9 signals + em, $n{\approx}1500$}};
+  \node[tb] (fiso) at (4.0,1.7) {fit isotonic\\{\footnotesize per signal}};
+  \node[tb] (fboost) at (7.2,1.7) {fit boost\\{\footnotesize logistic reg., $C{=}0.01$}};
+  \node[store] (json) at (10.4,1.7) {calibration\\file\\{\footnotesize knots + weights}};
+  \draw[flow] (fold) -- (fiso);
+  \draw[flow] (fiso) -- (fboost);
+  \draw[flow] (fboost) -- (json);
+  % APPLY lane
+  \node[font=\footnotesize\bfseries, text=cbExample!55!black, anchor=west] at (-0.4,-0.4)
+    {PREDICT-TIME \;(every query, frozen)};
+  \node[ab] (sig) at (0.6,-1.3) {query's\\9 signals};
+  \node[ab] (apply) at (4.0,-1.3) {interpolate curves\\+ weighted log-odds};
+  \node[ab] (sigm) at (7.2,-1.3) {sigmoid};
+  \node[store, draw=cbNumbers!75!black, fill=cbNumbers!14] (u) at (10.4,-1.3) {$\ustored$};
+  \draw[flow] (sig) -- (apply);
+  \draw[flow] (apply) -- (sigm);
+  \draw[flow] (sigm) -- (u);
+  % JSON feeds apply
+  \draw[flow, draw=cbInk!55, dashed] (json.south) -- ++(0,-0.5) -| (apply.north)
+    node[pos=0.25, right, font=\scriptsize, text=cbInk!60] {load frozen curves + weights};
+\end{tikzpicture}}
+\caption[Fit-time versus predict-time]{The two phases. At fit-time (top) the labelled
+calibration fold is used to estimate the isotonic curves and then the boost weights,
+which are saved to a calibration file; this happens once at cold-start and again at
+every committed cycle boundary. At predict-time (bottom) a real query's nine signals
+are run through the \emph{frozen} curves and weights to produce $\ustored$. The
+training never touches a live query, and a live query never re-trains the composite. (Schematic.)}
+\label{fig:composite-train}
+\end{figure}
+
+\begin{precise}[Why the fold is fixed but re-scored each cycle]
+The calibration fold is the \emph{same} fifteen hundred questions every cycle; it is
+not resampled. What changes is the \emph{model that answers them}. Because the
+self-improvement loop of \Cref{ch:cycle} fine-tunes the generator each cycle, the same
+question now produces different signal values and possibly a different correctness
+label, so the fold is \emph{re-scored} under the updated model before the composite is
+re-fitted on it. Re-fitting is necessary precisely because the model drifts: if the
+curves stayed frozen while the signal distributions shifted underneath them, a stored
+score of $0.60$ would slowly stop meaning a sixty-percent chance of correctness, and
+the fixed gate thresholds would lose their meaning. Holding the fold fixed while
+re-scoring it ensures that any change in the fitted calibration reflects the model's
+movement, not noise from a different sample. The composite and the pre-routing
+temperature are, in fact, the only parts of the architecture re-fitted each cycle;
+everything else in the configuration is locked.
+\end{precise}
+
+\begin{pitfall}[The composite is supervised; the signals it calibrates are not its labels]
+A common confusion is to think the verifier's signals \emph{are} the training labels.
+They are not. The signals are the \emph{inputs}; the single training label per answer
+is its ground-truth correctness $\mathrm{em}$, obtained by scoring the fold's answers
+against gold. The composite is an ordinary supervised model learning ``given these
+nine signal readings, how often was the answer actually right?'' That is why a
+\emph{labelled} fold is required, and why the quality of $\ustored$ ultimately rests
+on having honest correctness labels on the calibration fold.
+\end{pitfall}
+
+\section{The whole computation, end to end}
+\label{sec:composite-worked}
+
+\begin{workedexample}[A borderline FEVER claim becomes $\ustored = 0.508$]
+Take a real FEVER claim the deployed system actually scored, ``Drake Bell is a
+model.'' Its nine raw signals enter step one and each is mapped through its own
+FEVER-calibrated, shrunk curve to a probability of correctness: the top-passage
+entailment reads moderately high (the retrieved passage does engage the claim), the
+relevance maps just above one half, the grounding signals land almost exactly at one
+half because the passage barely supports the specific assertion, and the
+internal-confidence signal maps below one half because the model was unsure. Step
+three converts each to log-odds and forms the boosted weighted sum, drawn in
+\Cref{fig:logodds}: the single strong upward vote from entailment is almost entirely
+cancelled by the FEVER base-rate prior carried in the intercept and by the downward
+internal-confidence vote, leaving a hair-positive total of $+0.032$. The sigmoid turns
+that into $\ustored = 0.508$. The number is honest: it says this answer is just above
+an even chance of being correct, which is exactly the regime where the system should
+hesitate rather than commit. The gate reads it as a deferral, and the claim is parked
+for reconsideration at the next cycle boundary.
+\end{workedexample}
+
+\begin{lstlisting}[caption={The composite score, condensed from \texttt{caem/verification/cal\_prob\_composite.py}.}, label={lst:composite}]
+log_odds = boost_intercept                       # b (0 when boost not fitted)
+for sig, curve in calibrations.items():          # the nine per-signal curves
+    p = curve.predict(signal_values[sig])         # raw value -> calibrated P_i (isotonic)
+    p = clip(p, 0.02, 0.98)                        # bound any single signal
+    ell = log(p / (1 - p))                         # P_i -> log-odds
+    log_odds += boost_weights.get(sig, 1.0) * ell  # weighted (boost) sum
+u_stored = 1.0 / (1.0 + exp(-log_odds))            # sigmoid back to [0, 1]
+\end{lstlisting}
+
+\begin{fromcode}[Per-benchmark dispatch, and the cold-start fallback]
+At run time the composite is handed the query's benchmark tag. If a per-benchmark
+calibration exists for that benchmark, the score is computed through its curves and
+weights; otherwise the pooled fallback is used. On the very first cycle, before any
+calibration fold has been scored, no curves exist yet, so the verifier bootstraps with
+a simple fixed weighted sum and switches to the calibrated composite as soon as the
+cycle-zero fold is fitted. Thereafter the curves are refit at every cycle boundary
+(\Cref{ch:cycle}), which is what keeps $\ustored$ meaning the same thing as the model
+underneath it changes.
+\end{fromcode}
+
+\section{The four-outcome gate}
+\label{sec:composite-gate}
+
+Now the second job. The gate reads $\ustored$ and commits to one of four actions. It
+is deliberately a short cascade of fixed thresholds, because the number it reads is
+already a calibrated probability.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[
+  font=\small\sffamily,
+  dec/.style={diamond, aspect=2.2, draw=cbFormula!75!black, fill=cbFormula!10,
+    line width=1pt, align=center, inner sep=1pt, font=\footnotesize, text width=2.5cm},
+  act/.style={rectangle, rounded corners=4pt, line width=1pt, align=center,
+    inner sep=4pt, font=\footnotesize, minimum height=0.8cm, text width=2.2cm,
+    drop shadow={shadow xshift=0.3ex, shadow yshift=-0.3ex, fill=black!10}},
+  flow/.style={-{Stealth[length=2.2mm]}, line width=1pt, draw=cbInk!75},
+]
+  \node[dec, draw=cbPitfall!75!black, fill=cbPitfall!10] (ee) at (0,3.2)
+    {early-exit?\\{\scriptsize $\uint{\ge}0.70 \wedge \pgmax{\le}0.20$}};
+  \node[dec] (st) at (0,1.4) {$\ustored \ge 0.60$?};
+  \node[dec] (df) at (0,-0.4) {$\ustored \ge 0.45$?};
+  \node[dec] (ab) at (0,-2.2) {$\pgmax < 0.20$?};
+
+  \node[act, draw=cbPitfall!70!black, fill=cbPitfall!12] (disc1) at (4.3,3.2) {\textbf{DISCARD}\\{\scriptsize + regenerate}};
+  \node[act, draw=cbExample!70!black, fill=cbExample!14] (store) at (4.3,1.4) {\textbf{STORE}\\{\scriptsize into memory}};
+  \node[act, draw=cbNumbers!75!black, fill=cbNumbers!14] (defer) at (4.3,-0.4) {\textbf{DEFER}\\{\scriptsize buffer, recheck}};
+  \node[act, draw=cbIntuition!75!black, fill=cbIntuition!12] (abst) at (4.3,-2.2) {\textbf{ABSTAIN}\\{\scriptsize refuse honestly}};
+  \node[act, draw=cbInk!55, fill=cbInk!6] (disc2) at (4.3,-3.7) {\textbf{DISCARD}\\{\scriptsize drop silently}};
+
+  \draw[flow] (ee) -- node[above,font=\scriptsize,text=cbPitfall!70!black]{yes} (disc1);
+  \draw[flow] (ee) -- node[right,font=\scriptsize]{no} (st);
+  \draw[flow] (st) -- node[above,font=\scriptsize,text=cbExample!55!black]{yes} (store);
+  \draw[flow] (st) -- node[right,font=\scriptsize]{no} (df);
+  \draw[flow] (df) -- node[above,font=\scriptsize,text=cbNumbers!65!black]{yes} (defer);
+  \draw[flow] (df) -- node[right,font=\scriptsize]{no} (ab);
+  \draw[flow] (ab) -- node[above,font=\scriptsize,text=cbIntuition!65!black]{yes} (abst);
+  \draw[flow] (ab) -- node[right,font=\scriptsize]{no} (disc2);
+\end{tikzpicture}
+\caption[The four-outcome gate]{The decision cascade. The confabulation early-exit of
+\Cref{ch:verifier} is checked first and forces a discard-and-regenerate when the model
+is internally sure but ungrounded. Otherwise the calibrated score is compared against
+the storage cut-point $0.60$ and the deferral cut-point $0.45$; below deferral, an
+answer with essentially no grounding is turned into an honest abstention, and anything
+else is discarded silently. (Schematic.)}
+\label{fig:gate}
+\end{figure}
+
+\begin{precise}[The decision tree]
+After the early-exit, the gate is four lines, read top to bottom, first match wins:
+\begin{itemize}[leftmargin=1.4em, itemsep=1pt]
+  \item $\ustored \ge 0.60 \Rightarrow$ \textbf{store} the answer as a verified episode.
+  \item $0.45 \le \ustored < 0.60 \Rightarrow$ \textbf{defer}: hold it in a buffer for
+  reconsideration at the next cycle boundary.
+  \item $\ustored < 0.45$ and $\pgmax < 0.20 \Rightarrow$ \textbf{abstain}: the answer
+  is both low-confidence and ungrounded, so return an honest refusal.
+  \item otherwise $\Rightarrow$ \textbf{discard}: drop the answer silently.
+\end{itemize}
+The storage and deferral cut-points are \emph{precision targets}, read as ``store only
+when the calibrated chance of correctness is at least sixty percent.'' Because
+$\ustored$ is a calibrated probability, that sentence means the same thing on every
+benchmark.
+\end{precise}
+
+\begin{lstlisting}[caption={The gate, condensed from \texttt{caem/verification/verifier.py}.}, label={lst:gate}]
+if u_stored >= 0.60:          # store_threshold
+    return "STORE"
+if u_stored >= 0.45:          # defer_threshold
+    return "DEFERRED"
+if p_ground_max < 0.20:       # abstain_pground_ceiling
+    return "ABSTAIN"          # low confidence AND ungrounded -> honest refusal
+return "DISCARD"
+\end{lstlisting}
+
+\begin{intuition}[Why four outcomes and not two]
+A plain accept/reject gate would throw away two distinctions the architecture depends
+on. The first is \emph{defer}: an answer just below the storage line is promising but
+not yet trusted, so rather than discard it the system parks it and lets a later, better
+model re-judge it. This is exactly how the FEVER claim at $\ustored = 0.508$ is later
+promoted to memory (\Cref{ch:cycle}). The second is the split between \emph{abstain}
+and \emph{discard} among the low-confidence answers. If the answer is also ungrounded
+(its best supporting passage barely entails it, $\pgmax < 0.20$), the honest move is to
+tell the user ``I do not know'' rather than emit a guess; that is abstain. If instead
+there is some grounding but the composite still rejects it, the answer is dropped
+silently as a discard. The four outcomes are the difference between a system that
+merely filters and one that knows the difference between ``wrong'' and ``unknown.''
+\end{intuition}
+
+\section{Why one fixed threshold governs five benchmarks}
+\label{sec:composite-fixed}
+
+The deepest payoff of the chapter is also the simplest to state. The gate uses one
+pair of cut-points, $0.60$ and $0.45$, for every benchmark. That is only sound because
+all the benchmark-specific work happened upstream: each signal was calibrated per
+benchmark, and the composite produced a probability whose meaning is benchmark
+independent. A storage score of $0.60$ certifies the same sixty-percent calibrated
+chance of correctness whether the query was a fact-check or a trivia question. Push the
+calibration into the signals and the threshold can be a constant; skip the calibration
+and the threshold would have to be retuned per benchmark, which is exactly the
+brittleness the composite exists to remove.
+
+\begin{defence}[If an examiner asks: ``wasn't there a conformal-prediction gate here?'']
+An earlier design used a split-conformal gate, which offers a formal coverage
+guarantee by calibrating a cut-point on a held-out fold. It was removed. The
+guarantee relies on the calibration fold and the evaluation stream being
+\emph{exchangeable}, a technical condition meaning their order carries no information,
+and a cycle-zero diagnostic found that condition violated in this setting: the
+self-improvement loop shifts the answer distribution between the fold and the stream,
+so the coverage guarantee no longer held. Rather than ship a guarantee that does not
+hold, the design reverted to the fixed-threshold gate above, whose meaning is
+maintained instead by re-fitting the calibration every cycle. Reporting the removal is
+the honest choice; a guarantee that fails its premise is worse than an explicit
+threshold that does not claim one.
+\end{defence}
+
+\begin{bythenumbers}[Composite and gate constants]
+\begin{itemize}[leftmargin=1.3em, itemsep=1pt]
+  \item Composite signals: nine (the verifier's other computed signals do not enter).
+  \item Per-signal calibration: isotonic, output clipped to $[0.02, 0.98]$, minimum $50$ samples.
+  \item Shrinkage toward pooled curve: $\alpha = 0.6$.
+  \item Boost: logistic regression on per-signal log-odds, regularisation $C = 0.01$.
+  \item Combination: $\ustored = \sigma\big(b + \sum_i w_i \ell_i\big)$.
+  \item Gate: store $\ge 0.60$, defer $\ge 0.45$, abstain if below $0.45$ and $\pgmax < 0.20$, else discard.
+  \item Early-exit (first): $\uint \ge 0.70$ and $\pgmax \le 0.20$ forces discard-and-regenerate.
+\end{itemize}
+\end{bythenumbers}
+
+The composite has now turned nine signals into one honest probability, and the gate
+has turned that probability into one of four actions. \Cref{ch:output} takes up
+Stage 7, the output contract: how each of the four decisions is rendered to the user,
+including how an abstention becomes a calibrated refusal and how the served answer
+carries its confidence with it.

@@ -1,0 +1,223 @@
+\chapter{The Registered-Constant Registry}
+\label{ch:constants}
+
+Every number this book relied on is collected here, grouped by the component it
+governs, with the chapter that introduces it. The registry has one purpose: to make
+the architecture auditable. A constant that appears in a results chapter should be
+traceable to a single registered value, and that value should be the one in the live
+configuration, not a number invented for exposition. The tables below are read
+directly from the deployed configuration; where a symbol was used in the text it is
+repeated here beside its value.
+
+\begin{intuition}[Why constants are registered, not tuned per result]
+A system with dozens of thresholds invites a quiet form of overfitting: nudge a
+cut-point until the headline improves, then report the headline. \caem{} resists this
+by \emph{registering} its constants before the trajectory runs and holding them fixed
+across every cycle and every benchmark. The two exceptions, the calibration that is
+re-fitted each cycle and the per-benchmark calibration curves, are themselves learned
+under a fixed procedure rather than hand-tuned. This appendix is the ledger that makes
+that discipline checkable: one value per constant, fixed for the run.
+\end{intuition}
+
+\section{Backbone and generation}
+\label{sec:const-backbone}
+
+\begin{table}[h]
+\centering\small
+\begin{tabular}{@{}p{6.2cm}p{5.6cm}l@{}}
+\toprule
+\textbf{Constant} & \textbf{Value} & \textbf{Where} \\
+\midrule
+Generator backbone (frozen)        & Qwen-2.5-3B-Instruct           & \Cref{ch:prereq} \\
+Decoding                           & greedy (no sampling)           & \Cref{ch:prereq} \\
+Maximum new tokens (both paths)    & $512$                          & \Cref{ch:tiers} \\
+Pre-routing decode length          & $32$ tokens                    & \Cref{ch:upre} \\
+\bottomrule
+\end{tabular}
+\caption{Backbone and generation constants.}
+\label{tab:const-backbone}
+\end{table}
+
+\section{Episodic memory}
+\label{sec:const-memory}
+
+\begin{table}[h]
+\centering\small
+\begin{tabular}{@{}p{6.2cm}p{5.6cm}l@{}}
+\toprule
+\textbf{Constant} & \textbf{Value} & \textbf{Where} \\
+\midrule
+Embedding model                    & all-mpnet-base-v2              & \Cref{ch:prereq} \\
+Embedding dimension                & $768$, unit-normalised         & \Cref{ch:prereq} \\
+Memory capacity                    & $1{,}000{,}000$ episodes       & \Cref{ch:memory} \\
+Capacity-prune trigger             & $0.95$ full                    & \Cref{ch:memory} \\
+Novelty gate                       & cosine $0.95$                  & \Cref{ch:memory} \\
+Consolidation clustering threshold & cosine $0.92$                  & \Cref{ch:memory} \\
+Consolidation maximum trust spread & $0.15$                         & \Cref{ch:memory} \\
+Value weighting (importance/recency)& $0.70 / 0.30$                 & \Cref{ch:memory} \\
+Importance sub-weights             & $0.40 / 0.30 / 0.20 / 0.10$    & \Cref{ch:memory} \\
+Recency decay $\lambda$            & $0.01$                         & \Cref{ch:memory} \\
+Retroverification prune floor      & $0.50$                         & \Cref{ch:memory} \\
+\bottomrule
+\end{tabular}
+\caption{Episodic-memory constants. The novelty gate ($0.95$) and the consolidation
+clustering threshold ($0.92$) are distinct and must not be conflated.}
+\label{tab:const-memory}
+\end{table}
+
+\section{Retrieval and routing}
+\label{sec:const-routing}
+
+\begin{table}[h]
+\centering\small
+\begin{tabular}{@{}p{6.2cm}p{5.6cm}l@{}}
+\toprule
+\textbf{Constant} & \textbf{Value} & \textbf{Where} \\
+\midrule
+Passage corpus                     & $\approx 21$M passages, $64$\,GB & \Cref{ch:tiers} \\
+Index structure                    & IVF-PQ, $32768$ cells          & \Cref{ch:prereq} \\
+Probe (grounded tier / cheap lookup)& $64 / 16$ cells               & \Cref{ch:tiers} \\
+Retrieved passages                 & top $5$                        & \Cref{ch:tiers} \\
+Maximum retrieved context          & $384$ tokens                   & \Cref{ch:tiers} \\
+Pre-routing confidence blend       & $0.60$ token $+ 0.40$ internal & \Cref{ch:upre} \\
+Calibration temperature range      & $[e^{-3}, e^{3}] = [0.05, 20.1]$ & \Cref{ch:upre} \\
+Safety floor $\phisafe$            & $0.38$                         & \Cref{ch:upre} \\
+Routing blend $\lambda$            & $0.70$                         & \Cref{ch:router} \\
+Tier-1 combined threshold          & $0.90$                         & \Cref{ch:router} \\
+Tier-2 similarity threshold        & $0.75$                         & \Cref{ch:router} \\
+\bottomrule
+\end{tabular}
+\caption{Retrieval and routing constants.}
+\label{tab:const-routing}
+\end{table}
+
+\section{Retrieval-utility classifier}
+\label{sec:const-ruc}
+
+\begin{table}[h]
+\centering\small
+\begin{tabular}{@{}p{6.2cm}p{5.6cm}l@{}}
+\toprule
+\textbf{Constant} & \textbf{Value} & \textbf{Where} \\
+\midrule
+Routing threshold $\tau_{\mathrm{RUC}}$ & $0.375$                  & \Cref{ch:ruc} \\
+Regularisation strength             & $C = 0.5$                     & \Cref{ch:ruc} \\
+Cross-validation                    & nested $5 \times 5$           & \Cref{ch:ruc} \\
+Self-knowledge probe coefficient    & $-1.77$ (standardised)        & \Cref{ch:ruc} \\
+\bottomrule
+\end{tabular}
+\caption{Retrieval-utility classifier constants.}
+\label{tab:const-ruc}
+\end{table}
+
+\section{The nine-signal verifier}
+\label{sec:const-verifier}
+
+\begin{table}[h]
+\centering\small
+\begin{tabular}{@{}p{6.2cm}p{5.6cm}l@{}}
+\toprule
+\textbf{Constant} & \textbf{Value} & \textbf{Where} \\
+\midrule
+Self-consistency chains $M$         & $3$ at temperature $0.7$      & \Cref{ch:verifier} \\
+Dropout passes $K$                  & $5$ at rate $0.1$             & \Cref{ch:verifier} \\
+Internal confidence                 & $0.5\,\utoken + 0.5\,(1{-}\udrop)$ & \Cref{ch:verifier} \\
+Grounding retrieve / rerank         & $20 \to 3$ passages           & \Cref{ch:verifier} \\
+Atomic-decomposition minimum length & $12$ tokens                   & \Cref{ch:verifier} \\
+Entailment judge split              & $408$ tokens ($512{-}4{-}100$) & \Cref{ch:verifier} \\
+Confabulation early-exit            & $\uint \ge 0.70 \wedge \pgmax \le 0.20$ & \Cref{ch:verifier} \\
+\bottomrule
+\end{tabular}
+\caption{Verifier constants.}
+\label{tab:const-verifier}
+\end{table}
+
+\section{Composite and four-outcome gate}
+\label{sec:const-composite}
+
+\begin{table}[h]
+\centering\small
+\begin{tabular}{@{}p{6.2cm}p{5.6cm}l@{}}
+\toprule
+\textbf{Constant} & \textbf{Value} & \textbf{Where} \\
+\midrule
+Calibrated signals                  & $9$                           & \Cref{ch:composite} \\
+Per-signal isotonic clip            & $[0.02, 0.98]$                & \Cref{ch:composite} \\
+Minimum samples per signal          & $50$                          & \Cref{ch:composite} \\
+Shrinkage toward pooled $\alpha$    & $0.6$                         & \Cref{ch:composite} \\
+Boost regularisation                & $C = 0.01$                    & \Cref{ch:composite} \\
+Storage threshold $\taustore$       & $0.60$                        & \Cref{ch:composite} \\
+Deferral threshold $\taudefer$      & $0.45$                        & \Cref{ch:composite} \\
+Abstain grounding ceiling           & $\pgmax < 0.20$               & \Cref{ch:composite} \\
+\bottomrule
+\end{tabular}
+\caption{Composite and gate constants.}
+\label{tab:const-composite}
+\end{table}
+
+\section{Self-improvement and retention}
+\label{sec:const-cycle}
+
+\begin{table}[h]
+\centering\small
+\begin{tabular}{@{}p{6.2cm}p{5.6cm}l@{}}
+\toprule
+\textbf{Constant} & \textbf{Value} & \textbf{Where} \\
+\midrule
+Adapter rank $r$ / scale $\alpha$   & $32 / 64$                     & \Cref{ch:cycle} \\
+Adapter dropout                     & $0.05$                        & \Cref{ch:cycle} \\
+Adapted projections                 & $7$ (attention $+$ feed-forward) & \Cref{ch:cycle} \\
+Trainable fraction                  & $\approx 2\%$ of parameters   & \Cref{ch:cycle} \\
+Learning rate                       & $2 \times 10^{-4}$            & \Cref{ch:cycle} \\
+Epochs per cycle                    & $3$                           & \Cref{ch:cycle} \\
+Micro-batch / effective batch       & $4 / 16$                      & \Cref{ch:cycle} \\
+Training trust cut                  & $\ustored \ge 0.70$           & \Cref{ch:cycle} \\
+Pool reweighting temperature        & $2.0$                         & \Cref{ch:cycle} \\
+Pool reweighting cap / floor        & $3\times / 50$                & \Cref{ch:cycle} \\
+Pool cold-start seed / max share    & $100 / 0.40$                  & \Cref{ch:cycle} \\
+Weight-anchor strength (fallback)   & $\lambda = 0.01$              & \Cref{ch:cycle} \\
+Retention floor $\rhomin$           & $0.93$                        & \Cref{ch:cycle} \\
+Retention probes                    & $3 \times 200$ questions      & \Cref{ch:benchmarks} \\
+Early-stop rule / burn-in           & $2$ of $3$ signals / $5$ cycles & \Cref{ch:cycle} \\
+Cycles configured / realised        & $10 / 6$ (C0--C5)             & \Cref{ch:trajectory} \\
+\bottomrule
+\end{tabular}
+\caption{Self-improvement loop and retention-guard constants.}
+\label{tab:const-cycle}
+\end{table}
+
+\section{Benchmarks, evaluation, and metrics}
+\label{sec:const-eval}
+
+\begin{table}[h]
+\centering\small
+\begin{tabular}{@{}p{6.2cm}p{5.6cm}l@{}}
+\toprule
+\textbf{Constant} & \textbf{Value} & \textbf{Where} \\
+\midrule
+Evaluation panel                    & $5$ benchmarks ($3$ train $+ 2$ transfer) & \Cref{ch:benchmarks} \\
+Evaluation fold                     & $300$/benchmark ($1500$ total) & \Cref{ch:benchmarks} \\
+Calibration fold                    & $500$/training benchmark ($1500$) & \Cref{ch:benchmarks} \\
+Content key                         & SHA-256, first $16$ hex chars & \Cref{ch:benchmarks} \\
+Semantic-entropy baseline samples   & $10$ at temperature $1.0$     & \Cref{ch:benchmarks} \\
+Hallucination metric                & mean of $8$ measured subtypes & \Cref{ch:benchmarks} \\
+Subtype firing thresholds           & $0.50 / 0.30 / 0.30 / 0.50 / 600$ chars & \Cref{ch:benchmarks} \\
+Evaluation score                    & geometric mean of $5$ axes ($\varepsilon = 0.01$) & \Cref{ch:benchmarks} \\
+Significance (accuracy / honesty)   & McNemar / Wilcoxon, Holm-corrected & \Cref{ch:benchmarks} \\
+Claim-licensing rule                & Holm $p < 0.05$ and interval above $0.02$ & \Cref{ch:benchmarks} \\
+\bottomrule
+\end{tabular}
+\caption{Benchmark, evaluation, and metric constants.}
+\label{tab:const-eval}
+\end{table}
+
+\begin{bythenumbers}[What is fixed, and what is fitted]
+Of everything tabulated above, exactly two things change during a run, and both change
+under a fixed procedure rather than by hand: the pre-routing temperature is re-fitted
+each cycle, and the per-signal calibration curves and their boost weights are re-fitted
+each committed cycle on the re-scored calibration fold. Every other value in this
+registry is locked before the trajectory begins and held constant across all six cycles
+and all five benchmarks. That separation, learned calibration over fixed structure, is
+what lets a single pair of gate thresholds mean the same thing on every benchmark, and
+it is the discipline this appendix exists to document.
+\end{bythenumbers}
