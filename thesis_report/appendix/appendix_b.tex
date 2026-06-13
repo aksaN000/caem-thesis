@@ -23,7 +23,7 @@ The pooled gap reading at the locked configuration is reported in \Cref{sec:adj-
 \section{The first-iteration failure trace}
 \label{app:first-iteration-trace}
 
-The first iteration of the cycle-zero calibration failed the pre-registered validation gate due to a JSONL signal-dump bug; the narrative is recorded in \Cref{sec:adj-failed-iterations}. The diagnostic record is preserved in the pre-Phase-2 archival snapshot dated to the failure, together with the degenerate composite calibration record whose conformal-threshold collapse triggered the corrective patch.
+The first iteration of the cycle-zero calibration failed the pre-registered validation gate due to a JSONL signal-dump bug; the narrative is recorded in \Cref{sec:adj-failed-iterations}. The diagnostic record is preserved in the first-iteration archival snapshot dated to the failure, together with the degenerate composite calibration record whose conformal-threshold collapse triggered the corrective patch.
 
 \section{The long-hypothesis judge ablation diagnostic}
 \label{app:judge-ablation}
@@ -33,7 +33,7 @@ The Platt fit diagnostic that licensed the ablation of the long-hypothesis judge
 \section{Pre and post prompt-fix compliance}
 \label{app:prompt-compliance}
 
-The per-benchmark empty-answer and abstention rates before and after the Phase 2 prompt-design fixes are auto-generated from the cycle-zero evaluation outputs.
+The per-benchmark empty-answer and abstention rates before and after the registered prompt-design fixes are auto-generated from the cycle-zero evaluation outputs.
 
 \input{figures/auto/prompt_compliance.tex}
 
@@ -57,7 +57,7 @@ The threshold-versus-precision tradeoff at the locked storage cut-point $\tau_{\
 \begin{figure}[!htbp]
 \centering
 \includegraphics[width=0.85\textwidth]{figures/auto/precision_cliff.pdf}
-\caption[Per-benchmark precision-cliff curves at the locked configuration]{Per-benchmark precision-cliff curves at the locked configuration. Auto-generated from the Phase 4 precision-cliff diagnostic; the underlying threshold-versus-precision data are in \Cref{tab:precision-cliff}.}
+\caption[Per-benchmark precision-cliff curves at the locked configuration]{Per-benchmark precision-cliff curves at the locked configuration. Auto-generated from the precision-cliff diagnostic; the underlying threshold-versus-precision data are in \Cref{tab:precision-cliff}.}
 \label{fig:precision-cliff}
 \end{figure}
 
@@ -73,6 +73,6 @@ The production-envelope rendering script presents two representative serving sam
 \section{Prompt-design ablation}
 \label{app:prompt-design-ablation}
 
-The pre-registered prompt-design ablation isolates the contribution of the Phase 2 prompt fixes (Phase 2.6 empty-answer compliance, Phase 2.7 open-QA over-abstention) by re-running the cycle-zero evaluation under the pre-fix prompt template family and comparing against the post-fix template family on the identical evaluation fold.
+The pre-registered prompt-design ablation isolates the contribution of two prompt fixes (the empty-answer compliance fix and the open-QA over-abstention fix) by re-running the cycle-zero evaluation under the pre-fix prompt template family and comparing against the post-fix template family on the identical evaluation fold.
 
 \input{figures/auto/tab_prompt_design_ablation.tex}
