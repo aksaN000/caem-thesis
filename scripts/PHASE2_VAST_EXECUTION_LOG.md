@@ -89,3 +89,19 @@ Force-added (`git add -f`) because `outputs/` is gitignored; `.gitignore` was NO
 3. Update Ch5 prose with the fixed B6/B7 EM + CHM numbers (TQA = `em_llm_judged` 0.45).
 4. No B7 footnote needed — B7 got a real post-fix verifier CHM (Phase 2b ran).
 5. Recompile thesis + poster, submit.
+
+---
+
+## 6. Phase 3 integration — DONE (local, 2026-06-13)
+
+Corrected B6/B7 folded into the canonical `outputs/baselines_phase1e/` set and all tables + prose regenerated. Raw pre-overwrite inputs snapshotted to `/tmp/phase2_integration_snapshot_20260613/`.
+
+**Data:** copied corrected B6 `vanilla_ft/eval/{bench}_cycle5_with_chm.json` over the buggy `cycle5.json` (CSQA 0.0 → 0.78 via the "Reasoning:C" re-extract; TQA via Haiku `em_llm_judged`); copied corrected B7 `flare/{bench}_cycle0{,_with_chm}.json`; patched `chm_comparison.json` `vanilla_ft@c5` + `flare` rows; added `caem_cycle5`/`caem_cycle2` CAEM per-bench CHM keys (the sig script's `caem_cycle10` was NaN post-rerun).
+
+**Tables regenerated:** `tab_baseline_pooled.tex`, `tab_sig_test.tex` (C5), `tab_sig_test_c2.tex` (C2), `tab_ces_per_system.tex` (B-flare ACC 0.291→0.525).
+
+**Final integrated numbers:** B6 EM 0.490 / CHM 0.127; B7 EM 0.525 / CHM 0.173; CAEM C5 0.517 / 0.109, C2 0.544 / 0.107. Sig counts: C5 = 9 EM-wins/3 + 21 CHM-wins/3; C2 = 14 EM-wins/3 + 20 CHM-wins/4. Every defeat confined to TruthfulQA vs RAG-free baselines (abstention/retrieval-amplification trade-off). Joint pooled wins: C2 8/8, C5 7/8 (B7 edges C5 on pooled EM by 0.008; CAEM −37% CHM over it).
+
+**Prose reframed to parity + CHM-headline** (per author decision): abstract, Ch5 §comp-baselines + §summary-headline + C2 sig caption, Ch6 conclusion headline; poster two framing blocks + pooled table + wins-against footnote. EM-dominance claims softened to "leads at best cycle, parity with strongest at trajectory end"; CHM dominance retained.
+
+**Enabling fix:** guarded `eval/__init__.py`'s torch-dependent eager imports so `eval.metrics` (McNemar/bootstrap) runs on a torch-less host; no-op where torch is installed. Tables generated with `~/miniconda3/bin/python` (numpy/scipy present; system python3 is bare).

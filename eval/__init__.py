@@ -47,28 +47,41 @@ Quick start
 >>> result["em"], result["f1"]
 """
 
-from eval.baselines import (
-    BaselineBase,
-    CoTBaseline,
-    CoTRAGBaseline,
-    FiveShotCoTBaseline,
-    FLAREBaseline,
-    RAGBaseline,
-    ZeroShotBaseline,
-)
-from eval.benchmarks import (
-    BenchmarkSample,
-    load_benchmark,
-    load_arc_challenge,
-    load_asqa,
-    load_fever,
-    load_natural_questions,
-    load_strategyqa,
-    load_triviaqa,
-    load_truthfulqa,
-    make_synthetic_samples,
-)
-from eval.harness import EvalHarness, EvalResult, SampleResult
+# The baselines/benchmarks/harness submodules depend on torch (and the wider
+# model stack). Stats-only consumers (e.g. the paired-significance table
+# generators) only need ``eval.metrics``, which is torch-free. Guard the heavy
+# eager imports so the package still exposes its metrics on a torch-less host;
+# on the GPU host where torch is installed this branch is a no-op.
+try:
+    from eval.baselines import (
+        BaselineBase,
+        CoTBaseline,
+        CoTRAGBaseline,
+        FiveShotCoTBaseline,
+        FLAREBaseline,
+        RAGBaseline,
+        ZeroShotBaseline,
+    )
+    from eval.benchmarks import (
+        BenchmarkSample,
+        load_benchmark,
+        load_arc_challenge,
+        load_asqa,
+        load_fever,
+        load_natural_questions,
+        load_strategyqa,
+        load_triviaqa,
+        load_truthfulqa,
+        make_synthetic_samples,
+    )
+    from eval.harness import EvalHarness, EvalResult, SampleResult
+except ImportError:  # torch (or another heavy dep) unavailable on this host
+    BaselineBase = CoTBaseline = CoTRAGBaseline = FiveShotCoTBaseline = None
+    FLAREBaseline = RAGBaseline = ZeroShotBaseline = None
+    BenchmarkSample = load_benchmark = load_arc_challenge = load_asqa = None
+    load_fever = load_natural_questions = load_strategyqa = None
+    load_triviaqa = load_truthfulqa = make_synthetic_samples = None
+    EvalHarness = EvalResult = SampleResult = None
 from eval.metrics import (
     aggregate,
     any_match_em,
