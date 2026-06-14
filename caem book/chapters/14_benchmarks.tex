@@ -40,7 +40,7 @@ training benchmarks is suspect; a gain that also shows up on the held-out transf
 benchmarks is real.
 \end{intuition}
 
-\begin{table}[t]
+\begin{table}[htbp]
 \centering
 \small
 \begin{tabular}{@{}llll@{}}
@@ -75,7 +75,7 @@ be decomposed, stressing multi-step inference. The two transfer benchmarks
 (TruthfulQA, StrategyQA) are exactly the ones the loop never sees during training.
 \end{precise}
 
-\begin{figure}[t]
+\begin{figure}[htbp]
 \centering
 \begin{tikzpicture}[
   font=\small\sffamily,
@@ -219,7 +219,7 @@ value of everything \caem{} adds beyond that ingredient. No single baseline comb
 all the ingredients, which is precisely the gap the architecture occupies.
 \end{intuition}
 
-\begin{table}[t]
+\begin{table}[htbp]
 \centering
 \small
 \begin{tabular}{@{}llp{6.6cm}@{}}
@@ -366,7 +366,7 @@ structurally zero. The subtypes overlap deliberately, so the metric is a mean
 prevalence across failure modes, not the fraction of samples with any failure.
 \end{precise}
 
-\begin{figure}[t]
+\begin{figure}[htbp]
 \centering
 \begin{tikzpicture}[
   font=\footnotesize\sffamily,
@@ -509,7 +509,7 @@ The full trajectory is the subject of \Cref{ch:trajectory} and the ablations are
 subject of \Cref{ch:ablations}. But the instruments are easier to trust once we have
 seen them produce a headline, so this section reads one real comparison end to end.
 
-\begin{figure}[t]
+\begin{figure}[htbp]
 \centering
 \begin{tikzpicture}
 \begin{axis}[
@@ -572,7 +572,7 @@ the architecture buys before any training, and what the self-improvement loop ad
 top. The book separates them with a three-way decomposition, because they answer
 different questions.
 
-\begin{figure}[t]
+\begin{figure}[htbp]
 \centering
 \begin{tikzpicture}
 \begin{axis}[
@@ -583,14 +583,14 @@ different questions.
   font=\small\sffamily, tick label style={font=\scriptsize},
   legend style={at={(0.97,0.97)}, anchor=north east, font=\scriptsize, draw=cbInk!25},
   ymajorgrids, grid style={cbInk!8},
-  nodes near coords, nodes near coords style={font=\tiny, /pgf/number format/fixed, /pgf/number format/precision=1},
+  nodes near coords, nodes near coords style={font=\tiny, fill=white, inner sep=1pt, /pgf/number format/fixed, /pgf/number format/precision=1},
 ]
+  \draw[cbInk!50, dashed] (axis cs:architecture,0) -- (axis cs:full,0);
   \addplot[draw=cbScenario!70!black, fill=cbScenario!22] coordinates {
     (architecture,3.4) (self-improvement,-0.9) (full,2.5) };
   \addplot[draw=cbExample!70!black, fill=cbExample!28] coordinates {
     (architecture,8.8) (self-improvement,-0.1) (full,8.7) };
   \legend{five-benchmark panel, three training benchmarks}
-  \draw[cbInk!50, dashed] (axis cs:architecture,0) -- (axis cs:full,0);
 \end{axis}
 \end{tikzpicture}
 \caption[Where the accuracy gain comes from]{The actual three-way decomposition of
@@ -605,25 +605,25 @@ points).}
 \label{fig:headline-decomp}
 \end{figure}
 
-\begin{figure}[t]
+\begin{figure}[htbp]
 \centering
 \begin{tikzpicture}
 \begin{axis}[
   width=12.0cm, height=5.2cm, ybar, bar width=11pt,
   symbolic x coords={architecture, self-improvement, full},
   xtick=data, x tick label style={font=\small},
-  ymin=-4, ymax=2.5, ylabel={pooled CHM change (percentage points)},
+  ymin=-5, ymax=3, ylabel={pooled CHM change (percentage points)},
   font=\small\sffamily, tick label style={font=\scriptsize},
   legend style={at={(0.97,0.04)}, anchor=south east, font=\scriptsize, draw=cbInk!25},
   ymajorgrids, grid style={cbInk!8},
-  nodes near coords, nodes near coords style={font=\tiny, /pgf/number format/fixed, /pgf/number format/precision=1},
+  nodes near coords, nodes near coords style={font=\tiny, fill=white, inner sep=1pt, /pgf/number format/fixed, /pgf/number format/precision=1},
 ]
+  \draw[cbInk!50, dashed] (axis cs:architecture,0) -- (axis cs:full,0);
   \addplot[draw=cbScenario!70!black, fill=cbScenario!22] coordinates {
     (architecture,1.5) (self-improvement,-2.0) (full,-0.5) };
   \addplot[draw=cbExample!70!black, fill=cbExample!28] coordinates {
     (architecture,-1.9) (self-improvement,-1.5) (full,-3.4) };
   \legend{five-benchmark panel, three training benchmarks}
-  \draw[cbInk!50, dashed] (axis cs:architecture,0) -- (axis cs:full,0);
 \end{axis}
 \end{tikzpicture}
 \caption[Where the honesty gain comes from]{The actual three-way decomposition of the

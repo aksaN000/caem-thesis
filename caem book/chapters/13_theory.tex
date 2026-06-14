@@ -82,7 +82,7 @@ base-rate argument \Cref{ch:problem} promised, and it is why \caem{} does not ne
 perfect verifier, only one that beats a coin flip on the claims it scores.
 \end{intuition}
 
-\begin{figure}[t]
+\begin{figure}[htbp]
 \centering
 \begin{tikzpicture}
 \begin{axis}[
@@ -275,7 +275,7 @@ probability is at least $\delta = 2\alpha - 1 > 0$, so its expected survival tim
 $1/\delta$ cycles, a finite number. Hallucinations do not accumulate; they are flushed.
 \end{precise}
 
-\begin{figure}[t]
+\begin{figure}[htbp]
 \centering
 \begin{tikzpicture}
 \begin{axis}[
@@ -347,7 +347,7 @@ are flushed; and stochastic equilibrium accounts for the guard. Together they an
 \Cref{ch:problem}'s objection in full: an imperfect verifier is enough, errors do not
 compound, and the system contracts toward a stable, high-purity state.
 
-\begin{figure}[t]
+\begin{figure}[htbp]
 \centering
 \begin{tikzpicture}[
   font=\small\sffamily,
@@ -357,13 +357,13 @@ compound, and the system contracts toward a stable, high-purity state.
     line width=1pt, align=center, inner sep=4pt, text width=3.0cm, font=\footnotesize, minimum height=0.9cm},
   flow/.style={-{Stealth[length=2.4mm]}, line width=1pt, draw=cbInk!70},
 ]
-  \node[th] (bayes) at (0,1.4) {\textbf{purity identity}\\{\footnotesize $\alpha>1/2 \Rightarrow \pi>p$}};
-  \node[th] (floor) at (4.2,1.4) {\textbf{purity floor}\\{\footnotesize $\pi_{t+1}\ge\min(\cdot,\cdot)$}};
-  \node[th] (mono) at (0,-0.4) {\textbf{monotonicity}\\{\footnotesize better gen.\ stores more}};
-  \node[th] (conv) at (4.2,-0.4) {\textbf{convergence}\\{\footnotesize bounded band}};
-  \node[cor] (tier1) at (8.6,1.4) {\textbf{Tier-1 floor}\\{\footnotesize $\mathrm{CHM}_1\le 1-\pi$}};
-  \node[cor] (self) at (8.6,0.0) {\textbf{self-correction}\\{\footnotesize errors pruned in $\le 1/\delta$}};
-  \node[cor] (eq) at (8.6,-1.4) {\textbf{stochastic equilibrium}\\{\footnotesize commit-paced, memory grows}};
+  \node[th] (bayes) at (0,1.8) {\textbf{purity identity}\\{\footnotesize $\alpha>1/2 \Rightarrow \pi>p$}};
+  \node[th] (floor) at (4.2,1.8) {\textbf{purity floor}\\{\footnotesize $\pi_{t+1}\ge\min(\cdot,\cdot)$}};
+  \node[th] (mono) at (0,-0.6) {\textbf{monotonicity}\\{\footnotesize better gen.\ stores more}};
+  \node[th] (conv) at (4.2,-0.6) {\textbf{convergence}\\{\footnotesize bounded band}};
+  \node[cor] (tier1) at (8.6,1.8) {\textbf{Tier-1 floor}\\{\footnotesize $\mathrm{CHM}_1\le 1-\pi$}};
+  \node[cor] (self) at (8.6,0.0) {\textbf{self-correction}\\{\footnotesize errors pruned\\[-1pt]in $\le 1/\delta$}};
+  \node[cor] (eq) at (8.6,-1.8) {\textbf{stochastic equilibrium}\\{\footnotesize commit-paced,\\[-1pt]memory grows}};
   \draw[flow] (bayes) -- (floor);
   \draw[flow] (floor) -- (tier1);
   \draw[flow] (mono) -- (conv);

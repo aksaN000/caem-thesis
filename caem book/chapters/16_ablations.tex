@@ -43,7 +43,7 @@ memory-routing claim is defended without a lesion at all, by the per-tier shares
 accuracies already in \Cref{ch:trajectory}.
 \end{precise}
 
-\begin{figure}[t]
+\begin{figure}[htbp]
 \centering
 \begin{tikzpicture}[
   font=\footnotesize\sffamily,
@@ -58,12 +58,12 @@ accuracies already in \Cref{ch:trajectory}.
   \node[claim] (c1) at (0,3.0)  {memory routing};
   \node[claim] (c2) at (0,1.5)  {memory purity};
   \node[claim] (c3) at (0,0.0)  {self-improvement};
-  \node[claim] (c4) at (0,-1.5) {no catastrophic\\forgetting};
-  \node[metric] (m1) at (5.6,3.0) {per-tier shares + accuracy\\(\Cref{ch:trajectory}, measured)};
-  \node[metric] (m2) at (5.6,1.5) {purity validation\\(\Cref{ch:theory}, measured)};
-  \node[metric] (m3) at (5.6,0.4) {cold-start vs trained\\(\Cref{ch:benchmarks}, measured)};
-  \node[lesion] (l1) at (5.6,-0.7) {no-retroverify\\(lesion, deferred)};
-  \node[lesion] (l2) at (5.6,-1.7) {no-forgetting-guard\\(observed at C4)};
+  \node[claim] (c4) at (0,-1.5) {no catastrophic\\[2pt]forgetting};
+  \node[metric] (m1) at (5.6,3.0) {per-tier shares + accuracy\\[3pt](\Cref{ch:trajectory}, measured)};
+  \node[metric] (m2) at (5.6,1.8) {purity validation\\[3pt](\Cref{ch:theory}, measured)};
+  \node[lesion] (l1) at (5.6,0.6) {no-retroverify\\[3pt](lesion, deferred)};
+  \node[metric] (m3) at (5.6,-0.6) {cold-start vs trained\\[3pt](\Cref{ch:benchmarks}, measured)};
+  \node[lesion] (l2) at (5.6,-1.8) {no-forgetting-guard\\[3pt](observed at C4)};
   \draw[flow] (c1) -- (m1);
   \draw[flow] (c2) -- (m2);
   \draw[flow] (c2) -- (l1);
@@ -134,7 +134,7 @@ retrieval-utility classifier of \Cref{ch:ruc}. It is the chapter's one true
 component-level ablation, and it is also the one with the most to teach, because the
 result is asymmetric.
 
-\begin{table}[t]
+\begin{table}[htbp]
 \centering
 \small
 \begin{tabular}{@{}lccc@{}}
@@ -159,7 +159,7 @@ predicts retrieval will help. The asymmetric-rescue pattern is in the bold cells
 \label{tab:abl-ruc}
 \end{table}
 
-\begin{figure}[t]
+\begin{figure}[htbp]
 \centering
 \begin{tikzpicture}
 \begin{axis}[
@@ -260,7 +260,7 @@ The clean lesion is registered future work, and the book reports it as owed rath
 quietly folding the prune-rate trace into a claim it cannot support.
 \end{pitfall}
 
-\begin{table}[t]
+\begin{table}[htbp]
 \centering
 \small
 \begin{tabular}{@{}p{3.0cm}p{3.6cm}p{7.2cm}@{}}

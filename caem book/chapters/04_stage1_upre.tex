@@ -136,13 +136,13 @@ ambiguous or unfamiliar, the representation keeps shifting across layers, and th
 early-layer variance stays high relative to the late layers. The ratio of those
 two variances is a cheap proxy for ``did the model converge?''
 
-\begin{figure}[t]
+\begin{figure}[htbp]
 \centering
 \begin{tikzpicture}[font=\small\sffamily]
   % left: not converged (high early variance)
   \begin{scope}[xshift=0cm]
-    \node[font=\bfseries\sffamily, text=cbPitfall!75!black] at (1.6,4.3) {Unstable reading};
-    \node[font=\scriptsize, text=cbInk!70] at (1.6,3.95) {early layers scattered $\Rightarrow$ high $c_{\text{conv}}$};
+    \node[font=\bfseries\sffamily, text=cbPitfall!75!black] at (1.6,4.6) {Unstable reading};
+    \node[font=\scriptsize, text=cbInk!70] at (1.6,4.2) {early layers scattered $\Rightarrow$ high $c_{\text{conv}}$};
     % early layers (scattered dots)
     \foreach \y/\jit in {3.2/0.5, 2.9/-0.4, 3.05/0.35, 2.75/-0.55, 3.25/0.15}
       \filldraw[cbPitfall!70] (1.6+\jit,\y) circle (1.6pt);
@@ -156,8 +156,8 @@ two variances is a cheap proxy for ``did the model converge?''
   \end{scope}
   % right: converged (low late variance)
   \begin{scope}[xshift=6.2cm]
-    \node[font=\bfseries\sffamily, text=cbExample!60!black] at (1.6,4.3) {Stable reading};
-    \node[font=\scriptsize, text=cbInk!70] at (1.6,3.95) {late layers tight $\Rightarrow$ low $c_{\text{conv}}$};
+    \node[font=\bfseries\sffamily, text=cbExample!60!black] at (1.6,4.6) {Stable reading};
+    \node[font=\scriptsize, text=cbInk!70] at (1.6,4.2) {late layers tight $\Rightarrow$ low $c_{\text{conv}}$};
     \foreach \y/\jit in {3.2/0.45, 2.9/-0.35, 3.05/0.3, 2.75/-0.5, 3.25/0.1}
       \filldraw[cbExample!70] (1.6+\jit,\y) circle (1.6pt);
     \node[font=\scriptsize,text=cbInk!60,anchor=west] at (2.5,3.0) {early};
@@ -232,7 +232,7 @@ leaves the value untouched; a larger temperature softens an overconfident raw
 distribution toward the diagonal of the reliability diagram.
 \end{precise}
 
-\begin{figure}[t]
+\begin{figure}[htbp]
 \centering
 \begin{tikzpicture}[
   font=\small\sffamily,

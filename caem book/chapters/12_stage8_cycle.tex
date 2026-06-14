@@ -46,7 +46,7 @@ A cycle boundary is not one action but an ordered block, and the order is load-b
 \Cref{fig:cycle-master} lays out the full sequence; the sections that follow open each
 part.
 
-\begin{figure}[t]
+\begin{figure}[htbp]
 \centering
 \begin{tikzpicture}[
   font=\small\sffamily,
@@ -54,8 +54,8 @@ part.
     line width=0.9pt, align=center, inner sep=4pt, text width=10.5cm, font=\footnotesize, minimum height=0.7cm},
   trn/.style={rectangle, rounded corners=4pt, draw=cbExample!70!black, fill=cbExample!10,
     line width=1pt, align=center, inner sep=4pt, text width=10.5cm, font=\footnotesize, minimum height=0.7cm},
-  fork/.style={diamond, aspect=2.6, draw=cbPitfall!75!black, fill=cbPitfall!10,
-    line width=1pt, align=center, inner sep=1pt, font=\scriptsize, text width=3.2cm},
+  fork/.style={diamond, aspect=2.2, draw=cbPitfall!75!black, fill=cbPitfall!10,
+    line width=1pt, align=center, inner sep=1pt, font=\scriptsize, text width=2.6cm},
   bnd/.style={rectangle, rounded corners=4pt, draw=cbFormula!70!black, fill=cbFormula!8,
     line width=1pt, align=center, inner sep=4pt, text width=10.5cm, font=\footnotesize, minimum height=0.7cm},
   flow/.style={-{Stealth[length=2.2mm]}, line width=1pt, draw=cbInk!75},
@@ -63,14 +63,14 @@ part.
 ]
   \node[inf] (a) at (0,5.0) {\textbf{Score the calibration fold} under the current model};
   \node[trn] (b) at (0,4.1) {\textbf{Fine-tune (LoRA)} on collected verified episodes ($\ustored\ge0.70$)};
-  \node[fork] (g) at (-3.6,2.9) {retention\\guard\\{\scriptsize worst probe $\ge 0.93$?}};
+  \node[fork] (g) at (-3.0,2.9) {retention\\guard\\{\scriptsize worst probe $\ge 0.93$?}};
   \node[bnd] (c) at (0,1.7) {\textbf{Recalibrate}: refit temperature + composite, reload};
   \node[bnd] (d) at (0,0.8) {\textbf{Retro-verify} memory under the fresh calibration};
   \node[inf] (e) at (0,-0.1) {\textbf{Grow memory} with a fresh disjoint query chunk \;(always)};
   \node[inf] (f) at (0,-1.0) {\textbf{Evaluate} on held-out data, no storage \;(always)};
   \node[fork, draw=cbNumbers!75!black, fill=cbNumbers!12, text=cbNumbers!65!black] (h) at (0,-2.3)
     {early-stop?\\{\scriptsize 2 of 3 signals}};
-  \node[bnd, text width=2.4cm, fill=cbInk!6, draw=cbInk!55] (revert) at (-6.0,2.9) {roll back to\\last good adapter};
+  \node[bnd, text width=2.4cm, fill=cbInk!6, draw=cbInk!55] (revert) at (-7.2,2.9) {roll back to\\last good adapter};
 
   \draw[flow] (a) -- (b);
   \draw[flow] (b) -- (g);
@@ -114,7 +114,7 @@ fall back to the bare answer or are filtered out, so the loop never trains on de
 text.
 \end{precise}
 
-\begin{figure}[t]
+\begin{figure}[htbp]
 \centering
 \resizebox{\textwidth}{!}{%
 \begin{tikzpicture}[
@@ -200,7 +200,7 @@ adapter over a penalised full update is the cleaner way to bound forgetting, and
 why the loss in the listing is plain cross-entropy.
 \end{pitfall}
 
-\begin{figure}[t]
+\begin{figure}[htbp]
 \centering
 \begin{tikzpicture}[font=\small\sffamily]
 \begin{axis}[
@@ -270,7 +270,7 @@ AND over the probes: all three must hold above the floor for the cycle to commit
 collapse on any single ability vetoes the update.
 \end{precise}
 
-\begin{figure}[t]
+\begin{figure}[htbp]
 \centering
 \begin{tikzpicture}
 \begin{axis}[
@@ -281,12 +281,12 @@ collapse on any single ability vetoes the update.
   ymin=0.7, ymax=1.08, ylabel={retention ratio (post / pristine)},
   ytick={0.7,0.8,0.9,0.93,1.0}, font=\small\sffamily, tick label style={font=\scriptsize},
   ymajorgrids, grid style={cbInk!8},
-  nodes near coords, nodes near coords style={font=\scriptsize, /pgf/number format/fixed, /pgf/number format/precision=3},
+  nodes near coords, nodes near coords style={font=\scriptsize, fill=white, inner sep=1.5pt, /pgf/number format/fixed, /pgf/number format/precision=3},
 ]
-  \addplot[draw=cbExample!60!black, fill=cbExample!25] coordinates {
-    (general-knowledge,1.018) (open-text factoid,0.886) (commonsense,0.982) };
   \draw[cbPitfall!75!black, dashed, line width=1.2pt] (axis cs:general-knowledge,0.93) -- (axis cs:commonsense,0.93);
   \node[font=\scriptsize, text=cbPitfall!70!black, anchor=east] at (axis cs:commonsense,0.945) {floor $\rho_{\min}=0.93$};
+  \addplot[draw=cbExample!60!black, fill=cbExample!25] coordinates {
+    (general-knowledge,1.018) (open-text factoid,0.886) (commonsense,0.982) };
 \end{axis}
 \end{tikzpicture}
 \caption[The retention guard firing at cycle four]{The three retention probes measured

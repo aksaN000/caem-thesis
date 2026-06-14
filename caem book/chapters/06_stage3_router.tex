@@ -77,7 +77,7 @@ query that misses that rung but whose \emph{similarity alone} exceeds
 $\theta_{\text{sim}} = 0.75$ is generated zero-shot (Tier 2); anything else falls
 through toward retrieval (Tier 3), subject to the classifier interception.
 
-\begin{table}[t]
+\begin{table}[htbp]
 \centering
 \caption[Dispatch rules in order of evaluation]{The router's dispatch rules,
 evaluated top to bottom; the first matching rule wins. The classifier of
@@ -146,7 +146,7 @@ high, comfortably above $0.75$, so the query routes to Tier 2 and the model gene
 fresh answer for a question it has clearly seen before. The router declines to reuse the
 \emph{answer} while still exploiting the \emph{familiarity}.
 
-\begin{figure}[t]
+\begin{figure}[htbp]
 \centering
 \begin{tikzpicture}[scale=6.0, font=\small\sffamily]
   % region fills
@@ -263,7 +263,7 @@ near-verbatim repeats rather than a high-traffic path. The five-scenario walkthr
 still names every route the router can take; the deployed shares simply tell us which
 of those routes carry the traffic.
 
-\begin{figure}[t]
+\begin{figure}[htbp]
 \centering
 \begin{tikzpicture}
 \begin{axis}[

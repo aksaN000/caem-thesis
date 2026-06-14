@@ -61,7 +61,7 @@ blended toward a shared curve to avoid overfitting. Third, the per-signal
 probabilities are combined into one score through a learned weighting. We take each
 step in turn.
 
-\begin{figure}[t]
+\begin{figure}[htbp]
 \centering
 \resizebox{\textwidth}{!}{%
 \begin{tikzpicture}[
@@ -142,7 +142,7 @@ at least fifty calibration points to earn a curve at all; below that it is dropp
 contributes nothing.
 \end{precise}
 
-\begin{figure}[t]
+\begin{figure}[htbp]
 \centering
 \begin{tikzpicture}
 \begin{axis}[
@@ -152,7 +152,7 @@ contributes nothing.
   xmin=0, xmax=1, ymin=-0.08, ymax=1.08,
   xtick={0,0.25,0.5,0.75,1}, ytick={0,0.25,0.5,0.75,1},
   axis lines=left, font=\small\sffamily, tick label style={font=\scriptsize},
-  legend style={at={(0.03,0.97)}, anchor=north west, draw=cbInk!25, font=\scriptsize, fill=white},
+  legend style={at={(0.97,0.05)}, anchor=south east, draw=cbInk!25, font=\scriptsize, fill=white},
   grid=both, grid style={cbInk!8},
 ]
   % schematic 0/1 cloud (the underlying fold points are not stored; shown for intuition)
@@ -193,7 +193,7 @@ it fits a non-increasing one. No hand-coded table of per-signal directions is ne
 \Cref{fig:signflip} shows the same relevance signal calibrated in opposite directions
 on the two benchmarks.
 
-\begin{figure}[t]
+\begin{figure}[htbp]
 \centering
 \begin{tikzpicture}
 \begin{axis}[
@@ -283,7 +283,7 @@ robustness on the benchmarks that need it without surrendering adaptation on the
 that can afford it.
 \end{bythenumbers}
 
-\begin{figure}[t]
+\begin{figure}[htbp]
 \centering
 \begin{tikzpicture}
 \begin{axis}[
@@ -291,7 +291,7 @@ that can afford it.
   xlabel={raw $\pgmax$ (grounding) on the commonsense fold}, ylabel={$P(\text{correct})$},
   xmin=0,xmax=1, ymin=0.3,ymax=1, xtick={0,0.25,0.5,0.75,1}, ytick={0.5,0.75,1},
   axis lines=left, font=\small\sffamily, tick label style={font=\scriptsize},
-  legend style={at={(0.03,0.97)}, anchor=north west, draw=cbInk!25, font=\scriptsize, fill=white},
+  legend style={at={(0.97,0.05)}, anchor=south east, draw=cbInk!25, font=\scriptsize, fill=white},
   grid=both, grid style={cbInk!8},
 ]
   % REAL reconstructed pure-local commonsense curve (alpha=1): local=(deployed-0.4*pooled)/0.6
@@ -385,7 +385,7 @@ the plain log-odds sum, correcting only what the data clearly support and refusi
 chase noise on a small fold.
 \end{precise}
 
-\begin{figure}[t]
+\begin{figure}[htbp]
 \centering
 \begin{tikzpicture}
 \begin{axis}[
@@ -495,7 +495,7 @@ It is then \emph{re-fitted at every cycle boundary that commits}, on the same fo
 \emph{re-scored under the updated model}. \Cref{fig:composite-train} draws the two
 lanes.
 
-\begin{figure}[t]
+\begin{figure}[htbp]
 \centering
 \resizebox{\textwidth}{!}{%
 \begin{tikzpicture}[
@@ -531,7 +531,7 @@ lanes.
   \draw[flow] (sigm) -- (u);
   % JSON feeds apply
   \draw[flow, draw=cbInk!55, dashed] (json.south) -- ++(0,-0.5) -| (apply.north)
-    node[pos=0.25, right, font=\scriptsize, text=cbInk!60] {load frozen curves + weights};
+    node[pos=0.25, above, font=\scriptsize, text=cbInk!60] {load frozen curves + weights};
 \end{tikzpicture}}
 \caption[Fit-time versus predict-time]{The two phases. At fit-time (top) the labelled
 calibration fold is used to estimate the isotonic curves and then the boost weights,
@@ -617,19 +617,19 @@ Now the second job. The gate reads $\ustored$ and commits to one of four actions
 is deliberately a short cascade of fixed thresholds, because the number it reads is
 already a calibrated probability.
 
-\begin{figure}[t]
+\begin{figure}[htbp]
 \centering
 \begin{tikzpicture}[
   font=\small\sffamily,
-  dec/.style={diamond, aspect=2.2, draw=cbFormula!75!black, fill=cbFormula!10,
-    line width=1pt, align=center, inner sep=1pt, font=\footnotesize, text width=2.5cm},
+  dec/.style={diamond, aspect=2.8, draw=cbFormula!75!black, fill=cbFormula!10,
+    line width=1pt, align=center, inner sep=1pt, font=\footnotesize, text width=3.0cm},
   act/.style={rectangle, rounded corners=4pt, line width=1pt, align=center,
     inner sep=4pt, font=\footnotesize, minimum height=0.8cm, text width=2.2cm,
     drop shadow={shadow xshift=0.3ex, shadow yshift=-0.3ex, fill=black!10}},
   flow/.style={-{Stealth[length=2.2mm]}, line width=1pt, draw=cbInk!75},
 ]
   \node[dec, draw=cbPitfall!75!black, fill=cbPitfall!10] (ee) at (0,3.2)
-    {early-exit?\\{\scriptsize $\uint{\ge}0.70 \wedge \pgmax{\le}0.20$}};
+    {early-exit?\\{\scriptsize $\uint{\ge}0.70 \wedge$\\[-1pt]$\pgmax{\le}0.20$}};
   \node[dec] (st) at (0,1.4) {$\ustored \ge 0.60$?};
   \node[dec] (df) at (0,-0.4) {$\ustored \ge 0.45$?};
   \node[dec] (ab) at (0,-2.2) {$\pgmax < 0.20$?};

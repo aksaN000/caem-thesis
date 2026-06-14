@@ -29,7 +29,7 @@ and answer, wrapped in the metadata that lets the rest of the system reason abou
 it. The fields fall into three groups, and the grouping is not cosmetic, because the
 groups have different mutability rules.
 
-\begin{table}[t]
+\begin{table}[htbp]
 \centering
 \caption[Anatomy of an episode]{The fields of a stored episode, by group. Content
 is frozen at storage time because the fine-tune of \Cref{ch:cycle} trains directly
@@ -265,7 +265,7 @@ treatment belongs to that chapter.
   whereas the novelty gate rejects only near-identical restatements at the door.
 \end{description}
 
-\begin{figure}[t]
+\begin{figure}[htbp]
 \centering
 \begin{tikzpicture}[
   font=\small\sffamily,
@@ -281,7 +281,7 @@ treatment belongs to that chapter.
   flow/.style={-{Stealth[length=2.4mm]}, line width=1.1pt, draw=cbInk!75},
   gone/.style={-{Stealth[length=2.4mm]}, line width=1.1pt, draw=cbPitfall!75, dashed},
 ]
-  \node[fin] (gate) at (-3.2,0) {gate says\\\textbf{store}};
+  \node[fin] (gate) at (-4.2,0) {gate says\\\textbf{store}};
   \node[ep]  (live) at (0.4,0) {\textbf{Live episode}\\in the store};
   % feedback self-loop
   \node[act] (fb) at (0.4,2.3) {served $\to$ trust nudge,\\usage stats};
@@ -294,15 +294,15 @@ treatment belongs to that chapter.
   \node[fin, draw=cbPitfall!60, text=cbPitfall!70!black] (rm) at (9.0,-0.9) {removed};
 
   \draw[flow] (gate) -- node[above,font=\scriptsize,text=cbInk!60]{novelty $\le 0.95$} (live);
-  \draw[flow] (live.north) to[bend left=22] (fb.east);
-  \draw[flow] (fb.west) to[bend left=22] (live.north west);
+  \draw[flow] (live.30) to[bend right=25] (fb.330);
+  \draw[flow] (fb.210) to[bend right=25] (live.150);
   \draw[flow] (live) |- (retro);
   \draw[flow] (live) -- (cons);
   \draw[flow] (live) |- (prune);
   \draw[flow] (retro) -| node[pos=0.25,above,font=\scriptsize,text=cbExample!55!black]{pass} (rep.north west);
-  \draw[gone] (retro) -- node[pos=0.55,above,font=\scriptsize,text=cbPitfall!70!black]{below floor} (rm);
+  \draw[gone] (retro) -- node[pos=0.2,above right,font=\scriptsize,text=cbPitfall!70!black]{below floor} (rm);
   \draw[flow] (cons) -- (rep);
-  \draw[gone] (cons) -- node[pos=0.5,above,font=\scriptsize,text=cbPitfall!70!black]{non-rep} (rm);
+  \draw[gone] (cons) -- node[pos=0.2,below right,font=\scriptsize,text=cbPitfall!70!black]{non-rep} (rm);
   \draw[gone] (prune) -- (rm);
 \end{tikzpicture}
 \caption[The life of an episode]{The life of an episode. It is admitted only if it

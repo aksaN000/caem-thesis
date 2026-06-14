@@ -26,7 +26,7 @@ diversity of the panel.
 The signals group into four families, each probing a different way an answer can be
 wrong. \Cref{fig:families} is the map to keep in view for the whole chapter.
 
-\begin{figure}[t]
+\begin{figure}[htbp]
 \centering
 \begin{tikzpicture}[
   font=\small\sffamily,
@@ -54,7 +54,10 @@ wrong. \Cref{fig:families} is the map to keep in view for the whole chapter.
      {\footnotesize Does it answer the question?}\\[3pt]
      {\footnotesize $\qarel$}};
   \node[core] (comp) at (3.2,-3.0) {to the calibrated composite (\Cref{ch:composite})};
-  \foreach \f in {f1,f2,f3,f4} \draw[flow] (\f) -- (comp);
+  \draw[flow] (f1.south east) -- (comp.110);
+  \draw[flow] (f2.south west) -- (comp.70);
+  \draw[flow] (f3.south east) -- (comp.150);
+  \draw[flow] (f4.south west) -- (comp.30);
 \end{tikzpicture}
 \caption[The four signal families]{The nine headline signals, grouped into four
 families, each probing a different failure mode. Every family feeds the calibrated
@@ -84,7 +87,7 @@ from a small number of shared generations. The key economy is that the model is
 made to answer the same query a few times, and those few generations are reused
 across multiple signals. \Cref{fig:verifier-flow} traces the production.
 
-\begin{figure}[t]
+\begin{figure}[htbp]
 \centering
 \resizebox{\textwidth}{!}{%
 \begin{tikzpicture}[
@@ -116,18 +119,18 @@ across multiple signals. \Cref{fig:verifier-flow} traces the production.
 
   \node[inp, text width=2.2cm] (out) at (11.6,0) {nine composite signals\\{\footnotesize(+ recorded diagnostics)}};
 
-  \draw[flow] (qa) -- (mchain);
-  \draw[flow] (qa) -- (drop);
-  \draw[flow] (qa) -- (ret);
-  \draw[flow] (mchain) -- (savg);
-  \draw[flow] (mchain) -- (pent);
-  \draw[flow] (mchain) -- (ehead);
-  \draw[flow] (drop) -- (utok);
-  \draw[flow] (drop) -- (udro);
-  \draw[flow] (ret) -- (pg);
-  \draw[flow] (ret) -- (qar);
-  \draw[flow] (ret) -- (alias);
-  \foreach \s in {savg,pent,ehead,utok,udro,pg,qar,alias} \draw[flow] (\s) -- (out);
+  \draw[flow] (qa.east) -- (mchain.west);
+  \draw[flow] (qa.east) -- (drop.west);
+  \draw[flow] (qa.east) -- (ret.west);
+  \draw[flow] (mchain.east) -- (savg.west);
+  \draw[flow] (mchain.east) -- (pent.west);
+  \draw[flow] (mchain.east) -- (ehead.west);
+  \draw[flow] (drop.east) -- (utok.west);
+  \draw[flow] (drop.east) -- (udro.west);
+  \draw[flow] (ret.east) -- (pg.west);
+  \draw[flow] (ret.east) -- (qar.west);
+  \draw[flow] (ret.east) -- (alias.west);
+  \foreach \s in {savg,pent,ehead,utok,udro,pg,qar,alias} \draw[flow] (\s.east) -- (out.west);
 \end{tikzpicture}}
 \caption[The verifier data flow]{The verifier produces all signals from three
 shared computations: one generation of $M{=}3$ reasoning chains (reused by three
@@ -219,7 +222,7 @@ three, and scores the canonical answer against those three passages with the
 natural-language-inference judge. Three signals read the result, and they differ in
 how forgiving they are.
 
-\begin{figure}[t]
+\begin{figure}[htbp]
 \centering
 \begin{tikzpicture}[
   font=\small\sffamily,
@@ -228,7 +231,7 @@ how forgiving they are.
   pass/.style={rectangle, rounded corners=3pt, draw=cbExample!60!black, fill=cbExample!8,
     line width=0.9pt, align=left, inner sep=4pt, text width=2.6cm, font=\footnotesize},
   res/.style={rectangle, rounded corners=3pt, draw=cbFormula!70!black, fill=cbFormula!10,
-    line width=0.9pt, align=center, inner sep=4pt, text width=3.4cm, font=\footnotesize},
+    line width=0.9pt, align=center, inner sep=4pt, text width=4.5cm, font=\footnotesize},
   atom/.style={rectangle, rounded corners=2pt, draw=cbNumbers!70!black, fill=cbNumbers!10,
     line width=0.8pt, align=left, inner sep=3pt, text width=3.0cm, font=\scriptsize},
 ]
@@ -279,7 +282,7 @@ The grounding and entailment signals all rest on a judge that scores whether a
 premise entails a hypothesis. \caem{} uses two judges and dispatches between them by
 the length of the hypothesis, as \Cref{fig:nli-dispatch} shows.
 
-\begin{figure}[t]
+\begin{figure}[htbp]
 \centering
 \begin{tikzpicture}[font=\small\sffamily]
   % token budget bar
@@ -364,9 +367,9 @@ best passage barely supports the answer, the verifier short-circuits, returning 
 discard verdict and sending the query to regeneration without computing the
 composite at all.
 
-\begin{figure}[t]
+\begin{figure}[htbp]
 \centering
-\begin{tikzpicture}[scale=5.4, font=\small\sffamily]
+\begin{tikzpicture}[xscale=7.0, yscale=6.0, font=\small\sffamily]
   % danger region: u_internal >= 0.70 AND p_ground_max <= 0.20
   \fill[cbPitfall!18] (0.70,0) rectangle (1.0,0.20);
   \fill[cbExample!8] (0,0.20) rectangle (1.0,1.0);
@@ -380,7 +383,7 @@ composite at all.
   \foreach \x in {0.5,0.7,1.0} \draw[cbInk!40] (\x,0) -- (\x,-0.02) node[below,font=\scriptsize]{\x};
   \foreach \y in {0.2,0.5,1.0} \draw[cbInk!40] (0,\y) -- (-0.02,\y) node[left,font=\scriptsize]{\y};
   % labels
-  \node[font=\footnotesize\bfseries, text=cbPitfall!70!black, align=center] at (0.85,0.10) {confabulation\\DISCARD + regenerate};
+  \node[font=\scriptsize\bfseries, text=cbPitfall!70!black, align=center] at (0.85,0.10) {confabulation\\DISCARD\\+ regenerate};
   \node[font=\footnotesize, text=cbExample!45!black, align=center] at (0.40,0.62) {proceed to the composite (\Cref{ch:composite})};
 \end{tikzpicture}
 \caption[The confabulation early-exit]{The one hard gate inside Stage 5. When
@@ -418,18 +421,18 @@ the panel gracefully rather than crashing it or silently scoring zero.
 The two readings we have followed since \Cref{ch:bigpicture} diverge sharply at this
 stage, and \Cref{fig:fingerprint} plots their reported signal values side by side.
 
-\begin{figure}[t]
+\begin{figure}[htbp]
 \centering
 \begin{tikzpicture}
 \begin{axis}[
   width=7.6cm, height=6.0cm,
   ybar, bar width=10pt,
   symbolic x coords={ground-max, s-avg, q-rel, composite},
-  xtick=data, x tick label style={rotate=30, anchor=east, font=\scriptsize},
+  xtick=data, x tick label style={rotate=35, anchor=north east, font=\scriptsize},
   ymin=0, ymax=1, ylabel={signal value}, font=\small\sffamily,
   tick label style={font=\scriptsize}, title={\footnotesize FEVER claim (deferred, later stored; illustrative)},
   ymajorgrids, grid style={cbInk!8},
-  nodes near coords, nodes near coords style={font=\tiny, /pgf/number format/fixed, /pgf/number format/precision=2},
+  nodes near coords, nodes near coords style={font=\tiny, /pgf/number format/fixed, /pgf/number format/precision=2, yshift=1pt},
 ]
   \addplot[draw=cbExample!60!black, fill=cbExample!30] coordinates {
     (ground-max,0.94) (s-avg,0.85) (q-rel,0.69) (composite,0.51) };
@@ -440,11 +443,11 @@ stage, and \Cref{fig:fingerprint} plots their reported signal values side by sid
   width=7.6cm, height=6.0cm,
   ybar, bar width=10pt,
   symbolic x coords={u-token, s-avg, p-entail, ground-max, ground-atom, q-rel, composite},
-  xtick=data, x tick label style={rotate=30, anchor=east, font=\scriptsize},
+  xtick=data, x tick label style={rotate=35, anchor=north east, font=\scriptsize},
   ymin=0, ymax=1, font=\small\sffamily,
   tick label style={font=\scriptsize}, title={\footnotesize trivia question (abstained, deployed reading)},
   ymajorgrids, grid style={cbInk!8},
-  nodes near coords, nodes near coords style={font=\tiny, /pgf/number format/fixed, /pgf/number format/precision=2},
+  nodes near coords, nodes near coords style={font=\tiny, /pgf/number format/fixed, /pgf/number format/precision=2, yshift=1pt},
 ]
   \addplot[draw=cbPitfall!70!black, fill=cbPitfall!25] coordinates {
     (u-token,0.02) (s-avg,0.80) (p-entail,0.12) (ground-max,0.11) (ground-atom,0.09) (q-rel,0.50) (composite,0.13) };

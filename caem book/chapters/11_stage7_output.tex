@@ -94,7 +94,7 @@ calibrated score $\ustored$. The envelope carries six things alongside the answe
   \item[A caveat.] An optional hedge sentence appropriate to the verdict.
 \end{description}
 
-\begin{table}[t]
+\begin{table}[htbp]
 \centering
 \caption[The confidence envelope]{How each verdict is rendered. The four verdicts map
 to four distinct user-facing presentations, not to four points on a single confidence
@@ -114,39 +114,39 @@ ABSTAIN & insufficient & very low & cross & ``I do not know.'' (the answer is hi
 \end{tabularx}
 \end{table}
 
-\begin{figure}[t]
+\begin{figure}[htbp]
 \centering
 \begin{tikzpicture}[
   font=\small\sffamily,
   card/.style={rectangle, rounded corners=5pt, line width=1.2pt, align=left,
-    inner sep=7pt, text width=6.0cm, minimum height=2.3cm,
+    inner sep=7pt, text width=6.2cm, minimum height=2.3cm,
     drop shadow={shadow xshift=0.4ex, shadow yshift=-0.4ex, fill=black!12}},
 ]
   % STORE / verified
   \node[card, draw=cbExample!70!black, fill=cbExample!6] (c1) at (0,0) {
     {\large\color{cbExample!55!black}$\checkmark$}\;\textbf{\color{cbExample!50!black}verified}
-    \hfill {\color{cbInk!60}\footnotesize high $\cdot$ 70\%}\\[3pt]
-    {\footnotesize\color{cbInk!70}\itshape Roquefort Cheese is made from what sort of milk?}\\[2pt]
-    {\large sheep's milk.}};
+    \hfill {\color{cbInk!60}\footnotesize high $\cdot$ 70\%}\par\vspace{5pt}
+    {\footnotesize\color{cbInk!70}\itshape Roquefort Cheese is made from what sort of milk?\par}\vspace{4pt}
+    {\large sheep's milk.\par}};
   % DEFERRED / provisional
-  \node[card, draw=cbScenario!70!black, fill=cbScenario!6] (c2) at (7.2,0) {
+  \node[card, draw=cbScenario!70!black, fill=cbScenario!6] (c2) at (7.4,0) {
     {\large\color{cbScenario!55!black}$\sim$}\;\textbf{\color{cbScenario!50!black}provisional}
-    \hfill {\color{cbInk!60}\footnotesize moderate $\cdot$ 55\%}\\[3pt]
-    {\footnotesize\color{cbInk!70}\itshape What was President Gerald Ford's middle name?}\\[2pt]
-    {\large Rudolph.}\\[2pt]
-    {\footnotesize\color{cbInk!60} I'll reconsider this at my next learning cycle. Please ask again later for an updated answer.}};
+    \hfill {\color{cbInk!60}\footnotesize moderate $\cdot$ 55\%}\par\vspace{5pt}
+    {\footnotesize\color{cbInk!70}\itshape What was President Gerald Ford's middle name?\par}\vspace{4pt}
+    {\large Rudolph.\par}\vspace{3pt}
+    {\footnotesize\color{cbInk!60} I'll reconsider this at my next learning cycle. Please ask again later for an updated answer.\par}};
   % DISCARD / conflicting
-  \node[card, draw=cbNumbers!75!black, fill=cbNumbers!6] (c3) at (0,-3.0) {
+  \node[card, draw=cbNumbers!75!black, fill=cbNumbers!6] (c3) at (0,-3.4) {
     {\large\color{cbNumbers!70!black}$!$}\;\textbf{\color{cbNumbers!65!black}conflicting}
-    \hfill {\color{cbInk!60}\footnotesize low $\cdot$ 40\%}\\[3pt]
-    {\large\color{cbInk!45} (answer withheld)}\\[2pt]
-    {\footnotesize\color{cbInk!60} Evidence exists but some signals disagree, independent verification is recommended.}};
+    \hfill {\color{cbInk!60}\footnotesize low $\cdot$ 40\%}\par\vspace{6pt}
+    {\large\color{cbInk!45} (answer withheld)\par}\vspace{4pt}
+    {\footnotesize\color{cbInk!60} Evidence exists but some signals disagree, independent verification is recommended.\par}};
   % ABSTAIN / insufficient
-  \node[card, draw=cbPitfall!70!black, fill=cbPitfall!6] (c4) at (7.2,-3.0) {
+  \node[card, draw=cbPitfall!70!black, fill=cbPitfall!6] (c4) at (7.4,-3.4) {
     {\large\color{cbPitfall!65!black}$\times$}\;\textbf{\color{cbPitfall!60!black}insufficient}
-    \hfill {\color{cbInk!60}\footnotesize very low}\\[3pt]
-    {\large I do not know.}\\[2pt]
-    {\footnotesize\color{cbInk!60} no supporting evidence was found.}};
+    \hfill {\color{cbInk!60}\footnotesize very low}\par\vspace{6pt}
+    {\large I do not know.\par}\vspace{4pt}
+    {\footnotesize\color{cbInk!60} no supporting evidence was found.\par}};
 \end{tikzpicture}
 \caption[What the user actually sees]{The four verdicts rendered as user-facing cards. The
 \emph{verified} and \emph{provisional} cards reproduce real deployed cycle-three records;

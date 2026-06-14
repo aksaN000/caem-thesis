@@ -127,7 +127,7 @@ cycle.
   external systems do produce decay into one-shot interventions.
 \end{itemize}
 
-\begin{figure}[t]
+\begin{figure}[htbp]
 \centering
 \begin{tikzpicture}[
   font=\small\sffamily,
@@ -137,24 +137,24 @@ cycle.
     fill=black!12}},
   rel/.style={-{Stealth[length=3mm]}, line width=1.1pt, draw=black!50},
 ]
-  \node[flaw=cbIntuition] (state) at (90:3.1) {\textbf{Stateless}\\[2pt]
+  \node[flaw=cbIntuition] (state) at (90:3.8) {\textbf{Stateless}\\[2pt]
     {\footnotesize no verified answer is retained}};
-  \node[flaw=cbPitfall]   (conf)  at (210:3.1) {\textbf{Overconfident}\\[2pt]
+  \node[flaw=cbPitfall]   (conf)  at (210:3.8) {\textbf{Overconfident}\\[2pt]
     {\footnotesize cannot tell right from wrong}};
-  \node[flaw=cbExample]   (static)at (330:3.1) {\textbf{Static}\\[2pt]
+  \node[flaw=cbExample]   (static)at (330:3.8) {\textbf{Static}\\[2pt]
     {\footnotesize verification never compounds}};
   \node[circle, draw=black!25, fill=black!3, line width=0.8pt,
         text width=1.7cm, align=center, font=\scriptsize] (c) at (0,0)
     {the\\ reinforcing\\ cycle};
 
-  \draw[rel] (state) to[bend left=20]
-    node[midway,right,text width=2.5cm,align=left,font=\scriptsize]
+  \draw[rel] (state) to[bend left=15]
+    node[midway, above left=2mm, text width=2.5cm, align=right, font=\scriptsize]
     {no memory, so nothing to calibrate about} (conf);
-  \draw[rel] (conf) to[bend left=20]
-    node[midway,below,text width=2.8cm,align=center,font=\scriptsize]
+  \draw[rel] (conf) to[bend left=15]
+    node[midway, below=2mm, text width=2.8cm, align=center, font=\scriptsize]
     {cannot spot gaps, so cannot target learning} (static);
-  \draw[rel] (static) to[bend left=20]
-    node[midway,left,text width=2.5cm,align=right,font=\scriptsize]
+  \draw[rel] (static) to[bend left=15]
+    node[midway, above right=2mm, text width=2.5cm, align=left, font=\scriptsize]
     {no learning, so verified knowledge never persists} (state);
 \end{tikzpicture}
 \caption[The three-flaw cycle]{The three structural flaws form a reinforcing

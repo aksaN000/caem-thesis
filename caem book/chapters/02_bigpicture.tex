@@ -52,7 +52,7 @@ are where the model, the calibration, and the memory are merely \emph{consumed};
 Stage 8 is the only place they are \emph{changed}. \Cref{fig:two-clocks} draws
 the nesting; the rest of the chapter walks the inner clock first, then the outer.
 
-\begin{figure}[t]
+\begin{figure}[htbp]
 \centering
 \begin{tikzpicture}[
   font=\small\sffamily,
@@ -68,32 +68,32 @@ the nesting; the rest of the chapter walks the inner clock first, then the outer
     dashed},
 ]
   % outer frame
-  \node[outer, minimum width=13.2cm, minimum height=5.6cm] (O) at (0,0) {};
+  \node[outer, minimum width=14.5cm, minimum height=5.6cm] (O) at (0,0) {};
   \node[anchor=north west, font=\footnotesize\bfseries\sffamily,
         text=cbFormula!75!black] at (O.north west)
         {\,\,PER-CYCLE CLOCK \;(Stage 8): ticks a handful of times};
 
   % inner frame (the per-query pipeline)
-  \node[inner, minimum width=8.4cm, minimum height=2.5cm] (I) at (-2.0,0.45) {};
+  \node[inner, minimum width=9.2cm, minimum height=2.5cm] (I) at (-2.5,0.45) {};
   \node[anchor=north west, font=\footnotesize\bfseries\sffamily,
         text=cbIntuition!80!black] at (I.north west)
         {\,\,PER-QUERY CLOCK \;(Stages 1--7): ticks thousands of times};
-  \node[align=center, font=\footnotesize, text=cbInk!85] at (-2.0,0.2)
+  \node[align=center, font=\footnotesize, text=cbInk!85] at (-2.5,0.2)
     {one question in, one answer out\\[1pt]
      \emph{reads} weights, memory, calibration\\[1pt]
      \emph{writes} at most one episode};
 
   % cycle-boundary steps on the right
-  \node[cbstep, text width=3.0cm] (sil)  at (4.0, 1.55) {Fine-tune on verified\\answers + retention guard};
-  \node[cbstep, text width=3.0cm] (recal)at (4.0, 0.45) {Recalibrate verifier\\+ retro-verify memory};
-  \node[cbstep, text width=3.0cm] (grow) at (4.0,-0.65) {Grow memory with\\fresh-data stream};
+  \node[cbstep, text width=3.8cm] (sil)  at (5.0, 1.8) {Fine-tune on verified\\answers + retention guard};
+  \node[cbstep, text width=3.8cm] (recal)at (5.0, 0.45) {Recalibrate verifier\\+ retro-verify memory};
+  \node[cbstep, text width=3.8cm] (grow) at (5.0,-0.9) {Grow memory with\\fresh-data stream};
 
   % flows
   \draw[flow] (I.east) -- ++(0.5,0) |- (sil.west);
   \draw[flow] (sil) -- (recal);
   \draw[flow] (recal) -- (grow);
-  \draw[carry] (grow.south) |- ($(I.south)+(0,-0.55)$)
-        node[pos=0.75, below, font=\scriptsize, text=cbExample!60!black]
+  \draw[carry] (grow.south) |- ($(I.south)+(0,-0.95)$)
+        node[pos=0.55, below, font=\scriptsize, text=cbExample!60!black, text width=7cm, align=center]
         {updated weights, memory, calibration carried into next cycle}
         -- (I.south);
 \end{tikzpicture}
@@ -113,28 +113,28 @@ structured record. Everything between is a fixed sequence of stages.
 \Cref{fig:master-pipeline} is the master diagram of the book; it is worth a long
 look, because every chapter in Parts II and III is a zoom into one of its boxes.
 
-\begin{figure}[t]
+\begin{figure}[htbp]
 \centering
 \resizebox{\textwidth}{!}{%
 \begin{tikzpicture}[
   font=\small\sffamily,
   io/.style={rectangle, rounded corners=2pt, draw=cbInk!55, fill=cbInk!6,
-    line width=1pt, align=center, inner sep=5pt, minimum height=0.9cm},
+    line width=1pt, align=center, inner sep=5pt, minimum height=1.0cm},
   front/.style={rectangle, rounded corners=4pt, draw=cbIntuition!75!black,
     fill=cbIntuition!10, line width=1pt, align=center, inner sep=5pt,
-    minimum height=1.0cm, drop shadow={shadow xshift=0.3ex,
+    minimum height=1.1cm, drop shadow={shadow xshift=0.3ex,
     shadow yshift=-0.3ex, fill=black!10}},
   mem/.style={rectangle, rounded corners=4pt, draw=cbExample!70!black,
     fill=cbExample!12, line width=1pt, align=center, inner sep=5pt,
-    minimum height=1.0cm, drop shadow={shadow xshift=0.3ex,
+    minimum height=1.1cm, drop shadow={shadow xshift=0.3ex,
     shadow yshift=-0.3ex, fill=black!10}},
   tier/.style={rectangle, rounded corners=4pt, draw=cbScenario!70!black,
     fill=cbScenario!10, line width=1pt, align=center, inner sep=4pt,
-    minimum height=0.85cm, text width=2.3cm, drop shadow={shadow xshift=0.3ex,
+    minimum height=1.0cm, text width=2.4cm, drop shadow={shadow xshift=0.3ex,
     shadow yshift=-0.3ex, fill=black!10}},
   judge/.style={rectangle, rounded corners=4pt, draw=cbFormula!70!black,
     fill=cbFormula!10, line width=1pt, align=center, inner sep=5pt,
-    minimum height=1.0cm, drop shadow={shadow xshift=0.3ex,
+    minimum height=1.1cm, drop shadow={shadow xshift=0.3ex,
     shadow yshift=-0.3ex, fill=black!10}},
   flow/.style={-{Stealth[length=2.6mm]}, line width=1.1pt, draw=cbInk!75},
   bypass/.style={-{Stealth[length=2.6mm]}, line width=1.1pt, draw=cbScenario!80,
@@ -180,17 +180,16 @@ look, because every chapter in Parts II and III is a zoom into one of its boxes.
   % tiers to verify (T2/T3) and bypass (T1)
   \draw[flow] (t2.east) -- ++(0.4,0) |- (ver.west);
   \draw[flow] (t3.east) -- ++(0.4,0) |- (ver.west);
-  \draw[bypass] (t1.east) -| (out.west)
-    node[pos=0.25, above, font=\scriptsize, text=cbScenario!70!black]
-    {no verify, no store};
+  \draw[bypass] (t1.east) -- node[above, font=\scriptsize, text=cbScenario!70!black]
+    {no verify, no store} (out.west);
 
   % verify -> gate -> output
   \draw[flow] (ver) -- (gate);
   \draw[flow] (gate.north) -- (out.south);
 
   % gate store back to memory
-  \draw[store] (gate.north) -- ++(0,0.6) -| (store.south)
-    node[pos=0.25, right, font=\scriptsize, text=cbExample!55!black]
+  \draw[store] (gate.south) -- ++(0,-1.0) -| (store.west)
+    node[pos=0.2, below, font=\scriptsize, text=cbExample!55!black]
     {store / defer};
 \end{tikzpicture}}
 \caption[The master per-query pipeline]{The per-query pipeline. A query is
@@ -411,7 +410,7 @@ and the order matters because some steps depend on the model having actually
 improved. \Cref{fig:cycle-loop} sketches the block; the precise mechanics are the
 subject of \Cref{ch:cycle}.
 
-\begin{figure}[t]
+\begin{figure}[htbp]
 \centering
 \begin{tikzpicture}[
   font=\small\sffamily,
@@ -431,13 +430,13 @@ subject of \Cref{ch:cycle}.
     {\textbf{1. Fine-tune}\\{\footnotesize LoRA on verified answers}};
   \node[fork] (guard) at (0,0.55)
     {\textbf{Retention}\\\textbf{guard}};
-  \node[commit] (recal) at (4.6,0.55)
+  \node[commit] (recal) at (5.4,0.55)
     {\textbf{2. Recalibrate +}\\\textbf{retro-verify}\\{\footnotesize commit only}};
-  \node[always] (grow) at (4.6,-1.7)
+  \node[always] (grow) at (5.4,-1.7)
     {\textbf{3. Grow memory}\\{\footnotesize fresh stream, always}};
   \node[commit] (keep) at (0,-1.7)
     {\textbf{Keep new adapter}};
-  \node[st, draw=cbInk!55, fill=cbInk!6, text width=3.5cm] (revert) at (-4.6,0.55)
+  \node[st, draw=cbInk!55, fill=cbInk!6, text width=3.5cm] (revert) at (-5.4,0.55)
     {\textbf{Roll back adapter}\\{\footnotesize memory kept}};
 
   \draw[flow] (ft) -- (guard);
@@ -445,9 +444,9 @@ subject of \Cref{ch:cycle}.
     {pass} (keep);
   \draw[no] (guard) -- node[above,font=\scriptsize,text=cbPitfall!70!black]
     {fail} (revert);
-  \draw[flow] (keep) -| (recal);
+  \draw[flow] (keep.east) -- ++(1.4,0) |- (recal.west);
   \draw[flow] (recal) -- (grow);
-  \draw[flow] (revert) |- (grow);
+  \draw[flow] (revert.south) |- ($(keep.south)+(0,-0.6)$) -| (grow.south);
 \end{tikzpicture}
 \caption[The cycle-boundary block]{The cycle boundary. The model is fine-tuned on
 its own verified answers, then a retention guard checks it has not regressed on
@@ -521,7 +520,7 @@ system its weight update for that cycle, not its progress.
 With the shape in hand, the rest of the book is a guided descent into each box.
 \Cref{tab:book-map} is the index to keep a thumb on: every stage and its chapter.
 
-\begin{table}[t]
+\begin{table}[htbp]
 \centering
 \caption[The stage-to-chapter map]{Where each stage of \Cref{fig:master-pipeline}
 and \Cref{fig:cycle-loop} is opened in full.}

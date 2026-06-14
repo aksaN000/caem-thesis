@@ -23,6 +23,17 @@
 % --- Tables, graphics, colour -----------------------------------------------
 \usepackage{graphicx}
 \usepackage{booktabs}
+% --- Float placement: keep figures/tables in the section that references them
+\usepackage{float}                  % [H] exact placement for small reference tables
+\usepackage[section]{placeins}      % \FloatBarrier before every \section (no cross-section drift)
+% Allow more floats to sit on a text page near their reference (less deferral/drift)
+\setcounter{topnumber}{4}
+\setcounter{bottomnumber}{3}
+\setcounter{totalnumber}{6}
+\renewcommand{\topfraction}{0.92}
+\renewcommand{\bottomfraction}{0.85}
+\renewcommand{\textfraction}{0.06}
+\renewcommand{\floatpagefraction}{0.65}
 \usepackage{array}
 \usepackage{multirow}
 \usepackage{tabularx}
