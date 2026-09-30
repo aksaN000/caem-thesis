@@ -26,6 +26,29 @@ All numbers in this README are anchored against the thesis report; the source lo
 
 ---
 
+## In plain terms
+
+Language models often answer confidently and wrongly. CAEM wraps a small open model (Qwen-2.5-3B) with three habits a careful person would have:
+- **It remembers answers it has already verified**, so a question it has seen before is answered from memory.
+- **It checks its own confidence** before and after answering. It uses that to decide whether to answer directly, look things up first, or hold back instead of guessing.
+- **It keeps learning without forgetting.** Periodically it fine-tunes on its own verified answers, then rolls the update back if general knowledge slips.
+
+On the training benchmarks, this raised exact-match accuracy by **20.3%** and cut hallucination by **29.4%** (relative) against the same model without CAEM.
+
+```mermaid
+flowchart LR
+    Q([Question]) --> R{"Confidence check<br/>+ memory lookup"}
+    R -->|"seen and trusted"| T1["Answer from memory"]
+    R -->|"confident"| T2["Answer directly"]
+    R -->|"unsure, retrieval helps"| T3["Answer with retrieval"]
+    T1 & T2 & T3 --> V["Verify: 9 signals to<br/>one calibrated probability"]
+    V -->|"high"| S[("Store in memory")]
+    V -->|"borderline"| D["Defer and recheck later"]
+    V -->|"low, ungrounded"| A["Abstain"]
+    S -. "each cycle" .-> L["Re-verify, consolidate,<br/>LoRA fine-tune, retention check"]
+    L -. "roll back if it forgets" .-> R
+```
+
 ## TL;DR
 
 Large language models hallucinate at deployment-relevant rates and the problem persists with scale. CAEM closes the gap with three architectural commitments: a **verified episodic memory** with a four-outcome decision (store, defer, abstain, discard) under a fixed-threshold rule on a calibrated probability composite; **confidence-aware routing** that combines memory similarity with stored quality, with an independent safety override and a **retrieval-utility classifier** (Stage 3b) that decides per query whether retrieval is expected to help; and a **constrained self-improvement loop** that fine-tunes a bounded low-rank adapter on a strict training pool under a multi-modal retention guard with asymmetric rollback.
