@@ -35,19 +35,9 @@ Language models often answer confidently and wrongly. CAEM wraps a small open mo
 
 On the training benchmarks, this raised exact-match accuracy by **20.3%** and cut hallucination by **29.4%** (relative) against the same model without CAEM.
 
-```mermaid
-flowchart LR
-    Q([Question]) --> R{"Confidence check<br/>+ memory lookup"}
-    R -->|"seen and trusted"| T1["Answer from memory"]
-    R -->|"confident"| T2["Answer directly"]
-    R -->|"unsure, retrieval helps"| T3["Answer with retrieval"]
-    T1 & T2 & T3 --> V["Verify: 9 signals to<br/>one calibrated probability"]
-    V -->|"high"| S[("Store in memory")]
-    V -->|"borderline"| D["Defer and recheck later"]
-    V -->|"low, ungrounded"| A["Abstain"]
-    S -. "each cycle" .-> L["Re-verify, consolidate,<br/>LoRA fine-tune, retention check"]
-    L -. "roll back if it forgets" .-> R
-```
+<p align="center"><img src="docs/figures/architecture.png" width="100%" alt="The eight-stage CAEM pipeline: pre-route confidence, episodic memory retrieval, three-tier router with retrieval-utility classifier, tier execution, nine-signal verifier, four-outcome storage decision, memory write, and the between-cycle self-improvement loop" /></p>
+
+<sub>The eight-stage CAEM pipeline, as in the thesis. TikZ source: <code>docs/figures/architecture.tex</code>.</sub>
 
 ## TL;DR
 
