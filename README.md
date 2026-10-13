@@ -4,7 +4,7 @@
 
 **CSE400 Final Year Thesis · BRAC University**
 
-**Authors:** Md. Aksan Gony Alif (24341256), Maliha Binte Shamim (23101466), Md. Mahmudur Rahman (22101355)
+**Authors:** Md. Aksan Gony Alif, Maliha Binte Shamim, Md. Mahmudur Rahman
 
 **Supervisor:** Dr. Md. Golam Rabiul Alam, Professor, Department of Computer Science & Engineering, BRAC University
 
