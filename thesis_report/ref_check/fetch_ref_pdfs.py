@@ -7,6 +7,9 @@ Run it in Google Colab (saves straight into Google Drive):
     drive.mount('/content/drive')
     !python fetch_ref_pdfs.py --out "/content/drive/MyDrive/CAEM refs"
 
+or paste this whole file into a Colab cell after mounting Drive and run it
+(it then saves to My Drive/CAEM refs automatically),
+
 or on any computer with Python 3.8+ and internet:
 
     python fetch_ref_pdfs.py --out "CAEM refs"
@@ -283,11 +286,14 @@ def fetch(num, short, title, sources, out, log):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--out", default="CAEM refs", help="output folder (e.g. /content/drive/MyDrive/CAEM refs)")
+    colab_drive = "/content/drive/MyDrive"
+    default_out = os.path.join(colab_drive, "CAEM refs") if os.path.isdir(colab_drive) else "CAEM refs"
+    ap.add_argument("--out", default=default_out, help="output folder (default: My Drive/CAEM refs when run in Colab)")
     ap.add_argument("--only", type=int, nargs="*", help="only these reference numbers, e.g. --only 3 5 16")
     ap.add_argument("--no-extras", action="store_true", help="skip the suggested replacement papers")
     ap.add_argument("--dry-run", action="store_true", help="list what would be fetched and exit")
-    args = ap.parse_args()
+    # parse_known_args: ignore the '-f kernel.json' Jupyter/Colab adds when the script is pasted into a cell
+    args, _ = ap.parse_known_args()
 
     items = [r for r in REFS if not args.only or r[0] in args.only]
     if not args.no_extras and not args.only:
@@ -315,4 +321,6 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    code = main()
+    if "ipykernel" not in sys.modules:  # don't raise SystemExit inside a notebook cell
+        sys.exit(code)
