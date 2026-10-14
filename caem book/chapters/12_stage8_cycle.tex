@@ -65,19 +65,23 @@ part.
   \node[trn] (b) at (0,4.1) {\textbf{Fine-tune (LoRA)} on collected verified episodes ($\ustored\ge0.70$)};
   \node[fork] (g) at (-3.0,2.9) {retention\\guard\\{\scriptsize worst probe $\ge 0.93$?}};
   \node[bnd] (c) at (0,1.7) {\textbf{Recalibrate}: refit temperature + composite, reload};
-  \node[bnd] (d) at (0,0.8) {\textbf{Retro-verify} memory under the fresh calibration};
-  \node[inf] (e) at (0,-0.1) {\textbf{Grow memory} with a fresh disjoint query chunk \;(always)};
-  \node[inf] (f) at (0,-1.0) {\textbf{Evaluate} on held-out data, no storage \;(always)};
-  \node[fork, draw=cbNumbers!75!black, fill=cbNumbers!12, text=cbNumbers!65!black] (h) at (0,-2.3)
+  \node[bnd] (d) at (0,0.8) {\textbf{Retro-verify} every stored episode under the fresh calibration};
+  \node[bnd] (d2) at (0,-0.1) {\textbf{Reconsider deferrals}: promote, expire, or keep each buffered answer};
+  \node[bnd] (d3) at (0,-1.0) {\textbf{Consolidate} near-duplicate episodes};
+  \node[inf] (e) at (0,-1.9) {\textbf{Grow memory} with a fresh disjoint query chunk \;(always)};
+  \node[inf] (f) at (0,-2.8) {\textbf{Evaluate} on held-out data, no storage \;(always)};
+  \node[fork, draw=cbNumbers!75!black, fill=cbNumbers!12, text=cbNumbers!65!black] (h) at (0,-4.2)
     {early-stop?\\{\scriptsize 2 of 3 signals}};
-  \node[bnd, text width=2.4cm, fill=cbInk!6, draw=cbInk!55] (revert) at (-7.2,2.9) {roll back to\\last good adapter};
+  \node[bnd, text width=2.4cm, fill=cbInk!6, draw=cbInk!55] (revert) at (-8.0,2.9) {roll back to\\last good adapter};
 
   \draw[flow] (a) -- (b);
   \draw[flow] (b) -- (g);
   \draw[flow] (g) -- node[right,font=\scriptsize,text=cbExample!55!black]{pass (commit)} (c);
-  \draw[no] (g) -- node[above,font=\scriptsize,text=cbPitfall!70!black]{fail (abort)} (revert);
+  \draw[no] (g) -- node[midway,above,font=\scriptsize,text=cbPitfall!70!black]{fail (abort)} (revert);
   \draw[flow] (c) -- (d);
-  \draw[flow] (d) -- (e);
+  \draw[flow] (d) -- (d2);
+  \draw[flow] (d2) -- (d3);
+  \draw[flow] (d3) -- (e);
   \draw[flow] (e) -- (f);
   \draw[flow] (f) -- (h);
   \draw[no] (revert) |- (e);
@@ -85,10 +89,12 @@ part.
 \end{tikzpicture}
 \caption[One cycle, in order]{The cycle-boundary block. The model is fine-tuned on the
 verified episodes, then the retention guard decides commit or abort. On a commit
-(green) the calibration is refit, the memory re-verified, and the cycle proceeds; on an
-abort (red) the adapter rolls back to the last good state and the commit-gated steps are
-skipped. Growing the memory with fresh data and evaluating on held-out data run
-regardless (blue). Finally the early-stop gate decides whether to begin another cycle. (Schematic.)}
+(green) the four commit-gated steps run in order (purple): the calibration is refit, the
+memory re-verified, the deferred buffer reconsidered, and near-duplicate episodes
+consolidated; on an abort (red) the adapter rolls back to the last good state and all four
+commit-gated steps are skipped. Growing the memory with fresh data and evaluating on
+held-out data run regardless (blue). Finally the early-stop gate decides whether to begin
+another cycle. (Schematic.)}
 \label{fig:cycle-master}
 \end{figure}
 
