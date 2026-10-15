@@ -84,7 +84,7 @@ The glossary collects every concept word that recurs in body prose and whose mea
 
 \item[Training-pool admission threshold (\boldmath$\tau_{\text{train}}$).] The second operating point above the storage cut-point at which a stored memory entry is admitted into the self-improvement training pool. Set at $0.70$ and held strictly greater than the storage cut-point $\tau_{\text{store}} = 0.60$ so the SIL pool is a strict refinement of the storage pool. See \Cref{sec:sil}.
 
-\item[Verifier-balanced-accuracy precondition.] The pre-registered floor on the verifier's balanced accuracy at the locked storage cut-point: a precondition of the calibration-consistent precision floor of \Cref{thm:purity}, audited at cycle zero through the composite Cohen's $d$ gate at the registered floor of $0.20$. See \Cref{sec:adj-gate}.
+\item[Verifier-balanced-accuracy precondition.] The pre-specified floor on the verifier's balanced accuracy at the locked storage cut-point: the precondition of the purification condition (\Cref{thm:bayes-purity}) on which the calibration-consistent precision floor of \Cref{thm:purity} relies, audited at cycle zero through the composite Cohen's $d$ gate at the registered floor of $0.20$. See \Cref{sec:adj-gate}.
 
 \item[Verifier ensemble.] The nine-signal post-generation block that converts a generated answer into the four-family signal vector (internal calibration, sample-set agreement, external grounding, question-answer relevance) feeding the calibrated probability composite. See \Cref{sec:verifier}.
 
@@ -110,7 +110,7 @@ The glossary collects every concept word that recurs in body prose and whose mea
 
 \item[Haiku-judged.]\nopagebreak[4] The Claude Haiku 4.5 large-language-model judge used as the truthfulness adjudicator on the TruthfulQA evaluation fold. The judge reads the question, the model's answer, the correct reference answers, and the incorrect reference answers, and returns a binary truthful-or-not verdict. The uniform Haiku-judged rule is applied to every TruthfulQA exact-match cell in the empirical chapter, including every baseline. See \Cref{sec:setup-metrics}.
 
-\item[Holm-Bonferroni.] The step-down multiple-comparison correction applied within each benchmark family of size $m = 8$ on each metric axis. Sorts the raw $p$-values ascending and multiplies the $k$-th smallest by $m - k$ under a running-maximum monotonicity constraint, clipping at one. See \Cref{sec:sig-holm}.
+\item[Holm-Bonferroni.] The step-down multiple-comparison correction applied within each benchmark family of size $m = 8$ on each metric axis. Sorts the raw $p$-values ascending and multiplies the $k$-th smallest by $m - k + 1$ under a running-maximum monotonicity constraint, clipping at one. See \Cref{sec:sig-holm}.
 
 \item[LoRA.] Low-rank adaptation. The parameter-efficient fine-tuning technique that injects trainable low-rank matrices into the seven linear projections of every transformer block of the frozen base generator at rank $32$ and alpha $64$. See \Cref{sec:sil}.
 
