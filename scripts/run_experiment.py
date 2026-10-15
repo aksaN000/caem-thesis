@@ -1710,10 +1710,22 @@ def run_experiment(ns: argparse.Namespace) -> None:
             )
 
         if cycle_result.aborted:
+            # Log the probe that actually triggered the abort (the guard is
+            # "ANY probe ratio < tolerance"), not the legacy MMLU ratio,
+            # which can sit above tolerance on an aborted cycle.
+            _ratios = {
+                k: float(v)
+                for k, v in (getattr(cycle_result, "probe_retentions", None) or {}).items()
+                if v is not None and not math.isnan(float(v))
+            }
+            _worst = min(_ratios, key=_ratios.get) if _ratios else "mmlu"
+            _worst_r = _ratios[_worst] if _ratios else cycle_result.mmlu_retention_ratio
             logger.warning(
-                "  Cycle %d ABORTED (retention ratio %.3f < %.3f). "
+                "  Cycle %d ABORTED (worst probe %s retention ratio %.3f < %.3f; "
+                "MMLU ratio %.3f). "
                 "Weights restored. Eval still runs on the restored model.",
-                cycle_num, cycle_result.mmlu_retention_ratio, config.forgetting_tolerance,
+                cycle_num, _worst, _worst_r, config.forgetting_tolerance,
+                cycle_result.mmlu_retention_ratio,
             )
         else:
             logger.info(
