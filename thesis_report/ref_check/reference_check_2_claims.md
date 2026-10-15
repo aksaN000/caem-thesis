@@ -1,5 +1,7 @@
 # Reference check 2: do the cited papers support the thesis claims?
 
+> **Status (2026-10-15):** this report describes the thesis and `.bib` *before* the fixes. Tier A (bibliography) and tier B (wording) fixes have since been applied; see `fixes_applied.md` for every change and for the items left for tier C.
+
 This was checked against the **full text of each paper**. The PDFs were downloaded to the *CAEM refs* Google Drive folder, converted to text and searched. Reference numbers are the printed thesis numbers.
 
 For each reference, every place the thesis cites it is listed with the **full sentence** (or table row) carrying the citation, next to the **exact passage from the paper** that confirms or contradicts it, with its page.
