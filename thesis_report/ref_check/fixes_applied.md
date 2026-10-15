@@ -341,3 +341,582 @@ Additional change: ch3:233 storage rate tightened from 50–53% to 52–53%, bec
 - #19: only the ch4:355 part (ch5:301/:595 belong to the ch5 agent). The ch4:532 "pi_store ~ 0.64" anchor wording was not in scope and was left.
 - #31: spec range "about 50-53%" applied. For C1-C3 specifically, admissions are 2443/2477 (/4700 = 52.0%, 52.7%; C3 not in csv) and gate passes are 2456/2494/2490 (52.3-53.1%), so "about 52-53%" would be tighter. The 49.9% lower end of the spec is the C5 rate (2343/4700), outside cycles one to three.
 - ch2: no assigned items.
+
+## Numbers audit, Part 1: chapter 5 (2026-10-15)
+
+# Fix log: chapter_5.tex
+
+Line numbers are pre-edit (positions in the file before each replacement applied in order; approx).
+
+## #21 (line ~120)
+- BEFORE: even though cycle two carries the within-trajectory exact-match and composite-hallucination optima reported in \Cref{tab:per-bench-trajectory} and \Cref{tab:baseline-pooled},
+- AFTER: even though cycle two carries the within-trajectory optima of the five-benchmark pooled exact match and composite hallucination metric reported in \Cref{tab:pooled-trajectory} and \Cref{tab:baseline-pooled} (the training-panel pooled exact match of \Cref{tab:per-bench-trajectory} peaks at cycle one, at $0.584$),
+- Evidence: T tab_pooled_trajectory C2 EM 0.544 max / CHM 0.107 min; tab_per_bench_trajectory training pooled EM peaks C1 0.584
+
+## #40 (line ~127)
+- BEFORE: FEVER and TriviaQA exact match readings sit within a narrow band of two percentage points across the six cycles,
+- AFTER: FEVER and TriviaQA exact match readings sit within a band of six percentage points across the six cycles, with a net cycle-zero to cycle-five change of about one percentage point on each,
+- Evidence: T tab_per_bench_trajectory FEVER 0.477-0.533, TriviaQA 0.453-0.493, net -1.0 pp each; StrategyQA 0.640 at C3-C5; tab_halluc_subtypes confab 0.087/0.223/0.239/0.268/0.270/0.269
+
+## #40 (line ~127)
+- BEFORE: while StrategyQA stabilises at $0.640$ from cycle one onward.
+- AFTER: while StrategyQA stabilises at $0.640$ from cycle three onward.
+- Evidence: T tab_per_bench_trajectory FEVER 0.477-0.533, TriviaQA 0.453-0.493, net -1.0 pp each; StrategyQA 0.640 at C3-C5; tab_halluc_subtypes confab 0.087/0.223/0.239/0.268/0.270/0.269
+
+## #40 (line ~127)
+- BEFORE: Confident confabulation rises monotonically from $0.087$ at cycle zero to $0.269$ at cycle five,
+- AFTER: Confident confabulation rises from $0.087$ at cycle zero to approximately $0.27$ by cycle three and plateaus there ($0.269$ at cycle five),
+- Evidence: T tab_per_bench_trajectory FEVER 0.477-0.533, TriviaQA 0.453-0.493, net -1.0 pp each; StrategyQA 0.640 at C3-C5; tab_halluc_subtypes confab 0.087/0.223/0.239/0.268/0.270/0.269
+
+## #39 (line ~138)
+- BEFORE: ($+17.7$ percentage points at the best cycle, $+16.0$ at the trajectory-end cycle)
+- AFTER: ($+20.0$ percentage points at the best cycle, $+16.0$ at the trajectory-end cycle)
+- Evidence: T tab_per_bench_trajectory TriviaQA B1->C2 +0.200
+
+## #41 (line ~143)
+- BEFORE: The gate's separation between store and the next-highest outcome widens monotonically across cycles, from a $14$ percentage-point gap at cycle one to a $24$-to-$28$ percentage-point gap from cycle two onward, the empirical signal that the cycle-boundary refit is sharpening the gate's discrimination rather than degrading it under distribution drift.
+- AFTER: The gate's separation between store and the next-highest outcome widens from a $14$ percentage-point gap at cycle one to a $24$-to-$30$ percentage-point gap from cycle two onward ($30$, $28$, and $24$ points at cycles two, three, and five, so the widening is not monotone), the empirical signal that the cycle-boundary refit sharpened the gate's discrimination after cycle one rather than degrading it under distribution drift.
+- Evidence: T tab_decision_distribution store EM minus next: 14/30/28/24 pp
+
+## #42 (line ~147)
+- BEFORE: The within-bench ordering $\pi_{\text{store}} > \mathrm{prec}(\text{defer}) > \mathrm{prec}(\text{discard})$ holds at every cell of the matrix, the structural receipt that the fixed-threshold gate sorts the candidate pool by correctness on each benchmark family rather than only at the panel level.
+- AFTER: The storage class is more precise than the defer class in every row, and the full within-bench ordering $\pi_{\text{store}} > \mathrm{prec}(\text{defer}) > \mathrm{prec}(\text{discard})$ holds in five of the ten rows of the matrix (TriviaQA and TruthfulQA at both cycles, StrategyQA at cycle five); in the other five (FEVER and CommonsenseQA at both cycles, StrategyQA at cycle two) the discard class, which holds between one and one hundred and three entries in those rows, is more precise than the defer class. The ordering is therefore a partial receipt that the fixed-threshold gate sorts the candidate pool by correctness on each benchmark family rather than only at the panel level.
+- Evidence: T tab_decision_matrix_trajectory defer vs discard precision per row (e.g. C2 FEVER 0.451<0.563, C5 FEVER 0.523<0.833); store>defer in all 10 rows
+
+## #17 (line ~163)
+- BEFORE: seven of the nine thousand evaluation queries across the six cycles, a rate of $0.13$ percent.
+- AFTER: seven of the nine thousand evaluation queries across the six cycles, a rate of approximately $0.08$ percent.
+- Evidence: A 7/9000=0.078%
+
+## #43 (line ~167)
+- BEFORE: and the ordering is preserved across the trajectory rather than reversed under the SIL distillation step.
+- AFTER: and on those four benchmarks the ordering is preserved at cycles two and five rather than reversed under the SIL distillation step, with two exceptions: FEVER at cycle two ($51.6$ against $54.5$) and StrategyQA at cycle five ($63.9$ against $64.0$).
+- Evidence: T tab_per_tier_em C2 FEVER T2 51.6<T3 54.5; C5 StrategyQA 63.9<64.0
+
+## #18 (line ~216)
+- BEFORE: with the $\tau_{\text{train}}$ filter removing between $35\%$ and $49\%$ of the wrong-stored entries
+- AFTER: with the $\tau_{\text{train}}$ filter removing between $56\%$ and $73\%$ of the wrong-stored stream-chunk entries
+- Evidence: T tab_storage_pool_quality panel b: removed wrong=(em-wrong - n_pass*(1-pi_SIL))/em-wrong = 60.7/55.7/60.7/57.8/73.1%
+
+## #47 (line ~246)
+- BEFORE: a twenty-fold increase across the four committed cycles.
+- AFTER: about a twenty-four-fold increase across the four committed cycles.
+- Evidence: T tab_self_correction_check 431->10,214 = 23.7x
+
+## #13 (line ~250)
+- BEFORE: Across the four committed retroverify passes the pooled $1\,094$ pruned entries are $38.4\%$ em-wrong
+- AFTER: Across the four committed retroverify passes the runtime log records $1\,061$ prunes; the offline reconstruction of \Cref{tab:em-conditional-breakdown} identifies $1\,094$ pruned entries from memory-snapshot differences, and these are $38.4\%$ em-wrong
+- Evidence: L experiment.log:5710,19133,33683,60457 (56/271/352/382=1061); :16404,30357,55957 (131/220/299=650); T tab_em_conditional_breakdown is offline reconstruction (1094/620)
+
+## #13 (line ~250)
+- BEFORE: The cohort of $620$ entries promoted from the deferred buffer is $55.6\%$ em-correct:
+- AFTER: Of the $650$ promotions from the deferred buffer that the runtime log records, the reconstruction identifies $620$, and this reconstructed cohort is $55.6\%$ em-correct:
+- Evidence: L experiment.log:5710,19133,33683,60457 (56/271/352/382=1061); :16404,30357,55957 (131/220/299=650); T tab_em_conditional_breakdown is offline reconstruction (1094/620)
+
+## #13 (line ~254)
+- BEFORE: relative to the $1\,094$ retroverify prunes and $620$ deferred-buffer promotions
+- AFTER: relative to the $1\,061$ retroverify prunes and $650$ deferred-buffer promotions
+- Evidence: L experiment.log:5710,19133,33683,60457 (56/271/352/382=1061); :16404,30357,55957 (131/220/299=650); T tab_em_conditional_breakdown is offline reconstruction (1094/620)
+
+## #15 (line ~294)
+- BEFORE: admits $289$ entries on the held-out cycle-zero evaluation fold at $\pi_{\text{store}} = 0.796$ across the three training benchmarks,
+- AFTER: admits $289$ entries on the held-out cycle-zero validation fold ($500$ samples per benchmark, $1\,500$ on the training panel) at $\pi_{\text{store}} = 0.796$ across the three training benchmarks,
+- Evidence: L run_phase1a_ruc.log:71 eval=500/bench; full_run/experiment.log:47 eval=300; T cross_benchmark_summary n=500
+
+## #15 (line ~317)
+- BEFORE: On the held-out evaluation fold the storage class admits $63$, $145$, and $81$ entries
+- AFTER: On the held-out cycle-zero validation fold the storage class admits $63$, $145$, and $81$ entries
+- Evidence: L run_phase1a_ruc.log:71 eval=500/bench; full_run/experiment.log:47 eval=300; T cross_benchmark_summary n=500
+
+## #15 (line ~317)
+- BEFORE: over the $289$ stored entries on the $1500$-sample ID evaluation fold.
+- AFTER: over the $289$ stored entries on the $1500$-sample ID cycle-zero validation fold ($500$ per benchmark).
+- Evidence: L run_phase1a_ruc.log:71 eval=500/bench; full_run/experiment.log:47 eval=300; T cross_benchmark_summary n=500
+
+## #15 (line ~534)
+- BEFORE: (eval-fold $\pi_{\text{store}} = 0.796$ on $n=289$)
+- AFTER: (cycle-zero validation-fold $\pi_{\text{store}} = 0.796$ on $n=289$)
+- Evidence: L run_phase1a_ruc.log:71 eval=500/bench; full_run/experiment.log:47 eval=300; T cross_benchmark_summary n=500
+
+## #15 (line ~575)
+- BEFORE: The evaluation-fold storage precision shelf documented in \Cref{sec:adj-cal-eval-gap}
+- AFTER: The cycle-zero validation-fold storage precision shelf documented in \Cref{sec:adj-cal-eval-gap}
+- Evidence: L run_phase1a_ruc.log:71 eval=500/bench; full_run/experiment.log:47 eval=300; T cross_benchmark_summary n=500
+
+## #15 (line ~585)
+- BEFORE: ($289$ stored entries on the pooled training-panel evaluation fold)
+- AFTER: ($289$ stored entries on the pooled training-panel cycle-zero validation fold, $500$ samples per benchmark and $1\,500$ in all)
+- Evidence: L run_phase1a_ruc.log:71 eval=500/bench; full_run/experiment.log:47 eval=300; T cross_benchmark_summary n=500
+
+## #34 (line ~301)
+- BEFORE: The configuration is preferred over the alternative $V_{\tau=0.65}$ in \Cref{tab:sweep-top} for two reasons.
+- AFTER: The configuration is preferred over the alternative $V_{\tau=0.65}$ from the registered sweep for two reasons.
+- Evidence: G 449dacb: sweep_top.tex now locked-parameter table, no V_0.65 row
+
+## #19 (line ~301)
+- BEFORE: First, the lower cut admits roughly four-and-a-half times as many correct memories at the same per-store precision shelf at cycle close,
+- AFTER: First, the lower cut admits roughly $4.4$ times as many correct memories at the same per-store precision shelf at cycle close ($306$ against $70$ on the cycle-zero calibration fold of the calibration sweep run before the main trajectory),
+- Evidence: ch4:355 counts 306/70 (=4.37), 105/478; G 04fe2e7 tab_pi_store_trajectory C0 n=478 pi=0.640; wording matched to edited ch4:355
+
+## #45 (line ~301)
+- BEFORE: with a tenfold tighter L2 penalty than the library default
+- AFTER: with a hundredfold tighter L2 penalty than the library default
+- Evidence: A 1.0/0.01=100
+
+## #46 (line ~308)
+- BEFORE: (an absolute movement of $0.218$, more than fivefold the cycle-zero magnitude)
+- AFTER: (an absolute movement of $0.218$, more than threefold the cycle-zero magnitude)
+- Evidence: T tab_calibration_trajectory p_entail 0.067->0.285: delta 0.218=3.3x, ratio 4.3x
+
+## #27 (line ~376)
+- BEFORE: The confidence interval is the bias-corrected and accelerated (BCa) interval at the $0.025$ and $0.975$ quantiles of the bootstrap distribution, with the standard $B = 10\,000$ replicates registered in the runbook.
+- AFTER: The confidence interval is the percentile interval at the $0.025$ and $0.975$ quantiles of the bootstrap distribution, with $B = 1\,000$ replicates. The interval on the composite-hallucination delta is approximate: it resamples only the baseline's per-subtype rates, with CAEM's composite hallucination value held fixed, so it can exclude the point difference.
+- Evidence: C eval/metrics.py:850 bootstrap_ci percentile, n_bootstrap=1000; scripts/baseline_sig_tests_v2.py:237; C scripts/baseline_sig_tests_v2.py _approx_chm_ci: binomial resample of baseline subtype rates, caem_chm held fixed
+
+## #20 (line ~469)
+- BEFORE: on the smallest test fold (the three hundred-sample StrategyQA panel that is also
+- AFTER: on its three-hundred-sample evaluation fold (every benchmark's evaluation fold has three hundred samples; StrategyQA's $387$-sample test fold is the smallest test fold), the StrategyQA panel that is also
+- Evidence: tab:benchmark-pools: eval 300 all, StrategyQA test 387; L experiment.log:66
+
+## #11 (line ~473)
+- BEFORE: The second gate predicts a recovery of TruthfulQA exact match toward the B1 zero-shot floor of $0.27$; the realised reading is $0.310$ in the classifier-on arm against $0.210$ in the classifier-off arm, lifting above the B1 floor and closing the second gate as well.
+- AFTER: The second gate predicts a recovery of TruthfulQA exact match toward the B1 zero-shot reference of $0.433$; the realised reading is $0.310$ in the classifier-on arm against $0.210$ in the classifier-off arm, which recovers toward the B1 reference but stays below it, so the second gate as stated does not close.
+- Evidence: T tab_per_bench_trajectory B1 TQA 0.433; tab_ruc_ablation 0.210/0.310; L tab_sig_test.csv:33
+
+## #7 (line ~491)
+- BEFORE: reads $+7.4\%$ exact match and $-11.0\%$ composite hallucination metric at cycle two and $+2.0\%$ exact match
+- AFTER: reads $+7.4\%$ exact match and $-11.0\%$ composite hallucination metric at cycle two and $+2.1\%$ exact match
+- Evidence: T tab_baseline_pooled B1 C5 +2.1%; tab_sig_test(_c2): 5 vanilla_ft CHM cells n/a -> 35 CHM contrasts
+
+## #7 (line ~491)
+- BEFORE: on nine of forty per-benchmark contrasts on the exact-match axis and on twenty-one of forty contrasts on the composite-hallucination axis at the cycle-five anchor, and on fourteen and twenty of forty contrasts respectively at the best-cycle anchor of \Cref{tab:sig-test-c2},
+- AFTER: on nine of forty per-benchmark contrasts on the exact-match axis and on twenty-one of thirty-five contrasts on the composite-hallucination axis at the cycle-five anchor (the five vanilla fine-tuning composite-hallucination cells are not available), and on fourteen of forty and twenty of thirty-five contrasts respectively at the best-cycle anchor of \Cref{tab:sig-test-c2},
+- Evidence: T tab_baseline_pooled B1 C5 +2.1%; tab_sig_test(_c2): 5 vanilla_ft CHM cells n/a -> 35 CHM contrasts
+
+## #34 (line ~595)
+- BEFORE: is read off the sweep panel in \Cref{tab:sweep-top}. The two top-tier cut-point variants in the table differ on
+- AFTER: is read off the registered cycle-zero sweep whose locked configuration is reported in \Cref{tab:sweep-top}. The two top-tier cut-point variants of the sweep differ on
+- Evidence: G 449dacb: sweep_top.tex now locked-parameter table, no V_0.65 row
+
+## #19 (line ~595)
+- BEFORE: the lower cut admits roughly four-and-a-half times as many correct memories at the same per-store precision shelf, which is the rate-volume frontier
+- AFTER: the lower cut admits roughly $4.4$ times as many correct memories at the same per-store precision shelf ($306$ against $70$ on the cycle-zero calibration fold of the calibration sweep run before the main trajectory), which is the rate-volume frontier
+- Evidence: ch4:355 counts 306/70 (=4.37), 105/478; G 04fe2e7 tab_pi_store_trajectory C0 n=478 pi=0.640; wording matched to edited ch4:355
+
+## #29 (line ~609)
+- BEFORE: reaches the registered upper bound of the optimisation envelope from cycle one onward, so single-parameter temperature scaling on this surface is functionally inert across the trajectory;
+- AFTER: reaches the registered upper bound of the optimisation envelope at the cycle-zero fit ($T = 20.086$), so single-parameter temperature scaling on this surface is functionally inert at the cycle-zero operating point (the cycle-boundary refits return $1.089$, $0.836$, $0.740$, and $0.869$ at cycles one, two, three, and five, \Cref{tab:calibration-trajectory});
+- Evidence: T tab_calibration_trajectory pooled T 20.086/1.089/0.836/0.740/0.869
+
+## #29 (line ~609)
+- BEFORE: and the safety override even at the saturated temperature scalar.
+- AFTER: and the safety override even at the saturated cycle-zero temperature scalar.
+- Evidence: T tab_calibration_trajectory pooled T 20.086/1.089/0.836/0.740/0.869
+
+## #30 (line ~609)
+- BEFORE: The deferred-entry reconsideration pass specified in \Cref{sec:deferred-reconsider} is reported in two phases across the realised trajectory. Ongoing analysis at the close of cycle four established that the cycle-boundary reconsideration pass had not been engaging the deferral buffer through cycles one through four under the trajectory's initial orchestration; the buffer accumulated correctly under the four-outcome decision tree but was not revisited under the post-fine-tune verifier at cycle boundaries. The orchestration was corrected at the cycle-four-close transition and the trajectory was resumed at cycle five with the reconsideration pass engaged at every subsequent cycle boundary under the registered time-to-live of two cycles. The cycle-five boundary therefore exhibits a one-time backlog reconciliation as the entries deferred during cycles one through four are rescored together under the cycle-five verifier. The equilibrium-saturation gate fires after the cycle-five close, so the realised trajectory does not extend into the post-reconciliation steady-state window of the deferred-pool design; the within-horizon receipt for the deferred-pool half of the two-track design is therefore the cycle-five reconciliation reading alone, with the steady-state two-track survivability behaviour specified in \Cref{sec:cycle-boundary} registered as a future-work measurement at a longer horizon. The correction to engage the reconsideration pass mid-trajectory is registered as a methodology refinement applied during ongoing analysis rather than a post-hoc reinterpretation.
+- AFTER: The deferred-entry reconsideration pass specified in \Cref{sec:deferred-reconsider} engages at every successful cycle boundary of the realised trajectory under the registered time-to-live of two reconsider invocations: it promotes $131$ entries at cycle two, $220$ at cycle three, and $299$ at cycle five (\Cref{tab:survival-distribution}), while the cycle-one pass finds an empty buffer and the cycle-four pass is skipped under the asymmetric-rollback contract. The equilibrium-saturation gate fires after the cycle-five close, so the within-horizon receipt for the deferred-pool half of the two-track design is these three reconsideration passes, with the steady-state two-track survivability behaviour specified in \Cref{sec:cycle-boundary} registered as a future-work measurement at a longer horizon.
+- Evidence: T tab_survival_distribution promoted 0/131/220/-/299; L as #13
+
+## #62
+Applied within the #27 replacement (ch5:376): sentence "The interval on the composite-hallucination delta is approximate: ..." Evidence: C _approx_chm_ci.
+
+## Skipped / partially skipped
+- #44 (ch5:216 u_stored bucket monotonicity) SKIPPED. Spec proposes "eval fold: not monotone at C0, C3 and C5", but tab_u_stored_distribution panel (a) is also non-monotone at C2 (0.729 -> 0.716), so eval fold is monotone only at C1 and C4 (non-monotone at C0, C2, C3, C5). Stream chunks monotone at every cycle (confirmed). Current text ("every cycle except cycle two") remains false. Suggested true wording: "on the stream chunks the em-rate increases with the bucket index at every cycle; on the evaluation fold it does so only at cycles one and four".
+- #46 second half (ch5:308 FEVER/TriviaQA temperature "an order of magnitude above CommonsenseQA at every cycle") SKIPPED. Spec says 4.8-10.5x; table gives FEVER 10.50/8.19/6.45/4.84x and TriviaQA 10.52/8.28/6.61/10.74x (C5 TriviaQA 11.040/1.028 = 10.74), i.e. 4.8-10.7x. Spec value disagrees.
+- #34 at ch5:294: the sentence there ("locked configuration and its parameter rationale reported in tab:sweep-top") is already accurate; no change. Fixed at ch5:301 and ch5:595.
+- #12 not applied (instructed); ch5:181 untouched.
+
+## Related sites noticed, not edited (outside assigned item scope)
+- ch5:491 end: "the supplementary retrieval-utility classifier ablation ... closes the TruthfulQA exact-match regression ... lifting TruthfulQA exact match from 0.210 to 0.310" -- same issue as #11 (0.310 < B1 0.433), not in the assigned ch5:473 part.
+- ch5:208 "pre-specified cycle-zero anchor at pi_store ~ 0.64" -- same pre-main-run calibration sweep (#19 anchor), not relabelled.
+- ch5:341 / H1 row (ch5:506) "training-pooled evaluation fold" / "held-out cycle-zero evaluation fold" Cohen's d +0.635 may be the same cycle-zero validation fold as #15; not in spec's site list.
+
+## Caption changes needed in figures/auto (not mine)
+- tab_decision_matrix_trajectory caption: "holds at every cell" -> five of ten rows (#42).
+- tab_storage_pool_quality caption: "removes between 35% and 49% of those wrong entries" -> 56%-73% (#18).
+- tab_u_stored_distribution caption: eval-fold exceptions (#44; C0, C2, C3, C5 non-monotone).
+- tab_per_tier_em caption: "the gap is preserved across the trajectory" -> exceptions C2 FEVER, C5 StrategyQA (#43).
+- tab_sig_test / tab_sig_test_c2 captions (in ch5 \caption, already ch5-owned? No: captions at ch5:404/414 are in chapter_5.tex) -- #62 sentence placed in sig-bootstrap prose instead.
+- sweep_top.tex "tenfold" -> already changed to "hundredfold" by another agent (#45).
+
+## Numbers audit, Part 1: appendices C, D, E (2026-10-15)
+
+# Fix log: appendix C, D, E (FINAL_FIX_LIST Part 1)
+
+Scope: thesis_report/appendix/appendix_c.tex, appendix_d.tex, appendix_e.tex only. No git state changes.
+Full unified diff: /tmp/claude-0/-home-user-caem-thesis/96eedb08-eb50-59ca-a1c7-fdab15fb78c5/scratchpad/appCDE.diff
+All edits were made by this agent: appendix C and D before the rate-limit interruption, appendix E after it. Nothing was redone; `git diff` confirmed the earlier edits.
+Line numbers are post-edit.
+
+## #1 Significance tallies
+Recount of figures/auto/tab_sig_test.tex (C5) and tab_sig_test_c2.tex (C2). A win is `*` with CAEM better; a defeat is `(B)`.
+- C5 EM: 9 wins (TriviaQA: cot, fiveshot, SE, vanilla_ft, zero_shot; CSQA: cot_rag, rag; TQA: fiveshot; SQA: fiveshot) / 3 defeats (TQA: cot, flare, zero_shot).
+- C5 CHM: 21 wins (FEVER 6, TriviaQA 5, CSQA 3, TQA 3, SQA 4) / 3 defeats (TQA: cot=B2, semantic_entropy=B8, zero_shot=B1). FLARE TQA CHM is +0.009 and not significant.
+- C2 EM: 14 wins (TriviaQA 8, CSQA 2, TQA 3, SQA 1) / 3 defeats (TQA: cot, flare, zero_shot).
+- C2 CHM: 20 wins (FEVER 7, TriviaQA 6, CSQA 3, TQA 1, SQA 3) / 4 defeats (TQA: B1, B2, B7, B8).
+- These agree with abstract.tex:22 (14/3, 9/3) and chapter_5.tex:394 and :414.
+
+| file:line | BEFORE | AFTER |
+|---|---|---|
+| appendix_d:155 | "...are thirteen exact-match wins and three defeats and twenty-three composite-hallucination wins and four defeats; at the within-trajectory best cycle the receipts are seventeen exact-match wins and two defeats and twenty-six composite-hallucination wins and four defeats. The four composite-hallucination defeats at both anchors are confined to TruthfulQA against the high-exact-match retrieval-free baselines (B1 zero-shot, B2 chain-of-thought, B7 FLARE, B8 semantic-entropy)," | "...are nine exact-match wins and three defeats and twenty-one composite-hallucination wins and three defeats; at the within-trajectory best cycle the receipts are fourteen exact-match wins and three defeats and twenty composite-hallucination wins and four defeats. The composite-hallucination defeats at both anchors are confined to TruthfulQA against the high-exact-match retrieval-free baselines (B1 zero-shot, B2 chain-of-thought, and B8 semantic-entropy at both anchors, plus B7 FLARE at the best cycle)," |
+| appendix_d:98 | "TruthfulQA carries the four composite-hallucination defeats discussed in" | "TruthfulQA carries the three composite-hallucination defeats at the cycle-five anchor discussed in" |
+| appendix_e:235 | "Expected: thirteen exact-match wins and three defeats at C5; twenty-three composite-hallucination wins and four defeats at C5; seventeen exact-match wins and two defeats at C2; twenty-six composite-hallucination wins and four defeats at C2." | "Expected: nine exact-match wins and three defeats at C5; twenty-one composite-hallucination wins and three defeats at C5; fourteen exact-match wins and three defeats at C2; twenty composite-hallucination wins and four defeats at C2." |
+
+## #22 Appendix C "CES" column relabelled (values unchanged)
+Evidence: log_resolution.md D6 (equilibrium_fit.json:4-6 history = 0.5573, 0.5673, 0.5473...; theorem_review.json:368 "pooled eval-fold EM").
+| file:line | BEFORE | AFTER |
+|---|---|---|
+| appendix_c:102 (header) | `\textbf{MMLU $\boldsymbol{\rho}$} & \textbf{CES} \\` | `\textbf{MMLU acc.} & \textbf{Pooled EM} \\` (also covers #23) |
+| appendix_c:94 | "together with the worst-probe retention ratio and the composite evaluation score on each cycle." | "together with the worst-probe retention ratio, the post-training MMLU probe accuracy, and the pooled evaluation-fold exact match on each cycle (the series the equilibrium fit reads)." |
+| appendix_c:111 caption (appended) | "...of the registered horizon are skipped.}" | "...of the registered horizon are skipped. The MMLU column is the post-training MMLU probe accuracy against the pristine anchor of $0.610$; the pooled-EM column is the pooled evaluation-fold exact match, the series stored as the history array of the cycle-five equilibrium-fit record.}" |
+| appendix_c:115 | "over the five-cycle composite-evaluation-score history;" | "over the five-cycle pooled evaluation-fold exact-match history (the pooled-EM column of \Cref{tab:app-per-cycle-equilibrium}, which the record stores as its composite-evaluation-score history);" |
+
+## #23 MMLU column: off by one cycle; shown as accuracies
+Chose the accuracy option and relabelled the column "MMLU acc.". Evidence: experiment.log:3649 (C1 0.635), :16105 (C2 ratio 0.9754 × 0.61 = 0.595), :29739 (C3 0.9918 × 0.61 = 0.605), :44266 (C4 0.6212), :55961 (C5 0.999 → 0.609). The experiment_summary MMLU % (C0..C5 = 63.5, 63.5, 59.5, 60.5, 62.12, 60.91) is in numbers_mismatch_origins O15. The pristine 0.610 comes from experiment.log:1998.
+| file:line | BEFORE | AFTER |
+|---|---|---|
+| appendix_c:104 C1 | 0.635 | 0.635 (unchanged) |
+| appendix_c:105 C2 | `$0.949$ & $0.635$` | `$0.949$ & $0.595$` |
+| appendix_c:106 C3 | `$0.976$ & $0.595$` | `$0.976$ & $0.605$` |
+| appendix_c:107 C4 | `$\mathbf{0.886}$ & $0.605$` | `$\mathbf{0.886}$ & $0.621$` |
+| appendix_c:108 C5 | 0.609 | 0.609 (unchanged) |
+
+## #55
+Evidence: the appendix's own table (C2–C5 T = 0.836/0.740/0.869) and verdict rows (C1–C3 CONTINUE).
+| file:line | BEFORE | AFTER |
+|---|---|---|
+| appendix_c:16 | "stabilises in the band $[0.74, 1.09]$ from cycle two onward." | "stabilises in the band $[0.74, 0.87]$ from cycle two onward." |
+| appendix_c:94 | "records four CONTINUE verdicts at cycles one through three," | "records three CONTINUE verdicts at cycles one through three," |
+
+## #56 Consolidation column added to the memory table (5 → 6 data columns, 7 in total)
+Evidence: figures/auto/tab_consolidation_trajectory.tex episodes removed: C1 0, C2 3, C3 11, C4 ---, C5 44. C0 is set to 0 because pool 431 = seed 431.
+Reconciliation (admissions − prunes + promotions − consolidation):
+- C1: 2443 − 56 = 2387, which matches.
+- C2: 2477 − 271 + 131 − 3 = 2334 against 2333. The residual of 1 matches the consolidation pass seeing 2,948 against 2,818 + 131 = 2,949 (experiment.log:16405).
+- C3: 2469 − 352 + 220 − 11 = 2326, which matches.
+- C4: 2484, which matches.
+- C5: 2343 − 382 + 299 − 44 = 2216 against 2214. The residual of 2 matches the pass seeing 10,258 against 9,961 + 299 = 10,260 (experiment.log:55958).
+| file:line | BEFORE | AFTER |
+|---|---|---|
+| appendix_c:74 | `\begin{tabular}{@{}lrrrrr@{}}` | `\begin{tabular}{@{}lrrrrrr@{}}` |
+| appendix_c:76–77 header | ... `\textbf{Deferred-buffer} & \textbf{Net} \\` / `\textbf{promotions} & \textbf{change} \\` | ... `\textbf{Deferred-buffer} & \textbf{Consolidation} & \textbf{Net} \\` / `\textbf{promotions} & \textbf{removals} & \textbf{change} \\` |
+| appendix_c:79–84 rows | C0 `$0$ & $0$ & $+431$`; C1 `$56$ & $0$ & $+2\,387$`; C2 `$131$ & $+2\,333$`; C3 `$220$ & $+2\,326$`; C4 `--- & --- & $+2\,484$`; C5 `$2\,339$ & $382$ & $299$ & $+2\,214$` | inserted column values 0 / 0 / 3 / 11 / --- / 44 (C5 admissions → 2,343, see #57) |
+| appendix_c:68 prose | "together with the four mechanisms that move the pool size across the cycle boundary: stream-chunk admissions ..., retroactive re-verification prunes ..., deferred-buffer promotions from the bounded reconsider queue, and the cycle's net change in pool size." | "together with the four mechanisms that move the pool size across the cycle boundary (stream-chunk admissions ..., retroactive re-verification prunes ..., deferred-buffer promotions from the bounded reconsider queue, and consolidation removals of near-duplicate episodes) and the cycle's net change in pool size." |
+| appendix_c:68 prose | "The cycle-four row records zero retroverify prunes and zero deferred-buffer promotions under the asymmetric-rollback contract that skips both passes on the aborted cycle;" | "The cycle-four row records no retroverify prunes, deferred-buffer promotions, or consolidation removals under the asymmetric-rollback contract that skips these passes on the aborted cycle;" |
+| appendix_c:87 caption | "the retroverify and deferred-reconsider passes are skipped ..." | "the retroverify, deferred-reconsider, and consolidation passes are skipped ..." |
+| appendix_c:87 caption (inserted before "Sources:") | — | "...The consolidation-removal column is the episodes-removed count of \Cref{tab:consolidation-trajectory}. Admissions minus prunes plus promotions minus consolidation removals reproduces the net change at every cycle except a residual of one entry at cycle two and two entries at cycle five; the residual is promoted entries dropped as duplicates of entries already in the store (the cycle-two consolidation pass sees $2\,948$ entries against $2\,818 + 131 = 2\,949$)." |
+
+## #57 Novelty-filter footnote; C5 admissions changed to 2,343
+Evidence: log_resolution.md D7 (12,175 − 9,832 = 2,343; experiment.log:60457 store 9,832 after retroverify); caem/memory/store.py:301 `is_novel`.
+| file:line | BEFORE | AFTER |
+|---|---|---|
+| appendix_c:84 | `C5 & $12\,175$ & $2\,339$ & ...` | `C5 & $12\,175$ & $2\,343$ & ...` |
+| appendix_c:87 caption | "stays in the band $[2\,339, 2\,484]$" | "stays in the band $[2\,343, 2\,484]$" |
+| appendix_c:87 caption (inserted) | — | "The admissions count the entries actually added to the store; they sit slightly below the gate-pass counts $n_{\text{stored}}$ of \Cref{tab:storage-pool-quality} because the memory store's novelty filter rejects near-duplicates of existing entries between the gate and the insert. The cycle-five admission count is the cycle-close pool minus the post-re-verification pool ($12\,175 - 9\,832$)." |
+Note: C3 admissions 2,469 have no log source (D7 says NOT FOUND). They are left unchanged because they reconcile exactly in the new column arithmetic.
+
+## #58
+| appendix_d:39 | "($\chi^{2} = 0.010$, $p_{\text{raw}} = 0.92$, $n_{\text{paired}} = 300$); the two systems agree on every TruthfulQA correctness pattern at the per-sample level." | "($\chi^{2} = 0.010$, $p_{\text{raw}} = 0.92$, $n_{\text{paired}} = 300$)." |
+Evidence: tab_sig_test semantic_entropy truthfulqa Δ = −0.007.
+
+## #59 (appendix D part only; appendix_f is not mine)
+| appendix_d:96 | "is multiplied by $m - k$ (equivalently the textbook $m + 1 - i$ ...)" | "is multiplied by $m - k + 1$ (equivalently the textbook $m + 1 - i$ ...)" |
+Evidence: the Holm table rank 1 uses ×8 (2.4e-5 → 1.9e-4).
+
+## #24
+| appendix_e:166 | "The held-out evaluation pass consumes approximately seventy-five to ninety-five minutes across the five-benchmark panel." | "The run log does not time the held-out evaluation pass on its own; the measured window from the end of the fine-tune to the end of the retroactive re-verification pass, which holds the calibration-fold scoring, the held-out evaluation pass, and the re-verification pass, is five hours forty-five minutes at cycle one, nine hours forty-four minutes at cycle two, thirteen hours fifty-four minutes at cycle three, and twenty-one hours fifty minutes at cycle five." |
+Evidence: log_resolution.md U12 (experiment.log:3659→5710, 16408→19133, 30361→33683, 55961→60458).
+FLAG (not changed; not in the approved list): the same paragraph still says "The cycle close consumes approximately five to seven hours end-to-end", and appendix_e:93 says "Per-cycle wall-time is approximately five to seven hours". The measured windows (up to 21 h 50 m at C5) contradict both, and so do the "twenty to thirty minutes" retroverify and "fifteen to twenty minutes" recalibration figures. They need an owner decision; Part 3 calls them step runtimes.
+
+## #25
+| appendix_e:21 | "because the source benchmark's development split admits only six hundred and eighty-seven labelled samples," | "because the source split the loader reads (the ChilleD StrategyQA test split) admits only six hundred and eighty-seven labelled samples," |
+Evidence: experiment.log:66 "StrategyQA: 687 samples loaded from ChilleD/StrategyQA:test." appendix_e:17 has no "dev" wording for StrategyQA, so it is unchanged.
+
+## #33
+| appendix_e:168 | "the gradient accumulation step count rises from four to sixteen (preserving the effective batch size at thirty-two)," | "the gradient accumulation step count rises from four to eight (preserving the effective batch size at sixteen)," |
+Evidence: caem/config.py:727–741 (batch 4 × accum 4 = 16; TARGET 16 since 2026-04-27); appendix_a:151–152; 2 × 8 = 16.
+Note: scripts/hardware.py:46 still has TARGET_EFFECTIVE_BATCH_SIZE = 32. That is a code inconsistency outside my scope.
+
+## #60
+| appendix_e:168 | "so the full trajectory on a downgraded GPU consumes approximately twelve to sixteen GPU-days of wall-clock time." | "so the full trajectory on a downgraded GPU takes correspondingly longer than on the production envelope, by the same factor." |
+Reason: 12–16 cannot be derived. From the thesis's own numbers, 5–7 h/cycle × 6 cycles × 2.2–2.6 ≈ 2.8–4.6 days, and 960 GPU-h × 2.2–2.6 ≈ 88–104 days. The 5–7 h/cycle base is itself contradicted by the measured windows (#24). No defensible figure exists, so the sentence now asserts no number.
+
+## #61
+| appendix_e:211 | "Expected: $12\,170$ entries." | "Expected: $12\,175$ entries." |
+Evidence: appendix C memory table; O24.
+
+## Part 3 attribution
+| appendix_e:164 | "...six hundred and seventy-two United States dollars (forty days at twenty-four hours per day at the on-demand rate)." | "...six hundred and seventy-two United States dollars (from the Vast.ai billing records; forty days at twenty-four hours per day at the on-demand rate)." |
+Added once. No numbers changed. The 8–10 GPU-h baseline figure (:97) is left as is.
+
+## Skipped / not applied
+- #2–#6: these need p-values (instructed not to apply). The stale rows are listed below.
+- #59 appendix_f part: not my file.
+
+## Stale appendix D content awaiting p-values (#2–#6) — untouched
+- **#2** appendix_d:52, B6 TriviaQA contingency row: `0.190 & +0.263 & 56.860 & <1e-12`. Current table: EM_base 0.227, Δ +0.227, significant `*`. χ² and p need recomputation.
+- **#3** appendix_d:53, B7 FLARE StrategyQA row: `0.250 & +0.390 & 76.891 & <1e-12`. Current: 0.600, +0.040, not significant.
+- **#2/#3 prose** appendix_d:39: "The B6 vanilla-fine-tune cell on TriviaQA records the largest single contingency gap in the panel ($\chi^{2} = 56.9$ at $n = 300$). The B7 FLARE cell on StrategyQA records a similarly large gap ..."
+- **#2/#3 caption** appendix_d:59: "The B6 TriviaQA cell is the architecture's largest single-contrast lift in the panel; the B7 StrategyQA cell is the next-largest."
+- **#4** appendix_d:84, B6 CSQA bootstrap row: `+0.717 & [+0.663, +0.767] & supported (largest panel lift)`. Current: −0.063 [−0.120, −0.010]. The row needs replacing or relabelling, and so do the prose at appendix_d:72 ("the architecture's largest single-contrast bootstrap interval in the panel") and the caption at appendix_d:87 ("The B6 CommonsenseQA contrast is the architecture's largest ...").
+- **#5** appendix_d:108–115, TruthfulQA Holm table, all 8 rows. FLARE (row 8, raw 0.923, "no") is now a significant defeat (Δ −0.150 (B)); the order and Holm p need recomputing. Caption at appendix_d:118 has "the two CAEM defeats on TruthfulQA exact match (B1 ..., B2 ...)", which should be three (B1, B2, B7). It also has "B5 five-shot CoT is the lone CAEM win" and "The four CAEM defeats on the composite-hallucination-metric axis", which should be three at C5.
+- **#6** appendix_d:130–137, FEVER Holm table, all 8 rows. B7 FLARE (rank 1, "yes") and B6 (rank 2, "yes") are both not significant now (+0.040; −0.067); no FEVER EM contrast is significant at C5. Caption at appendix_d:140: "Two of eight baselines clear the corrected threshold: B7 FLARE ... and B6 vanilla-fine-tune (CAEM loss by approximately eight percentage points ...)".
+- appendix_d:50 B1 FEVER row (χ² 0.232, p 0.630) and :55 B8 TQA row (χ² 0.010, p 0.920): the EM values match the current table, but χ² and p have no source (U5/U10). Verify when the p-values are regenerated.
+
+## Checks
+- `git diff --stat`: appendix_c 38 lines, appendix_d 8, appendix_e 12 (29+/29−).
+- Column counts: every tabular row in appendix_c matches its spec (5, 8, 7, 7, 6). appendix_d and appendix_e tables are unchanged.
+
+## Numbers audit, Part 1: appendices A, B, F, G, generated tables, README (2026-10-15)
+
+# fixlog_rest.md: README, figures/auto, appendices A/B/F/G (2026-10-15)
+
+Exact BEFORE (`-`) / AFTER (`+`) text for every edit is in the per-file diffs under "Diffs" below (`git diff -U0`,
+line numbers in the hunk headers). The index maps each item to its file:line and evidence.
+Every changed figures/auto file has the comment line "% Hand-corrected 2026-10-15 (see ref_check/fixes_applied.md)"
+under its "% Auto-generated" header.
+
+## Index of applied items
+
+| # | File:line (after edit) | Change | Evidence / verification |
+|---|---|---|---|
+| 1 | README.md:172 | 13/40, 23/40 (C5); 17/40, 26/40 (C2) -> 9/40, 21/35 (C5); 14/40, 20/35 (C2). Defeats restated: 3 EM at both anchors; CHM 3 (C5), 4 (C2); all on TruthfulQA vs zero-shot/CoT/FLARE/semantic entropy. "RAG-free" dropped because FLARE is among the defeats. CHM denominator 40 -> 35 because the B6 CHM cells are n/a (same rationale as #7). | Recounted from figures/auto/tab_sig_test.tex and tab_sig_test_c2.tex (awk over the Sig column): C5 EM 9 wins/3 defeats, CHM 21/3 (cot, semantic_entropy, zero_shot); C2 EM 14/3, CHM 20/4 (+flare) |
+| 8 | README.md:53 | "beats every baseline ... at both reference cycles" -> C2 beats 8/8; C5 beats 7/8; FLARE leads C5 EM by 0.008 | tab_baseline_pooled.tex B7 row (ΔEM vs C5 = −0.008) and footer "C5 beats 7/8" |
+| 8 | README.md:121 | −10.8% -> −11.0% | tab_baseline_pooled B1 ΔCHM vs C2 (−11.0%) |
+| 8 | README.md:161–168 | B1–B8 rows replaced with tab_baseline_pooled values (B1 +0.011/+2.1%; B2 +3.5%; B3 +13.0%; B4 0.464 ...; B5 +27.6%; B6 0.490/0.127 ...; B7 0.525/0.173 ...; B8 +7.8%, +0.013/+2.5%). README system labels kept. | tab_baseline_pooled.tex rows B1–B8, cell for cell |
+| 8 | README.md:170 | "C5 beats 8/8" -> "7/8 (FLARE leads CAEM C5 on pooled EM by 0.008)" | same |
+| 10 | README.md:208–212 | per-tier C5 EMs replaced with tab_per_tier_em C5 rows (as fractions); TruthfulQA pooled 0.493 -> 0.300. Shares unchanged; they match the n's exactly (130/170, 1/111/188, 247/53, 1/193/106, 72/228 of 300). | tab_per_tier_em.tex C5 rows |
+| P3 | README.md:410 | "(Vast.ai billing records)" appended to the Realised-total cost cell | Part 3 instruction |
+| 9 | figures/auto/tab_tier_trajectory.tex:22–28 + caption | panel (b) EMs rebuilt from tab_per_tier_em C5 (TQA 0.321/0.255, pooled 0.300; FEVER 0.500/0.459, etc.). Shares already matched the per-tier n exactly, so the panel was kept. Caption: "Panel b copies the C5 rows of tab:per-tier-em; TruthfulQA EM uses the Haiku-judged correctness rule." | Cross-check: panel (a) C5 (T2 0.537, T3 0.497, pooled 0.517) agrees with the new panel (b) (T2 404/753, T3 370/745, total 776/1500). The old panel (b) did not. |
+| 14 | figures/auto/tab_em_conditional_breakdown.tex caption | added: totals are an offline reconstruction from memory-store set differences; the run log records 1,061 prunes (56/271/352/382) and 650 promotions (131/220/299). Table numbers unchanged. | log_resolution.md D2, D3 (experiment.log:5710, 19133, 33683, 60457; 16404, 30357, 55957) |
+| 16 | figures/auto/cross_benchmark_summary.tex caption | "calibration-fold sample count" -> "sample count on the cycle-zero validation fold ($n = 500$ per benchmark; not the calibration fold)" | numbers_mismatch_origins A19; log_resolution D1 (run_phase1a_ruc.log:71 eval=500) |
+| 18 | figures/auto/tab_storage_pool_quality.tex caption | "removes between 35% and 49% of those wrong entries" -> "56% and 73%" | Recomputed from panel (b): wrong admitted vs n_pass×(1−π_SIL): C1 60.7%, C2 55.7%, C3 60.7%, C4 57.8%, C5 73.1% |
+| 36 | figures/auto/tab_per_tier_em_capability.tex:18 | ">50% of CSQA queries to T3" -> "20%" | own row: commonsense_qa share 0%/80%/20%, T3 n=61/300 |
+| 37 | figures/auto/tab_decision_matrix_trajectory.tex:3 (comment) | "at C3 (joint best in-distribution) and C5" -> "at C2 (within-trajectory best) and C5" | table body holds C2 and C5 panels |
+| 42 | figures/auto/tab_decision_matrix_trajectory.tex caption | "holds at every cell" -> holds in 5 of 10 rows (C2 TriviaQA, C2 TruthfulQA, C5 TriviaQA, C5 TruthfulQA, C5 StrategyQA). Store > defer holds in every row; the exceptions are C2 FEVER, C2 CSQA, C2 StrategyQA, C5 FEVER and C5 CSQA, where discard precision > defer precision (C2 CSQA and C2 StrategyQA discard = 1 entry). | Recomputed from table counts, e.g. C2 FEVER defer 0.451 < discard 0.563; C5 FEVER 0.523 < 0.833; C5 CSQA 0.500 < 0.647 |
+| 38 | figures/auto/tab_ruc_lobo.tex | deleted (rm) | grep before deletion: no \input of tab_ruc_lobo and no \ref/\Cref of tab:ruc-lobo anywhere in thesis_report/*.tex. Only scripts/retrieval_utility_classifier.py (the generator) names it; that script would recreate the file if run. |
+| 45 | figures/auto/sweep_top.tex:13 | "tenfold tighter" -> "hundredfold tighter" | 1.0 / 0.010 = 100 |
+| 52 | figures/auto/tab_theorem_receipts_summary.tex T5 row | "band of width ≤ 0.031" -> "Pooled cal-fold π_t confined to a band of width 0.014 (0.746 − 0.732)" | tab_pi_store_trajectory cal-fold column 0.746/0.740/0.736/0.746/0.732 |
+| 52 | figures/auto/tab_theorem_receipts_summary.tex T3 row | "Sign alignment holds on three of four cal-fold transitions; honest reverse-sign disclosure at C3→C5" -> three observable transitions (C1→C2, C2→C3, C3→C5; C4 skipped): C1→C2 sign-aligns, C2→C3 sub-noise in Cohen's d, C3→C5 small reverse sign | Taken from chapter_4.tex:582 and chapter_5.tex:227 (the prose counts three transitions, one aligned). PARTLY VERIFIED: tab_pi_store_trajectory gives cal-fold n 631→1001→899→868, but it does not carry per-cycle Cohen's d or the storage rate, so the sign alignment itself was not recomputed. The row now restates the prose without a count of "aligned" transitions. |
+| 54 | figures/auto/tab_pooled_trajectory.tex:28 | −10.8% -> −11.0% | spec: computed from unrounded values; matches tab_baseline_pooled B1 ΔCHM vs C2 (−11.0%) |
+| 28 | appendix/appendix_a.tex:150, :325 | :150 rationale now says the flag applies only to the full fine-tuning fallback and LoRA uses 32-bit AdamW (value `true` kept, since that is the config). :325 "eight-bit AdamW optimiser" -> "32-bit AdamW optimiser (the eight-bit AdamW flag applies only to the full fine-tuning fallback path)" | caem/training/self_improvement.py:1036–1045 (`if getattr(self, "_lora_active", False): want_8bit = False`) |
+| 32 | appendix/appendix_a.tex:275, :318 | ≈3,000 seeded entries -> 431 (the ≈3,000 described as the seeding plan's candidate target) | tab_memory_store_trajectory.tex C0 = 431; experiment.log:5710 "431 total"; archive plan in numbers_mismatch_origins O28 |
+| P3 | appendix/appendix_a.tex:323 | added "; Vast.ai billing records" to the parenthetical after the $672 sentence | Part 3 instruction |
+| 34 | appendix/appendix_b.tex:16 | "The headline ten-variant table appears in tab:sweep-top" -> "The locked configuration selected from the sweep ... appears in tab:sweep-top"; "the auto-generated comparison table is reproduced in the body chapter rather than duplicated here" -> "no per-variant comparison table is reproduced in the thesis" | sweep_top.tex is now the locked-parameter table (G 449dacb) |
+| 59 | appendix/appendix_f.tex:113 | "$m - k$" -> "$m - k + 1$" | standard Holm; spec notes the table uses ×8 at rank 1 with m = 8 |
+| 26 | appendix/appendix_g.tex:60 | ≈3,000 batch now marked as the production deployment batch (≈750 per decision class), compared with 1,500 per cycle in the research run | docs/PRODUCTION_RUNBOOK.md:233 "~3000 labeled samples (~750 per decision class)" |
+
+## Skipped or not applicable
+- #18 body-text part (ch5:216): not my file. Caption part applied.
+- #42 prose part (ch5:147): not my file. Caption part applied.
+- #45 ch5:301 part, and #52's companion #53 (ch4:603): not my files.
+- Part 3 in README: one attribution added, on the Realised-total row. The other rows of the hardware table give no numeric GPU-hours or USD figures, and the "2.2–2.6×" penalty at README:414 is not a billing figure, so it was not tagged.
+
+## Noted, not changed (outside the spec)
+- README.md:214 says the C2 T2 EM beats the C0 T3 EM "on every benchmark by margins of 5–20 pp". tab_per_tier_em gives TriviaQA 51.0 vs 46.4 = 4.6 pp, so the lower bound is slightly off.
+- cross_benchmark_summary caption says the transfer panel "does not enter the storage gate at cycle zero", yet the table lists store counts for TruthfulQA and StrategyQA (67, 21).
+- scripts/retrieval_utility_classifier.py, aggregate_section_5_4/5_6/5_7.py and the per-tier/decision-matrix generators would overwrite these hand corrections if re-run (Part 4).
+
+## Diffs (exact BEFORE/AFTER)
+```diff
+diff --git a/README.md b/README.md
+index 178ffca..0472f30 100755
+--- a/README.md
++++ b/README.md
+@@ -53 +53 @@ Against the matched Qwen-2.5-3B-Instruct zero-shot baseline `B1` over the same b
+-- **External eight-baseline panel:** CAEM beats every baseline on both the exact-match and the composite-hallucination axes in the pooled comparison at both reference cycles (`tab:baseline-pooled`).
++- **External eight-baseline panel:** in the pooled comparison, CAEM C2 beats all eight baselines jointly on the exact-match and composite-hallucination axes, and CAEM C5 beats seven of eight; FLARE leads CAEM C5 on pooled exact match by 0.008 (`tab:baseline-pooled`).
+@@ -121 +121 @@ The realised programme closed at the **six-cycle horizon** (cycles C0 through C5
+-Headline contrast vs B1 zero-shot at the trajectory's within-best cycle (C2): **ΔEM = +0.037 (+7.4% relative)**, **ΔCHM = −0.013 (−10.8% relative)**.
++Headline contrast vs B1 zero-shot at the trajectory's within-best cycle (C2): **ΔEM = +0.037 (+7.4% relative)**, **ΔCHM = −0.013 (−11.0% relative)**.
+@@ -161,8 +161,8 @@ All baselines evaluated under the matched-protocol contract on the five-benchmar
+-| B1 | zero-shot | 0.507 | 0.120 | +0.037 (+7.4%) | −0.013 (−11.0%) | +0.010 (+2.0%) | −0.011 (−9.3%) |
+-| B2 | chain-of-thought | 0.500 | 0.123 | +0.044 (+8.8%) | −0.016 (−12.7%) | +0.017 (+3.4%) | −0.014 (−11.0%) |
+-| B3 | DPR-RAG | 0.458 | 0.148 | +0.086 (+18.8%) | −0.041 (−27.7%) | +0.059 (+12.9%) | −0.039 (−26.4%) |
+-| B4 | CoT + DPR-RAG | 0.461 | 0.142 | +0.083 (+17.9%) | −0.035 (−24.6%) | +0.056 (+12.1%) | −0.033 (−23.2%) |
+-| B5 | five-shot CoT | 0.405 | 0.136 | +0.139 (+34.2%) | −0.029 (−21.4%) | +0.112 (+27.5%) | −0.027 (−19.9%) |
+-| B6 | vanilla fine-tune (C5) | 0.325 | 0.144 | +0.219 (+67.2%) | −0.037 (−25.5%) | +0.192 (+58.9%) | −0.035 (−24.1%) |
+-| B7 | FLARE | 0.292 | 0.153 | +0.252 (+86.3%) | −0.046 (−29.9%) | +0.225 (+77.1%) | −0.044 (−28.6%) |
+-| B8 | semantic entropy | 0.505 | 0.120 | +0.039 (+7.7%) | −0.013 (−10.5%) | +0.012 (+2.4%) | −0.011 (−8.9%) |
++| B1 | zero-shot | 0.507 | 0.120 | +0.037 (+7.4%) | −0.013 (−11.0%) | +0.011 (+2.1%) | −0.011 (−9.3%) |
++| B2 | chain-of-thought | 0.500 | 0.123 | +0.044 (+8.8%) | −0.016 (−12.7%) | +0.017 (+3.5%) | −0.014 (−11.0%) |
++| B3 | DPR-RAG | 0.458 | 0.148 | +0.086 (+18.8%) | −0.041 (−27.7%) | +0.059 (+13.0%) | −0.039 (−26.4%) |
++| B4 | CoT + DPR-RAG | 0.464 | 0.142 | +0.080 (+17.2%) | −0.035 (−24.6%) | +0.053 (+11.5%) | −0.033 (−23.2%) |
++| B5 | five-shot CoT | 0.405 | 0.136 | +0.139 (+34.2%) | −0.029 (−21.4%) | +0.112 (+27.6%) | −0.027 (−19.9%) |
++| B6 | vanilla fine-tune (C5) | 0.490 | 0.127 | +0.054 (+11.0%) | −0.020 (−15.9%) | +0.027 (+5.6%) | −0.018 (−14.3%) |
++| B7 | FLARE | 0.525 | 0.173 | +0.019 (+3.5%) | −0.066 (−38.0%) | −0.008 (−1.5%) | −0.064 (−36.8%) |
++| B8 | semantic entropy | 0.505 | 0.120 | +0.039 (+7.8%) | −0.013 (−10.5%) | +0.013 (+2.5%) | −0.011 (−8.9%) |
+@@ -170 +170 @@ All baselines evaluated under the matched-protocol contract on the five-benchmar
+-**Wins-against count** (CAEM beats baseline on ΔEM and ΔCHM jointly): **CAEM C2 beats 8/8 baselines; CAEM C5 beats 8/8 baselines**.
++**Wins-against count** (CAEM beats baseline on ΔEM and ΔCHM jointly): **CAEM C2 beats 8/8 baselines; CAEM C5 beats 7/8 baselines** (FLARE leads CAEM C5 on pooled EM by 0.008).
+@@ -172 +172 @@ All baselines evaluated under the matched-protocol contract on the five-benchmar
+-The paired McNemar exact-match receipts and paired Wilcoxon composite-hallucination receipts of `tab:sig-test` clear the joint significance-and-effect-size licensing rule of Chapter 5 §5.4 on **13 of 40 per-benchmark contrasts on the exact-match axis** and **23 of 40 contrasts on the composite-hallucination axis** at the cycle-five anchor, and on **17 of 40 and 26 of 40 contrasts respectively** at the best-cycle anchor of `tab:sig-test-c2`, with three significant exact-match defeats and four significant composite-hallucination defeats on the per-benchmark axis confined to TruthfulQA against the high-EM RAG-free baselines (the surface where the architecture's abstention behaviour interacts with the Haiku-judged correctness rule and the false-refusal subtype of the composite hallucination metric).
++The paired McNemar exact-match receipts and paired Wilcoxon composite-hallucination receipts of `tab:sig-test` clear the joint significance-and-effect-size licensing rule of Chapter 5 §5.4 on **9 of 40 per-benchmark contrasts on the exact-match axis** and **21 of 35 contrasts on the composite-hallucination axis** (the five vanilla-fine-tune CHM cells are n/a) at the cycle-five anchor, and on **14 of 40 and 20 of 35 contrasts respectively** at the best-cycle anchor of `tab:sig-test-c2`. The significant defeats number three on the exact-match axis at both anchors, and three (C5) and four (C2) on the composite-hallucination axis; all are confined to TruthfulQA against the zero-shot, chain-of-thought, FLARE and semantic-entropy baselines (the surface where the architecture's abstention behaviour interacts with the Haiku-judged correctness rule and the false-refusal subtype of the composite hallucination metric).
+@@ -208,5 +208,5 @@ The cycle-zero baseline routes 51.3% of queries to the retrieval-augmented tier
+-| FEVER | 0.0% / n/a | 43.3% / 0.554 | 56.7% / 0.418 | 0.477 |
+-| TriviaQA | 0.3% / 1.000 | 37.0% / 0.514 | 62.7% / 0.420 | 0.453 |
+-| CommonsenseQA | 0.0% / n/a | 82.3% / 0.733 | 17.7% / 0.642 | 0.717 |
+-| TruthfulQA | 0.3% / 1.000 | 64.3% / 0.591 | 35.3% / 0.311 | 0.493 |
+-| StrategyQA | 0.0% / n/a | 24.0% / 0.736 | 76.0% / 0.610 | 0.640 |
++| FEVER | 0.0% / n/a | 43.3% / 0.500 | 56.7% / 0.459 | 0.477 |
++| TriviaQA | 0.3% / 1.000 | 37.0% / 0.423 | 62.7% / 0.468 | 0.453 |
++| CommonsenseQA | 0.0% / n/a | 82.3% / 0.745 | 17.7% / 0.585 | 0.717 |
++| TruthfulQA | 0.3% / 1.000 | 64.3% / 0.321 | 35.3% / 0.255 | 0.300 |
++| StrategyQA | 0.0% / n/a | 24.0% / 0.639 | 76.0% / 0.640 | 0.640 |
+@@ -410 +410 @@ Every reported number is regenerable from the realised seed plus the published a
+-| **Realised total** | **~960 GPU-hours over ~40 calendar days (40 × 24)** | **~672 USD on a Vast.ai RTX 5090 at ~0.70 USD/on-demand GPU-hour** |
++| **Realised total** | **~960 GPU-hours over ~40 calendar days (40 × 24)** | **~672 USD on a Vast.ai RTX 5090 at ~0.70 USD/on-demand GPU-hour** (Vast.ai billing records) |
+diff --git a/thesis_report/appendix/appendix_a.tex b/thesis_report/appendix/appendix_a.tex
+index dea9ee5..a0f7262 100644
+--- a/thesis_report/appendix/appendix_a.tex
++++ b/thesis_report/appendix/appendix_a.tex
+@@ -150 +150 @@ Every constant that governs runtime behaviour lives in the \verb|CAEMConfig| dat
+-\texttt{use\_8bit\_adamw}             & \texttt{true}  & design       & Fits the bounded GPU envelope at batch $4$ with gradient checkpointing. \\
++\texttt{use\_8bit\_adamw}             & \texttt{true}  & design       & Applies only to the full fine-tuning fallback; the LoRA path overrides it and uses 32-bit AdamW. \\
+@@ -275 +275 @@ The end-to-end execution sequence partitions into a pre-run setup block, a six-s
+-\item \textbf{Cold-start seeding} (\verb|step_6_reseed| and \verb|step_6_5_em_prune|). Seeds the episodic memory with approximately three thousand verified entries from the training benchmarks' dev splits under a cold-start storage threshold of $0.50$. Gate: deduplication ratio sane; the EM-prune step removes fewer than ten percent of seeded entries.
++\item \textbf{Cold-start seeding} (\verb|step_6_reseed| and \verb|step_6_5_em_prune|). Seeds the episodic memory with verified entries from the training benchmarks' dev splits under a cold-start storage threshold of $0.50$; the realised cold-start store holds $431$ entries (the seeding plan targeted approximately three thousand candidates before deduplication and hygiene). Gate: deduplication ratio sane; the EM-prune step removes fewer than ten percent of seeded entries.
+@@ -318 +318 @@ The runner picks up at the highest-cycle artefact set on disk.
+-The snapshot contains the cold-start memory store (approximately three thousand seeded episodes), the cycle-zero memory and deferred-buffer snapshots, the cycle-zero calibration fold (per-sample nine-signal vectors and gold labels), the cycle-zero composite calibration JSON (per-signal isotonic curves, per-benchmark shrinkage children, boost-layer weights), the calibrated configuration JSON (per-benchmark temperature scalars and safety floors), the cycle-zero validation-gate verdict, the cycle-zero evaluation fold (pristine model), the post-calibration rescored evaluation fold, the dataset-splits manifest, the MiniCheck-versus-RoBERTa head-to-head calibration record, the long-hypothesis judge Platt-ablation diagnostic, the cycle-zero retention slice baseline, the phase-four artefact bundle, and the run logs. Items that must be regenerated rather than pulled from the snapshot are the Qwen-2.5-3B-Instruct base weights (recovered from the Hugging Face model hub at deployment time), the per-cycle LoRA adapters at cycles one through five, the per-cycle SIL training artefacts, and the post-cycle-zero composite refits.
++The snapshot contains the cold-start memory store ($431$ seeded episodes), the cycle-zero memory and deferred-buffer snapshots, the cycle-zero calibration fold (per-sample nine-signal vectors and gold labels), the cycle-zero composite calibration JSON (per-signal isotonic curves, per-benchmark shrinkage children, boost-layer weights), the calibrated configuration JSON (per-benchmark temperature scalars and safety floors), the cycle-zero validation-gate verdict, the cycle-zero evaluation fold (pristine model), the post-calibration rescored evaluation fold, the dataset-splits manifest, the MiniCheck-versus-RoBERTa head-to-head calibration record, the long-hypothesis judge Platt-ablation diagnostic, the cycle-zero retention slice baseline, the phase-four artefact bundle, and the run logs. Items that must be regenerated rather than pulled from the snapshot are the Qwen-2.5-3B-Instruct base weights (recovered from the Hugging Face model hub at deployment time), the per-cycle LoRA adapters at cycles one through five, the per-cycle SIL training artefacts, and the post-cycle-zero composite refits.
+@@ -323 +323 @@ The snapshot contains the cold-start memory store (approximately three thousand
+-\paragraph{Production hardware:} The trajectory ran on a Vast.ai-rented RTX 5090 with thirty-two gigabytes of video memory (approximately thirty-one gigabytes usable after framework overhead), one hundred and fifty gigabytes of disk, and approximately ninety gigabytes of host random-access memory. The rental rate sat at approximately seventy cents per on-demand GPU-hour. The realised six-cycle trajectory plus cycle-zero calibration plus post-run analysis spans approximately forty calendar days of elapsed time as cycles, ablations, and rescore passes run sequentially on the single-card envelope, for approximately nine hundred and sixty GPU-hours at a total billed cost of approximately six hundred and seventy-two United States dollars (forty days at twenty-four hours per day at the on-demand rate). The verifier-side scoring path (nine-signal extraction, composite refit, retroactive re-verification, and the matched-protocol Haiku-judged TruthfulQA rescore across the baseline panel) is the dominant wall-clock consumer over the run, exceeding the per-cycle low-rank-adapter fine-tune itself, because every entry on every cycle and every baseline-arm answer passes through the full verifier ensemble while the adapter touches only the strict training-pool subset.
++\paragraph{Production hardware:} The trajectory ran on a Vast.ai-rented RTX 5090 with thirty-two gigabytes of video memory (approximately thirty-one gigabytes usable after framework overhead), one hundred and fifty gigabytes of disk, and approximately ninety gigabytes of host random-access memory. The rental rate sat at approximately seventy cents per on-demand GPU-hour. The realised six-cycle trajectory plus cycle-zero calibration plus post-run analysis spans approximately forty calendar days of elapsed time as cycles, ablations, and rescore passes run sequentially on the single-card envelope, for approximately nine hundred and sixty GPU-hours at a total billed cost of approximately six hundred and seventy-two United States dollars (forty days at twenty-four hours per day at the on-demand rate; Vast.ai billing records). The verifier-side scoring path (nine-signal extraction, composite refit, retroactive re-verification, and the matched-protocol Haiku-judged TruthfulQA rescore across the baseline panel) is the dominant wall-clock consumer over the run, exceeding the per-cycle low-rank-adapter fine-tune itself, because every entry on every cycle and every baseline-arm answer passes through the full verifier ensemble while the adapter touches only the strict training-pool subset.
+@@ -325 +325 @@ The snapshot contains the cold-start memory store (approximately three thousand
+-\paragraph{Backbone model:} The base generator is Qwen2.5-3B-Instruct (\verb|Qwen/Qwen2.5-3B-Instruct| on the Hugging Face model hub), a three-billion-parameter decoder-only transformer with instruction tuning. The model is held in bfloat16 precision throughout the trajectory. The LoRA adapter sits on top with rank thirty-two, alpha sixty-four, dropout zero point zero five, all seven linear projections targeted (query, key, value, output, gate, up, down), at learning rate two times ten to the minus four under an eight-bit AdamW optimiser.
++\paragraph{Backbone model:} The base generator is Qwen2.5-3B-Instruct (\verb|Qwen/Qwen2.5-3B-Instruct| on the Hugging Face model hub), a three-billion-parameter decoder-only transformer with instruction tuning. The model is held in bfloat16 precision throughout the trajectory. The LoRA adapter sits on top with rank thirty-two, alpha sixty-four, dropout zero point zero five, all seven linear projections targeted (query, key, value, output, gate, up, down), at learning rate two times ten to the minus four under a 32-bit AdamW optimiser (the eight-bit AdamW flag applies only to the full fine-tuning fallback path).
+diff --git a/thesis_report/appendix/appendix_b.tex b/thesis_report/appendix/appendix_b.tex
+index 4899bd1..1122cdf 100644
+--- a/thesis_report/appendix/appendix_b.tex
++++ b/thesis_report/appendix/appendix_b.tex
+@@ -16 +16 @@
+-The headline ten-variant table appears in \Cref{tab:sweep-top} of \Cref{ch:evaluation}. The full sweep over the pre-specified $\tau_{\text{store}} \times C \times \alpha_{\text{shrink}}$ grid ($4 \times 5 \times 5 = 100$ variants) is recorded in the cycle-zero sweep archive with one record per variant; the auto-generated comparison table is reproduced in the body chapter rather than duplicated here. Per-benchmark sweep diagnostics for any variant in the grid are recoverable by reading the corresponding JSON entry.
++The locked configuration selected from the sweep, with the rationale for each parameter, appears in \Cref{tab:sweep-top} of \Cref{ch:evaluation}. The full sweep over the pre-specified $\tau_{\text{store}} \times C \times \alpha_{\text{shrink}}$ grid ($4 \times 5 \times 5 = 100$ variants) is recorded in the cycle-zero sweep archive with one record per variant; no per-variant comparison table is reproduced in the thesis. Per-benchmark sweep diagnostics for any variant in the grid are recoverable by reading the corresponding JSON entry.
+diff --git a/thesis_report/appendix/appendix_f.tex b/thesis_report/appendix/appendix_f.tex
+index da566f9..8d8f0a8 100644
+--- a/thesis_report/appendix/appendix_f.tex
++++ b/thesis_report/appendix/appendix_f.tex
+@@ -113 +113 @@ The glossary collects every concept word that recurs in body prose and whose mea
+-\item[Holm-Bonferroni.] The step-down multiple-comparison correction applied within each benchmark family of size $m = 8$ on each metric axis. Sorts the raw $p$-values ascending and multiplies the $k$-th smallest by $m - k$ under a running-maximum monotonicity constraint, clipping at one. See \Cref{sec:sig-holm}.
++\item[Holm-Bonferroni.] The step-down multiple-comparison correction applied within each benchmark family of size $m = 8$ on each metric axis. Sorts the raw $p$-values ascending and multiplies the $k$-th smallest by $m - k + 1$ under a running-maximum monotonicity constraint, clipping at one. See \Cref{sec:sig-holm}.
+diff --git a/thesis_report/appendix/appendix_g.tex b/thesis_report/appendix/appendix_g.tex
+index 782b5da..fcd064f 100644
+--- a/thesis_report/appendix/appendix_g.tex
++++ b/thesis_report/appendix/appendix_g.tex
+@@ -60 +60 @@ Plain fine-tuning consumes exact-match-labelled samples as the gradient signal.
+-The mechanism that produces the order-of-magnitude difference is the verifier ensemble. The verifier runs label-free on every query and admits to memory only the high-confidence subset of traffic; the cycle boundary's labelled batch is a stratified sample of approximately three thousand entries drawn from the memory-admission distribution rather than from the unlabelled-traffic distribution. The architecture spends labels validating the verifier rather than training the generator. Plain fine-tuning at the same three-thousand-sample budget would produce a much weaker fine-tune because three thousand labels carrying the gradient signal directly under-trains a three-billion-parameter model. The architecture's labelling budget is therefore not the same instrument as the plain-fine-tuning labelling budget; it is a verifier-precision-validation instrument that is informationally efficient by a factor of ten to a hundred.
++The mechanism that produces the order-of-magnitude difference is the verifier ensemble. The verifier runs label-free on every query and admits to memory only the high-confidence subset of traffic; in a production deployment, the cycle boundary's labelled batch is a stratified sample of approximately three thousand entries (about seven hundred and fifty per decision class) drawn from the memory-admission distribution rather than from the unlabelled-traffic distribution, against the fifteen hundred labelled samples per cycle used in the research run. The architecture spends labels validating the verifier rather than training the generator. Plain fine-tuning at the same three-thousand-sample budget would produce a much weaker fine-tune because three thousand labels carrying the gradient signal directly under-trains a three-billion-parameter model. The architecture's labelling budget is therefore not the same instrument as the plain-fine-tuning labelling budget; it is a verifier-precision-validation instrument that is informationally efficient by a factor of ten to a hundred.
+diff --git a/thesis_report/figures/auto/cross_benchmark_summary.tex b/thesis_report/figures/auto/cross_benchmark_summary.tex
+index 9bb2ced..43c5c2d 100644
+--- a/thesis_report/figures/auto/cross_benchmark_summary.tex
++++ b/thesis_report/figures/auto/cross_benchmark_summary.tex
+@@ -2,0 +3 @@
++% Hand-corrected 2026-10-15 (see ref_check/fixes_applied.md)
+@@ -16 +17 @@ StrategyQA (T) & Trans & 500 & 0.606 & 21 & 4.2\% & 0.905 \\
+-\caption[Cycle-zero per-benchmark headline diagnostics under the locked configuration.]{Cycle-zero per-benchmark headline diagnostics under the locked configuration. Each row reports the calibration-fold sample count, the exact-match rate, the storage-class count and rate at the locked cut-point $\tau_{\text{store}} = 0.60$, and the realised precision of the stored entries. The training panel (FEVER, TriviaQA, CommonsenseQA) supplies the calibration fold and the self-improvement training pool; the transfer panel (TruthfulQA, StrategyQA) is held out and does not enter the storage gate at cycle zero. Three benchmarks registered earlier in the project (HotpotQA, Natural Questions, and ARC-Challenge) were retired before the main run on the registered verifier-balanced-accuracy precondition evidence and are absent from the panel.}
++\caption[Cycle-zero per-benchmark headline diagnostics under the locked configuration.]{Cycle-zero per-benchmark headline diagnostics under the locked configuration. Each row reports the sample count on the cycle-zero validation fold ($n = 500$ per benchmark; not the calibration fold), the exact-match rate, the storage-class count and rate at the locked cut-point $\tau_{\text{store}} = 0.60$, and the realised precision of the stored entries. The training panel (FEVER, TriviaQA, CommonsenseQA) supplies the calibration fold and the self-improvement training pool; the transfer panel (TruthfulQA, StrategyQA) is held out and does not enter the storage gate at cycle zero. Three benchmarks registered earlier in the project (HotpotQA, Natural Questions, and ARC-Challenge) were retired before the main run on the registered verifier-balanced-accuracy precondition evidence and are absent from the panel.}
+diff --git a/thesis_report/figures/auto/sweep_top.tex b/thesis_report/figures/auto/sweep_top.tex
+index 6f058ef..e6cadda 100644
+--- a/thesis_report/figures/auto/sweep_top.tex
++++ b/thesis_report/figures/auto/sweep_top.tex
+@@ -2,0 +3 @@
++% Hand-corrected 2026-10-15 (see ref_check/fixes_applied.md)
+@@ -12 +13 @@ Abstention floor $\phi_{\text{pg}}$ & $0.20$ & Early-exit rule \Cref{eq:early-ex
+-Boost regularisation $C$ & $0.010$ & Strongest-regularised value in grid $\{0.010, 0.025, 0.050, 0.100, 1.000\}$; tenfold tighter than the sklearn default of $C = 1.0$ \\
++Boost regularisation $C$ & $0.010$ & Strongest-regularised value in grid $\{0.010, 0.025, 0.050, 0.100, 1.000\}$; hundredfold tighter than the sklearn default of $C = 1.0$ \\
+diff --git a/thesis_report/figures/auto/tab_decision_matrix_trajectory.tex b/thesis_report/figures/auto/tab_decision_matrix_trajectory.tex
+index 315ec56..1cdf190 100644
+--- a/thesis_report/figures/auto/tab_decision_matrix_trajectory.tex
++++ b/thesis_report/figures/auto/tab_decision_matrix_trajectory.tex
+@@ -3 +3,2 @@
+-% at C3 (joint best in-distribution) and C5 (trajectory-end).
++% at C2 (within-trajectory best) and C5 (trajectory-end).
++% Hand-corrected 2026-10-15 (see ref_check/fixes_applied.md)
+@@ -28 +29 @@ C5 & StrategyQA & $45$ & $10$ & $0.818$ & $100$ & $53$ & $0$ & $1$ \\
+-\caption[Per-benchmark four-outcome decomposition at the best (C2) and final (C5) cycles.]{Per-benchmark four-outcome decomposition at the within-trajectory best cycle (C2) and the trajectory-end cycle (C5). \emph{Store} $\checkmark$ and \emph{Store} $\times$ are the correct and incorrect counts in the storage class; \emph{Store $\pi$} is the realised per-bench storage precision $\pi_{\text{store}}$ at the locked cut-point $\tau_{\text{store}} = 0.60$. The training-panel benchmarks (FEVER, TriviaQA, CommonsenseQA) admit large storage classes at $\pi_{\text{store}}$ in the band $[0.66, 0.78]$ across the two anchor cycles; the transfer-panel TruthfulQA storage class is small (storage gate does not fire on transfer-panel queries by design, so the few storage cells reflect the calibration-fold rescore rather than live storage) and StrategyQA records the highest per-bench precision at $0.818$ on the trajectory-end cycle. The within-bench ordering $\pi_{\text{store}} > \mathrm{prec}(\text{defer}) > \mathrm{prec}(\text{discard})$ holds at every cell, the structural receipt that the fixed-threshold gate sorts the candidate pool by correctness on each benchmark family.}
++\caption[Per-benchmark four-outcome decomposition at the best (C2) and final (C5) cycles.]{Per-benchmark four-outcome decomposition at the within-trajectory best cycle (C2) and the trajectory-end cycle (C5). \emph{Store} $\checkmark$ and \emph{Store} $\times$ are the correct and incorrect counts in the storage class; \emph{Store $\pi$} is the realised per-bench storage precision $\pi_{\text{store}}$ at the locked cut-point $\tau_{\text{store}} = 0.60$. The training-panel benchmarks (FEVER, TriviaQA, CommonsenseQA) admit large storage classes at $\pi_{\text{store}}$ in the band $[0.66, 0.78]$ across the two anchor cycles; the transfer-panel TruthfulQA storage class is small (storage gate does not fire on transfer-panel queries by design, so the few storage cells reflect the calibration-fold rescore rather than live storage) and StrategyQA records the highest per-bench precision at $0.818$ on the trajectory-end cycle. The within-bench ordering $\pi_{\text{store}} > \mathrm{prec}(\text{defer}) > \mathrm{prec}(\text{discard})$ holds in five of the ten rows (C2 TriviaQA, C2 TruthfulQA, C5 TriviaQA, C5 TruthfulQA, C5 StrategyQA). The first inequality, $\pi_{\text{store}} > \mathrm{prec}(\text{defer})$, holds in every row; the exceptions are C2 FEVER, C2 CommonsenseQA, C2 StrategyQA, C5 FEVER and C5 CommonsenseQA, where the discard class is more precise than the defer class (in C2 CommonsenseQA and C2 StrategyQA the discard class holds a single entry).}
+diff --git a/thesis_report/figures/auto/tab_em_conditional_breakdown.tex b/thesis_report/figures/auto/tab_em_conditional_breakdown.tex
+index 73b75c2..cc20bab 100644
+--- a/thesis_report/figures/auto/tab_em_conditional_breakdown.tex
++++ b/thesis_report/figures/auto/tab_em_conditional_breakdown.tex
+@@ -5,0 +6 @@
++% Hand-corrected 2026-10-15 (see ref_check/fixes_applied.md)
+@@ -26 +27 @@ C5 & $422$ & $184$ & $238$ & $43.6\%$ & $293$ & $161$ & $132$ & $54.9\%$ \\
+-\caption[EM-conditional decomposition of retroverify prunes and deferred-buffer promotions]{Em-conditional decomposition of retroverify-pruned entries and deferred-buffer-promoted entries across the realised trajectory. \emph{Wrong-caught rate} is the share of pruned entries whose ground-truth em label was zero, the principled measure of whether retroverify selects against hallucinations rather than rolling random; the pooled rate of $38.4\%$ is approximately $1.75\times$ the pool-base wrong rate of $\sim 22\%$, the empirical receipt that retroverify is enriched against wrong entries rather than uniform. The cycle-one anomaly ($0\%$ wrong-caught on a small $56$-entry prune cohort) reflects signal-noise on cold-start TriviaQA and CSQA entries that were actually correct; this is the noisy regime where the retroverify pass has the least lift over the gate's initial admission. \emph{Correct-recovered rate} is the share of promoted entries whose ground-truth em label was one; the pooled $55.6\%$ sits below the $\sim 78\%$ pool-base correct rate, confirming that the deferred-buffer cohort is intrinsically harder than the entries that cleared the storage cut-point on the first attempt, but is well above chance and recovers $345$ correct entries that the initial gate had rejected as too uncertain. The two mechanisms are complementary: retroverify shaves a modest hallucination-enriched tail off the storage pool, while the deferred buffer reclaims correct entries the initial gate over-rejected. Em labels are not persisted per entry by the runtime; the reconstruction used offline lookup against the benchmark gold (one-hundred-percent match coverage on the realised $12\,175$ stored entries) and an entry-identifier set-difference between consecutive memory-store metadata snapshots for prune identification (a small consolidation-removed cohort of $\le 5\%$ runs in the same step and is indistinguishable at the snapshot level).}
++\caption[EM-conditional decomposition of retroverify prunes and deferred-buffer promotions]{Em-conditional decomposition of retroverify-pruned entries and deferred-buffer-promoted entries across the realised trajectory. \emph{Wrong-caught rate} is the share of pruned entries whose ground-truth em label was zero, the principled measure of whether retroverify selects against hallucinations rather than rolling random; the pooled rate of $38.4\%$ is approximately $1.75\times$ the pool-base wrong rate of $\sim 22\%$, the empirical receipt that retroverify is enriched against wrong entries rather than uniform. The cycle-one anomaly ($0\%$ wrong-caught on a small $56$-entry prune cohort) reflects signal-noise on cold-start TriviaQA and CSQA entries that were actually correct; this is the noisy regime where the retroverify pass has the least lift over the gate's initial admission. \emph{Correct-recovered rate} is the share of promoted entries whose ground-truth em label was one; the pooled $55.6\%$ sits below the $\sim 78\%$ pool-base correct rate, confirming that the deferred-buffer cohort is intrinsically harder than the entries that cleared the storage cut-point on the first attempt, but is well above chance and recovers $345$ correct entries that the initial gate had rejected as too uncertain. The two mechanisms are complementary: retroverify shaves a modest hallucination-enriched tail off the storage pool, while the deferred buffer reclaims correct entries the initial gate over-rejected. Em labels are not persisted per entry by the runtime; the reconstruction used offline lookup against the benchmark gold (one-hundred-percent match coverage on the realised $12\,175$ stored entries) and an entry-identifier set-difference between consecutive memory-store metadata snapshots for prune identification (a small consolidation-removed cohort of $\le 5\%$ runs in the same step and is indistinguishable at the snapshot level). The Pruned and Promoted totals are therefore an offline reconstruction from memory-store set differences, not the run's own counts: the run log records $1\,061$ retroactive prunes ($56/271/352/382$ at C1/C2/C3/C5) and $650$ deferred-buffer promotions ($131/220/299$ at C2/C3/C5).}
+diff --git a/thesis_report/figures/auto/tab_per_tier_em_capability.tex b/thesis_report/figures/auto/tab_per_tier_em_capability.tex
+index 5aa1749..a7b4c44 100644
+--- a/thesis_report/figures/auto/tab_per_tier_em_capability.tex
++++ b/thesis_report/figures/auto/tab_per_tier_em_capability.tex
+@@ -3,0 +4 @@
++% Hand-corrected 2026-10-15 (see ref_check/fixes_applied.md)
+@@ -17 +18 @@ EM values in percentage points; (n) is per-tier sample count.
+-CommonsenseQA row shows the selection effect: T2 EM $>$ T3 EM but the router still sends $>$50\% of CSQA queries to T3 (see \Cref{sec:disc-threats}).
++CommonsenseQA row shows the selection effect: T2 EM $>$ T3 EM but the router still sends 20\% of CSQA queries to T3 (see \Cref{sec:disc-threats}).
+diff --git a/thesis_report/figures/auto/tab_pooled_trajectory.tex b/thesis_report/figures/auto/tab_pooled_trajectory.tex
+index 716e7f3..59aeff6 100644
+--- a/thesis_report/figures/auto/tab_pooled_trajectory.tex
++++ b/thesis_report/figures/auto/tab_pooled_trajectory.tex
+@@ -5,0 +6 @@
++% Hand-corrected 2026-10-15 (see ref_check/fixes_applied.md)
+@@ -27 +28 @@ CAEM & C5 & 300 & 0.517 & 0.109 & 0.999 & 1.013 & \underline{0.958} & \textsc{co
+-\multicolumn{9}{@{}l}{\textbf{Headline contrast (CAEM C2 vs.\ B1 zero-shot)}: $\Delta$EM $=+0.037$ ($+7.4\%$ relative); $\Delta$CHM $=-0.013$ ($-10.8\%$ relative).} \\
++\multicolumn{9}{@{}l}{\textbf{Headline contrast (CAEM C2 vs.\ B1 zero-shot)}: $\Delta$EM $=+0.037$ ($+7.4\%$ relative); $\Delta$CHM $=-0.013$ ($-11.0\%$ relative).} \\
+diff --git a/thesis_report/figures/auto/tab_storage_pool_quality.tex b/thesis_report/figures/auto/tab_storage_pool_quality.tex
+index 3e56a45..5824002 100644
+--- a/thesis_report/figures/auto/tab_storage_pool_quality.tex
++++ b/thesis_report/figures/auto/tab_storage_pool_quality.tex
+@@ -5,0 +6 @@
++% Hand-corrected 2026-10-15 (see ref_check/fixes_applied.md)
+@@ -32 +33 @@ C5 & $2\,380$ & $1\,724$ & $656$ & $0.724$ & $895$ & $37.6\%$ & $0.803$ & $5\,00
+-\caption[Storage-pool quality and SIL training-pool filter chain per cycle]{Storage-pool quality and SIL training-pool filter chain per cycle, reported on both the held-out evaluation fold (panel a) and the SIL stream chunks (panel b). $n_{\text{stored}}$ is the count of samples that cleared the storage cut-point $\tau_{\text{store}} = 0.60$; the em-correct and em-wrong columns split these by ground-truth correctness; $\pi_{\text{store}}$ is the realised storage precision. The training-pool admission threshold $\tau_{\text{train}} = 0.70$ selects a higher-confidence subset of the stored pool for SIL fine-tuning; the $n_{\text{pass}\,\tau_{\text{train}}}$ and pass-rate columns report the size and share of this subset. The $\pi_{\text{SIL}}$ column is the empirical precision of the SIL pool itself, the em-correct fraction within the $\tau_{\text{train}}$-passing subset. The stream-chunk panel is the deployment-relevant pool because storage decisions on stream-chunk samples populate the memory store (the eval fold is content-hash disjoint by construction and does not enter the pool); on the stream chunks $\pi_{\text{SIL}}$ stays in the band $[0.798, 0.818]$ across the five SIL cycles, a $+6$ to $+8$ percentage-point lift above the stream-chunk storage precision band of $[0.724, 0.753]$, the empirical receipt that the SIL pool has higher precision than the storage pool and that the $\tau_{\text{train}} = 0.70$ filter selects a strictly cleaner training substrate than the storage gate alone. The eval-fold lift is smaller ($+2$ to $+6$ percentage points) because the eval fold is held-disjoint from the training distribution and is a content-shifted reading rather than a deployment-realised one. The complementary read on memory poisoning is the em-wrong column: across the stream-chunk trajectory the storage gate admits between $606$ and $688$ wrong entries per cycle (the high-$u_{\text{stored}}$-but-wrong cohort) against $1\,802$ to $1\,873$ correct entries, and the $\tau_{\text{train}}$ filter removes between $35\%$ and $49\%$ of those wrong entries on the way into the SIL pool, the architectural mechanism by which the two-stage gate decouples the storage-purity contract from the training-purity contract. The cycle-five drop in pass rate on both folds reflects the post-C4 composite refit re-tightening the upper tail; the $\pi_{\text{SIL}}$ column shows the precision contract holds across the re-tightening. The $n_{\text{used SIL}}$ column reports the actual count of episodes that entered the per-cycle SIL training batch from the cumulative memory store, ranging from $107$ at the first SIL fine-tune to $5\,006$ at the last successful cycle; this exceeds the per-cycle pass count because the SIL pool draws from the full memory store accumulated across all prior cycles, not only from the current cycle's stream chunk.}
++\caption[Storage-pool quality and SIL training-pool filter chain per cycle]{Storage-pool quality and SIL training-pool filter chain per cycle, reported on both the held-out evaluation fold (panel a) and the SIL stream chunks (panel b). $n_{\text{stored}}$ is the count of samples that cleared the storage cut-point $\tau_{\text{store}} = 0.60$; the em-correct and em-wrong columns split these by ground-truth correctness; $\pi_{\text{store}}$ is the realised storage precision. The training-pool admission threshold $\tau_{\text{train}} = 0.70$ selects a higher-confidence subset of the stored pool for SIL fine-tuning; the $n_{\text{pass}\,\tau_{\text{train}}}$ and pass-rate columns report the size and share of this subset. The $\pi_{\text{SIL}}$ column is the empirical precision of the SIL pool itself, the em-correct fraction within the $\tau_{\text{train}}$-passing subset. The stream-chunk panel is the deployment-relevant pool because storage decisions on stream-chunk samples populate the memory store (the eval fold is content-hash disjoint by construction and does not enter the pool); on the stream chunks $\pi_{\text{SIL}}$ stays in the band $[0.798, 0.818]$ across the five SIL cycles, a $+6$ to $+8$ percentage-point lift above the stream-chunk storage precision band of $[0.724, 0.753]$, the empirical receipt that the SIL pool has higher precision than the storage pool and that the $\tau_{\text{train}} = 0.70$ filter selects a strictly cleaner training substrate than the storage gate alone. The eval-fold lift is smaller ($+2$ to $+6$ percentage points) because the eval fold is held-disjoint from the training distribution and is a content-shifted reading rather than a deployment-realised one. The complementary read on memory poisoning is the em-wrong column: across the stream-chunk trajectory the storage gate admits between $606$ and $688$ wrong entries per cycle (the high-$u_{\text{stored}}$-but-wrong cohort) against $1\,802$ to $1\,873$ correct entries, and the $\tau_{\text{train}}$ filter removes between $56\%$ and $73\%$ of those wrong entries on the way into the SIL pool, the architectural mechanism by which the two-stage gate decouples the storage-purity contract from the training-purity contract. The cycle-five drop in pass rate on both folds reflects the post-C4 composite refit re-tightening the upper tail; the $\pi_{\text{SIL}}$ column shows the precision contract holds across the re-tightening. The $n_{\text{used SIL}}$ column reports the actual count of episodes that entered the per-cycle SIL training batch from the cumulative memory store, ranging from $107$ at the first SIL fine-tune to $5\,006$ at the last successful cycle; this exceeds the per-cycle pass count because the SIL pool draws from the full memory store accumulated across all prior cycles, not only from the current cycle's stream chunk.}
+diff --git a/thesis_report/figures/auto/tab_theorem_receipts_summary.tex b/thesis_report/figures/auto/tab_theorem_receipts_summary.tex
+index 12b2b17..accdc46 100644
+--- a/thesis_report/figures/auto/tab_theorem_receipts_summary.tex
++++ b/thesis_report/figures/auto/tab_theorem_receipts_summary.tex
+@@ -2,0 +3 @@
++% Hand-corrected 2026-10-15 (see ref_check/fixes_applied.md)
+@@ -13 +14 @@ T2 & \texttt{thm:\allowbreak bayes-\allowbreak purity} & Proposition & precondit
+-T3 & \texttt{thm:\allowbreak monotone} & Heuristic & consistent within horizon, sharp test deferred & Sign alignment holds on three of four cal-fold transitions; honest reverse-sign disclosure at $C3 \to C5$. & \Cref{tab:pi-store-trajectory} \\
++T3 & \texttt{thm:\allowbreak monotone} & Heuristic & consistent within horizon, sharp test deferred & Three cal-fold transitions are observable ($C1 \to C2$, $C2 \to C3$, $C3 \to C5$; C4 skipped): $C1 \to C2$ sign-aligns at large amplitude, $C2 \to C3$ is sub-noise in Cohen's $d$, and $C3 \to C5$ shows a small reverse-sign storage-rate movement. & \Cref{tab:pi-store-trajectory} \\
+@@ -15 +16 @@ T4 & \texttt{thm:\allowbreak monotone-\allowbreak purification} & Remark & ident
+-T5 & \texttt{thm:\allowbreak convergence} & Heuristic & BOUNDED-BAND & Pooled $\pi_t$ confined to a band of width $\le 0.031$ across the six-cycle horizon; the rate-scaling form $r = \mathcal{O}\!\big(\sigma \cdot \Phi(d/\sqrt{2})\big)$ is a Gaussian-model approximation asserted in the argument sketch rather than measured at the present horizon, and the measured geometric-rate test is deferred to a $\ge 15$-committed-cycle horizon. & \Cref{tab:pi-store-trajectory} \\
++T5 & \texttt{thm:\allowbreak convergence} & Heuristic & BOUNDED-BAND & Pooled cal-fold $\pi_t$ confined to a band of width $0.014$ ($0.746 - 0.732$) across the six-cycle horizon; the rate-scaling form $r = \mathcal{O}\!\big(\sigma \cdot \Phi(d/\sqrt{2})\big)$ is a Gaussian-model approximation asserted in the argument sketch rather than measured at the present horizon, and the measured geometric-rate test is deferred to a $\ge 15$-committed-cycle horizon. & \Cref{tab:pi-store-trajectory} \\
+diff --git a/thesis_report/figures/auto/tab_tier_trajectory.tex b/thesis_report/figures/auto/tab_tier_trajectory.tex
+index 77d8dcc..27fbccf 100644
+--- a/thesis_report/figures/auto/tab_tier_trajectory.tex
++++ b/thesis_report/figures/auto/tab_tier_trajectory.tex
+@@ -3,0 +4 @@
++% Hand-corrected 2026-10-15 (see ref_check/fixes_applied.md)
+@@ -21,5 +22,5 @@ C5 & 0.1\% & 1.000 & 50.2\% & 0.537 & 49.7\% & 0.497 & 0.517 \\
+-FEVER & 0.0\% & -- & 43.3\% & 0.554 & 56.7\% & 0.418 & 0.477 \\
+-TriviaQA & 0.3\% & 1.000 & 37.0\% & 0.514 & 62.7\% & 0.420 & 0.453 \\
+-CommonsenseQA & 0.0\% & -- & 82.3\% & 0.733 & 17.7\% & 0.642 & 0.717 \\
+-TruthfulQA & 0.3\% & 1.000 & 64.3\% & 0.591 & 35.3\% & 0.311 & 0.493 \\
+-StrategyQA & 0.0\% & -- & 24.0\% & 0.736 & 76.0\% & 0.610 & 0.640 \\
++FEVER & 0.0\% & -- & 43.3\% & 0.500 & 56.7\% & 0.459 & 0.477 \\
++TriviaQA & 0.3\% & 1.000 & 37.0\% & 0.423 & 62.7\% & 0.468 & 0.453 \\
++CommonsenseQA & 0.0\% & -- & 82.3\% & 0.745 & 17.7\% & 0.585 & 0.717 \\
++TruthfulQA & 0.3\% & 1.000 & 64.3\% & 0.321 & 35.3\% & 0.255 & 0.300 \\
++StrategyQA & 0.0\% & -- & 24.0\% & 0.639 & 76.0\% & 0.640 & 0.640 \\
+@@ -28 +29 @@ StrategyQA & 0.0\% & -- & 24.0\% & 0.736 & 76.0\% & 0.610 & 0.640 \\
+-\caption[Per-cycle pooled tier share and per-tier exact match across the five-benchmark evaluation panel (panel a), with a per-benchmark snapshot at the cycle-five close (panel b).]{Per-cycle pooled tier share and per-tier exact match across the five-benchmark evaluation panel (panel a), with a per-benchmark snapshot at the cycle-five close (panel b). Tier 1 (memory-direct) fires on a small share of queries by construction of the content-hash-disjoint evaluation fold; every realised Tier 1 firing returns the correct stored answer (the empirical receipt for \Cref{cor:tier1-floor}). The Tier-2-versus-Tier-3 contrast at cold start and the per-benchmark tier-mix heterogeneity surfaced by panel b are discussed in the surrounding prose.}
++\caption[Per-cycle pooled tier share and per-tier exact match across the five-benchmark evaluation panel (panel a), with a per-benchmark snapshot at the cycle-five close (panel b).]{Per-cycle pooled tier share and per-tier exact match across the five-benchmark evaluation panel (panel a), with a per-benchmark snapshot at the cycle-five close (panel b). Tier 1 (memory-direct) fires on a small share of queries by construction of the content-hash-disjoint evaluation fold; every realised Tier 1 firing returns the correct stored answer (the empirical receipt for \Cref{cor:tier1-floor}). Panel b copies the C5 rows of \Cref{tab:per-tier-em}; TruthfulQA EM uses the Haiku-judged correctness rule. The Tier-2-versus-Tier-3 contrast at cold start and the per-benchmark tier-mix heterogeneity surfaced by panel b are discussed in the surrounding prose.}
+```
+(tab_ruc_lobo.tex: whole file deleted; recoverable with `git show HEAD:thesis_report/figures/auto/tab_ruc_lobo.tex`.)
+
+## Numbers audit, Part 1: final corrections after review (2026-10-15)
+
+| Item | Location | Before | After | Evidence |
+|---|---|---|---|---|
+| #33 (corrects the editor's change) | appendix_e:168 | editor had changed accumulation to "four to eight (preserving the effective batch size at sixteen)", a setting no source records | "four to sixteen (an effective batch size of thirty-two, twice the production value of sixteen)" | README:414 and the original appendix E text record accumulation 4 → 16; production is 4 × 4 = 16 (caem/config.py grad_accum_steps = 4) |
+| #44 | ch5:216 | "in every cycle except cycle two the em-rate weakly increases with the bucket index" | "on the stream chunks the em-rate increases with the bucket index at every cycle, while on the evaluation fold it does so only at cycles one and four" | tab_u_stored_distribution panels (a) and (b) |
+| #44 caption | tab_u_stored_distribution | "preserves the same ordering at every cycle except the cycle-two and cycle-three rows…" | "increases monotonically with the bucket index only at cycles one and four; at cycles zero, two, three and five at least one adjacent pair of buckets reverses, mostly where the upper buckets hold few entries." | same |
+| #46 second half | ch5:308 | "sit an order of magnitude above the CommonsenseQA scalar at every cycle" | "sit $4.8$ to $10.7$ times above the CommonsenseQA scalar across the committed cycles" | tab_calibration_trajectory panel (b): FEVER/CSQA 10.50, 8.19, 6.45, 4.84; TriviaQA/CSQA 10.52, 8.28, 6.61, 10.74 |
+| #11 (second site) | end of ch5:491 | "closes the TruthfulQA exact-match regression … lifting TruthfulQA exact match from 0.210 to 0.310 while…" | "narrows … from 0.210 to 0.310, still below the B1 zero-shot reference of 0.433, while…" | tab_per_bench_trajectory B1 TruthfulQA 0.433 |
+| #43 caption | tab_per_tier_em | "the gap is preserved across the trajectory" | names the exceptions: FEVER at C2 (51.6 vs 54.5) and StrategyQA at C5 (63.9 vs 64.0) | tab_per_tier_em rows |
+
+Still open (need the local data from step 2): #12 (ch5:181 safety override) and #2–#6 (appendix D contingency rows and Holm tables, plus their prose at D:39, D:59, D:72, D:87, D:118, D:140).
+Also noted for step 3: appendix E:93/:166 still say a cycle takes "five to seven hours", which conflicts with the measured windows; README:214 says "5–20 pp" where TriviaQA is 4.6 pp; the cross_benchmark_summary caption says the transfer panel does not enter the storage gate, but the table lists store counts for it; scripts/hardware.py still targets an effective batch of 32.
