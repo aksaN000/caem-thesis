@@ -230,3 +230,9 @@ New bib entries for tier C: `edwards1948note` (Edwards 1948, Psychometrika 13:18
 - §"Calibration Measures" (p. 2903) defines ECE: predictions are sorted into K bins and ECE = Σ P(i)·|o_i − e_i|. MCE is defined in the same section. This supports the chapter 2 sentence (binning by confidence, then the confidence–accuracy gap per bin). Verdict: ✅
 - Edwards 1948 (Psychometrika 13(3):185–187, doi 10.1007/BF02289261): metadata confirmed via indexes. No free PDF; the title itself supports the continuity-correction claim.
 - Robbins & Siegmund 1971 (Optimizing Methods in Statistics, ed. Rustagi, Academic Press): the theorem's content is confirmed via secondary sources (arXiv 2509.26442; Anbar 1976, Ann. Statist.). The page range has not been confirmed from the original volume.
+
+## Follow-up: "pre-registered" → "pre-specified" (option a)
+- All 48 occurrences across the chapters, appendices, abstract and `figures/auto/sweep_top.tex` changed: "pre-registered"/"Pre-registered" → "pre-specified"/"Pre-specified", and "pre-registration convention" → "pre-specification convention". The matching strings in `scripts/aggregate_section_5_7.py` were also updated, so regenerating the table keeps the new wording.
+- `chapter_3.tex` (protocol standards paragraph): added "Throughout the thesis, a quantity described as pre-specified or registered was fixed in the project's configuration and runbook before the main evaluation run; the term does not refer to an entry in an external pre-registration registry."
+- Same paragraph: "three … protocol standards" → "four", because the paragraph lists four (matched-protocol, pre-specification, selective-prediction, multiple-comparison).
+- The ~300 uses of plain "registered" (e.g. "registered floor") are unchanged; the definition sentence covers them.

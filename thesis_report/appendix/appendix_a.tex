@@ -84,13 +84,13 @@ caem/eval/equilibrium.py   & SE metric         & Stochastic-equilibrium computat
 \section{Configuration registry}
 \label{app:config-registry}
 
-Every constant that governs runtime behaviour lives in the \verb|CAEMConfig| dataclass at \verb|caem/config.py|. The exception is the retrieval-utility classifier, whose configuration lives in \verb|caem/ruc/v2/feature_spec.json| at deployment time (the classifier is loaded once at pipeline construction and is not refit at cycle boundaries; see \Cref{sec:ruc}). The registry below groups every field by concept, records the deployed value, and tags the provenance as \emph{literature} (anchored to a cited paper), \emph{design} (architectural decision documented before any run), \emph{calibrated} (selected empirically at cycle zero), or \emph{pre-registered} (chosen before any data is observed).
+Every constant that governs runtime behaviour lives in the \verb|CAEMConfig| dataclass at \verb|caem/config.py|. The exception is the retrieval-utility classifier, whose configuration lives in \verb|caem/ruc/v2/feature_spec.json| at deployment time (the classifier is loaded once at pipeline construction and is not refit at cycle boundaries; see \Cref{sec:ruc}). The registry below groups every field by concept, records the deployed value, and tags the provenance as \emph{literature} (anchored to a cited paper), \emph{design} (architectural decision documented before any run), \emph{calibrated} (selected empirically at cycle zero), or \emph{pre-specified} (chosen before any data is observed).
 
 {\footnotesize
 \setlength{\tabcolsep}{4pt}
 \renewcommand{\arraystretch}{1.1}
 \begin{longtable}{@{}p{4.2cm}p{2.2cm}p{2.0cm}p{6.4cm}@{}}
-\caption[Configuration registry]{Configuration registry. Provenance tags: \emph{literature} (cited paper), \emph{design} (architectural choice documented before any run), \emph{calibrated} (chosen empirically at cycle zero or refit at a cycle boundary), \emph{pre-registered} (registered horizon before any data is observed).}
+\caption[Configuration registry]{Configuration registry. Provenance tags: \emph{literature} (cited paper), \emph{design} (architectural choice documented before any run), \emph{calibrated} (chosen empirically at cycle zero or refit at a cycle boundary), \emph{pre-specified} (registered horizon before any data is observed).}
 \label{tab:app-config-registry}\\
 \toprule
 \textbf{Field} & \textbf{Value} & \textbf{Provenance} & \textbf{Source / rationale} \\
@@ -192,7 +192,7 @@ Every constant that governs runtime behaviour lives in the \verb|CAEMConfig| dat
 \texttt{value\_importance\_weight},\allowbreak{} \texttt{value\_recency\_weight} & $0.70$, $0.30$ & design & Value-score decomposition. \\
 \midrule
 \multicolumn{4}{@{}l}{\textit{Experiment scope}} \\
-\texttt{num\_cycles}                 & $10$  & pre-registered & Registered horizon; realised trajectory closed at cycle five under the equilibrium-saturation gate. \\
+\texttt{num\_cycles}                 & $10$  & pre-specified & Registered horizon; realised trajectory closed at cycle five under the equilibrium-saturation gate. \\
 \texttt{calibration\_set\_size}       & $500$ & design & Cycle-zero calibration-fold size per training benchmark. \\
 \texttt{purity\_validation\_set\_size} & $500$ & design & Cycle-zero purity-validation slice per training benchmark. \\
 \texttt{questions\_per\_cycle}        & $5\,000$ & design & Stream-chunk question budget per cycle. \\
@@ -344,7 +344,7 @@ The three calibration entry points are run in sequence at cycle zero and the sec
 \section{Validation gate reference}
 \label{app:gate-reference}
 
-The cycle-zero validation gate licenses the deployed configuration to enter the main run. The gate is implemented at \verb|scripts/validate_composite_weights.py| and runs automatically as the \verb|step_7_0_3_validate_weights| stage of the pre-run setup block. The gate is a conjunction of four pre-registered checks; the verdict is recorded at \verb|outputs/cycle_0/weight_validation.json|.
+The cycle-zero validation gate licenses the deployed configuration to enter the main run. The gate is implemented at \verb|scripts/validate_composite_weights.py| and runs automatically as the \verb|step_7_0_3_validate_weights| stage of the pre-run setup block. The gate is a conjunction of four pre-specified checks; the verdict is recorded at \verb|outputs/cycle_0/weight_validation.json|.
 
 \begin{verbatim}
 python scripts/validate_composite_weights.py \
