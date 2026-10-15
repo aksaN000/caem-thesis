@@ -196,7 +196,7 @@ lines.append('\\bottomrule')
 lines.append('\\end{tabular}')
 lines.append('\\caption[Per-signal Cohen\'s $d$ between exact-match-correct and exact-match-incorrect outputs on the held-out cycle-zero evaluation fold of the locked five-benchmark panel, after the registered HotpotQA, Natural Questions, and ARC-Challenge retirements.]'
              '{Per-signal Cohen\'s $d$ between exact-match-correct and exact-match-incorrect outputs on the held-out cycle-zero evaluation fold of the locked five-benchmark panel, after the registered HotpotQA, Natural Questions, and ARC-Challenge retirements. '
-             'Positive values indicate the signal is higher on em-correct samples; the column $\\mathrm{ID\\ pool}$ governs the precondition of \\Cref{thm:purity} that the verifier discriminates correct from incorrect outputs strictly above chance, and the column $\\mathrm{Trans\\ pool}$ reports the out-of-distribution generalisation of the same signal set to benchmarks excluded from calibration. '
+             'Positive values indicate the signal is higher on em-correct samples; the column $\\mathrm{ID\\ pool}$ governs the precondition of \\Cref{thm:bayes-purity} that the verifier discriminates correct from incorrect outputs strictly above chance, and the column $\\mathrm{Trans\\ pool}$ reports the out-of-distribution generalisation of the same signal set to benchmarks excluded from calibration. '
              'The calibrated probability composite recorded on the first row as $u_{\\text{stored}}$ aggregates the per-signal readings through per-signal isotonic regression, per-benchmark shrinkage at $\\alpha_{\\text{shrink}} = 0.6$, and a logistic boost layer, and is the quantity that the validation gate audits against its registered floor of $0.20$. '
              'All cells computed on the held-out evaluation fold rather than the calibration-fit fold, so the readings reflect the locked composite\'s behaviour at inference time rather than at fit time.}')
 lines.append('\\label{tab:cohen-d-per-bench}')
@@ -393,7 +393,7 @@ lines.append('\\end{tabular}')
 lines.append('\\caption[Cycle-zero validation gate verdict under the locked configuration on the locked five-benchmark panel.]'
              '{Cycle-zero validation gate verdict under the locked configuration on the locked five-benchmark panel. '
              'All cells are computed on the held-out cycle-zero evaluation fold rather than on the calibration fold, so the audited quantity is the locked composite\'s inference-time behaviour. '
-             'The composite Cohen\'s $d$ gate audits the precondition of \\Cref{thm:purity} (verifier discriminates above chance, registered floor $0.20$). '
+             'The composite Cohen\'s $d$ gate audits the precondition of \\Cref{thm:bayes-purity} (verifier discriminates above chance, registered floor $0.20$). '
              'Store-vs-discard gap and memory poisoning rate are reported on the training panel only because the storage gate does not fire on transfer-panel queries by design. '
              'The per-benchmark Cohen\'s $d$ heterogeneity and the Simpson\'s-style pooling artefact on the transfer panel are discussed in the surrounding prose; the verdict licenses the locked configuration to enter the main run.}')
 lines.append('\\label{tab:validation-gate}')
