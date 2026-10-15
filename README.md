@@ -45,22 +45,22 @@ Large language models hallucinate at deployment-relevant rates and the problem p
 
 Against the matched Qwen-2.5-3B-Instruct zero-shot baseline `B1` over the same backbone, the headline finding the thesis intends to license is the joint reading of three axes (training-panel architectural-contribution slice, full-panel registered contrast, and external eight-baseline panel) at the within-trajectory best cycle (C2) and the trajectory-end cycle (C5). The architectural-contribution slice is read on the **training panel** (FEVER + TriviaQA + CommonsenseQA), the three benchmarks on which CAEM's self-improvement loop and verifier composite are calibrated. The registered full-panel contrast is read on the five-benchmark evaluation panel (the training three plus the transfer pair TruthfulQA + StrategyQA).
 
-- **Headline architectural-contribution slice (training panel, CAEM C2 vs B1 zero-shot reference):** **ΔEM = +20.3% relative**, **ΔCHM = −29.4% relative** (pooled training-panel EM 0.483 → 0.581; pooled training-panel CHM 0.143 → 0.101; `tab:per-bench-trajectory`, Ch5 §5.5). The trajectory-end cycle holds at **+13.7% EM, −20.3% CHM** relative against the same B1 floor.
-- **Full 5-panel registered contrast (CAEM C2 vs B1) for comparison:** ΔEM = +7.4%, ΔCHM = −11.0% relative; the smaller full-panel margin is driven by a TruthfulQA regression on misconception-bait probes where the dense passage substrate amplifies the question's misconception framing rather than refuting it. The architectural fix is the retrieval-utility classifier (next bullet).
-- **Retrieval-utility-classifier ablation** at cycle three: **+14.0 percentage-point lift** on CommonsenseQA exact match and **+10.0 percentage-point lift** on TruthfulQA exact match by re-routing misconception-bait queries away from the retrieval-augmented tier, with the retrieval tier share collapsing by **−33.8 percentage points** pooled (`tab:ruc-ablation`, Ch5 §5.7). The classifier-on reading lifts TruthfulQA exact match from 0.210 to 0.310 while preserving the training-panel pooled reading.
-- **Pool purity** remains in the band **[0.732, 0.746]** on the pooled training-panel calibration fold across every committed cycle, clearing the registered floor of 0.64 by 9–11 percentage points (`tab:pi-store-trajectory`, Ch5 §5.5.1).
-- **First in-flight retention rollback** at cycle four (TriviaQA-test probe ratio 0.886 < ρ_min = 0.93) with the memory store growing across the abort boundary under the asymmetric-rollback contract; cycle-five recovers to a worst-probe ratio of 0.958 (Ch5 §5.2; `cor:stochastic-equilibrium`).
+- **Headline architectural-contribution slice (training panel, CAEM C2 vs B1 zero-shot reference):** **ΔEM = +20.3% relative**, **ΔCHM = −29.4% relative** (pooled training-panel EM 0.483 → 0.581; pooled training-panel CHM 0.143 → 0.101; `tab:per-bench-trajectory`, Ch5 §5.1.2). The trajectory-end cycle holds at **+13.7% EM, −20.3% CHM** relative against the same B1 floor.
+- **Full 5-panel registered contrast (CAEM C2 vs B1) for comparison:** ΔEM = +7.4%, ΔCHM = −11.0% relative; the smaller full-panel margin is driven by a TruthfulQA regression on misconception-bait probes where the dense passage substrate amplifies the question's misconception framing rather than refuting it. The retrieval-utility classifier (next bullet) narrows this regression but does not close it.
+- **Retrieval-utility-classifier ablation** at cycle three: **+14.0 percentage-point lift** on CommonsenseQA exact match and **+10.0 percentage-point lift** on TruthfulQA exact match by re-routing misconception-bait queries away from the retrieval-augmented tier, with the retrieval tier share collapsing by **−33.8 percentage points** pooled (`tab:ruc-ablation`, Ch5 §5.4.2). The classifier-on reading lifts TruthfulQA exact match from 0.210 to 0.310, still below the B1 zero-shot reference of 0.433, while preserving the training-panel pooled reading. The contrast bundles the classifier with pipeline corrections shipped in the same iteration, so the lift is their joint effect.
+- **Pool purity** remains in the band **[0.732, 0.746]** on the pooled training-panel calibration fold across every committed cycle, clearing the registered floor of 0.64 by 9–11 percentage points (`tab:pi-store-trajectory`, Ch5 §5.1.6).
+- **First in-flight retention rollback** at cycle four (TriviaQA-test probe ratio 0.886 < ρ_min = 0.93) with the memory store growing across the abort boundary under the asymmetric-rollback contract; cycle-five recovers to a worst-probe ratio of 0.958 (Ch5 §5.1.5; `cor:stochastic-equilibrium`).
 - **External eight-baseline panel:** in the pooled comparison, CAEM C2 beats all eight baselines jointly on the exact-match and composite-hallucination axes, and CAEM C5 beats seven of eight; FLARE leads CAEM C5 on pooled exact match by 0.008 (`tab:baseline-pooled`).
 
-The full theorem-by-theorem receipt panel (three theorems plus three corollaries) and the pre-registered five-hypothesis verdicts are reported in Chapter 5 §5.5.
+The receipt panel for the two proven results (one theorem and one proposition) and the five design heuristics is reported in Chapter 5 §5.1.6; the pre-specified five-hypothesis verdicts are in Chapter 5 §5.5.2.
 
 ---
 
 ## The problem
 
-Modern instruction-tuned language models generate confident-sounding answers at deployment-relevant rates that exceed their actual accuracy by ten or more percentage points (`pmlr-v70-guo17a`, `kadavath2022language`). Single-signal correctness predictors achieve AUROC scores between 0.50 and 0.60, marginally above chance (`xiong2023can`). The TruthfulQA benchmark documents an inverse-scaling pattern under which larger models are *more* prone to echo human falsehoods (`lin-etal-2022-truthfulqa`). Clinical-question studies report hallucination rates of 69–77% on frontier models (`alkaissi2023artificial`). Hallucination is not a residual that scale removes; it is a structural property of stateless generation under uncertainty, as the recent survey literature argues (`ji2023survey`, `huang-etal-2023-large`).
+Modern neural models state confidence that exceeds their actual accuracy: classifiers show expected calibration errors above ten percentage points on standard image benchmarks (`pmlr-v70-guo17a`), and language models fine-tuned with reinforcement learning from human feedback appear badly miscalibrated until their outputs are rescaled (`kadavath2022language`). The confidence a model states in words discriminates correct from incorrect answers only weakly (for GPT-4 an average AUROC of about 0.63, close to the 0.5 of chance), and no single elicitation method is consistently best (`xiong2023can`). The TruthfulQA benchmark documents an inverse-scaling pattern under which larger models are *more* prone to echo human falsehoods (`lin-etal-2022-truthfulqa`). Asked for supporting literature, chatbots return references that do not exist (`alkaissi2023artificial`): in systematic-review searches, 39.6%, 28.6% and 91.4% of the references produced by GPT-3.5, GPT-4 and Bard were hallucinated (`info:doi/10.2196/53164`). Hallucination is not a residual that scale alone removes; the survey literature describes it as persisting in large, instruction-tuned and preference-tuned models (`ji2023survey`, `huang2025survey`).
 
-CAEM treats this as a deployment-safety problem rather than a benchmark-accuracy problem. The architecture targets three structural shortcomings of the current inference paradigm: statelessness (no representation of past verified answers persists across sessions); overconfidence (single-signal correctness predictors are near-random); and immutability of trained capability (naive fine-tuning incurs catastrophic forgetting). The remainder of this document walks the architecture, the realised six-cycle trajectory, the pre-registered hypothesis adjudication, and the threats-to-validity disclosure.
+CAEM treats this as a deployment-safety problem rather than a benchmark-accuracy problem. The architecture targets three structural shortcomings of the current inference paradigm: statelessness (no representation of past verified answers persists across sessions); overconfidence (the confidence a model verbalises discriminates correct from incorrect answers only weakly); and immutability of trained capability (naive fine-tuning incurs catastrophic forgetting). The remainder of this document walks the architecture, the realised six-cycle trajectory, the pre-specified hypothesis adjudication, and the threats-to-validity disclosure.
 
 The full motivation, the literature positioning across six areas (hallucination measurement, verification, confidence estimation, memory-augmented architectures, continual learning, evaluation benchmarks), and the architectural-opportunity argument are in Chapter 1 of the thesis.
 
@@ -84,15 +84,15 @@ Stage 8  Cycle-boundary update        Retroverify + deferred reconsider + consol
 
 ### Stage 3b: the retrieval-utility classifier
 
-At the heart of the post-baseline architectural intervention is the retrieval-utility classifier of Chapter 4 §4.5. It is a **36-feature L2-regularised logistic regression head** fitted under nested five-fold cross-validation on a content-hash-disjoint fresh pool of 3208 disagreement rows (1846 retrieval-helpful, 1362 retrieval-hurt). The classifier intercepts the dispatches that the three-tier router would have sent to the retrieval-augmented fallback and decides per query whether retrieval is expected to help, routing retrieval-hurt queries to the zero-shot tier instead. The deployed threshold is τ_RUC = 0.375. Pooled out-of-fold AUROC is 0.850 (std 0.008); per-benchmark AUROC ranges from 0.686 (OpenBookQA) to 0.936 (TriviaQA) with FEVER 0.718, CommonsenseQA 0.728, TruthfulQA 0.732, StrategyQA 0.852. The full feature ontology, the training-distribution composition, the calibration receipt, and the threshold-sweep diagnostic are in Chapter 4 §4.5.
+At the heart of the post-baseline architectural intervention is the retrieval-utility classifier of Chapter 4 §4.2.5. It is a **36-feature L2-regularised logistic regression head** fitted under nested five-fold cross-validation on a content-hash-disjoint fresh pool of 3208 disagreement rows (1846 retrieval-helpful, 1362 retrieval-hurt). The classifier intercepts the dispatches that the three-tier router would have sent to the retrieval-augmented fallback and decides per query whether retrieval is expected to help, routing retrieval-hurt queries to the zero-shot tier instead. The deployed threshold is τ_RUC = 0.375. Pooled out-of-fold AUROC is 0.850 (std 0.008); per-benchmark AUROC ranges from 0.686 (OpenBookQA) to 0.936 (TriviaQA) with FEVER 0.718, CommonsenseQA 0.728, TruthfulQA 0.732, StrategyQA 0.852. The full feature ontology, the training-distribution composition, the calibration receipt, and the threshold-sweep diagnostic are in Chapter 4 §4.2.5.
 
 ### The nine-signal verifier ensemble
 
-The verifier consumes nine signals organised in four families: **internal calibration** (`u_token`, `u_dropout`, `u_internal`); **sample-set agreement** (`s_avg`, `p_entail`); **external grounding** (`p_ground_max`, `p_ground_mean`, length-gated `p_ground_atomic`); and **question-answer relevance** (`q_a_rel`). The ensemble is **locked across cycles** by design: MiniCheck-Flan-T5-Large is the deployed entailment backend (the registered long-hypothesis Qwen judge was ablated under the pre-registered Pearson correlation floor failing at the v5 calibration overlap fold), the signal-extraction layer is frozen, and only the cycle-boundary composite refit (per-signal isotonic curves, per-benchmark shrinkage child fits, boost-layer weights and intercept) is cycle-indexed. **Two registered signals are retired** from the deployed composite: `h_norm` (normalised semantic entropy, registered then retired at the cycle-zero audit; the boost coefficient under the locked configuration is approximately −5e-4) and `p_contra` (structurally zero under the MiniCheck-only deployment).
+The verifier consumes nine signals organised in four families: **internal calibration** (`u_token`, `u_dropout`, `u_internal`); **sample-set agreement** (`s_avg`, `p_entail`); **external grounding** (`p_ground_max`, `p_ground_mean`, length-gated `p_ground_atomic`); and **question-answer relevance** (`q_a_rel`). The ensemble is **locked across cycles** by design: MiniCheck-Flan-T5-Large is the deployed entailment backend (the registered long-hypothesis Qwen judge was ablated under the pre-specified Pearson correlation floor failing at the v5 calibration overlap fold), the signal-extraction layer is frozen, and only the cycle-boundary composite refit (per-signal isotonic curves, per-benchmark shrinkage child fits, boost-layer weights and intercept) is cycle-indexed. **Two registered signals are retired** from the deployed composite: `h_norm` (normalised semantic entropy, registered then retired at the cycle-zero audit; its boost-layer weight was within 5e-4 of zero on every fit) and `p_contra` (structurally zero under the MiniCheck-only deployment).
 
 ### The calibrated probability composite + fixed-threshold storage gate
 
-The verifier's nine signals enter a **per-benchmark calibrated probability composite**: per-signal isotonic regression maps each raw signal to a calibrated probability, per-benchmark child curves are shrunk toward the pooled fit through a James-Stein-style prior at α = 0.6, and an L2-regularised logistic boost layer (Cherian-style, C = 0.01) aggregates the per-signal calibrated log-odds into `u_stored ∈ [0, 1]`. The storage gate is a **fixed-threshold rule** on `u_stored`: store if ≥ 0.60, defer if ≥ 0.45, abstain if below 0.45 and `p_ground_max` < 0.20, discard otherwise. The thresholds are registered before the main run and held constant across cycles; only the composite refits. The fixed-threshold formulation replaced an earlier split-conformal gate that failed the marginal-coverage premise on the panel; the rejection evidence is recorded in Chapter 4 §4.7 and Chapter 5 §5.5.1.
+The verifier's nine signals enter a **per-benchmark calibrated probability composite**: per-signal isotonic regression maps each raw signal to a calibrated probability, per-benchmark child curves are shrunk toward the pooled fit through a James-Stein-style prior at α = 0.6, and an L2-regularised logistic boost layer (C = 0.01, following the logistic multi-scoring of Valentin et al.) aggregates the per-signal calibrated log-odds into `u_stored ∈ [0, 1]`. The storage gate is a **fixed-threshold rule** on `u_stored`: store if ≥ 0.60, defer if ≥ 0.45, abstain if below 0.45 and `p_ground_max` < 0.20, discard otherwise. The thresholds are registered before the main run and held constant across cycles; only the composite refits. The fixed-threshold formulation replaced an earlier split-conformal gate that failed the marginal-coverage premise on the panel; the rejection evidence is recorded in Chapter 4 §4.2.8 and Chapter 5 §5.2.5.
 
 ### The constrained self-improvement loop
 
@@ -106,7 +106,7 @@ The full per-stage specification, the algorithmic pseudocode, the cycle-boundary
 
 The realised programme closed at the **six-cycle horizon** (cycles C0 through C5) under the equilibrium-saturation gate, with cycle four aborted by the retention guard and weights rolled back to the cycle-three checkpoint while the memory store grew across the boundary under the asymmetric-rollback contract. The headline contrast frames CAEM against the matched-protocol zero-shot baseline (`B1`) over the same Qwen-2.5-3B-Instruct backbone.
 
-### Per-cycle pooled trajectory (canonical reading from `tab:pooled-trajectory`, Ch5 §5.2)
+### Per-cycle pooled trajectory (canonical reading from `tab:pooled-trajectory`, Ch5 §5.1.2)
 
 | Configuration | Cycle | Pooled EM | Pooled CHM | MMLU ratio | TQA-test ratio | CSQA-test ratio | Outcome |
 |---|---|---:|---:|---:|---:|---:|---|
@@ -120,9 +120,9 @@ The realised programme closed at the **six-cycle horizon** (cycles C0 through C5
 
 Headline contrast vs B1 zero-shot at the trajectory's within-best cycle (C2): **ΔEM = +0.037 (+7.4% relative)**, **ΔCHM = −0.013 (−11.0% relative)**.
 
-The trajectory carries three findings. First, **the composite hallucination metric reduces monotonically into a deep minimum at cycle two (0.107) and recovers a near-minimum at cycle five (0.109)**, a −19% relative reduction from the cycle-zero baseline (Ch5 §5.2). Second, **cycle four exhibits the first in-flight retention rollback** on the realised trajectory: the TriviaQA-test probe ratio falls to 0.886, crossing below the registered floor of 0.93, the cycle aborts, and the adapter is restored to the cycle-three checkpoint while the memory store grows across the boundary (Ch5 §5.2; the architectural contract is `cor:stochastic-equilibrium` sub-claim iii). Third, **cycle five recovers to a worst-probe ratio of 0.958**, well clear of the floor, and the realised commit fraction closes at π_commit = 4/5 = 0.80, strictly in the open interval (0, 1) that the corollary's sub-claim (i) predicts.
+The trajectory carries three findings. First, **the composite hallucination metric reduces monotonically into a deep minimum at cycle two (0.107) and recovers a near-minimum at cycle five (0.109)**, a −19% relative reduction from the cycle-zero baseline (Ch5 §5.1.2). Second, **cycle four exhibits the first in-flight retention rollback** on the realised trajectory: the TriviaQA-test probe ratio falls to 0.886, crossing below the registered floor of 0.93, the cycle aborts, and the adapter is restored to the cycle-three checkpoint while the memory store grows across the boundary (Ch5 §5.1.5; the architectural contract is `cor:stochastic-equilibrium` sub-claim iii). Third, **cycle five recovers to a worst-probe ratio of 0.958**, well clear of the floor, and the realised commit fraction closes at π_commit = 4/5 = 0.80, strictly in the open interval (0, 1) that the heuristic's sub-claim (i) predicts.
 
-### Per-benchmark trajectory: training panel (canonical reading from `tab:per-bench-trajectory`, Ch5 §5.2)
+### Per-benchmark trajectory: training panel (canonical reading from `tab:per-bench-trajectory`, Ch5 §5.1.2)
 
 The **architectural-contribution slice** is read off the shaded pooled rows: training-panel pooled EM lifts from **0.483 at B1** to **0.581 at C2** (the architectural-contribution headline of +20.3% relative), and training-panel pooled CHM falls from **0.143 at B1** to **0.101 at C2** (the architectural-contribution headline of −29.4% relative).
 
@@ -148,9 +148,9 @@ The transfer panel has no pooled row in the thesis because TruthfulQA and Strate
 | StrategyQA | EM | 0.650 | 0.610 | 0.647 | 0.653 | 0.640 | 0.640 | 0.640 | +0.003 (+0.5%) | −0.010 (−1.5%) |
 | StrategyQA | CHM | 0.120 | 0.154 | 0.113 | 0.115 | 0.128 | 0.127 | 0.099 | −0.005 (−4.2%) | **−0.021 (−17.5%)** ✓ clean transfer-CHM win |
 
-The TruthfulQA EM regression on misconception-bait probes is the within-horizon weakness of the architecture in the absence of the retrieval-utility classifier; the classifier-on ablation reported in §5.7 lifts TruthfulQA EM from 0.210 to 0.310 by re-routing misconception-bait queries away from the retrieval-augmented tier.
+The TruthfulQA EM regression on misconception-bait probes is the within-horizon weakness of the architecture in the absence of the retrieval-utility classifier; the classifier-on ablation reported in §5.4.2 lifts TruthfulQA EM from 0.210 to 0.310 (still below the B1 reference of 0.433) by re-routing misconception-bait queries away from the retrieval-augmented tier.
 
-### Eight-baseline panel (canonical reading from `tab:baseline-pooled`, Ch5 §5.4)
+### Eight-baseline panel (canonical reading from `tab:baseline-pooled`, Ch5 §5.4.1)
 
 All baselines evaluated under the matched-protocol contract on the five-benchmark evaluation panel, with CHM post-hoc rescored through the locked CAEM verifier so the CHM column is apples-to-apples across the panel. TruthfulQA EM uses the Haiku-judged correctness rule for every row in the panel, including the B8 semantic-entropy abstention row whose TruthfulQA predictions were rescored by the Haiku judge over the post-rerun abstain outputs.
 
@@ -169,13 +169,13 @@ All baselines evaluated under the matched-protocol contract on the five-benchmar
 
 **Wins-against count** (CAEM beats baseline on ΔEM and ΔCHM jointly): **CAEM C2 beats 8/8 baselines; CAEM C5 beats 7/8 baselines** (FLARE leads CAEM C5 on pooled EM by 0.008).
 
-The paired McNemar exact-match receipts and paired Wilcoxon composite-hallucination receipts of `tab:sig-test` clear the joint significance-and-effect-size licensing rule of Chapter 5 §5.4 on **9 of 40 per-benchmark contrasts on the exact-match axis** and **21 of 35 contrasts on the composite-hallucination axis** (the five vanilla-fine-tune CHM cells are n/a) at the cycle-five anchor, and on **14 of 40 and 20 of 35 contrasts respectively** at the best-cycle anchor of `tab:sig-test-c2`. The significant defeats number three on the exact-match axis at both anchors, and three (C5) and four (C2) on the composite-hallucination axis; all are confined to TruthfulQA against the zero-shot, chain-of-thought, FLARE and semantic-entropy baselines (the surface where the architecture's abstention behaviour interacts with the Haiku-judged correctness rule and the false-refusal subtype of the composite hallucination metric).
+The paired McNemar exact-match receipts and paired Wilcoxon composite-hallucination receipts of `tab:sig-test` clear the joint significance-and-effect-size licensing rule of Chapter 5 §5.3.5 on **9 of 40 per-benchmark contrasts on the exact-match axis** and **21 of 35 contrasts on the composite-hallucination axis** (the five vanilla-fine-tune CHM cells are n/a) at the cycle-five anchor, and on **14 of 40 and 20 of 35 contrasts respectively** at the best-cycle anchor of `tab:sig-test-c2`. The significant defeats number three on the exact-match axis at both anchors, and three (C5) and four (C2) on the composite-hallucination axis; all are confined to TruthfulQA against the zero-shot, chain-of-thought, FLARE and semantic-entropy baselines (the surface where the architecture's abstention behaviour interacts with the Haiku-judged correctness rule and the false-refusal subtype of the composite hallucination metric).
 
-The Holm-corrected family-wise significance panel, the bootstrap 95% confidence intervals on every ΔEM, and the per-benchmark sig-test verdicts are reported in `tab:sig-test`, `tab:sig-test-c2`, and Chapter 5 §5.4.
+The Holm-corrected family-wise significance panel, the paired percentile-bootstrap 95% confidence intervals (1,000 replicates) on every per-benchmark ΔEM, and the per-benchmark sig-test verdicts are reported in `tab:sig-test`, `tab:sig-test-c2`, and Chapter 5 §5.3 and §5.4.1.
 
-### Retrieval-utility classifier on/off ablation (canonical reading from `tab:ruc-ablation`, Ch5 §5.7)
+### Retrieval-utility classifier on/off ablation (canonical reading from `tab:ruc-ablation`, Ch5 §5.4.2)
 
-Head-to-head ablation at the cycle-three close under the matched-protocol contract. Both arms share the same five-benchmark panel, the same Qwen-2.5-3B-Instruct backbone, and the same composite calibration pinned at the cycle-three anchor. The classifier-off arm routes safety-override and score-formula fall-throughs unconditionally to the retrieval-augmented tier; the classifier-on arm routes through the retrieval-utility classifier with τ_RUC = 0.375.
+Head-to-head ablation at the cycle-three close under the matched-protocol contract. Both arms share the same five-benchmark panel, the same Qwen-2.5-3B-Instruct backbone, and the same composite calibration pinned at the cycle-three anchor. The classifier-on arm also ships pipeline corrections from the same iteration, so the contrast measures the classifier and those corrections jointly; an arm-isolating re-run is registered as future work (Ch6 §6.2.7). The classifier-off arm routes safety-override and score-formula fall-throughs unconditionally to the retrieval-augmented tier; the classifier-on arm routes through the retrieval-utility classifier with τ_RUC = 0.375.
 
 | Benchmark | EM off | EM on | ΔEM (pp) | CHM off | CHM on | ΔCHM (% rel) | T3 share off | T3 share on |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
@@ -188,7 +188,7 @@ Head-to-head ablation at the cycle-three close under the matched-protocol contra
 
 The asymmetric-rescue pattern is read off the bold cells: the largest exact-match gains land on CommonsenseQA and TruthfulQA, the two benchmarks where retrieval was actively hurting in the classifier-off arm. FEVER exact match is flat, the empirical receipt that the classifier correctly preserves the retrieval-helpful regime on the textbook fact-verification benchmark. The pooled retrieval-augmented tier share collapses by 33.8 percentage points, with the largest individual collapse on TruthfulQA at 59 percentage points, the empirical receipt that the classifier engages the misconception-amplification mechanism it was registered against.
 
-### Per-cycle tier-share trajectory (canonical reading from `tab:tier-trajectory`, Ch5 §5.4)
+### Per-cycle tier-share trajectory (canonical reading from `tab:tier-trajectory`, Ch5 §5.1.4)
 
 | Cycle | Tier 1 (memory) share / EM | Tier 2 (zero-shot) share / EM | Tier 3 (RAG) share / EM | Pooled EM |
 |---|---:|---:|---:|---:|
@@ -201,7 +201,7 @@ The asymmetric-rescue pattern is read off the bold cells: the largest exact-matc
 
 The cycle-zero baseline routes 51.3% of queries to the retrieval-augmented tier (Tier 3, base T3 EM 0.482); by cycle two the SIL-fine-tuned zero-shot tier (Tier 2, T2 EM 0.568) is **outperforming the cycle-zero RAG tier by +8.6 percentage points** of EM at a 55.2% Tier 2 share; this is the **SIL-as-distillation receipt**: the self-improvement loop folds verified retrieval-augmented reasoning into the generator's parametric capacity, so the next cycle's zero-shot tier serves a measurable share of previously retrieval-dependent queries without paying the retrieval cost. Tier 1 (memory-direct) fires on a vanishing fraction (0.1%) of held-out queries by design under the content-hash-disjoint evaluation contract, returning the correct stored answer on every observed firing.
 
-### Per-tier EM decomposition at the cycle-five close (canonical reading from `tab:per-tier-em`, Ch5 §5.4)
+### Per-tier EM decomposition at the cycle-five close (canonical reading from `tab:per-tier-em`, Ch5 §5.1.4)
 
 | Benchmark | T1 share / EM | T2 share / EM | T3 share / EM | Pooled EM |
 |---|---:|---:|---:|---:|
@@ -211,7 +211,7 @@ The cycle-zero baseline routes 51.3% of queries to the retrieval-augmented tier 
 | TruthfulQA | 0.3% / 1.000 | 64.3% / 0.321 | 35.3% / 0.255 | 0.300 |
 | StrategyQA | 0.0% / n/a | 24.0% / 0.639 | 76.0% / 0.640 | 0.640 |
 
-T2 EM at the headline C2 cycle (51.6 FEVER, 51.0 TQA, 72.4 CSQA, 35.3 TruthfulQA, 66.4 StrategyQA) compared against the C0 base T3 EM (43.5 FEVER, 46.4 TQA, 52.0 CSQA, 29.1 TruthfulQA, 59.9 StrategyQA) on the same five-benchmark panel supplies the **SIL-as-distillation receipt**: the zero-shot tier under the SIL-fine-tuned adapter outperforms the retrieval-augmented tier under the cycle-zero pristine generator on every benchmark by margins of 4.6–20.4 percentage points (TriviaQA 4.6, TruthfulQA 6.2, StrategyQA 6.5, FEVER 8.1, CommonsenseQA 20.4). The Tier 1 (memory-direct) tier fires on a vanishing fraction of held-out queries by design under the content-hash-disjoint evaluation contract (7 firings across 9000 queries in the realised horizon, all returning the correct stored answer), so the Tier 1 trajectory is a capability bound rather than a trajectory prediction; the framing is `cor:tier1-floor` in Chapter 4 §4.10 and the receipt is in Chapter 5 §5.4.
+T2 EM at the headline C2 cycle (51.6 FEVER, 51.0 TQA, 72.4 CSQA, 35.3 TruthfulQA, 66.4 StrategyQA) compared against the C0 base T3 EM (43.5 FEVER, 46.4 TQA, 52.0 CSQA, 29.1 TruthfulQA, 59.9 StrategyQA) on the same five-benchmark panel supplies the **SIL-as-distillation receipt**: the zero-shot tier under the SIL-fine-tuned adapter outperforms the retrieval-augmented tier under the cycle-zero pristine generator on every benchmark by margins of 4.6–20.4 percentage points (TriviaQA 4.6, TruthfulQA 6.2, StrategyQA 6.5, FEVER 8.1, CommonsenseQA 20.4). The Tier 1 (memory-direct) tier fires on a vanishing fraction of held-out queries by design under the content-hash-disjoint evaluation contract (7 firings across 9000 queries in the realised horizon, all returning the correct stored answer), so the Tier 1 trajectory is a capability bound rather than a trajectory prediction; the framing is the Tier-1 floor heuristic `cor:tier1-floor` in Chapter 4 §4.3.3 and the receipt is in Chapter 5 §5.1.6.
 
 ---
 
@@ -219,7 +219,7 @@ T2 EM at the headline C2 cycle (51.6 FEVER, 51.0 TQA, 72.4 CSQA, 35.3 TruthfulQA
 
 The five passes that run at every committed cycle boundary (retroverify, deferred reconsider, consolidate, fine-tune, retention probe) leave four per-cycle traces that the empirical chapter reports as separate receipts.
 
-### Per-cycle SIL training trajectory (canonical reading from `tab:sil-training-trajectory`, Ch5 §5.5.4)
+### Per-cycle SIL training trajectory (canonical reading from `tab:sil-training-trajectory`, Ch5 §5.1.5)
 
 The SIL training pool grows monotonically from 107 episodes at the first fine-tune to 5006 at the trajectory-end cycle as the storage gate admits stream-chunk entries above τ_train = 0.70. Final-cycle losses decline monotonically across the four uninterrupted cycles (the empirical receipt that the SIL loop makes coherent gradient progress on the verified pool); the cycle-five uptick is the post-rollback recovery reading after the cycle-four retention abort re-anchored the adapter at the cycle-three checkpoint.
 
@@ -231,7 +231,7 @@ The SIL training pool grows monotonically from 107 episodes at the first fine-tu
 | C4 | 3 624 | 0.070 | 1.018 | **0.886** ✕ | 0.982 | **ABORT** (TriviaQA-test ratio < ρ_min = 0.93) |
 | C5 | 5 006 | 0.091 | 0.999 | 1.013 | 0.958 | COMMIT (post-rollback recovery) |
 
-MMLU sits comfortably above the registered floor at every cycle (band [0.975, 1.041]), so the retention contract is governed in practice by the two open-text and commonsense probes rather than by general-knowledge retention. The cycle-four TriviaQA-test ratio of 0.886 is the first in-flight breach of ρ_min = 0.93 in the realised trajectory and the event that triggers the asymmetric rollback registered in Chapter 4 §4.9.
+MMLU sits comfortably above the registered floor at every cycle (band [0.975, 1.041]), so the retention contract is governed in practice by the two open-text and commonsense probes rather than by general-knowledge retention. The cycle-four TriviaQA-test ratio of 0.886 is the first in-flight breach of ρ_min = 0.93 in the realised trajectory and the event that triggers the asymmetric rollback registered in Chapter 4 §4.2.10.
 
 ### Per-cycle memory store + deferred buffer growth (canonical reading from `tab:memory-store-trajectory`)
 
@@ -248,7 +248,7 @@ The memory pool grows **monotonically across all six cycles including the cycle-
 
 ### Stochastic-equilibrium probe pattern (canonical reading from `tab:stochastic-equilibrium`)
 
-The corollary's sub-claim (i) prediction that the commit fraction sits strictly in (0, 1] is verified directly by the realised commit-indicator sequence:
+The heuristic's sub-claim (i) prediction that the commit fraction sits strictly in (0, 1] is verified directly by the realised commit-indicator sequence:
 
 | Cycle | Worst-probe ratio | Commit indicator | Status |
 |---|---:|:---:|---|
@@ -260,7 +260,7 @@ The corollary's sub-claim (i) prediction that the commit fraction sits strictly 
 
 Realised commit fraction: **π̂_commit = 4/5 = 0.80**, strictly in the open interval (0, 1) as `cor:stochastic-equilibrium` sub-claim (i) predicts. The worst-probe ratios on cycles two through five all sit within 0.07 of the floor, qualitatively consistent with the predicted near-floor equilibrium-location band of sub-claim (iv) (reported as heuristic at the realised horizon; the 15-committed-cycle stationarity probe that would adjudicate this sharply is registered as future work in Chapter 6 §6.2).
 
-### Per-cycle four-outcome decision distribution (canonical reading from `tab:decision-distribution`, Ch5 §5.3)
+### Per-cycle four-outcome decision distribution (canonical reading from `tab:decision-distribution`, Ch5 §5.1.3)
 
 Distribution on the training-panel calibration fold under the locked storage-gate cut-points:
 
@@ -275,53 +275,54 @@ The **EM ordering store > defer > discard > abstain is preserved at every report
 
 ---
 
-## Cycle-zero validation gate verdict (canonical reading from `tab:validation-gate`, Ch5 §5.1)
+## Cycle-zero validation gate verdict (canonical reading from `tab:validation-gate`, Ch5 §5.2.7)
 
-A pre-registered conjunction of four checks gates the calibration phase against the main run:
+A pre-specified conjunction of four checks gates the calibration phase against the main run:
 
 | Check | Registered floor | Realised reading | Verdict |
 |---|---:|---:|---|
 | Pooled-ID composite Cohen's d on the held-out training-panel evaluation fold | ≥ 0.20 | **+0.635** | PASS (3× margin) |
 | Per-benchmark store-vs-discard mean-composite gap | ≥ 0.05 each | FEVER 0.282; TQA 0.320; CSQA 0.258 | PASS (every gap clears 5×) |
-| Per-benchmark memory-poisoning rate (share of stored entries whose stored answer is wrong) | ≤ 0.50 | FEVER 0.206; TQA 0.179; CSQA 0.247 | PASS (every rate clears 2×) |
+| Per-benchmark memory-poisoning rate (share of stored entries whose stored answer is wrong) | < 0.50 | FEVER 0.206; TQA 0.179; CSQA 0.247 | PASS (every rate clears 2×) |
 | No strong-direction signal inversion against the registered direction | none observed | no inversion observed | PASS |
 
 The out-of-distribution transfer diagnostic reads pooled-transfer composite Cohen's d = +0.173 on the transfer panel; this is a **diagnostic** rather than a gate (the registered scope of the gate audits the cal-fold-versus-eval-fold relationship on the training panel). The four-check verdict is PASS; the locked configuration enters the main run.
 
-The first calibration iteration failed the gate (a signal-dump-bug that wrote only a subset of the nine per-signal values per sample produced a degenerate composite); the bug was identified by the validation-gate diagnostic, fixed in a worktree patch, and the calibration re-run on the corrected pipeline. The iteration is reported transparently in Chapter 5 §5.1 because it is empirical evidence that the validation-gate discipline catches what it was registered to catch.
+The first calibration iteration failed the gate (a signal-dump-bug that wrote only a subset of the nine per-signal values per sample produced a degenerate composite); the bug was identified by the validation-gate diagnostic, fixed in a worktree patch, and the calibration re-run on the corrected pipeline. The iteration is reported transparently in Chapter 5 §5.2.8 because it is empirical evidence that the validation-gate discipline catches what it was registered to catch.
 
 ---
 
-## Pre-registered hypothesis verdicts (canonical reading from `tab:hypothesis-verdicts`, Ch5 §5.5.2)
+## Pre-specified hypothesis verdicts (canonical reading from `tab:hypothesis-verdicts`, Ch5 §5.5.2)
 
 The thesis registers five falsifiable hypotheses ahead of the empirical chapters; the realised cycle-five verdicts are:
 
 | ID | Hypothesis | Verdict | Deciding statistic |
 |---|---|---|---|
-| H1 | Verifier balanced accuracy clears one-half precondition every cycle (`thm:purity` precondition) | **supported** | Pooled-ID composite Cohen's d on the cycle-zero eval fold reads +0.635 (≈ 0.673 balanced accuracy), clearing the 0.20 floor 3×; cal-fold pooled π_store at τ_store = 0.60 stays in the band [0.732, 0.746] across every committed cycle |
+| H1 | Verifier balanced accuracy clears one-half precondition every cycle (`thm:bayes-purity` precondition) | **supported** | Pooled-ID composite Cohen's d on the cycle-zero eval fold reads +0.635 (≈ 0.673 balanced accuracy), clearing the 0.20 floor 3×; cal-fold pooled π_store at τ_store = 0.60 stays in the band [0.732, 0.746] across every committed cycle |
 | H2 | Pool purity non-decreasing under the precondition (`thm:purity`) | **supported** (band reading) | Cal-fold pooled π_store traces 0.746 → 0.740 → 0.736 → 0.746 → 0.732 across the committed-cycle subsequence (C0, C1, C2, C3, C5); realised band width 0.014, comparable to per-cycle binomial sampling noise |
 | H3 | Late-cycle pool-purity increments enter a bounded stationary band on the committed-cycle subsequence (`thm:convergence`) | **supported** within horizon | The cal-fold trajectory occupies the band [0.732, 0.746] of width 0.014 across C0–C5, comparable to per-cycle binomial sampling noise. The sharper geometric-rate test is registered as deferred future work pending a horizon of at least fifteen committed cycles |
 | H4 | Composite hallucination at the realised horizon approaches a parameter-bounded asymptote (`thm:asymptotic-elim`) | *scope-limited* | Pooled C5 CHM reads 0.109; Tier 1 CHM reads 0 on 7/7 realised firings against the max(1−π_store, 1−π_retro) ≈ 0.36 ceiling of `cor:tier1-floor`. The decomposition is degenerate at τ_1(C5) = 0.0013 under the content-hash-disjoint evaluation contract |
 | H5 | Per-cycle Tier 1 hit rate grows monotonically as memory accumulates (operational claim) | *scope-limited* | The evaluation fold is held content-hash disjoint from the training stream by construction, so the memory-direct tier fires on 7 of 9000 queries at within-tier EM = 1.0 on the realised horizon. Per-cycle pooled latency stays in the band [13.6, 14.7] seconds; per-query cost reduction is not measurable within the realised horizon |
 
-The full hypothesis adjudication, including the per-row deciding-statistic prose and the cross-reference back to the theorem-receipt section, is `tab:hypothesis-verdicts` in Chapter 5 §5.5.2.
+The full hypothesis adjudication, including the per-row deciding-statistic prose and the cross-reference back to the theory-receipt section, is `tab:hypothesis-verdicts` in Chapter 5 §5.5.2.
 
 ---
 
-## Theorem-by-theorem closeout (canonical reading from Ch4 §4.11 + Ch5 §5.5.1)
+## Theory closeout: proven results and design heuristics (canonical reading from Ch4 §4.3 + Ch5 §5.1.6, `tab:theorem-receipts-summary`)
 
-Three theorems and three corollaries carry the formal load of the architecture; each is paired with an empirical receipt at the realised horizon:
+Chapter 4 §4.3 separates two results the thesis claims as proven from five design heuristics. The heuristics rest on idealising assumptions (Gaussian score classes, stationarity across cycles, verifier errors independent across passes) that the realised system does not fully satisfy and that a six-cycle horizon cannot test, so they carry argument sketches rather than proofs, and their receipts are directional consistency checks rather than tests of a proven claim. Four further identities (`thm:monotone-purification`, `thm:bayes-convergence`, `thm:asymptotic-elim`, `cor:corpus-floor`) are recorded as remarks (mathematical scaffolding) with no empirical receipt.
 
-| Statement | What it claims | Math proof status | Empirical receipt | Verdict |
+| Statement | What it claims | Proof status | Empirical receipt | Verdict |
 |---|---|---|---|---|
-| **`thm:purity`** (Pool purity invariant) | Pool purity at cycle t+1 is bounded below by min(π_store, π_retro) on the pooled training-panel cal-fold axis | Complete | Cal-fold pooled π_store ∈ [0.732, 0.746] across C0–C5, clearing the 0.64 floor by 9–11 pp | **supported** within scope (pooled-axis) |
-| **`thm:monotone`** (Monotonicity under generator improvement; verifier locked) | Sign of ∂σ/∂d equals sign of (p+·φ+ − p−·φ−) at the locked threshold under within-class Gaussian assumption | Sketch (one differentiation argument) | 1 of 3 cal-fold transitions sign-aligns at large amplitude; 1 sub-noise; 1 confounded by composite refit | **consistent within horizon**, sharp test deferred (fixed-composite ablation registered as Phase 1f future work) |
-| **`thm:convergence`** (Bounded-band stationarity on the committed subsequence) | The gap G_t = |π_t − π_∞| contracts geometrically in expectation on the committed-cycle subsequence | Sketch + Robbins-Monro/Polyak-Juditsky lineage; full proof registered as future work | Pooled π_t band width 0.014 over six cycles, comparable to binomial noise | **supported** within horizon; geometric-rate test deferred to ≥15-committed-cycle horizon |
-| **`cor:tier1-floor`** (Tier 1 capability bound) | limsup CHM_1(t) ≤ max(1−π_store, 1−π_retro) | Complete (chains `thm:purity` + `thm:convergence`) | CHM_1 = 0 on 7/7 observed firings; trajectory unobservable under content-hash-disjoint eval contract | **supported** (capability-bound form) |
-| **`cor:self-correction`** (Self-correction under locked-verifier + advancing-generator) | P(Y=1 \| survives k passes) → 1 as k → ∞; expected prune time for hallucinated entry is finite | Complete (2-paragraph sketch: likelihood-ratio + geometric-tail) | Per-cycle prune rate declines monotonically 13% → 9% → 7% → 4% across the four committed retroverify passes | **directional** within horizon; k → ∞ test deferred |
-| **`cor:stochastic-equilibrium`** (Stochastic equilibrium under retention rollback) | (i) commit fraction ∈ (0, 1]; (ii) calendar-time envelope = (1 − π_commit·r)^t; (iii) memory grows monotonically across aborts; (iv) trajectory enters a near-floor band rather than diverging | Sketch | Realised commit pattern (1,1,1,0,1) → π_commit = 0.80 ∈ (0,1); memory grew across C4 abort; worst-probe ratios within 0.07 of floor at C2–C5 | (i), (iii) **supported**; (ii) inherited from thm:convergence; (iv) **heuristic** within horizon, 15-cycle probe registered as future work |
+| **`thm:purity`** (Theorem: pool purity invariant) | π_{t+1} ≥ min(π_store, π_retro) on the pooled training-panel cal fold, under exchangeability of the cal fold with the candidate pool | Proven (proof sketch) | Pooled cal-fold π_t ∈ [0.732, 0.746] at every reported cycle, clearing the 0.64 floor by 9–11 pp; the per-benchmark FEVER eval-fold reading dips to [0.614, 0.634] at C1–C4, outside the pooled-axis scope | **PASS** (pooled cal fold) |
+| **`thm:bayes-purity`** (Proposition: Bayes identity and purification condition) | Stored-pool purity exceeds the base correctness rate if and only if TPR > FPR, i.e. the gate's balanced accuracy exceeds ½ | Proven (complete proof) | Precondition audited at cycle zero: composite Cohen's d = +0.635 (balanced accuracy ≈ 0.673) | **precondition audited** |
+| **`thm:monotone`** (Heuristic: monotonicity under generator improvement) | Sign of ∂σ/∂d equals sign of (p+·φ+ − p−·φ−) under a within-class Gaussian model | Heuristic (argument sketch) | Three cal-fold transitions are observable (C4 skipped): C1→C2 sign-aligns at large amplitude; C2→C3 is sub-noise in Cohen's d; C3→C5 shows a small reverse-sign storage-rate movement | **consistent within horizon**; sharp test (fixed-composite ablation) deferred |
+| **`thm:convergence`** (Heuristic: bounded-band stationarity on the committed subsequence) | E[G_t] ≤ (1 − r)^t G_0 for the gap G_t = \|π_t − π_∞\| under stationarity | Heuristic (argument sketch; the rigorous supermartingale construction is future work) | Pooled cal-fold π_t confined to a band of width 0.014 (0.746 − 0.732) across the six-cycle horizon, comparable to binomial noise; the rate form r = O(σ·Φ(d/√2)) is not measured | **bounded band**; geometric-rate test deferred to a ≥15-committed-cycle horizon |
+| **`cor:tier1-floor`** (Heuristic: Tier-1 hallucination floor) | limsup CHM_1(t) ≤ max(1−π_store, 1−π_retro) | Heuristic (argument sketch) | CHM_1 = 0 on each of the 7 Tier-1 firings (7 of 9,000 evaluation queries); the ceiling 1 − π_store ≈ 0.36 holds with slack; seven firings are too few to estimate a rate | **capability bound**, not a trajectory test |
+| **`cor:self-correction`** (Heuristic: self-correction under repeated re-verification) | P(correct \| survives k passes) → 1 and finite expected prune time, **provided the verifier's errors on an entry are independent across passes**; systematic errors are not removed by repetition and cap purity below one | Heuristic (argument sketch) | Per-cycle prune rate declines 13% → 9% → 7% → 4% across the four committed retroverify passes; survivor-side histogram deferred | **partial** (directional) |
+| **`cor:stochastic-equilibrium`** (Heuristic: stochastic equilibrium under retention rollback) | (i) commit fraction ∈ (0, 1]; (ii) calendar-time envelope (1 − π_commit·r)^t; (iii) memory grows monotonically across aborts; (iv) trajectory settles in a near-floor band | Heuristic (argument sketch) | Commit pattern (1,1,1,0,1) → π_commit = 0.80 ∈ (0,1); memory grows 431 → 12,175 across the C4 abort; worst-probe ratios within 0.07 of the floor at C2–C5 | (i), (iii) **PASS**; (ii) inherits the bounded-band reading of `thm:convergence`; (iv) heuristic, 15-cycle probe deferred |
 
-The full proof sketches, the empirical receipts with their tabulated readings, and the threats-to-validity disclosure on the sketch-only proofs are in Chapter 4 §4.11 and Chapter 5 §5.5.1.
+The statements, proofs, argument sketches and their idealising assumptions are in Chapter 4 §4.3; the empirical receipts are in Chapter 5 §5.1.6.
 
 ---
 
@@ -343,11 +344,11 @@ Every constant that governs runtime behaviour lives in `caem/config.py` (and `ca
 | Router | `routing_lambda` | 0.70 | combined-score weight on similarity vs `u_stored` |
 | Router | `tier1_combined_threshold` | 0.90 | Tier 1 dispatch floor |
 | Router | `tier2_similarity_threshold` | 0.75 | Tier 2 dispatch floor |
-| Router | `safety_u_pre_min` | 0.38 | safety-override floor on `u_pre`; re-tuned at cycle one from the registered 0.60 |
+| Router | `safety_u_pre_min` | 0.38 | safety-override floor on `u_pre`; re-tuned at cycle one from the registered 0.60; the per-benchmark refit raised CommonsenseQA's floor to 0.491 (C3, C4) and 0.569 (C5), and the override fired on 63 of 9,000 evaluation queries (Ch5 §5.1.4) |
 | Composite | shrinkage prior `alpha` | 0.6 | per-benchmark shrinkage toward pooled fit |
-| Composite | boost `C` | 0.01 | L2 regulariser on Cherian boost layer |
+| Composite | boost `C` | 0.01 | L2 regulariser on the logistic boost layer |
 | Composite | active signals | 9 | `u_token, u_dropout, u_internal, s_avg, p_entail, p_ground_max, p_ground_mean, p_ground_atomic, q_a_rel` |
-| Composite | retired signals | 2 | `h_norm` (registered then retired at C0; boost coefficient ≈ −5e-4); `p_contra` (structurally zero under MiniCheck) |
+| Composite | retired signals | 2 | `h_norm` (registered then retired at C0; boost weight within 5e-4 of zero); `p_contra` (structurally zero under MiniCheck) |
 | Confabulation early-exit | trigger | `u_internal ≥ 0.70 ∧ p_ground_max ≤ 0.20` | precedence over composite at query time; disabled at retroverify time |
 | Memory consolidation | `tau_cons` | 0.92 | cosine-similarity floor for near-duplicate-meaning clusters |
 | Deferred buffer | TTL | 2 cycles | promote/drop/keep three-way branch |
@@ -393,18 +394,33 @@ A detailed module map with the role of each file is in Appendix A §A.2 (`thesis
 
 Every reported number is regenerable from the realised seed plus the published artefact bundle. The full step-by-step recipe is Appendix E; the headline sequence is:
 
-1. **Clone this repository** and pin to commit `c5b8066` (pre-Step-7 anchor) or `700b9e3` (retrieval-utility-classifier-era anchor), depending on the trajectory phase to reproduce.
+1. **Clone this repository** and check out the branch `branch/ruc-classifier`, which is the final thesis version. The commits `c5b8066` (pre-Step-7 anchor) and `700b9e3` (retrieval-utility-classifier-era anchor) are historical anchors that match the pre-main snapshot bundles described in Appendix E; they are not the thesis version.
 2. **Pull the realised artefacts** from the Google Drive folder at <https://drive.google.com/drive/folders/1xErhsRDYe_qO0ZgUBn0WXK81eHc5jZCa> into `outputs/`. The realised six-cycle trajectory sits under `v2_1_phase1e_main/`; the per-commit pre-main snapshot bundles sit under `pre_main_snapshot/`.
 3. **Pull the Wikipedia FAISS passage index** from the Hugging Face dataset host `aksaN000/caem-passage-index-21m` (private; access on request) into `data/`. The index is 64 GB on disk and requires approximately 90 GB of resident page cache to mmap.
 4. **Run the verification checklist** in Appendix E §E.4 against the per-sample evaluation files, the composite calibration record, and the per-cycle artefact catalogue. Headline tolerances: per-benchmark EM ±0.5 pp from the cuDNN attention path's non-determinism floor; pooled EM ±0.3 pp; CHM and π_store ±1.0 pp; integer quantities (commit fraction, win-and-loss tallies) exact.
 5. **The four artefacts that must be regenerated rather than pulled from snapshot** are the Qwen-2.5-3B-Instruct base weights (recovered from the Hugging Face model hub at deployment time), the per-cycle LoRA adapters at cycles one through five, the per-cycle self-improvement training artefacts, and the post-cycle-zero composite refits.
+
+### Data map
+
+The gitignored local `outputs/` folders map to the Drive folder `caem-phase1a/v2_1_phase1e_main/` as follows:
+
+| Local path | Drive path (under `caem-phase1a/v2_1_phase1e_main/`) | Notes |
+|---|---|---|
+| `outputs/full_run` | `full_run` | The Drive copy also holds the per-cycle snapshots `cycle_1/` … `cycle_5/` and `global/`, which exist only on Drive. |
+| `outputs/baselines_phase1e` | `phase1e_baselines` | The B6 files (`vanilla_ft/eval/*_cycle5.json`) and B8 files (`semantic_entropy/*_cycle0.json`) from the 13 June 2026 fix are the canonical ones; earlier copies do not reproduce the thesis tables. |
+| `outputs/cycle_0` | `cycle_0_cold_start` | |
+| `outputs/tier1_routing_probe` | `tier1_routing_probe` | |
+
+### Checking the tables against the data
+
+`thesis_report/ref_check/local_regen_check.py` (run from the repository root) copies the repository to a temporary folder, reruns every table generator there, and diffs the regenerated tables against the committed ones; it does not modify the repository or `outputs/`. Several committed tables in `thesis_report/figures/auto/` were finished by hand and carry the line `% Hand-corrected 2026-10-15`, and some generators still differ from the committed tables in layout, so compare the numbers, not the formatting. The audit reports, including the full change log `fixes_applied.md`, are in `thesis_report/ref_check/`.
 
 ### Hardware envelope
 
 | Phase | Wall-clock | Cost |
 |---|---|---|
 | Cycle-zero calibration phase | tens of GPU-hours | dominated by the verifier-signal sweep over the calibration fold |
-| Realised six-cycle main run | several GPU-days | dominated by per-cycle fine-tune plus cycle-boundary retroactive re-verification |
+| Realised six-cycle main run | several GPU-days | dominated by verifier-side scoring (stream-chunk admission, evaluation and retroactive re-verification); the per-cycle fine-tune takes about 35–45 minutes |
 | External baseline panel | scales with sample count and decode-pass count | CoT and retrieval-augmented variants are the bulk |
 | Retrieval-utility classifier on/off ablation | single contrast at C3 close | matched-protocol panel |
 | **Realised total** | **~960 GPU-hours over ~40 calendar days (40 × 24)** | **~672 USD on a Vast.ai RTX 5090 at ~0.70 USD/on-demand GPU-hour** (Vast.ai billing records) |
@@ -419,24 +435,24 @@ A downgraded sixteen-gigabyte-GPU reproduction envelope with five parameter chan
 
 The thesis discloses every threat to validity transparently rather than smoothing it into the narrative. The headline disclosures are:
 
-1. **Calibration-to-evaluation transfer cost**: a split-conformal alternative dropped 15–50 percentage points below its registered coverage target on the training-panel benchmarks at cycle zero; the fixed-threshold replacement is robust to the shift but the per-cycle drift of the evaluation-fold precision anchor at the locked cut-point is empirically measurable rather than theoretically characterised. Discussed in Ch5 §5.6 (`sec:adj-cal-eval-gap`) and Ch6 §6.2.
-2. **Sketch-only proofs on three of six load-bearing statements** (`thm:monotone`, `thm:convergence`, `cor:stochastic-equilibrium`): the rigorous supermartingale construction for `thm:convergence` is registered as future work; the fixed-composite ablation that would convert `thm:monotone` from a consistency check into a sharp test is registered as a Phase 1f item in Ch6 §6.2; the 15-committed-cycle stochastic-equilibrium probe that would adjudicate `cor:stochastic-equilibrium` sub-claim (iv) is registered alongside.
-3. **Long-hypothesis judge ablation**: the registered long-hypothesis Qwen judge failed the pre-registered Pearson correlation floor at the v5 calibration overlap fold and is ablated in the deployed configuration; the architecture's coverage on long-form benchmarks is narrowed and the disagreement reading is reported in Ch5 §5.6 as a future-work caveat.
+1. **Calibration-to-evaluation transfer cost**: a split-conformal alternative dropped 15–50 percentage points below its registered coverage target on the training-panel benchmarks at cycle zero; the fixed-threshold replacement makes no marginal-coverage claim that the shift can silently void, but the shift can still lower the realised precision (the transfer-panel TruthfulQA store precision is 0.522 at cycle zero), and the per-cycle drift of the evaluation-fold precision anchor at the locked cut-point is empirically measurable rather than theoretically characterised. Discussed in Ch5 §5.2.5 (`sec:adj-cal-eval-gap`) and Ch6 §6.1.3.
+2. **Five of the seven formal statements are heuristics, not proven results** (`thm:monotone`, `thm:convergence`, `cor:tier1-floor`, `cor:self-correction`, `cor:stochastic-equilibrium`): they carry argument sketches under idealising assumptions (Gaussian score classes, stationarity across cycles, independent verifier errors), and their receipts are directional consistency checks. The rigorous supermartingale construction for `thm:convergence` is registered as future work; the fixed-composite ablation that would convert the `thm:monotone` receipt from a consistency check into a sharp test is registered in Ch6 §6.2.10; the 15-committed-cycle stochastic-equilibrium probe that would adjudicate `cor:stochastic-equilibrium` sub-claim (iv) is registered in Ch6 §6.2.11. Systematic verifier errors (for example a misconception shared by the model and the verifier) are not removed by repeated re-verification.
+3. **Long-hypothesis judge ablation**: the registered long-hypothesis Qwen judge failed the pre-specified Pearson correlation floor at the v5 calibration overlap fold and is ablated in the deployed configuration; the architecture's coverage on long-form benchmarks is narrowed and the disagreement reading is reported in Ch5 §5.2.6 as a future-work caveat.
 4. **Single-seed scope**: the random-state surface is capped at one recorded seed; the cuDNN attention path is non-bitwise-deterministic, so determinism is enforced at the metric level rather than the bit level. The ±0.5 pp per-benchmark EM stochastic floor in the reproducibility recipe absorbs this.
 5. **Six-cycle horizon**: the realised horizon is shorter than the at-least-fifteen-committed-cycle precondition under which the geometric-rate test of `thm:convergence` would be statistically separable from binomial sampling noise; the bounded-band reading is the within-horizon receipt and the sharper test is deferred to future work.
-6. **TruthfulQA strict-EM stricture**: the strict exact-match column penalises CAEM's calibrated abstention as a failure on misconception-bait probes where the matched-protocol baseline B1 (which is not licensed to abstain under a zero-shot prompt) gets credit for a confidently-stated wrong answer; the architectural fix is the retrieval-utility classifier on/off ablation reported in §5.7, which lifts TruthfulQA exact match by +10.0 pp by re-routing misconception-bait queries away from the retrieval-augmented tier.
+6. **TruthfulQA strict-EM stricture**: the strict exact-match column penalises CAEM's calibrated abstention as a failure on misconception-bait probes where the matched-protocol baseline B1 (which is not licensed to abstain under a zero-shot prompt) gets credit for a confidently-stated wrong answer; the retrieval-utility classifier on/off ablation reported in §5.4.2 narrows the gap, lifting TruthfulQA exact match from 0.210 to 0.310 (+10.0 pp) by re-routing misconception-bait queries away from the retrieval-augmented tier, still below B1's 0.433; the lift is the joint effect of the classifier and the pipeline corrections shipped with it.
 7. **Single-backbone scope**: every empirical reading is on Qwen-2.5-3B-Instruct. The architectural-claim transfer to larger backbones is registered as a future-work item in Ch6 §6.2.
 
 ---
 
 ## Future work (canonical reading from Ch6 §6.2)
 
-The thesis registers six future-work items with concrete experimental commitments:
+Chapter 6 §6.2 registers eleven future-work items; the six below tie most directly to the theory and the headline (items 3 and 4 are registered in Ch4 §4.3 and Ch5 §5.1.6 respectively):
 
-1. **Fixed-composite ablation** for `thm:monotone` (freeze the composite refit across two adjacent cycles; vary only the generator).
+1. **Fixed-composite ablation** for the `thm:monotone` heuristic (freeze the composite refit across two adjacent cycles; vary only the generator).
 2. **15-committed-cycle stochastic-equilibrium probe** for `cor:stochastic-equilibrium` sub-claim (iv) with a Wald-Wolfowitz runs test + Bernoulli rate fit + rolling-mean stability check.
-3. **Rigorous supermartingale proof** for `thm:convergence` adapted from Robbins-Monro and Polyak-Juditsky in a dedicated proofs appendix.
-4. **Paraphrase-eval probe** for `cor:tier1-floor` that lifts the 0.13% Tier 1 firing rate enough to make the CHM_1(t) trajectory observable.
+3. **Rigorous supermartingale construction** for the `thm:convergence` heuristic, adapted from Robbins-Monro, Robbins-Siegmund and Polyak-Juditsky.
+4. **Paraphrase-eval probe** for `cor:tier1-floor` that lifts the Tier 1 firing rate (τ_1(C5) = 0.0013) enough to make the CHM_1(t) trajectory observable.
 5. **Larger-backbone scaling study** (7B and 13B in the same open-weight family) to test architectural transfer.
 6. **Long-hypothesis judge re-licence** under a task-specific fine-tune on a synthetic claim-support corpus.
 
