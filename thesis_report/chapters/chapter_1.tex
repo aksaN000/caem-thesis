@@ -128,7 +128,7 @@ The primary objective decomposes into seven specific objectives. Each is a separ
 The thesis registers five falsifiable hypotheses ahead of the empirical chapters. Each hypothesis names a specific quantity, a deciding direction, and a deciding statistic, so that the empirical chapters either confirm or refute the hypothesis without ambiguity. The first four hypotheses pair with the load-bearing formal claims registered in \Cref{ch:methodology}; the fifth hypothesis tests the operational claim about deployed cost that is independent of the theoretical scaffolding.
 
 \begin{enumerate}
-\item \textbf{Verifier balanced accuracy exceeds one half on the calibration-matched distribution at every cycle:} The hypothesis is the empirical precondition of the pool-purity theorem. The deciding statistic is the verifier balanced accuracy at the fitted storage threshold, measured on the cycle's calibration fold and reported per benchmark. Falsification is any cycle in which the precondition fails on the pooled training panel.
+\item \textbf{Verifier balanced accuracy exceeds one half on the calibration-matched distribution at every cycle:} The hypothesis is the empirical precondition of the purification condition (\Cref{thm:bayes-purity}) on which the pool-purity analysis rests. The deciding statistic is the verifier balanced accuracy at the fitted storage threshold, measured on the cycle's calibration fold and reported per benchmark. Falsification is any cycle in which the precondition fails on the pooled training panel.
 
 \item \textbf{Pool purity is non-decreasing across cycles whenever the precondition is satisfied:} The hypothesis tests the monotonicity prediction. The deciding statistic is the per-cycle pool purity trajectory, and the deciding direction is non-decreasing in the precondition-satisfied regime. Falsification is any cycle in which the precondition holds and pool purity decreases.
 
@@ -148,7 +148,7 @@ The empirical chapters report each hypothesis with its deciding statistic and ta
 \toprule
 \textbf{ID} & \textbf{Hypothesis} & \textbf{Deciding statistic} & \textbf{Formal claim} \\
 \midrule
-H1 & Verifier balanced accuracy exceeds one half on the calibration-matched distribution at every cycle. & Per-cycle verifier balanced accuracy at the fitted storage threshold, pooled training panel. & \Cref{thm:purity} precondition \\
+H1 & Verifier balanced accuracy exceeds one half on the calibration-matched distribution at every cycle. & Per-cycle verifier balanced accuracy at the fitted storage threshold, pooled training panel. & \Cref{thm:bayes-purity} precondition \\
 H2 & Pool purity is non-decreasing across cycles whenever the precondition is satisfied. & Per-cycle pool-purity trajectory under the precondition-satisfied regime. & \Cref{thm:purity} \\
 H3 & Late-cycle pool-purity increments enter a bounded stationary band on the committed-cycle subsequence. & Per-cycle pool-purity reading on the committed-cycle subsequence and realised band width. & \Cref{thm:convergence} \\
 H4 & The composite hallucination metric at the realised cycle horizon approaches a parameter-bounded asymptote. & Gap between final-cycle composite hallucination metric and the predicted asymptote. & \Cref{thm:asymptotic-elim} \\

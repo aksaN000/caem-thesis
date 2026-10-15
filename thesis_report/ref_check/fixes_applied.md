@@ -190,3 +190,37 @@ The table below lists the design-level items found by the check. Items C#1–C#4
 | C13 | `chapters/chapter_2.tex` | from a premise sentence \cite{10.1007/11736790_9}. The PASCAL challenge framed | from a premise sentence \cite{barhaim2006second}. The PASCAL Recognising Textual Entailment challenges framed |
 
 New bib entries for tier C: `edwards1948note` (Edwards 1948, Psychometrika 13:185–187; standard record, **PDF not checked**) and `barhaim2006second` (RTE-2, PDF read). `10.1007/11736790_9` (RTE-1) is no longer cited; if you upload RTE-1 and prefer it, swap the key back in `chapter_2.tex`.
+
+## Follow-up (2026-10-15): cleanup, limitations, theory restructure
+
+**Citations removed.**
+- McNemar 1947 is no longer cited. The McNemar test with continuity correction is now cited to Edwards (1948) in chapters 3 and 5.
+- RTE-1 is no longer cited; RTE-2 is cited instead.
+- The five uncited entries were deleted from the .bib: `mcnemar1947note`, `10.1007/11736790_9`, `10.1145/3649506`, `huang-etal-2023-large`, `thulasidasan2019mixup`.
+
+**Limitations.** A new paragraph, "Limitations identified against the literature", was added to `chapter_5.tex` (`sec:disc-limitations`). It covers six items:
+1. saturation and the answer-format confound (Song);
+2. optimising toward the verifier (ReST, Yi), including the point that the CHM is read through the same verifier;
+3. systematic verifier errors (Farquhar; TruthfulQA 0.522; Sinha on cosine similarity);
+4. calibration-fold size for isotonic regression (Niculescu-Mizil);
+5. low-chance-floor tasks such as StrategyQA and FEVER (STaR, Ho);
+6. adapter capacity and drift (Biderman).
+
+**Theory restructure (`chapter_4.tex`, `sec:theory`).**
+- **Proven results:**
+  - `thm:purity` stays a Theorem.
+  - `thm:bayes-purity` moves from the scaffolding remarks into a new subsection, "When filtering helps: the purification condition". It becomes a Proposition with a complete proof: purity exceeds the base rate if and only if TPR > FPR, which is the same as balanced accuracy > ½. The Natarajan interpretation sits in its own paragraph.
+- **New subsection "Design heuristics for the cycle-to-cycle trajectory"** (`sec:theory-heuristics`). It states the idealising assumptions (Gaussian score classes, stationarity, independent verifier errors) and why the realised system departs from them.
+  - `thm:monotone`, `thm:convergence`, `cor:tier1-floor`, `cor:self-correction` and `cor:stochastic-equilibrium` now use a new **Heuristic** environment, with "Argument sketch" instead of "Proof sketch". The environment is defined in `main.tex` and shares the theorem counter; cleveref prints "Heuristic".
+- **Mathematical scaffolding:** the four remaining remarks are unchanged and sit under the heuristics subsection.
+- **False sentence removed:** chapter 4 said full proofs were "relocated to Appendix E". No proofs exist there.
+- **All labels are kept**, so every cross-reference still resolves. The wording around them was updated in:
+  - the abstract;
+  - chapter 1: the hypothesis table now links H1 to `thm:bayes-purity`;
+  - chapter 2: the related-work table and the analogue sentences;
+  - chapter 3: the scope summary;
+  - chapter 5: the theory-checks section, the hypothesis table and the precondition references;
+  - chapter 6: the contributions paragraph and the future-work subsections;
+  - appendices A and F;
+  - `figures/auto/tab_theorem_receipts_summary.tex`: types, T2 row and caption.
+- **Script:** `scripts/aggregate_section_5_6.py` has its type labels updated. Its other row text was already out of sync with the hand-edited `.tex` table before this change (for example, it still contains a `cor:convergence-rate` row). Do not regenerate that table from the script without checking.
