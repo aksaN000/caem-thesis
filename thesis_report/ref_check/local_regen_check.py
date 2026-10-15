@@ -177,8 +177,10 @@ for args in RUNS:
         rc, out = "TIMEOUT", ""
     print(f"[{rc}] {args}")
     log.append(f"\n===== [{rc}] {args}\n{out[-6000:]}")
+MAKE_TABLES_OWN = {"tab_headline.tex", "tab_calibration.tex", "tab_grounding.tex", "tab_purity.tex",
+                   "tab_continual.tex", "tab_cycle_progression.tex"}  # 5_2 owns tab_halluc_subtypes
 for t in (work / "outputs/full_run").glob("*.tex"):
-    if (work / A / t.name).exists():
+    if t.name in MAKE_TABLES_OWN and (work / A / t.name).exists():
         shutil.copy(t, work / A / t.name)
 (OUT / "regen_log.txt").write_text("".join(log))
 
