@@ -415,6 +415,17 @@ The gitignored local `outputs/` folders map to the Drive folder `caem-phase1a/v2
 
 `thesis_report/ref_check/local_regen_check.py` (run from the repository root) copies the repository to a temporary folder, reruns every table generator there, and diffs the regenerated tables against the committed ones; it does not modify the repository or `outputs/`. Several committed tables in `thesis_report/figures/auto/` were finished by hand and carry the line `% Hand-corrected 2026-10-15`, and some generators still differ from the committed tables in layout, so compare the numbers, not the formatting. The audit reports, including the full change log `fixes_applied.md`, are in `thesis_report/ref_check/`.
 
+**Do not regenerate these committed tables by overwriting them**; run the generators into a temporary copy (as `local_regen_check.py` does) and compare numbers instead:
+
+| Committed table | Generator | Why the committed copy wins |
+|---|---|---|
+| `tab_survival_distribution` | `scripts/aggregate_survival_distribution.py` | the generator reconstructs promotions from buffer snapshots and disagrees with the run log (650 promotions: 131 / 220 / 299 at C2 / C3 / C5) |
+| `tab_decision_distribution` | `scripts/aggregate_section_5_3.py` | layout finished by hand |
+| `tab_tier_trajectory` | `scripts/aggregate_section_5_4.py` | panel (b) is hand-built from `tab_per_tier_em` |
+| `tab_validation_gate` | `scripts/aggregate_section_5_7.py` | hand-built per-benchmark layout (same numbers) |
+| `tab_theorem_receipts_summary` | `scripts/aggregate_section_5_6.py` | only the T1/T5 band values are computed; the remaining receipt text is copied from the committed table |
+| `tab_em_conditional_breakdown`, `tab_calibration_trajectory`, `tab_safety_override` (panel b) | none / older scripts | hand-built or partly hand-built from the run artefacts |
+
 ### Hardware envelope
 
 | Phase | Wall-clock | Cost |
