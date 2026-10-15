@@ -144,6 +144,7 @@ sh(f"git -C '{work}' init -q && git -C '{work}' add -A thesis_report/figures/aut
 # 5. Rerun every table generator with its documented arguments.
 A = "thesis_report/figures/auto"
 RUNS = [
+    "-m scripts.aggregate_stochastic_equilibrium --log outputs/full_run/experiment.log",  # must precede 5_2, which reads its CSV
     "-m scripts.aggregate_section_5_2",
     "-m scripts.aggregate_section_5_3",
     "-m scripts.aggregate_section_5_4",
@@ -162,7 +163,6 @@ RUNS = [
     "-m scripts.aggregate_memory_store_trajectory",
     "-m scripts.aggregate_per_tier_em",
     "-m scripts.aggregate_ces_per_system",
-    "-m scripts.aggregate_stochastic_equilibrium --log outputs/full_run/experiment.log",
     "-m scripts.aggregate_survival_distribution",
     "-m scripts.aggregate_decision_diagnostics",
     f"-m scripts.generate_session5_artifacts --out_figures {A} --out_tables {A}",
