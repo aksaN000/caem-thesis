@@ -1026,3 +1026,12 @@ Pre-edit copy: /tmp/claude-0/-home-user-caem-thesis/96eedb08-eb50-59ca-a1c7-fdab
 ## Checks
 - Column counts: table 1 = 7 cols (5 rows), bootstrap = 4 cols (4 rows), both Holm tables = 6 cols (18 rows incl. headers). Braces balanced, $ count even.
 - \Cref{tab:sig-test} label exists (chapters/chapter_5.tex:405).
+
+## Leftovers (2026-10-15)
+
+| Location | Before | After | Evidence |
+|---|---|---|---|
+| appendix_e:93 | "Per-cycle wall-time is approximately five to seven hours on the production GPU." | Wall time grows with the cumulative memory, from roughly six hours at C1 to more than twenty-two hours at C5. | Measured windows in experiment.log: 5 h 45 m (C1) to 21 h 50 m (C5) |
+| appendix_e:166 | "The cycle close consumes approximately five to seven hours end-to-end." | A full cycle takes at least the measured windows plus the fine-tune and stream-chunk steps, from roughly six to more than twenty-two hours. | same |
+| README:214 | "by margins of 5–20 percentage points" | "by margins of 4.6–20.4 percentage points" (TriviaQA 4.6, TruthfulQA 6.2, StrategyQA 6.5, FEVER 8.1, CommonsenseQA 20.4) | tab_per_tier_em: C2 T2 vs C0 T3 |
+| cross_benchmark_summary caption | "the transfer panel … is held out and does not enter the storage gate at cycle zero", while the table lists transfer-panel store counts | "is held out from calibration and from the self-improvement pool, and its storage columns report the gate's decision on held-out queries as a diagnostic only" | the table's own rows |
