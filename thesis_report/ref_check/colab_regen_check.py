@@ -91,8 +91,10 @@ for cmd in RUNS:
     log.append(f'\n===== [{rc}] {cmd}\n{out[-6000:]}')
 
 # make_tables writes its .tex next to its CSV inputs; copy those over the thesis copies.
+MAKE_TABLES_OWN = {'tab_headline.tex', 'tab_calibration.tex', 'tab_grounding.tex', 'tab_purity.tex',
+                   'tab_continual.tex', 'tab_cycle_progression.tex'}  # 5_2 owns tab_halluc_subtypes
 for t in glob.glob(f'{REPO}/outputs/full_run/*.tex'):
-    if os.path.exists(f'{REPO}/{A}/' + os.path.basename(t)):
+    if os.path.basename(t) in MAKE_TABLES_OWN and os.path.exists(f'{REPO}/{A}/' + os.path.basename(t)):
         shutil.copy(t, f'{REPO}/{A}/')
 
 # 5. Diff regenerated tables against the committed ones and save everything to Drive.
