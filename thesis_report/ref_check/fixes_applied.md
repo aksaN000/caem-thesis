@@ -937,3 +937,20 @@ Source: `caem_part2_lookups.txt` (local agent, HEAD da05919).
 | U6 70/105, 306/478 | Not in Phase 1e data; matches the pre-Phase-1e calibration table in git 04fe2e7 (478 at 0.640). The text now labels it as the earlier sweep | none (already relabelled in Part 1) |
 | U1 safety override | Using the pooled 0.38 floor: one eval sample, StrategyQA C5, u_pre 0.3764. **But** the router uses per-benchmark floors (caem/routing/router.py:159), and CommonsenseQA's floor was refit to 0.491 (C3) and 0.5687 (C5), so CommonsenseQA queries may also have fired | **held**; ch5:181 unchanged until the per-benchmark count is checked |
 | #2–#6 appendix D rows | The two CSVs are dated 9 June, before the 13 June B6/B7 fix; their B6/B7 rows are pre-fix | **held**; needs a post-fix rerun of the significance script |
+
+## Safety override recount and appendix C column note (2026-10-15)
+
+Source: `caem_task_safety_sig.txt` (local agent).
+- The router fires when u_pre < the benchmark's floor (caem/routing/router.py:181), using the per-benchmark floor where one exists (config.get_safety_u_pre_min_for).
+- The floor schedule comes from experiment.log lines 3622, 5591, 18384, 32332 and 57893: CommonsenseQA 0.38 → 0.491 (C3, C4) → 0.5687 (C5); every other benchmark 0.38.
+- Counting eval samples below their floor: CommonsenseQA 12 / 12 / 38 at C3 / C4 / C5 and StrategyQA 1 at C5, so 63 of 9,000.
+
+| Location | Before | After |
+|---|---|---|
+| ch5:181 | "the override does not fire on any of the nine thousand evaluation queries … never activates …" | fires on 63 of 9,000 (0.700%): 62 CommonsenseQA after its floor refit (12, 12, 38 at C3–C5) and one StrategyQA query at C5 (u_pre 0.376). Under the original 0.38 floor it would have fired once. Wording changed to "activates rarely". |
+| tab_safety_override, panel (a) | CommonsenseQA 0 fires (0.000%); subtotal 1 (0.011%) | CommonsenseQA 62 (3.444%); subtotal 63 (0.700%) |
+| tab_safety_override, panel (b) and combined | panel (b) label had no floor note; combined 4 (0.012%) | panel (b) is marked "pooled floor 0.38 only", because the per-cycle stream-chunk files are on Drive only and were not recounted; combined ≥66 (≥0.203%) |
+| tab_safety_override caption | "proxy u_pre < φ_safe = 0.38 … would have fired on four queries (0.012%)" | describes the per-benchmark floors and the 63/9,000 count; panel (b)'s CommonsenseQA count from C3 is a lower bound |
+| appendix_c per-cycle equilibrium table | column "Pooled EM" | "Pooled EM*", with a note: five-benchmark pooled EM with string-match TruthfulQA (exactly 0.5573/0.5673/0.5473/0.548/0.556 from experiment_summary.csv), the series the runner's equilibrium fit stores in its composite-evaluation-score field. It is neither the CES of eq:ces (tab:ces-caem-trajectory: 0.678–0.710) nor the judged pooled EM of tab:pooled-trajectory. |
+
+Open: recount stream-chunk CommonsenseQA firings at C3–C5 with the per-benchmark floor (needs the Drive-only `cycle_N/eval_stream_chunk/commonsense_qa_cycle*_streamchunk.json`).
