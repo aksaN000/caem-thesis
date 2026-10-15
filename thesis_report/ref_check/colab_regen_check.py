@@ -57,6 +57,7 @@ print(sh(f'du -sh outputs/*', cwd=REPO)[1])
 # 4. Run every table generator with its documented arguments.
 A = 'thesis_report/figures/auto'
 RUNS = [
+    'python -m scripts.aggregate_stochastic_equilibrium --log outputs/full_run/experiment.log',  # must precede 5_2, which reads its CSV
     'python -m scripts.aggregate_section_5_2',
     'python -m scripts.aggregate_section_5_3',
     'python -m scripts.aggregate_section_5_4',
@@ -73,7 +74,6 @@ RUNS = [
     'python -m scripts.aggregate_memory_store_trajectory',
     'python -m scripts.aggregate_per_tier_em',
     'python -m scripts.aggregate_ces_per_system',
-    'python -m scripts.aggregate_stochastic_equilibrium --log outputs/full_run/experiment.log',
     'python -m scripts.aggregate_survival_distribution',
     'python -m scripts.aggregate_decision_diagnostics',
     'python -m scripts.generate_session5_artifacts --out_figures ' + A + ' --out_tables ' + A,
