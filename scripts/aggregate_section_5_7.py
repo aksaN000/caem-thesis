@@ -389,7 +389,7 @@ lines.append('\\caption{Cycle-zero validation gate verdict under the locked conf
              'The store-versus-discard gap gate audits that the storage rule\'s behaviour is consistent across the three training benchmarks rather than driven by a single dominating subset, with a registered floor of $0.05$ on every training benchmark. '
              'The memory poisoning rate gate caps the share of stored entries whose stored answer is wrong on every training benchmark at the registered ceiling of $0.50$. '
              'The transfer-panel composite Cohen\'s $d$ is reported as an out-of-distribution diagnostic rather than a gate. '
-             'A pre-registered fifth check on strong-signal inversion of any per-signal isotonic curve is not visible in this table because every signal\'s registered direction matches its empirical Pearson sign at cycle zero. '
+             'A pre-specified fifth check on strong-signal inversion of any per-signal isotonic curve is not visible in this table because every signal\'s registered direction matches its empirical Pearson sign at cycle zero. '
              'The verdict licenses the locked configuration to enter the main run.}')
 lines.append('\\label{tab:validation-gate}')
 lines.append('\\end{table}')
@@ -505,7 +505,7 @@ lines.append('\\midrule')
 lines.append('Storage cut-point $\\tau_{\\text{store}}$ & $0.60$ & '
              'Highest stored-volume at the calibration-fold precision shelf \\\\')
 lines.append(' & & among grid candidates $\\{0.55, 0.60, 0.65, 0.70\\}$ \\\\')
-lines.append('Deferral cut-point $\\tau_{\\text{defer}}$ & $0.45$ & Pre-registered $0.15$ below storage cut \\\\')
+lines.append('Deferral cut-point $\\tau_{\\text{defer}}$ & $0.45$ & Pre-specified $0.15$ below storage cut \\\\')
 lines.append('Abstention floor $\\phi_{\\text{pg}}$ & $0.20$ & Early-exit rule \\Cref{eq:early-exit-rule} \\\\')
 lines.append('Boost regularisation $C$ & $0.010$ & Strongest-regularised value in grid \\\\')
 lines.append(' & & $\\{0.010, 0.025, 0.050, 0.100, 1.000\\}$; tenfold tighter \\\\')
@@ -517,7 +517,7 @@ lines.append('Retention floor $\\rho_{\\min}$ & $0.93$ & Multi-modal probe panel
 lines.append('\\bottomrule')
 lines.append('\\end{tabular}')
 lines.append('\\caption{Locked configuration parameters carried forward into every cycle of the main run. '
-             'The configuration is the variant $V_{\\tau=0.60,\\,C=0.010,\\,\\alpha_{\\text{shrink}}=0.6}$ selected from the pre-registered three-grid sweep documented in \\Cref{sec:adj-grid}. '
+             'The configuration is the variant $V_{\\tau=0.60,\\,C=0.010,\\,\\alpha_{\\text{shrink}}=0.6}$ selected from the pre-specified three-grid sweep documented in \\Cref{sec:adj-grid}. '
              'The grid spans the storage cut-point on the calibrated probability scale, the boost-layer regularisation strength, and the per-benchmark shrinkage strength; the cross-product produces a twenty-five-variant search space scored under the four registered selection criteria of \\Cref{sec:adj-criteria}. '
              'The selected variant maximises stored-volume at the calibration-fold precision shelf while sitting at the strongest-regularised cell of the boost-layer grid. '
              'Per-signal isotonic curves, per-benchmark shrinkage-blended child curves, and the boost-layer weights and intercept at this configuration are reported in \\Cref{tab:composite-calibration}.}')
