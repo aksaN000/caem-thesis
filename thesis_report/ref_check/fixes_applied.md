@@ -920,3 +920,20 @@ index 77d8dcc..27fbccf 100644
 
 Still open (need the local data from step 2): #12 (ch5:181 safety override) and #2–#6 (appendix D contingency rows and Holm tables, plus their prose at D:39, D:59, D:72, D:87, D:118, D:140).
 Also noted for step 3: appendix E:93/:166 still say a cycle takes "five to seven hours", which conflicts with the measured windows; README:214 says "5–20 pp" where TriviaQA is 4.6 pp; the cross_benchmark_summary caption says the transfer panel does not enter the storage gate, but the table lists store counts for it; scripts/hardware.py still targets an effective batch of 32.
+
+## Numbers audit, Part 2 lookups applied (2026-10-15)
+
+Source: `caem_part2_lookups.txt` (local agent, HEAD da05919).
+
+| Item | Result | Thesis change |
+|---|---|---|
+| U2 RUC fit | Confirmed: caem/ruc/v2/cv_results.json and feature_spec.json give pooled OOF AUROC 0.8501, n_rows 3208, coef −1.765, the per-benchmark AUROCs 0.686/0.718/0.728/0.732/0.852/0.936; pik_probe_metrics.json gives n 11,980 and AUROC 0.7707 | none |
+| U4 Qwen-judge ρ | Confirmed: outputs/calibration/qwen_judge_platt.ablation.json `_pearson_rho_logit_observed: 0.5843`, `_min_rho_threshold: 0.70` | none |
+| U7 ECE-before | Confirmed: experiment.log:3601 (C0 0.276084) and :5592 (C1 0.050760) | none |
+| U5 appendix D | B1 FEVER χ² 0.2323, p 0.6299 and B8 TruthfulQA χ² 0.0102, p 0.9195 confirmed (tab_sig_test_c5_post_haiku.csv). ROUGE 0.803 appears in outputs/analysis/phase1e_analysis_report.md | none |
+| U3 conformal 0.9643 / 56 | No run artefact retained; recorded in presentation/caem_supervisor.tex (τ_store 0.6676, n 56, π 0.9643) | ch5:317: "…over $56$ stored entries;" → "…over $56$ stored entries at $\tau_{\text{store}} = 0.6676$ (recorded in the project's interim supervisor report; the run artefacts of this rejected formulation were not retained);" |
+| U8 off-arm abort cycle | phase1d logs not present locally; notes say C4, the thesis said C5 | ch5:473: "was aborted at cycle five under the retention guard" → "was aborted under the retention guard" |
+| U9 ≈53% C1 prune | No source anywhere | appendix_g:147: "approximately fifty-three percent of the cold-seed memory" → "a large share of the cold-seed memory" |
+| U6 70/105, 306/478 | Not in Phase 1e data; matches the pre-Phase-1e calibration table in git 04fe2e7 (478 at 0.640). The text now labels it as the earlier sweep | none (already relabelled in Part 1) |
+| U1 safety override | Using the pooled 0.38 floor: one eval sample, StrategyQA C5, u_pre 0.3764. **But** the router uses per-benchmark floors (caem/routing/router.py:159), and CommonsenseQA's floor was refit to 0.491 (C3) and 0.5687 (C5), so CommonsenseQA queries may also have fired | **held**; ch5:181 unchanged until the per-benchmark count is checked |
+| #2–#6 appendix D rows | The two CSVs are dated 9 June, before the 13 June B6/B7 fix; their B6/B7 rows are pre-fix | **held**; needs a post-fix rerun of the significance script |
