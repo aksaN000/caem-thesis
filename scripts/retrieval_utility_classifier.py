@@ -2,7 +2,8 @@
 """
 scripts/retrieval_utility_classifier.py
 ========================================
-Retrieval Utility Classifier (RUC) — post-hoc diagnostic for Ch6.
+Retrieval Utility Classifier (RUC) — post-hoc diagnostic (legacy, pre-v2 RUC;
+not part of the thesis; see the Outputs note below).
 
 Motivation
 ----------
@@ -42,7 +43,11 @@ Outputs
 -------
   outputs/full_run/ruc_lobo_results.json   — per-benchmark AUC + accuracy
   outputs/full_run/ruc_coefficients.json   — LR coefficients per feature
-  thesis_report/figures/auto/tab_ruc_lobo.tex  — LaTeX table for Ch6
+  outputs/full_run/tab_ruc_lobo.tex        — LaTeX table (legacy)
+
+  NOTE: tab_ruc_lobo.tex is a legacy table from the pre-v2 RUC and is not
+  part of the thesis (it was deleted from thesis_report/figures/auto/).
+  The default --tex_out therefore writes outside the thesis tree.
 
 Usage
 -----
@@ -285,7 +290,7 @@ def main() -> int:
     p.add_argument("--json_out", type=Path,
                    default=Path("outputs/full_run/ruc_lobo_results.json"))
     p.add_argument("--tex_out", type=Path,
-                   default=Path("thesis_report/figures/auto/tab_ruc_lobo.tex"))
+                   default=Path("outputs/full_run/tab_ruc_lobo.tex"))
     p.add_argument("--log_level", default="INFO")
     ns = p.parse_args()
 
