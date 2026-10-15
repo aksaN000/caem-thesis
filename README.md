@@ -16,7 +16,7 @@ All numbers in this README are anchored against the thesis report; the source lo
 
 | Resource | Link |
 |---|---|
-| Thesis report (325 pages, PDF) | [`thesis_report/main.pdf`](thesis_report/main.pdf) |
+| Thesis report (324 pages, PDF) | [`thesis_report/main.pdf`](thesis_report/main.pdf) |
 | Realised empirical artefacts (Google Drive) | <https://drive.google.com/drive/folders/1xErhsRDYe_qO0ZgUBn0WXK81eHc5jZCa> |
 | Wikipedia passage FAISS index + pre-main snapshots (Hugging Face, private) | `aksaN000/caem-passage-index-21m` |
 | Production runbook | [`docs/PRODUCTION_RUNBOOK.md`](docs/PRODUCTION_RUNBOOK.md) |
@@ -379,7 +379,7 @@ thesis_report/                LaTeX thesis source (Ch1-Ch6 + 7 appendices + auto
   chapters/                   chapter_1 through chapter_6
   appendix/                   appendix_a through appendix_g
   figures/auto/               auto-generated empirical tables and figures
-  main.pdf                    compiled thesis (325 pages)
+  main.pdf                    compiled thesis (324 pages)
 archive/                      historical design diaries and earlier-phase runners
 data/                         passage index, calibration pairs, alias dictionary (gitignored)
 hf_cache/                     Hugging Face cache (gitignored)
