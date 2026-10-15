@@ -954,3 +954,75 @@ Source: `caem_task_safety_sig.txt` (local agent).
 | appendix_c per-cycle equilibrium table | column "Pooled EM" | "Pooled EM*", with a note: five-benchmark pooled EM with string-match TruthfulQA (exactly 0.5573/0.5673/0.5473/0.548/0.556 from experiment_summary.csv), the series the runner's equilibrium fit stores in its composite-evaluation-score field. It is neither the CES of eq:ces (tab:ces-caem-trajectory: 0.678–0.710) nor the judged pooled EM of tab:pooled-trajectory. |
 
 Open: recount stream-chunk CommonsenseQA firings at C3–C5 with the per-benchmark floor (needs the Drive-only `cycle_N/eval_stream_chunk/commonsense_qa_cycle*_streamchunk.json`).
+
+## Appendix D: B6/B7 rows and Holm tables rebuilt from post-fix statistics (2026-10-15)
+
+Source: sig_c5_postfix.csv, produced today by scripts/baseline_sig_tests_v2.py on local outputs; it agrees with tab_sig_test.tex. χ² values are recovered from the raw p via p = erfc(√(χ²/2)). The unchanged rows check out: B1 FEVER 0.2323 and B8 TruthfulQA 0.0102. Discordant counts are uniquely determined: B6 TriviaQA b=85, c=17; B7 StrategyQA b=85, c=73.
+Also: the driver path at D:14 was "scripts/baseline/baseline_sig_tests.py", a path that does not exist. It now names scripts/baseline_sig_tests_v2.py, which reuses the McNemar and bootstrap routines of baseline_sig_tests.py.
+
+# fixlog_appD.md — appendix/appendix_d.tex post-B6/B7-fix corrections (2026-10-15)
+
+Source: sig_c5_postfix.csv (Drive 1iuyGEu0t83AYP0xgmJ7ZrzQEutX3p1b7), cross-checked against figures/auto/tab_sig_test.tex (agrees).
+Every table/prose item in appendix D is captioned "cycle-five anchor" -> all values from the C5 CSV. The C2 CSV
+(1h-i5HR6MYLjJpj7qpsEerTMovxAzDfP4) was read; nothing in appendix D draws on it except the final paragraph's tallies (14/3, 20/4), which are unchanged and match.
+Baseline map: B1 zero_shot, B2 cot, B3 rag, B4 cot_rag, B5 fiveshot_cot, B6 vanilla_ft, B7 flare, B8 semantic_entropy.
+
+chi^2 = inverse of p = erfc(sqrt(chi2/2)) (scipy missing; bisection with math.erfc).
+Verification on unchanged rows: B1 FEVER p 0.6298545 -> chi2 0.2323 (table 0.232, OK); B8 TQA p 0.9195384 -> 0.0102 (table 0.010, OK).
+Discordant counts: b-c = n*Delta_EM is exact, b+c = (|b-c|-1)^2/chi2 comes out integer, so b and c are determined:
+B1 FEVER b+c=155 (b=81,c=74); B6 TriviaQA b+c=102.000001 (b=85,c=17); B7 StrategyQA b+c=158.000 (b=85,c=73); B8 TQA b+c=98 (b=48,c=50).
+The table has no b/c columns, so none were added (the existing caption already says they are not persisted).
+
+Full unified diff: /tmp/claude-0/-home-user-caem-thesis/96eedb08-eb50-59ca-a1c7-fdab15fb78c5/scratchpad/appD.diff
+Pre-edit copy: /tmp/claude-0/-home-user-caem-thesis/96eedb08-eb50-59ca-a1c7-fdab15fb78c5/scratchpad/appendix_d.before.tex
+
+## Changes (before -> after)
+
+1. Line 39 prose (#2/#3).
+ - BEFORE: "The B6 vanilla-fine-tune cell on TriviaQA records the largest single contingency gap in the panel ($\chi^{2} = 56.9$ at $n = 300$). The B7 FLARE cell on StrategyQA records a similarly large gap because FLARE's active-retrieval profile is poorly suited to StrategyQA's implicit multi-hop boolean surface. The B8 semantic-entropy cell on TruthfulQA records the tightest contrast in the panel under ..."
+ - AFTER: "The B6 vanilla-fine-tune cell on TriviaQA records the second-largest single contingency gap in the panel ($\chi^{2} = 44.0$ at $n = 300$), behind only the B5 five-shot CoT cell on the same benchmark, whose raw $p$-value underflows to zero in double precision. The B7 FLARE cell on StrategyQA records a small lift that does not separate from zero ($\Delta_{\text{EM}} = +0.040$, $\chi^{2} = 0.766$, $p_{\text{raw}} = 0.38$). The B8 semantic-entropy cell on TruthfulQA records the tightest contrast in the TruthfulQA family under ..."
+ - Rows: vanilla_ft,triviaqa (p 3.267e-11 -> chi2 44.0098); fiveshot_cot,triviaqa (p 0.0, diff +0.317, largest); flare,strategyqa (p 0.38151 -> chi2 0.7658).
+ - "tightest in the panel" -> "tightest in the TruthfulQA family": semantic_entropy,fever has larger p (0.93493) and Delta 0.000, so the panel-wide claim was false; B8 TQA p 0.91954 is the largest p in the TQA family.
+ - FLARE/StrategyQA causal explanation removed (no longer a large gap).
+2. Line 52 B6 TriviaQA row (#2): `$0.190$ & $+0.263$ & $56.860$ & $< 10^{-12}$` -> `$0.227$ & $+0.227$ & $44.010$ & $3.3 \times 10^{-11}$`. Row vanilla_ft,triviaqa: em_base 0.22667, em_diff 0.22667, p_em_raw 3.267353e-11.
+3. Line 53 B7 StrategyQA row (#3): `$0.250$ & $+0.390$ & $76.891$ & $< 10^{-12}$` -> `$0.600$ & $+0.040$ & $0.766$ & $0.382$`. Row flare,strategyqa: em_base 0.6, em_diff 0.04, p_em_raw 0.3815124.
+4. Line 59 caption (#2/#3): "The B6 TriviaQA cell is the architecture's largest single-contrast lift in the panel; the B7 StrategyQA cell is the next-largest." -> "The B6 TriviaQA cell is the architecture's second-largest single-contrast lift in the panel, behind B5 five-shot CoT on TriviaQA; the B7 StrategyQA cell is a small lift that is not significant." (C5 em_diff ranking: fiveshot_cot triviaqa 0.317 > vanilla_ft triviaqa 0.227 > cot triviaqa 0.183.)
+   Source sentence: "Source: the post-Haiku-rescore significance-test record." -> "Source: the post-Haiku-rescore significance-test record, with the B6 and B7 rows recomputed after the baseline fix (\Cref{tab:sig-test}); $\chi^{2}$ is the continuity-corrected one-degree-of-freedom statistic implied by the reported raw $p$-value."
+5. Line 84 bootstrap row (#4): replaced (not relabelled) so that the table's third example and prose line 72 ("largest single-contrast bootstrap interval in the panel") stay true.
+ - BEFORE: `B6 vanilla-FT $\cdot$ CommonsenseQA & $+0.717$ & $[+0.663,\, +0.767]$ & supported (largest panel lift)`
+ - AFTER: `B5 five-shot CoT $\cdot$ TriviaQA & $+0.317$ & $[+0.253,\, +0.373]$ & supported (largest panel lift)`
+ - Row fiveshot_cot,triviaqa: em_diff 0.31667, ci 0.25333/0.37333, sig_em *, holm 0.0. (Post-fix vanilla_ft,commonsense_qa is -0.063 [-0.120,-0.010], Holm 0.226, not significant.)
+ - Prose line 72 unchanged (still true). Line 87 caption: "The B6 CommonsenseQA contrast is ..." -> "The B5 five-shot CoT TriviaQA contrast is ...".
+ - Other bootstrap rows verified unchanged: zero_shot,fever +0.023 [-0.060,+0.110]; rag,truthfulqa +0.057 [-0.003,+0.117].
+6. Line 98: "and FEVER is the cleanest single-bench win regime in the panel." -> "and FEVER is the one family in which no exact-match contrast clears the corrected threshold." (C5 sig_em on FEVER: all '-'; every other benchmark has at least one '*' or '(B)'.)
+7. Both Holm tables: added the multiplier column m-k+1 (tabular {@{}llrrl@{}} -> {@{}llrrrl@{}}, header gains `$\boldsymbol{m-k+1}$`).
+8. TruthfulQA Holm table (#5), rows rebuilt (raw p x multiplier, running max, clip 1; all match holm_p_em):
+   1 B5 2.43e-5 x8 = 1.94e-4 (CSV 1.9444e-4) yes
+   2 B7 1.07e-4 x7 = 7.49e-4 (CSV 7.4949e-4) yes
+   3 B2 2.77e-4 x6 = 1.66e-3 (CSV 1.6591e-3) yes
+   4 B1 6.25e-4 x5 = 3.13e-3 (CSV 3.1250e-3) yes
+   5 B3 0.079 x4 = 0.316 (CSV 0.31620) no
+   6 B4 0.083 x3 = 0.248 -> running max 0.316 (CSV 0.31620) no
+   7 B6 0.512 x2 -> 1.000 (CSV 1.0) no
+   8 B8 0.920 x1 -> 1.000 (CSV 1.0) no
+   BEFORE order was B5,B2,B1,B3,B4,B6(0.347),B8,B7(0.923); B1 Holm was 3.75e-3, B3/B4 Holm 0.395.
+9. TQA caption (#5): "Three of eight baselines clear the corrected threshold; the two CAEM defeats on TruthfulQA exact match (B1 zero-shot and B2 chain-of-thought, the high-exact-match retrieval-free baselines whose confidently-stated answers exploit the false-refusal subtype of the composite-hallucination metric) sit at ranks two and three." -> "Four of eight baselines clear the corrected threshold; the three CAEM defeats on TruthfulQA exact match (B7 FLARE, B2 chain-of-thought and B1 zero-shot, the three highest-exact-match baselines on the benchmark) sit at ranks two to four." (em_base flare 0.450, cot 0.437, zero_shot 0.433 are the three highest; sig_em (B) for exactly these three.) The "retrieval-free"/false-refusal clause was dropped because FLARE is retrieval-based.
+   "The four CAEM defeats on the composite-hallucination-metric axis discussed" -> "The three CAEM defeats on the composite-hallucination-metric axis (B1 zero-shot, B2 chain-of-thought and B8 semantic-entropy) discussed" (sig_chm (B) at C5: cot, semantic_entropy, zero_shot). "B5 ... lone CAEM win" and "B8 raw p ~0.92, Holm ~1.0" verified, unchanged.
+10. FEVER Holm table (#6), rows rebuilt:
+   1 B6 0.029 x8 = 0.234 (CSV 0.23439) no
+   2 B2 0.210 x7 -> 1 ; 3 B3 0.425 x6 -> 1 ; 4 B7 0.437 x5 -> 1 ; 5 B4 0.441 x4 -> 1 ; 6 B1 0.630 x3 -> 1 ; 7 B5 0.798 x2 -> 1 ; 8 B8 0.935 x1 -> 1 (running max). All CSV holm 1.0, all no.
+   BEFORE: rank1 B7 <1e-6 yes; rank2 B6 6.93e-3 / 0.0485 yes; then B2..B8 as above.
+11. FEVER caption (#6): "Two of eight baselines clear the corrected threshold: B7 FLARE (CAEM win by a large exact-match margin) and B6 vanilla-fine-tune (CAEM loss by approximately eight percentage points; the matched-scale fine-tune contrast is the registered defeat). The remaining six baselines sit at adjusted $p$-values of one, the empirical receipt that the cycle-five trained architecture and the prompt-only baselines do not separate on FEVER under the matched-protocol contract." -> "None of the eight baselines clears the corrected threshold. The smallest raw $p$-value belongs to B6 vanilla-fine-tune (CAEM loss of approximately seven percentage points, $\Delta_{\text{EM}} = -0.067$), which does not survive the step-down correction (Holm $p = 0.234$); B7 FLARE ($\Delta_{\text{EM}} = +0.040$) is not separable either. The remaining seven baselines sit at adjusted $p$-values of one, the empirical receipt that the cycle-five trained architecture does not separate from any baseline on FEVER exact match under the matched-protocol contract." (vanilla_ft,fever diff -0.0667, holm 0.2344; flare,fever diff +0.040, p 0.4367.)
+
+## Unchanged, verified
+- B1 FEVER row (0.477/0.453/+0.023/0.232/0.630) and B8 TQA row (0.300/0.307/-0.007/0.010/0.920): chi2 and p now sourced from the CSV (closes U5/U10 note).
+- Final paragraph tallies (C5 9/3, 21/3; C2 14/3, 20/4) and the CHM defeat list (B1, B2, B8 both anchors, +B7 at best cycle) match both CSVs.
+
+## Not sourced / not touched
+- B5 five-shot CoT TriviaQA chi^2 is not quoted anywhere (p_em_raw = 0.0 underflow); prose says only that its p underflows, no chi^2 invented.
+- The "0.210 -> 0.310" RUC-ablation TruthfulQA figure (line 155) is outside the significance CSVs; not checked.
+- The output path cited at line 144 (outputs/full_run/tab_sig_test.csv) and the script name at line 14 (baseline_sig_tests.py vs the v2 script used today) were not changed.
+
+## Checks
+- Column counts: table 1 = 7 cols (5 rows), bootstrap = 4 cols (4 rows), both Holm tables = 6 cols (18 rows incl. headers). Braces balanced, $ count even.
+- \Cref{tab:sig-test} label exists (chapters/chapter_5.tex:405).
