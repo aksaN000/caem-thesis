@@ -420,7 +420,7 @@ The gitignored local `outputs/` folders map to the Drive folder `CAEM_thesis/2_r
 | Committed table | Generator | Why the committed copy wins |
 |---|---|---|
 | `tab_survival_distribution` | `scripts/aggregate_survival_distribution.py` | the generator reconstructs promotions from buffer snapshots and disagrees with the run log (650 promotions: 131 / 220 / 299 at C2 / C3 / C5) |
-| `tab_decision_distribution` | `scripts/aggregate_section_5_3.py` | layout finished by hand |
+| `tab_decision_distribution` | `scripts/aggregate_section_5_3.py` | the generator emits only panel (a); panel (b) is computed the same way from the cycle-3 per-benchmark calibration files (`outputs/full_run/cycle_3/calibration/<bench>_cycle3.json`) |
 | `tab_tier_trajectory` | `scripts/aggregate_section_5_4.py` | panel (b) is hand-built from `tab_per_tier_em` |
 | `tab_validation_gate` | `scripts/aggregate_section_5_7.py` | hand-built per-benchmark layout (same numbers) |
 | `tab_theorem_receipts_summary` | `scripts/aggregate_section_5_6.py` | only the T1/T5 band values are computed; the remaining receipt text is copied from the committed table |
