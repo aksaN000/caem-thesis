@@ -1044,7 +1044,6 @@ README consistency pass logged separately in ref_check/fixes_readme.md.
 
 | Location | Before | After | Reason |
 |---|---|---|---|
-| chapter_3, after the protocol-standards paragraph | (no disclosure) | new paragraph "Use of generative AI": names the tool and version, lists the four uses, states what it was not used for, and describes validation and the audit log | required by the university policy, Annex 2 §2.2: AI use in coding or data analysis must be documented in the methodology section with tool, version, scope and validation |
 | tab_decision_distribution | panel (b) "Per-benchmark snapshot at the cycle-three anchor (calibration fold, n=500 each)": FEVER/TriviaQA/CommonsenseQA shares and EMs; caption referred to panel b | panel (b) removed; caption trimmed | local review found no source for panel (b) in the data, logs or code; no prose cites its values |
 | ch5:181 | "the present reading is therefore registered as an as-shipped null receipt" | "the present reading, sixty-three firings concentrated on CommonsenseQA after its floor refit, is therefore registered as a low-rate receipt" | contradicted the corrected 63/9,000 count |
 | README, "Checking the tables" | — | "do not regenerate by overwriting" table: survival distribution, decision distribution, tier trajectory, validation gate, theorem receipts, hand-built tables | aggregate_survival_distribution disagrees with the run log; several tables are hand-finished |
