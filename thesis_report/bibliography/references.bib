@@ -34,7 +34,7 @@
 
 @misc{anil2023palm,
     title = {{PaLM} 2 Technical Report},
-    author = {Anil, Rohan and Borgeaud, Sebastian and Wu, Yonghui and Alayrac, Jean-Baptiste and Yu, Jiahui and Soricut, Radu and Schalkwyk, Johan and Dai, Andrew M. and Hauth, Anja and Millican, Katie and others},
+    author = {Anil, Rohan and Dai, Andrew M. and Firat, Orhan and Johnson, Melvin and Lepikhin, Dmitry and Passos, Alexandre and Shakeri, Siamak and Taropa, Emanuel and Bailey, Paige and Chen, Zhifeng and others},
     year = {2023},
     howpublished = {arXiv preprint arXiv:2305.10403},
     doi = {10.48550/arXiv.2305.10403},
@@ -337,7 +337,7 @@
 
 @inproceedings{NIPS2015_8fb21ee7,
     title = {End-To-End Memory Networks},
-    author = {Sukhbaatar, Sainbayar and szlam, arthur and Weston, Jason and Fergus, Rob},
+    author = {Sukhbaatar, Sainbayar and Szlam, Arthur and Weston, Jason and Fergus, Rob},
     editor = {C. Cortes and N. Lawrence and D. Lee and M. Sugiyama and R. Garnett},
     booktitle = {Advances in Neural Information Processing Systems 28 ({NeurIPS} 2015)},
     volume = {28},
@@ -371,20 +371,21 @@
     url = {http://proceedings.mlr.press/v70/guo17a/guo17a.pdf},
 }
 
-@misc{xiong2023can,
+@inproceedings{xiong2023can,
     title = {Can {LLMs} Express Their Uncertainty? An Empirical Evaluation of Confidence Elicitation in {LLMs}},
     author = {Xiong, Miao and Hu, Zhiyuan and Lu, Xinyang and Li, Yifei and Fu, Jie and He, Junxian and Hooi, Bryan},
-    year = {2023},
-    howpublished = {arXiv preprint arXiv:2306.13063},
-    doi = {10.48550/arXiv.2306.13063},
+    booktitle = {International Conference on Learning Representations ({ICLR} 2024)},
+    year = {2024},
+    url = {https://arxiv.org/abs/2306.13063},
 }
 
-@misc{tian2023just,
+@inproceedings{tian2023just,
     title = {Just Ask for Calibration: Strategies for Eliciting Calibrated Confidence Scores from Language Models Fine-Tuned with Human Feedback},
-    author = {Tian, Katherine and Mitchell, Eric and Yao, Huaxiu and Manning, Christopher D and Finn, Chelsea},
+    author = {Tian, Katherine and Mitchell, Eric and Zhou, Allan and Sharma, Archit and Rafailov, Rafael and Yao, Huaxiu and Finn, Chelsea and Manning, Christopher D.},
+    booktitle = {Proceedings of the 2023 Conference on Empirical Methods in Natural Language Processing},
+    pages = {5433--5442},
     year = {2023},
-    howpublished = {arXiv preprint arXiv:2305.14975},
-    doi = {10.48550/arXiv.2305.14975},
+    url = {https://arxiv.org/abs/2305.14975},
 }
 
 @inproceedings{NEURIPS2022_639a9a17,
@@ -510,27 +511,27 @@
     doi = {10.18653/v1/N18-1074},
 }
 
-@article{gulcehre2023rest,
+@misc{gulcehre2023rest,
     title = {Reinforced Self-Training ({ReST}) for Language Modeling},
     author = {Gulcehre, Caglar and Paine, Tom Le and Srinivasan, Srivatsan and Konyushkova, Ksenia and Weerts, Lotte and Sharma, Abhishek and Siddhant, Aditya and Ahern, Alex and Wang, Miaosen and Gu, Chenjie and others},
-    journal = {arXiv preprint arXiv:2308.08998},
+    howpublished = {arXiv preprint arXiv:2308.08998},
     year = {2023},
 }
 
 @inproceedings{ho2023large,
     title = {Large Language Models Are Reasoning Teachers},
-    author = {Ho, Namgyu and Salimans, Tim and Gritsenko, Anian and Chan, William and Sohl-Dickstein, Jascha and Ermon, Stefano},
+    author = {Ho, Namgyu and Schmid, Laura and Yun, Se-Young},
     booktitle = {Proceedings of the 61st Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers)},
-    pages = {14852--14873},
+    pages = {14852--14882},
     year = {2023},
     publisher = {Association for Computational Linguistics},
     doi = {10.18653/v1/2023.acl-long.830},
 }
 
-@article{nandakishor2025routing,
+@misc{nandakishor2025routing,
     title = {Confidence-Aware Routing for Large Language Model Reliability Enhancement: A Multi-Signal Approach to Pre-Generation Hallucination Mitigation},
     author = {Nandakishor, M.},
-    journal = {arXiv preprint arXiv:2510.01237},
+    howpublished = {arXiv preprint arXiv:2510.01237},
     year = {2025},
 }
 
@@ -700,15 +701,17 @@
 @inproceedings{tang2024minicheck,
     title = {{MiniCheck}: Efficient Fact-Checking of {LLM}s on Grounding Documents},
     author = {Tang, Liyan and Laban, Philippe and Durrett, Greg},
-    booktitle = {Proceedings of the 62nd Annual Meeting of the Association for Computational Linguistics ({ACL})},
+    booktitle = {Proceedings of the 2024 Conference on Empirical Methods in Natural Language Processing ({EMNLP})},
+    pages = {8818--8847},
     year = {2024},
 }
 
-@article{semanticillusion2025,
-    title = {Semantic Illusion: Generic Natural Language Inference Models Miscalibrate on Language Model Hallucinations},
-    author = {Anon.},
-    journal = {Working paper, HaluEval 2025 supplementary analysis},
+@misc{sinha2025semantic,
+    title = {The Semantic Illusion: Certified Limits of Embedding-Based Hallucination Detection in {RAG} Systems},
+    author = {Sinha, Debu},
     year = {2025},
+    howpublished = {arXiv preprint arXiv:2512.15068},
+    url = {https://arxiv.org/abs/2512.15068},
 }
 
 @inproceedings{wu2022pretrained,
@@ -725,10 +728,10 @@
     year = {2023},
 }
 
-@inproceedings{biderman2024lora,
+@article{biderman2024lora,
     title = {{LoRA} Learns Less and Forgets Less},
     author = {Biderman, Dan and Portes, Jacob and Ortiz, Jose Javier Gonzalez and Paul, Mansheej and Greengard, Philip and Jennings, Connor and King, Daniel and Havens, Sam and Chiley, Vitaliy and Frankle, Jonathan and others},
-    booktitle = {Transactions on Machine Learning Research (TMLR)},
+    journal = {Transactions on Machine Learning Research},
     year = {2024},
 }
 
@@ -739,18 +742,21 @@
     year = {2023},
 }
 
-@inproceedings{valentin2024hallucination,
+@misc{valentin2024hallucination,
     title = {Cost-Effective Hallucination Detection for {LLM}s},
     author = {Valentin, Simon and Fu, Jinmiao and Detommaso, Gianluca and Xu, Shaoyuan and Zappella, Giovanni and Wang, Bryan},
-    booktitle = {arXiv preprint arXiv:2407.21424},
+    howpublished = {arXiv preprint arXiv:2407.21424},
     year = {2024},
 }
 
-@inproceedings{vashurin2024polygraph,
-    title = {{LM-Polygraph}: Uncertainty Estimation for Language Models},
-    author = {Vashurin, Roman and Fadeeva, Ekaterina and Vazhentsev, Artem and Rvanova, Lyudmila and Panchenko, Alexander and Shelmanov, Artem},
-    booktitle = {Transactions of the Association for Computational Linguistics (TACL)},
+@article{vashurin2024polygraph,
+    title = {Benchmarking Uncertainty Quantification Methods for Large Language Models with {LM-Polygraph}},
+    author = {Vashurin, Roman and Fadeeva, Ekaterina and Vazhentsev, Artem and Rvanova, Lyudmila and Vasilev, Daniil and Tsvigun, Akim and Petrakov, Sergey and Xing, Rui and Sadallah, Abdelrahman and Grishchenkov, Kirill and Panchenko, Alexander and Baldwin, Timothy and Nakov, Preslav and Panov, Maxim and Shelmanov, Artem},
+    journal = {Transactions of the Association for Computational Linguistics},
+    volume = {13},
+    pages = {220--248},
     year = {2025},
+    doi = {10.1162/tacl_a_00737},
 }
 
 @inproceedings{kuhn2023semantic,
@@ -766,16 +772,6 @@
     year = {2024},
     howpublished = {arXiv preprint arXiv:2412.15115},
     doi = {10.48550/arXiv.2412.15115},
-}
-
-@article{geva2021strategyqa,
-    title = {Did Aristotle Use a Laptop? A Question Answering Benchmark with Implicit Reasoning Strategies},
-    author = {Geva, Mor and Khashabi, Daniel and Segal, Elad and Khot, Tushar and Roth, Dan and Berant, Jonathan},
-    journal = {Transactions of the Association for Computational Linguistics},
-    volume = {9},
-    pages = {346--361},
-    year = {2021},
-    doi = {10.1162/tacl_a_00370},
 }
 
 @inproceedings{strubell2019energy,
@@ -797,7 +793,7 @@
 }
 
 @inproceedings{cherian2024conformal,
-    title = {Enhanced Conformal Prediction with Boosted Logistic Regression},
+    title = {Large Language Model Validity via Enhanced Conformal Prediction Methods},
     author = {Cherian, John J. and Gibbs, Isaac and Cand{\`e}s, Emmanuel J.},
     booktitle = {Advances in Neural Information Processing Systems ({NeurIPS} 2024)},
     year = {2024},
@@ -811,10 +807,10 @@
     url = {https://arxiv.org/abs/2402.10978},
 }
 
-@inproceedings{yadkori2024abstention,
+@misc{yadkori2024abstention,
     title = {Mitigating {LLM} Hallucinations via Conformal Abstention},
     author = {Yadkori, Yasin Abbasi and Kuzborskij, Ilja and Stutz, David and Gy{\"o}rgy, Andr{\'a}s and Fisch, Adam and Doucet, Arnaud and Beloshapka, Iuliya and Weng, Wei-Hung and Yang, Yao-Yuan and Szepesv{\'a}ri, Csaba and Cemgil, Ali Taylan and Tomasev, Nenad},
-    booktitle = {arXiv preprint arXiv:2405.01563},
+    howpublished = {arXiv preprint arXiv:2405.01563},
     year = {2024},
     url = {https://arxiv.org/abs/2405.01563},
 }
@@ -835,33 +831,36 @@
     url = {https://arxiv.org/abs/2402.06457},
 }
 
-@misc{fu2025collapse,
-    title = {Escaping Model Collapse via Synthetic Data Verification: Near-Term Improvement and Long-Term Convergence},
-    author = {Fu, Junhao and Zhang, Tongzhou and Lyu, Lingjuan},
-    year = {2025},
-    howpublished = {arXiv preprint arXiv:2510.16657},
+@inproceedings{fu2025collapse,
+    title = {Escaping Model Collapse via Synthetic Data Verification: Near-term Improvements and Long-term Convergence},
+    author = {Yi, Bingji and Liu, Qiyuan and Cheng, Yuwei and Xu, Haifeng},
+    booktitle = {International Conference on Learning Representations ({ICLR} 2026)},
+    year = {2026},
     url = {https://arxiv.org/abs/2510.16657},
 }
 
-@misc{song2024gap,
+@inproceedings{song2024gap,
     title = {Mind the Gap: Examining the Self-Improvement Capabilities of Large Language Models},
     author = {Song, Yuda and Zhang, Hanlin and Eisenach, Carson and Kakade, Sham and Foster, Dean and Ghai, Udaya},
-    year = {2024},
-    howpublished = {arXiv preprint arXiv:2412.02674},
+    booktitle = {International Conference on Learning Representations ({ICLR} 2025)},
+    year = {2025},
     url = {https://arxiv.org/abs/2412.02674},
 }
 
 @inproceedings{das2025retraining,
     title = {Retraining with Predicted Hard Labels Provably Increases Model Accuracy},
-    author = {Das, Rudrajit and Dhillon, Inderjit S. and Epasto, Alessandro and Javanmard, Adel and Mirrokni, Vahab},
+    author = {Das, Rudrajit and Dhillon, Inderjit S. and Epasto, Alessandro and Javanmard, Adel and Mao, Jieming and Mirrokni, Vahab and Sanghavi, Sujay and Zhong, Peilin},
     booktitle = {Proceedings of the 42nd International Conference on Machine Learning ({ICML} 2025)},
+    series = {Proceedings of Machine Learning Research},
+    volume = {267},
+    pages = {12509--12538},
     year = {2025},
     url = {https://arxiv.org/abs/2406.11206},
 }
 
 @inproceedings{huang2025sharpening,
     title = {Self-Improvement in Language Models: The Sharpening Mechanism},
-    author = {Huang, Audrey and Block, Adam and Foster, Dean and Rohatgi, Dhruv and Zhang, Cyril and Simchowitz, Max and Ash, Jordan T. and Krishnamurthy, Akshay},
+    author = {Huang, Audrey and Block, Adam and Foster, Dylan J. and Rohatgi, Dhruv and Zhang, Cyril and Simchowitz, Max and Ash, Jordan T. and Krishnamurthy, Akshay},
     booktitle = {International Conference on Learning Representations ({ICLR} 2025)},
     year = {2025},
     url = {https://arxiv.org/abs/2412.01951},
@@ -869,7 +868,7 @@
 
 @inproceedings{lang2024w2s,
     title = {Theoretical Analysis of Weak-to-Strong Generalization},
-    author = {Lang, Hunter and Vijayaraghavan, Aravindan and Sontag, David},
+    author = {Lang, Hunter and Sontag, David and Vijayaraghavan, Aravindan},
     booktitle = {Advances in Neural Information Processing Systems ({NeurIPS} 2024)},
     year = {2024},
     url = {https://arxiv.org/abs/2405.16043},
@@ -885,7 +884,7 @@
 
 @inproceedings{chen2024inside,
     title = {{INSIDE}: {LLMs}' Internal States Retain the Power of Hallucination Detection},
-    author = {Chen, Chao and Liu, Kai and Chen, Ze and Gu, Yi and Wu, Yufei and Tao, Mingyuan and Fu, Zhihang and Ye, Jieping},
+    author = {Chen, Chao and Liu, Kai and Chen, Ze and Gu, Yi and Wu, Yue and Tao, Mingyuan and Fu, Zhihang and Ye, Jieping},
     booktitle = {International Conference on Learning Representations ({ICLR} 2024)},
     year = {2024},
     url = {https://arxiv.org/abs/2402.03744},
@@ -893,7 +892,7 @@
 
 @inproceedings{nikitin2024kle,
     title = {Kernel Language Entropy: Fine-grained Uncertainty Quantification for {LLMs} from Semantic Similarities},
-    author = {Nikitin, Alexander and Kossen, Jannik and Gal, Yarin and Janson, Pekka},
+    author = {Nikitin, Alexander and Kossen, Jannik and Gal, Yarin and Marttinen, Pekka},
     booktitle = {Advances in Neural Information Processing Systems ({NeurIPS} 2024)},
     year = {2024},
     url = {https://arxiv.org/abs/2405.20003},
@@ -916,10 +915,12 @@
     url = {https://aclanthology.org/2024.naacl-long.366/},
 }
 
-@misc{larimar2024das,
+@inproceedings{larimar2024das,
     title = {Larimar: Large Language Models with Episodic Memory Control},
-    author = {Das, Payel and Chaudhury, Subhajit and Nelson, Elliot and Melnyk, Igor and Swaminathan, Sarath and Dai, Sihui and Lozano, Aurélie and Kollias, Georgios and Chenthamarakshan, Vijil and Dan, Soham and Chen, Pin-Yu},
+    author = {Das, Payel and Chaudhury, Subhajit and Nelson, Elliot and Melnyk, Igor and Swaminathan, Sarathkrishna and Dai, Sihui and Lozano, Aur{\'e}lie and Kollias, Georgios and Chenthamarakshan, Vijil and Navr{\'a}til, Ji{\v{r}}{\'\i} and Dan, Soham and Chen, Pin-Yu},
     booktitle = {Proceedings of the 41st International Conference on Machine Learning ({ICML} 2024)},
+    series = {Proceedings of Machine Learning Research},
+    volume = {235},
     year = {2024},
     url = {https://arxiv.org/abs/2403.11901},
 }
@@ -1016,15 +1017,62 @@
 
 @inproceedings{baek2025probing,
     title = {Probing-{RAG}: Self-Probing to Guide Language Models in Selective Document Retrieval},
-    author = {Baek, Jinheon and Chandrasekaran, Akshay and Lin, Silvio and Hwang, Sung Ju and Carbonell, Jaime},
+    author = {Baek, Ingeol and Chang, Hwan and Kim, ByeongJeong and Lee, Jimin and Lee, Hwanhee},
     booktitle = {Findings of the Association for Computational Linguistics: {NAACL} 2025},
+    pages = {3287--3304},
     year = {2025},
 }
 
-@misc{moskvoretskii2025llm,
+@inproceedings{moskvoretskii2025llm,
     title = {{LLM}-Independent Adaptive {RAG}: Let the Question Speak for Itself},
-    author = {Moskvoretskii, Viktor and Lazichny, Maria and Klimov, Egor and Vlasova, Anastasia and Tikhomirov, Sergey and Zharikov, Alexander and Loyola, Pablo},
+    author = {Marina, Maria and Ivanov, Nikolay and Pletenev, Sergey and Salnikov, Mikhail and Galimzianova, Daria and Krayko, Nikita and Konovalov, Vasily and Panchenko, Alexander and Moskvoretskii, Viktor},
+    booktitle = {Proceedings of the 2025 Conference on Empirical Methods in Natural Language Processing},
+    pages = {8697--8709},
     year = {2025},
-    howpublished = {arXiv preprint arXiv:2505.04253},
     url = {https://arxiv.org/abs/2505.04253},
+}
+
+@article{huang2025survey,
+    title = {A Survey on Hallucination in Large Language Models: Principles, Taxonomy, Challenges, and Open Questions},
+    author = {Huang, Lei and Yu, Weijiang and Ma, Weitao and Zhong, Weihong and Feng, Zhangyin and Wang, Haotian and Chen, Qianglong and Peng, Weihua and Feng, Xiaocheng and Qin, Bing and Liu, Ting},
+    journal = {ACM Transactions on Information Systems},
+    volume = {43},
+    number = {2},
+    year = {2025},
+    doi = {10.1145/3703155},
+}
+
+@inproceedings{huang2024cannot,
+    title = {Large Language Models Cannot Self-Correct Reasoning Yet},
+    author = {Huang, Jie and Chen, Xinyun and Mishra, Swaroop and Zheng, Huaixiu Steven and Yu, Adams Wei and Song, Xinying and Zhou, Denny},
+    booktitle = {International Conference on Learning Representations ({ICLR} 2024)},
+    year = {2024},
+    url = {https://arxiv.org/abs/2310.01798},
+}
+
+@inproceedings{kojima2022large,
+    title = {Large Language Models are Zero-Shot Reasoners},
+    author = {Kojima, Takeshi and Gu, Shixiang Shane and Reid, Machel and Matsuo, Yutaka and Iwasawa, Yusuke},
+    booktitle = {Advances in Neural Information Processing Systems 35 ({NeurIPS} 2022)},
+    pages = {22199--22213},
+    year = {2022},
+    url = {https://arxiv.org/abs/2205.11916},
+}
+
+@incollection{robbins1971convergence,
+    title = {A Convergence Theorem for Non Negative Almost Supermartingales and Some Applications},
+    author = {Robbins, Herbert and Siegmund, David},
+    booktitle = {Optimizing Methods in Statistics},
+    editor = {Rustagi, Jagdish S.},
+    publisher = {Academic Press},
+    pages = {233--257},
+    year = {1971},
+}
+
+@inproceedings{naeini2015obtaining,
+    title = {Obtaining Well Calibrated Probabilities Using {Bayesian} Binning},
+    author = {Naeini, Mahdi Pakdaman and Cooper, Gregory F. and Hauskrecht, Milos},
+    booktitle = {Proceedings of the Twenty-Ninth {AAAI} Conference on Artificial Intelligence},
+    pages = {2901--2907},
+    year = {2015},
 }

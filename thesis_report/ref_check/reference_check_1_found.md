@@ -1,5 +1,7 @@
 # Reference check 1: was each paper found, and do its details match?
 
+> **Status (2026-10-15):** this report describes the thesis and `.bib` *before* the fixes. Tier A (bibliography) and tier B (wording) fixes have since been applied; see `fixes_applied.md` for every change and for the items left for tier C.
+
 All 95 entries in `bibliography/references.bib`, numbered **[1]–[95] exactly as printed in the thesis References** (biblatex `sorting=none`, checked against `main.pdf`).
 
 - **Paper found?** Does a real paper with this title and authors exist?
