@@ -597,12 +597,24 @@ def run_cyclic_ablation(ns: argparse.Namespace) -> None:
                 )
 
                 if cycle_result.aborted:
+                    # Name the probe that triggered the abort (ANY-probe
+                    # guard), not only the legacy MMLU ratio.
+                    _ratios = {
+                        k: float(v)
+                        for k, v in (getattr(cycle_result, "probe_retentions", None) or {}).items()
+                        if v is not None and not math.isnan(float(v))
+                    }
+                    _worst = min(_ratios, key=_ratios.get) if _ratios else "mmlu"
+                    _worst_r = _ratios[_worst] if _ratios else cycle_result.mmlu_retention_ratio
                     logger.warning(
-                        "Cycle %d ABORTED (retention %.3f < %.3f). "
+                        "Cycle %d ABORTED (worst probe %s retention %.3f < %.3f; "
+                        "MMLU ratio %.3f). "
                         "Weights restored; eval still runs on the restored model.",
                         cycle_num,
-                        cycle_result.mmlu_retention_ratio,
+                        _worst,
+                        _worst_r,
                         config.forgetting_tolerance,
+                        cycle_result.mmlu_retention_ratio,
                     )
                     aborted = True
                 else:

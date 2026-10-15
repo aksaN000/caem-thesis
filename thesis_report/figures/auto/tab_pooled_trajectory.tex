@@ -3,6 +3,7 @@
 % with the no-CAEM reference floor (B1 zero-shot on the same backbone) and
 % the headline cycle marked.
 % TruthfulQA EM uses Haiku-judged em_llm_judged. Pooled = unweighted bench-mean.
+% Hand-corrected 2026-10-15 (see ref_check/fixes_applied.md)
 \begin{table}[!htbp]
 \centering\small
 \resizebox{\textwidth}{!}{%
@@ -24,7 +25,7 @@ CAEM & C3 & 300 & 0.532 & 0.115 & 0.992 & 0.987 & \underline{0.976} & \textsc{co
 CAEM & C4 & 300 & 0.532 & 0.115 & 1.018 & \textbf{\underline{0.886}} & 0.982 & \textsc{abort} \\
 CAEM & C5 & 300 & 0.517 & 0.109 & 0.999 & 1.013 & \underline{0.958} & \textsc{commit} \\
 \midrule
-\multicolumn{9}{@{}l}{\textbf{Headline contrast (CAEM C2 vs.\ B1 zero-shot)}: $\Delta$EM $=+0.037$ ($+7.4\%$ relative); $\Delta$CHM $=-0.013$ ($-10.8\%$ relative).} \\
+\multicolumn{9}{@{}l}{\textbf{Headline contrast (CAEM C2 vs.\ B1 zero-shot)}: $\Delta$EM $=+0.037$ ($+7.4\%$ relative); $\Delta$CHM $=-0.013$ ($-11.0\%$ relative).} \\
 \bottomrule
 \end{tabular}%
 }
