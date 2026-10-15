@@ -50,7 +50,7 @@ Against the matched Qwen-2.5-3B-Instruct zero-shot baseline `B1` over the same b
 - **Retrieval-utility-classifier ablation** at cycle three: **+14.0 percentage-point lift** on CommonsenseQA exact match and **+10.0 percentage-point lift** on TruthfulQA exact match by re-routing misconception-bait queries away from the retrieval-augmented tier, with the retrieval tier share collapsing by **−33.8 percentage points** pooled (`tab:ruc-ablation`, Ch5 §5.7). The classifier-on reading lifts TruthfulQA exact match from 0.210 to 0.310 while preserving the training-panel pooled reading.
 - **Pool purity** remains in the band **[0.732, 0.746]** on the pooled training-panel calibration fold across every committed cycle, clearing the registered floor of 0.64 by 9–11 percentage points (`tab:pi-store-trajectory`, Ch5 §5.5.1).
 - **First in-flight retention rollback** at cycle four (TriviaQA-test probe ratio 0.886 < ρ_min = 0.93) with the memory store growing across the abort boundary under the asymmetric-rollback contract; cycle-five recovers to a worst-probe ratio of 0.958 (Ch5 §5.2; `cor:stochastic-equilibrium`).
-- **External eight-baseline panel:** CAEM beats every baseline on both the exact-match and the composite-hallucination axes in the pooled comparison at both reference cycles (`tab:baseline-pooled`).
+- **External eight-baseline panel:** in the pooled comparison, CAEM C2 beats all eight baselines jointly on the exact-match and composite-hallucination axes, and CAEM C5 beats seven of eight; FLARE leads CAEM C5 on pooled exact match by 0.008 (`tab:baseline-pooled`).
 
 The full theorem-by-theorem receipt panel (three theorems plus three corollaries) and the pre-registered five-hypothesis verdicts are reported in Chapter 5 §5.5.
 
@@ -118,7 +118,7 @@ The realised programme closed at the **six-cycle horizon** (cycles C0 through C5
 | CAEM | C4 | 0.532 | 0.115 | 1.018 | **0.886** | 0.982 | **ABORT** (worst probe < ρ_min) |
 | CAEM | C5 | 0.517 | 0.109 | 0.999 | 1.013 | **0.958** | COMMIT (post-rollback recovery) |
 
-Headline contrast vs B1 zero-shot at the trajectory's within-best cycle (C2): **ΔEM = +0.037 (+7.4% relative)**, **ΔCHM = −0.013 (−10.8% relative)**.
+Headline contrast vs B1 zero-shot at the trajectory's within-best cycle (C2): **ΔEM = +0.037 (+7.4% relative)**, **ΔCHM = −0.013 (−11.0% relative)**.
 
 The trajectory carries three findings. First, **the composite hallucination metric reduces monotonically into a deep minimum at cycle two (0.107) and recovers a near-minimum at cycle five (0.109)**, a −19% relative reduction from the cycle-zero baseline (Ch5 §5.2). Second, **cycle four exhibits the first in-flight retention rollback** on the realised trajectory: the TriviaQA-test probe ratio falls to 0.886, crossing below the registered floor of 0.93, the cycle aborts, and the adapter is restored to the cycle-three checkpoint while the memory store grows across the boundary (Ch5 §5.2; the architectural contract is `cor:stochastic-equilibrium` sub-claim iii). Third, **cycle five recovers to a worst-probe ratio of 0.958**, well clear of the floor, and the realised commit fraction closes at π_commit = 4/5 = 0.80, strictly in the open interval (0, 1) that the corollary's sub-claim (i) predicts.
 
@@ -158,18 +158,18 @@ All baselines evaluated under the matched-protocol contract on the five-benchmar
 |---|---|---:|---:|---:|---:|---:|---:|
 |   | **CAEM C2 (best)** ⭐ | **0.544** | **0.107** | n/a  | n/a | +0.027 | −0.002 |
 |   | CAEM C5 (final) | 0.517 | 0.109 | −0.027 | +0.002 | n/a  | n/a |
-| B1 | zero-shot | 0.507 | 0.120 | +0.037 (+7.4%) | −0.013 (−11.0%) | +0.010 (+2.0%) | −0.011 (−9.3%) |
-| B2 | chain-of-thought | 0.500 | 0.123 | +0.044 (+8.8%) | −0.016 (−12.7%) | +0.017 (+3.4%) | −0.014 (−11.0%) |
-| B3 | DPR-RAG | 0.458 | 0.148 | +0.086 (+18.8%) | −0.041 (−27.7%) | +0.059 (+12.9%) | −0.039 (−26.4%) |
-| B4 | CoT + DPR-RAG | 0.461 | 0.142 | +0.083 (+17.9%) | −0.035 (−24.6%) | +0.056 (+12.1%) | −0.033 (−23.2%) |
-| B5 | five-shot CoT | 0.405 | 0.136 | +0.139 (+34.2%) | −0.029 (−21.4%) | +0.112 (+27.5%) | −0.027 (−19.9%) |
-| B6 | vanilla fine-tune (C5) | 0.325 | 0.144 | +0.219 (+67.2%) | −0.037 (−25.5%) | +0.192 (+58.9%) | −0.035 (−24.1%) |
-| B7 | FLARE | 0.292 | 0.153 | +0.252 (+86.3%) | −0.046 (−29.9%) | +0.225 (+77.1%) | −0.044 (−28.6%) |
-| B8 | semantic entropy | 0.505 | 0.120 | +0.039 (+7.7%) | −0.013 (−10.5%) | +0.012 (+2.4%) | −0.011 (−8.9%) |
+| B1 | zero-shot | 0.507 | 0.120 | +0.037 (+7.4%) | −0.013 (−11.0%) | +0.011 (+2.1%) | −0.011 (−9.3%) |
+| B2 | chain-of-thought | 0.500 | 0.123 | +0.044 (+8.8%) | −0.016 (−12.7%) | +0.017 (+3.5%) | −0.014 (−11.0%) |
+| B3 | DPR-RAG | 0.458 | 0.148 | +0.086 (+18.8%) | −0.041 (−27.7%) | +0.059 (+13.0%) | −0.039 (−26.4%) |
+| B4 | CoT + DPR-RAG | 0.464 | 0.142 | +0.080 (+17.2%) | −0.035 (−24.6%) | +0.053 (+11.5%) | −0.033 (−23.2%) |
+| B5 | five-shot CoT | 0.405 | 0.136 | +0.139 (+34.2%) | −0.029 (−21.4%) | +0.112 (+27.6%) | −0.027 (−19.9%) |
+| B6 | vanilla fine-tune (C5) | 0.490 | 0.127 | +0.054 (+11.0%) | −0.020 (−15.9%) | +0.027 (+5.6%) | −0.018 (−14.3%) |
+| B7 | FLARE | 0.525 | 0.173 | +0.019 (+3.5%) | −0.066 (−38.0%) | −0.008 (−1.5%) | −0.064 (−36.8%) |
+| B8 | semantic entropy | 0.505 | 0.120 | +0.039 (+7.8%) | −0.013 (−10.5%) | +0.013 (+2.5%) | −0.011 (−8.9%) |
 
-**Wins-against count** (CAEM beats baseline on ΔEM and ΔCHM jointly): **CAEM C2 beats 8/8 baselines; CAEM C5 beats 8/8 baselines**.
+**Wins-against count** (CAEM beats baseline on ΔEM and ΔCHM jointly): **CAEM C2 beats 8/8 baselines; CAEM C5 beats 7/8 baselines** (FLARE leads CAEM C5 on pooled EM by 0.008).
 
-The paired McNemar exact-match receipts and paired Wilcoxon composite-hallucination receipts of `tab:sig-test` clear the joint significance-and-effect-size licensing rule of Chapter 5 §5.4 on **13 of 40 per-benchmark contrasts on the exact-match axis** and **23 of 40 contrasts on the composite-hallucination axis** at the cycle-five anchor, and on **17 of 40 and 26 of 40 contrasts respectively** at the best-cycle anchor of `tab:sig-test-c2`, with three significant exact-match defeats and four significant composite-hallucination defeats on the per-benchmark axis confined to TruthfulQA against the high-EM RAG-free baselines (the surface where the architecture's abstention behaviour interacts with the Haiku-judged correctness rule and the false-refusal subtype of the composite hallucination metric).
+The paired McNemar exact-match receipts and paired Wilcoxon composite-hallucination receipts of `tab:sig-test` clear the joint significance-and-effect-size licensing rule of Chapter 5 §5.4 on **9 of 40 per-benchmark contrasts on the exact-match axis** and **21 of 35 contrasts on the composite-hallucination axis** (the five vanilla-fine-tune CHM cells are n/a) at the cycle-five anchor, and on **14 of 40 and 20 of 35 contrasts respectively** at the best-cycle anchor of `tab:sig-test-c2`. The significant defeats number three on the exact-match axis at both anchors, and three (C5) and four (C2) on the composite-hallucination axis; all are confined to TruthfulQA against the zero-shot, chain-of-thought, FLARE and semantic-entropy baselines (the surface where the architecture's abstention behaviour interacts with the Haiku-judged correctness rule and the false-refusal subtype of the composite hallucination metric).
 
 The Holm-corrected family-wise significance panel, the bootstrap 95% confidence intervals on every ΔEM, and the per-benchmark sig-test verdicts are reported in `tab:sig-test`, `tab:sig-test-c2`, and Chapter 5 §5.4.
 
@@ -205,11 +205,11 @@ The cycle-zero baseline routes 51.3% of queries to the retrieval-augmented tier 
 
 | Benchmark | T1 share / EM | T2 share / EM | T3 share / EM | Pooled EM |
 |---|---:|---:|---:|---:|
-| FEVER | 0.0% / n/a | 43.3% / 0.554 | 56.7% / 0.418 | 0.477 |
-| TriviaQA | 0.3% / 1.000 | 37.0% / 0.514 | 62.7% / 0.420 | 0.453 |
-| CommonsenseQA | 0.0% / n/a | 82.3% / 0.733 | 17.7% / 0.642 | 0.717 |
-| TruthfulQA | 0.3% / 1.000 | 64.3% / 0.591 | 35.3% / 0.311 | 0.493 |
-| StrategyQA | 0.0% / n/a | 24.0% / 0.736 | 76.0% / 0.610 | 0.640 |
+| FEVER | 0.0% / n/a | 43.3% / 0.500 | 56.7% / 0.459 | 0.477 |
+| TriviaQA | 0.3% / 1.000 | 37.0% / 0.423 | 62.7% / 0.468 | 0.453 |
+| CommonsenseQA | 0.0% / n/a | 82.3% / 0.745 | 17.7% / 0.585 | 0.717 |
+| TruthfulQA | 0.3% / 1.000 | 64.3% / 0.321 | 35.3% / 0.255 | 0.300 |
+| StrategyQA | 0.0% / n/a | 24.0% / 0.639 | 76.0% / 0.640 | 0.640 |
 
 T2 EM at the headline C2 cycle (51.6 FEVER, 51.0 TQA, 72.4 CSQA, 35.3 TruthfulQA, 66.4 StrategyQA) compared against the C0 base T3 EM (43.5 FEVER, 46.4 TQA, 52.0 CSQA, 29.1 TruthfulQA, 59.9 StrategyQA) on the same five-benchmark panel supplies the **SIL-as-distillation receipt**: the zero-shot tier under the SIL-fine-tuned adapter outperforms the retrieval-augmented tier under the cycle-zero pristine generator on every benchmark by margins of 5–20 percentage points. The Tier 1 (memory-direct) tier fires on a vanishing fraction of held-out queries by design under the content-hash-disjoint evaluation contract (7 firings across 9000 queries in the realised horizon, all returning the correct stored answer), so the Tier 1 trajectory is a capability bound rather than a trajectory prediction; the framing is `cor:tier1-floor` in Chapter 4 §4.10 and the receipt is in Chapter 5 §5.4.
 
@@ -407,7 +407,7 @@ Every reported number is regenerable from the realised seed plus the published a
 | Realised six-cycle main run | several GPU-days | dominated by per-cycle fine-tune plus cycle-boundary retroactive re-verification |
 | External baseline panel | scales with sample count and decode-pass count | CoT and retrieval-augmented variants are the bulk |
 | Retrieval-utility classifier on/off ablation | single contrast at C3 close | matched-protocol panel |
-| **Realised total** | **~960 GPU-hours over ~40 calendar days (40 × 24)** | **~672 USD on a Vast.ai RTX 5090 at ~0.70 USD/on-demand GPU-hour** |
+| **Realised total** | **~960 GPU-hours over ~40 calendar days (40 × 24)** | **~672 USD on a Vast.ai RTX 5090 at ~0.70 USD/on-demand GPU-hour** (Vast.ai billing records) |
 
 The verifier-side scoring path (nine-signal extraction across every served answer, the per-cycle composite refit, the cycle-boundary retroactive re-verification pass, and the matched-protocol Haiku-judged TruthfulQA rescore across the baseline panel) is the **dominant wall-clock consumer over the run, exceeding the per-cycle low-rank-adapter fine-tune itself**, because every entry on every cycle and every baseline-arm answer passes through the full verifier ensemble while the adapter touches only the strict training-pool subset.
 
