@@ -236,3 +236,108 @@ New bib entries for tier C: `edwards1948note` (Edwards 1948, Psychometrika 13:18
 - `chapter_3.tex` (protocol standards paragraph): added "Throughout the thesis, a quantity described as pre-specified or registered was fixed in the project's configuration and runbook before the main evaluation run; the term does not refer to an entry in an external pre-registration registry."
 - Same paragraph: "three … protocol standards" → "four", because the paragraph lists four (matched-protocol, pre-specification, selective-prediction, multiple-comparison).
 - The ~300 uses of plain "registered" (e.g. "registered floor") are unchanged; the definition sentence covers them.
+
+## Numbers audit, Part 1: abstract and chapters 1, 3, 4, 6 (2026-10-15)
+
+Source: FINAL_FIX_LIST.md. Each row gives the item, location, exact before/after text and evidence.
+Additional change: ch3:233 storage rate tightened from 50–53% to 52–53%, because the 49.9% low end is the C5 rate, outside cycles 1–3.
+
+# Fix log (front matter, ch1-4, ch6)
+
+## #15 — thesis_report/core/abstract.tex:22
+- BEFORE: `Cycle zero locks a configuration with evaluation-fold storage precision $0.796$ over $289$ stored entries, drawn`
+- AFTER: `Cycle zero locks a configuration with storage precision $0.796$ over $289$ stored entries on the cycle-zero validation fold, drawn`
+- Evidence: numbers_mismatch_origins A19/O2; aggregate_section_5_7.py:387 (n=500/bench, 1500 ID panel)
+
+## #27 — thesis_report/core/abstract.tex:22
+- BEFORE: `with bias-corrected-and-accelerated bootstrap intervals`
+- AFTER: `with percentile bootstrap intervals`
+- Evidence: scripts/baseline_sig_tests_v2.py:142,161-167 (percentile 2.5/97.5 of 1000 replicates); no replicate count stated in abstract
+
+## #15 — thesis_report/chapters/chapter_3.tex:58
+- BEFORE: `over $289$ stored entries on the held-out training-panel evaluation fold under the locked composite`
+- AFTER: `over $289$ stored entries on the held-out cycle-zero training-panel validation fold ($500$ samples per benchmark, $1500$ in total) under the locked composite`
+- Evidence: A19/O2
+
+## #15 — thesis_report/chapters/chapter_3.tex:73
+- BEFORE: `NFR2 & Storage precision anchor at $\tau_{\text{store}} = 0.60$ & Evaluation-fold $\pi_{\text{store}}$ registered`
+- AFTER: `NFR2 & Storage precision anchor at $\tau_{\text{store}} = 0.60$ & Held-out $\pi_{\text{store}}$ registered`
+- Evidence: A19/O2 (keeps target cell consistent with receipt cell)
+
+## #15 — thesis_report/chapters/chapter_3.tex:73
+- BEFORE: `$\pi_{\text{store}} = 0.796$ over $289$ stored entries on the cycle-zero training-panel evaluation fold \\`
+- AFTER: `$\pi_{\text{store}} = 0.796$ over $289$ stored entries on the cycle-zero training-panel validation fold \\`
+- Evidence: A19/O2
+
+## #15/#31 — thesis_report/chapters/chapter_3.tex:233
+- BEFORE: `to the storage class on the cycle-zero evaluation fold (the realised cycle-zero reading is $289$ stored entries over the $1500$-sample training-panel evaluation fold, a storage rate near $19\%$), and the realised per-cycle stream-chunk storage rate sits between $36\%$ and $43\%$ over cycles one to three of the trajectory;`
+- AFTER: `to the storage class on the cycle-zero validation fold (the realised cycle-zero reading is $289$ stored entries over the $1500$-sample training-panel validation fold, $500$ samples per benchmark, a storage rate near $19\%$), and the realised per-cycle stream-chunk storage rate sits at about $50\%$ to $53\%$ of the $4700$-sample stream chunk over cycles one to three of the trajectory;`
+- Evidence: A19/O2; #31: log_resolution D7 (pi_store_trajectory.csv:14,22: 2443, 2477 /4700 = 52.0%, 52.7%); tab_storage_pool_quality panel b gate-pass 2456/2494/2490 = 52.3-53.1%; 289/1500=19.3%
+
+## #15 — thesis_report/chapters/chapter_6.tex:32
+- BEFORE: `whose evaluation-fold precision anchor sits at $0.796$ over $289$ stored entries on the cycle-zero training-panel evaluation fold,`
+- AFTER: `whose held-out precision anchor sits at $0.796$ over $289$ stored entries on the cycle-zero training-panel validation fold ($500$ samples per benchmark),`
+- Evidence: A19/O2
+
+## #11 — thesis_report/chapters/chapter_6.tex:75
+- BEFORE: `closes both pre-specified acceptance gates within the realised horizon: a pooled exact-match lift of $+5.8$ percentage points with zero per-benchmark exact-match regression closes the first gate, and a TruthfulQA exact-match recovery from $0.210$ to $0.310$ above the B1 zero-shot floor closes the second.`
+- AFTER: `closes the first of its two pre-specified acceptance gates within the realised horizon: a pooled exact-match lift of $+5.8$ percentage points with zero per-benchmark exact-match regression closes the first gate. The second gate does not close as stated: TruthfulQA exact match recovers from $0.210$ to $0.310$, toward the B1 zero-shot floor of $0.433$, but stays below it.`
+- Evidence: tab_per_bench_trajectory.tex TruthfulQA (EM) B1 column 0.433; tab_sig_test.csv:33 zero_shot truthfulqa 0.4333; origins A2/O5
+
+## #35 — thesis_report/chapters/chapter_1.tex:58
+- BEFORE: `At cycle zero almost every query falls to the retrieval-augmented tier because neither mechanism has had time to accumulate;`
+- AFTER: `At cycle zero about half of the queries ($51.3\%$) fall to the retrieval-augmented tier and none is served from memory, because neither mechanism has had time to accumulate;`
+- Evidence: tab_tier_trajectory.tex panel (a) C0: Tier1 0.0%, Tier2 48.7%, Tier3 51.3%
+
+## #48 — thesis_report/chapters/chapter_4.tex:163
+- BEFORE: `an entity count, a myth-regex hit indicator`
+- AFTER: `an entity count, the logarithm of the largest Wikipedia page-view count among the detected entities, a myth-regex hit indicator`
+- Evidence: caem/ruc/v2/feature_spec.json features (log_pageviews_max); scripts/build_ruc_training_set.py:203-215
+
+## #48 — thesis_report/chapters/chapter_4.tex:163
+- BEFORE: `three answer-type matches between the question's expected answer type and the passage's surface (year-match, number-match, and a numeric-presence flag),`
+- AFTER: `six answer-type features between the question's expected answer type and the passage's surface (whether the question expects a year, whether the passage contains one, and whether the two match, with the same three indicators for numbers),`
+- Evidence: feature_spec.json: q_expects_year, passage_has_year, year_match, q_expects_number, passage_has_number, number_match; count now 17+9+10=36
+
+## #49 — thesis_report/chapters/chapter_4.tex:343
+- BEFORE: `$C\in\{0.01,\,0.10,\,1.00\}$`
+- AFTER: `$C\in\{0.010,\,0.025,\,0.050,\,0.100,\,1.000\}$`
+- Evidence: figures/auto/sweep_top.tex:12; origins A22; archive/branch_C_log_historical.md:284
+
+## #19 — thesis_report/chapters/chapter_4.tex:355
+- BEFORE: `which compared two candidates on the labelled cycle-zero calibration fold: a stricter cut`
+- AFTER: `which compared two candidates on the labelled cycle-zero calibration fold of the calibration sweep run before the main trajectory: a stricter cut`
+- Evidence: G 04fe2e7 tab_pi_store_trajectory (478 @ 0.640); numbers_check_ch4_ch5 #23 and :79
+
+## #19 — thesis_report/chapters/chapter_4.tex:355
+- BEFORE: `for an empirical precision of approximately sixty-four percent. The two operating points`
+- AFTER: `for an empirical precision of approximately sixty-four percent (the main run's own cycle-zero calibration fold admits $575$ entries at $0.746$, \Cref{tab:pi-store-trajectory}). The two operating points`
+- Evidence: tab_pi_store_trajectory.tex C0 cal-fold n=575, pi=0.746
+
+## #19 — thesis_report/chapters/chapter_4.tex:355
+- BEFORE: `the lower cut admits roughly four-and-a-half times as many correct memories`
+- AFTER: `the lower cut admits roughly $4.4$ times as many correct memories`
+- Evidence: A: 306/70 = 4.37 (4.5 is 478/105 total admissions)
+
+## #50 — thesis_report/chapters/chapter_4.tex:532
+- BEFORE: `clearing the registered floor by eight to eleven percentage points`
+- AFTER: `clearing the registered floor by nine to eleven percentage points`
+- Evidence: tab_pi_store_trajectory cal-fold [0.732,0.746] - 0.64 = 9.2-10.6 pp
+
+## #53 — thesis_report/chapters/chapter_4.tex:603
+- BEFORE: `tightly bounded band of width below $0.03$ across the cycles`
+- AFTER: `tightly bounded band of width $0.014$ across the cycles`
+- Evidence: tab_pi_store_trajectory cal-fold 0.746-0.732 = 0.014
+
+## #51 — thesis_report/chapters/chapter_4.tex:625
+- BEFORE: `$[0.246, 0.277]$`
+- AFTER: `$[0.247, 0.276]$`
+- Evidence: tab_storage_pool_quality panel b pi 0.753..0.724 -> 1-pi = 0.247..0.276; 606/2456=0.2467, 688/2490=0.2763
+
+## Not changed / skipped
+- #11 ch6 "~:102": chapter_6.tex has 96 lines; the only "above the B1 floor" / gate-closing site is :75 (fixed). ch6:27 says the classifier "lifts TruthfulQA exact match by ten percentage points" (0.210 -> 0.310), which is true, so it was left as is. ch5:473 belongs to another agent.
+- "+2.0%" C5-vs-B1 EM: does not appear in abstract or ch6 (only ch5:491, owned elsewhere). tab_baseline_pooled gives +2.1%.
+- #27: the abstract states no replicate count, so none was added.
+- #19: only the ch4:355 part (ch5:301/:595 belong to the ch5 agent). The ch4:532 "pi_store ~ 0.64" anchor wording was not in scope and was left.
+- #31: spec range "about 50-53%" applied. For C1-C3 specifically, admissions are 2443/2477 (/4700 = 52.0%, 52.7%; C3 not in csv) and gate passes are 2456/2494/2490 (52.3-53.1%), so "about 52-53%" would be tighter. The 49.9% lower end of the spec is the C5 rate (2343/4700), outside cycles one to three.
+- ch2: no assigned items.
