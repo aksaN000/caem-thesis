@@ -9,7 +9,7 @@ from google.colab import drive
 drive.mount('/content/drive')
 
 REPO = '/content/caem-thesis'
-BRANCH = 'claude/elegant-planck-strk55'
+BRANCH = 'audit/thesis-consistency'
 RESULT = '/content/drive/MyDrive/caem_regen_check'
 
 def sh(cmd, cwd=None, timeout=None):

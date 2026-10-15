@@ -1,6 +1,6 @@
 # Citation and reference fixes applied (tiers A and B)
 
-Applied 2026-10-15 on branch `claude/elegant-planck-strk55`. The evidence for every change is in `reference_check_2_claims.md` (Parts 1–3).
+Applied 2026-10-15 on branch `audit/thesis-consistency`. The evidence for every change is in `reference_check_2_claims.md` (Parts 1–3).
 
 **How this was checked.** LaTeX is not installed in this environment, so the thesis was not compiled. Instead:
 - `bibliography/references.bib` was parsed with pybtex: 99 entries, no duplicate keys, braces balanced.
