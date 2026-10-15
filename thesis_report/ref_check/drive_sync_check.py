@@ -4,15 +4,15 @@ READ-ONLY: it uploads, deletes and overwrites nothing. Run from the root of
 your local caem-thesis checkout, pointing at the Drive folder as mounted on
 this machine (Google Drive for desktop, or an rclone mount):
 
-    python thesis_report/ref_check/drive_sync_check.py "/mnt/g/My Drive/caem-phase1a"
+    python thesis_report/ref_check/drive_sync_check.py "/mnt/g/My Drive/CAEM_thesis"
 
 Writes ~/caem_drive_sync.md (text). Upload that file to Google Drive.
 
 Mapping (local -> Drive), as used by the thesis README:
-    outputs/full_run            -> v2_1_phase1e_main/full_run
-    outputs/baselines_phase1e   -> v2_1_phase1e_main/phase1e_baselines
-    outputs/cycle_0             -> v2_1_phase1e_main/cycle_0_cold_start
-    outputs/tier1_routing_probe -> v2_1_phase1e_main/tier1_routing_probe
+    outputs/full_run            -> 2_results_phase1e/full_run
+    outputs/baselines_phase1e   -> 2_results_phase1e/phase1e_baselines
+    outputs/cycle_0             -> 2_results_phase1e/cycle_0_cold_start
+    outputs/tier1_routing_probe -> 2_results_phase1e/tier1_routing_probe
 Files are compared by size and SHA-256 (files over 2 GB by size only).
 """
 import hashlib
@@ -24,8 +24,8 @@ REPO = Path.cwd()
 if not (REPO / "outputs").is_dir():
     sys.exit("Run from the root of your caem-thesis checkout (the one with outputs/).")
 if len(sys.argv) != 2 or not Path(sys.argv[1]).is_dir():
-    sys.exit('usage: python drive_sync_check.py "<path to the mounted caem-phase1a folder>"')
-DRIVE = Path(sys.argv[1]) / "v2_1_phase1e_main"
+    sys.exit('usage: python drive_sync_check.py "<path to the mounted CAEM_thesis folder>"')
+DRIVE = Path(sys.argv[1]) / "2_results_phase1e"
 MAP = [("outputs/full_run", "full_run"),
        ("outputs/baselines_phase1e", "phase1e_baselines"),
        ("outputs/cycle_0", "cycle_0_cold_start"),

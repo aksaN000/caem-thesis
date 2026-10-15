@@ -1,5 +1,7 @@
 # Making local, GitHub and Drive consistent
 
+> **Drive reorganised 2026-10-15** (after this plan was carried out): `caem-phase1a/` is now `CAEM_thesis/`, `v2_1_phase1e_main/` is `2_results_phase1e/`, `_superseded_2026-10/` is `9_archive/superseded_2026-10/`. The steps below keep the original names; `CAEM_thesis/README.md` on Drive maps every old name to its new one.
+
 Goal: the local repo, GitHub and Google Drive hold the same final code, data and thesis, and every
 number in the thesis traces to that data.
 

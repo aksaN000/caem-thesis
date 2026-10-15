@@ -2,7 +2,7 @@
 # against the committed thesis tables. Paste this whole file into ONE Colab cell
 # and run it. It never writes to your Drive artefacts: it copies them to the
 # Colab disk first, and the only thing it writes to Drive is the result folder
-# MyDrive/caem_regen_check/.
+# MyDrive/CAEM_thesis/5_audit_2026-10/regen_check/.
 import os, subprocess, shutil, glob, getpass, datetime, sys
 
 from google.colab import drive
@@ -10,7 +10,7 @@ drive.mount('/content/drive')
 
 REPO = '/content/caem-thesis'
 BRANCH = 'audit/thesis-consistency'
-RESULT = '/content/drive/MyDrive/caem_regen_check'
+RESULT = '/content/drive/MyDrive/CAEM_thesis/5_audit_2026-10/regen_check'
 
 def sh(cmd, cwd=None, timeout=None):
     p = subprocess.run(cmd, shell=True, cwd=cwd, capture_output=True, text=True, timeout=timeout)
@@ -24,14 +24,14 @@ if not os.path.isdir(REPO):
         sys.exit('clone failed:\n' + out.replace(tok, '***'))
     sh(f'git -C {REPO} remote set-url origin https://github.com/aksaN000/caem-thesis.git')
 
-# 2. Locate the canonical artefacts: MyDrive/caem-phase1a/v2_1_phase1e_main
+# 2. Locate the canonical artefacts: MyDrive/CAEM_thesis/2_results_phase1e
 #    (the folder linked from the GitHub README; it has the post-Vast updates).
-cands = ['/content/drive/MyDrive/caem-phase1a'] + glob.glob('/content/drive/*/caem-phase1a') + \
-        glob.glob('/content/drive/MyDrive/*/caem-phase1a')
+cands = ['/content/drive/MyDrive/CAEM_thesis'] + glob.glob('/content/drive/*/CAEM_thesis') + \
+        glob.glob('/content/drive/MyDrive/*/CAEM_thesis')
 ROOT = next((c for c in cands if os.path.isdir(c)), None)
 if ROOT is None:
-    sys.exit('Could not find the caem-phase1a folder on Drive; set ROOT by hand.')
-MAIN = f'{ROOT}/v2_1_phase1e_main'
+    sys.exit('Could not find the CAEM_thesis folder on Drive; set ROOT by hand.')
+MAIN = f'{ROOT}/2_results_phase1e'
 print('artefacts:', MAIN)
 
 # 3. Copy them to local disk under the paths the scripts expect
@@ -106,5 +106,5 @@ open(f'{RESULT}/regen_stat.txt', 'w').write(stat)
 open(f'{RESULT}/regen_log.txt', 'w').write(''.join(log))
 open(f'{RESULT}/outputs_tree.txt', 'w').write(files)
 shutil.copytree(f'{REPO}/{A}', f'{RESULT}/auto_regenerated', dirs_exist_ok=True)
-print('\nDone. Results in MyDrive/caem_regen_check/ :')
+print('\nDone. Results in MyDrive/CAEM_thesis/5_audit_2026-10/regen_check/ :')
 print(stat)

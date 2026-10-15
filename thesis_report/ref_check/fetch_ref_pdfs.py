@@ -5,14 +5,14 @@ Run it in Google Colab (saves straight into Google Drive):
 
     from google.colab import drive
     drive.mount('/content/drive')
-    !python fetch_ref_pdfs.py --out "/content/drive/MyDrive/CAEM refs"
+    !python fetch_ref_pdfs.py --out "/content/drive/MyDrive/CAEM_references"
 
 or paste this whole file into a Colab cell after mounting Drive and run it
-(it then saves to My Drive/CAEM refs automatically),
+(it then saves to My Drive/CAEM_references automatically),
 
 or on any computer with Python 3.8+ and internet:
 
-    python fetch_ref_pdfs.py --out "CAEM refs"
+    python fetch_ref_pdfs.py --out "CAEM_references"
 
 No extra packages are needed. Files are named "[NN] Author Year - Title.pdf"
 using the reference numbers printed in the thesis. Already-downloaded files
@@ -287,8 +287,8 @@ def fetch(num, short, title, sources, out, log):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     colab_drive = "/content/drive/MyDrive"
-    default_out = os.path.join(colab_drive, "CAEM refs") if os.path.isdir(colab_drive) else "CAEM refs"
-    ap.add_argument("--out", default=default_out, help="output folder (default: My Drive/CAEM refs when run in Colab)")
+    default_out = os.path.join(colab_drive, "CAEM_references") if os.path.isdir(colab_drive) else "CAEM_references"
+    ap.add_argument("--out", default=default_out, help="output folder (default: My Drive/CAEM_references when run in Colab)")
     ap.add_argument("--only", type=int, nargs="*", help="only these reference numbers, e.g. --only 3 5 16")
     ap.add_argument("--no-extras", action="store_true", help="skip the suggested replacement papers")
     ap.add_argument("--dry-run", action="store_true", help="list what would be fetched and exit")

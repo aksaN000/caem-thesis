@@ -395,16 +395,16 @@ A detailed module map with the role of each file is in Appendix A §A.2 (`thesis
 Every reported number is regenerable from the realised seed plus the published artefact bundle. The full step-by-step recipe is Appendix E; the headline sequence is:
 
 1. **Clone this repository** and check out the branch `branch/ruc-classifier`, which is the final thesis version. The commits `c5b8066` (pre-Step-7 anchor) and `700b9e3` (retrieval-utility-classifier-era anchor) are historical anchors that match the pre-main snapshot bundles described in Appendix E; they are not the thesis version.
-2. **Pull the realised artefacts** from the Google Drive folder at <https://drive.google.com/drive/folders/1xErhsRDYe_qO0ZgUBn0WXK81eHc5jZCa> into `outputs/`. The realised six-cycle trajectory sits under `v2_1_phase1e_main/`; the per-commit pre-main snapshot bundles sit under `pre_main_snapshot/`.
+2. **Pull the realised artefacts** from the Google Drive folder at <https://drive.google.com/drive/folders/1xErhsRDYe_qO0ZgUBn0WXK81eHc5jZCa> into `outputs/`. The realised six-cycle trajectory sits under `2_results_phase1e/`; the per-commit pre-main snapshot bundles sit under `9_archive/pre_main_snapshot/`. The folder's own `README.md` gives the reading order.
 3. **Pull the Wikipedia FAISS passage index** from the Hugging Face dataset host `aksaN000/caem-passage-index-21m` (private; access on request) into `data/`. The index is 64 GB on disk and requires approximately 90 GB of resident page cache to mmap.
 4. **Run the verification checklist** in Appendix E §E.4 against the per-sample evaluation files, the composite calibration record, and the per-cycle artefact catalogue. Headline tolerances: per-benchmark EM ±0.5 pp from the cuDNN attention path's non-determinism floor; pooled EM ±0.3 pp; CHM and π_store ±1.0 pp; integer quantities (commit fraction, win-and-loss tallies) exact.
 5. **The four artefacts that must be regenerated rather than pulled from snapshot** are the Qwen-2.5-3B-Instruct base weights (recovered from the Hugging Face model hub at deployment time), the per-cycle LoRA adapters at cycles one through five, the per-cycle self-improvement training artefacts, and the post-cycle-zero composite refits.
 
 ### Data map
 
-The gitignored local `outputs/` folders map to the Drive folder `caem-phase1a/v2_1_phase1e_main/` as follows:
+The gitignored local `outputs/` folders map to the Drive folder `CAEM_thesis/2_results_phase1e/` as follows:
 
-| Local path | Drive path (under `caem-phase1a/v2_1_phase1e_main/`) | Notes |
+| Local path | Drive path (under `CAEM_thesis/2_results_phase1e/`) | Notes |
 |---|---|---|
 | `outputs/full_run` | `full_run` | The Drive copy also holds the per-cycle snapshots `cycle_1/` … `cycle_5/` and `global/`, which exist only on Drive. |
 | `outputs/baselines_phase1e` | `phase1e_baselines` | The B6 files (`vanilla_ft/eval/*_cycle5.json`) and B8 files (`semantic_entropy/*_cycle0.json`) from the 13 June 2026 fix are the canonical ones; earlier copies do not reproduce the thesis tables. |
