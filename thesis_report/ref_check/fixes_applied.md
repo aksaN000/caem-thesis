@@ -1035,3 +1035,7 @@ Pre-edit copy: /tmp/claude-0/-home-user-caem-thesis/96eedb08-eb50-59ca-a1c7-fdab
 | appendix_e:166 | "The cycle close consumes approximately five to seven hours end-to-end." | A full cycle takes at least the measured windows plus the fine-tune and stream-chunk steps, from roughly six to more than twenty-two hours. | same |
 | README:214 | "by margins of 5–20 percentage points" | "by margins of 4.6–20.4 percentage points" (TriviaQA 4.6, TruthfulQA 6.2, StrategyQA 6.5, FEVER 8.1, CommonsenseQA 20.4) | tab_per_tier_em: C2 T2 vs C0 T3 |
 | cross_benchmark_summary caption | "the transfer panel … is held out and does not enter the storage gate at cycle zero", while the table lists transfer-panel store counts | "is held out from calibration and from the self-improvement pool, and its storage columns report the gate's decision on held-out queries as a diagnostic only" | the table's own rows |
+
+| cohen_d, tab_validation_gate captions (+ scripts/aggregate_section_5_7.py) | "precondition of \\Cref{thm:purity}" | "precondition of \\Cref{thm:bayes-purity}" | ch5:341, :506 tie the d ≥ 0.20 gate to thm:bayes-purity after the theory restructure |
+
+README consistency pass logged separately in ref_check/fixes_readme.md.
