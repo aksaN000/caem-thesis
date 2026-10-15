@@ -357,7 +357,7 @@ python scripts/validate_composite_weights.py \
 
 \begin{description}
 \item[Check 1: composite Cohen's $d$ on the training-pooled evaluation fold.]\
-  \par\textit{Rationale.} Audits the precondition of \Cref{thm:purity} that the verifier discriminates correct from incorrect outputs strictly above chance.
+  \par\textit{Rationale.} Audits the precondition of \Cref{thm:bayes-purity} that the verifier discriminates correct from incorrect outputs strictly above chance.
   \par\textit{Threshold.} $d_{\text{id}} \ge 0.20$.
   \par\textit{Realised.} $d_{\text{id}} = +0.635$, clearing the floor by more than three times the registered margin. The transfer-pooled Cohen's $d$ reads $+0.173$ and is reported alongside as an out-of-distribution diagnostic; it is not gated.
 \item[Check 2: per-benchmark store-versus-discard mean-composite gap.]\
