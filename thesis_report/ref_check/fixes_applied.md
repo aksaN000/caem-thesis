@@ -1039,3 +1039,11 @@ Pre-edit copy: /tmp/claude-0/-home-user-caem-thesis/96eedb08-eb50-59ca-a1c7-fdab
 | cohen_d, tab_validation_gate captions (+ scripts/aggregate_section_5_7.py) | "precondition of \\Cref{thm:purity}" | "precondition of \\Cref{thm:bayes-purity}" | ch5:341, :506 tie the d ≥ 0.20 gate to thm:bayes-purity after the theory restructure |
 
 README consistency pass logged separately in ref_check/fixes_readme.md.
+
+## Follow-ups after merge (2026-10-15)
+
+| Location | Before | After | Reason |
+|---|---|---|---|
+| tab_decision_distribution | panel (b) "Per-benchmark snapshot at the cycle-three anchor (calibration fold, n=500 each)": FEVER/TriviaQA/CommonsenseQA shares and EMs; caption referred to panel b | panel (b) removed; caption trimmed | local review found no source for panel (b) in the data, logs or code; no prose cites its values |
+| ch5:181 | "the present reading is therefore registered as an as-shipped null receipt" | "the present reading, sixty-three firings concentrated on CommonsenseQA after its floor refit, is therefore registered as a low-rate receipt" | contradicted the corrected 63/9,000 count |
+| README, "Checking the tables" | — | "do not regenerate by overwriting" table: survival distribution, decision distribution, tier trajectory, validation gate, theorem receipts, hand-built tables | aggregate_survival_distribution disagrees with the run log; several tables are hand-finished |
