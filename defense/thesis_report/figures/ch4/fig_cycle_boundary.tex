@@ -1,0 +1,24 @@
+% Cycle-boundary order as executed (outputs/full_run/experiment.log, e.g. cycle 2).
+\begin{figure}[!htbp]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[
+  font=\small,
+  st/.style={rectangle, rounded corners=4pt, line width=0.9pt, align=center, inner sep=4pt, text width=2.55cm, minimum height=2.1cm, draw=teal!65!black, fill=teal!7},
+  gd/.style={diamond, aspect=1.6, line width=0.9pt, align=center, inner sep=1pt, draw=red!60!black, fill=red!6, font=\footnotesize},
+  flow/.style={-{Stealth[length=2.2mm]}, line width=0.9pt, draw=black!65},
+]
+  \node[st] (a) at (0,0) {\textbf{1. Fine-tune}\\{\footnotesize LoRA adapter on stored episodes with $\ustored \ge 0.70$}};
+  \node[gd] (g) at (3.35,0) {retention\\$\ge 0.93$?};
+  \node[st] (b) at (6.7,0) {\textbf{2. Reconsider deferred}\\{\footnotesize promote, keep, or drop after two passes}};
+  \node[st] (c) at (9.75,0) {\textbf{3. Consolidate}\\{\footnotesize merge near-duplicates (similarity $> 0.92$)}};
+  \node[st] (d) at (12.8,0) {\textbf{4. Recalibrate}\\{\footnotesize re-score the calibration fold; refit temperature and composite}};
+  \node[st] (e) at (15.85,0) {\textbf{5. Re-verify memory}\\{\footnotesize re-score every entry; remove if $\ustored < 0.50$}};
+  \draw[flow] (a) -- (g); \draw[flow] (g) -- node[above, font=\scriptsize]{yes} (b);
+  \draw[flow] (b) -- (c); \draw[flow] (c) -- (d); \draw[flow] (d) -- (e);
+  \node[rectangle, rounded corners=3pt, draw=red!60!black, fill=red!4, align=center, font=\footnotesize, text width=6.2cm] (r) at (3.35,-2.35) {\textbf{no:} restore the previous adapter and skip steps 2 to 5; the memory is kept unchanged};
+  \draw[flow] (g) -- (r);
+\end{tikzpicture}}
+\caption[Order of the cycle-boundary steps as executed.]{Order of the cycle-boundary steps as executed in the main run. After step 5 the next cycle begins by answering a fresh stream chunk with Stages 1 to 7. Cycle four took the rollback branch.}
+\label{fig:cycle-boundary-order}
+\end{figure}

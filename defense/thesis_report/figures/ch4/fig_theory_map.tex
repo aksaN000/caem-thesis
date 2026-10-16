@@ -1,0 +1,39 @@
+% Status map of the formal statements in sec:theory.
+\begin{figure}[!htbp]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[
+  font=\small,
+  base/.style={rectangle, rounded corners=4pt, align=center, inner sep=4pt, text width=4.4cm, minimum height=1.15cm},
+  pr/.style={base, line width=1.1pt, draw=green!45!black, fill=green!10},
+  rm/.style={base, line width=0.9pt, draw=blue!55!black, fill=blue!6},
+  he/.style={base, line width=0.9pt, dashed, draw=orange!70!black, fill=orange!7},
+  dep/.style={-{Stealth[length=2mm]}, line width=0.7pt, draw=black!55},
+]
+  \node[pr] (purity) at (0,0)     {\textbf{Pool purity floor}\\{\footnotesize \Cref{thm:purity}}};
+  \node[pr] (bayes)  at (0,-5.7)  {\textbf{Purification condition}\\{\footnotesize \Cref{thm:bayes-purity}; H1}};
+  \node[he] (t1)   at (5.8,1.0)   {\textbf{Tier 1 error ceiling}\\{\footnotesize \Cref{cor:tier1-floor}}};
+  \node[rm] (dec)  at (5.8,-0.9)  {\textbf{Error decomposition}\\{\footnotesize \Cref{thm:asymptotic-elim}; H4}};
+  \node[rm] (mono) at (5.8,-3.8)  {\textbf{Purity rises with accuracy}\\{\footnotesize \Cref{thm:monotone-purification}}};
+  \node[rm] (fix)  at (5.8,-5.7)  {\textbf{Repeated filtering gives purity 1}\\{\footnotesize \Cref{thm:bayes-convergence}; H2}};
+  \node[he] (sc)   at (5.8,-7.6)  {\textbf{Self-correction}\\{\footnotesize \Cref{cor:self-correction}}};
+  \node[rm] (corp) at (11.6,-0.9) {\textbf{Corpus ceiling}\\{\footnotesize \Cref{cor:corpus-floor}}};
+  \node[he] (rate) at (11.6,-3.0) {\textbf{Storage-rate sensitivity}\\{\footnotesize \Cref{thm:monotone}}};
+  \node[he] (conv) at (11.6,-4.9) {\textbf{Convergence envelope}\\{\footnotesize \Cref{thm:convergence}; H3}};
+  \node[he] (eq)   at (11.6,-6.8) {\textbf{Equilibrium under rollback}\\{\footnotesize \Cref{cor:stochastic-equilibrium}}};
+  \draw[dep] (purity.east) -- (t1.west);
+  \draw[dep] (purity.east) -- (dec.west);
+  \draw[dep] (dec.east) -- (corp.west);
+  \draw[dep] (bayes.east) -- (mono.west);
+  \draw[dep] (bayes.east) -- (fix.west);
+  \draw[dep] (bayes.east) -- (sc.west);
+  \draw[dep] (purity.north) |- (8.7,2.3) |- (conv.west);
+  \draw[dep] (rate.south) -- (conv.north);
+  \draw[dep] (conv.south) -- (eq.north);
+  \node[pr, text width=3.4cm, minimum height=0.55cm, font=\footnotesize] at (0,-9.4) {proven};
+  \node[rm, text width=3.4cm, minimum height=0.55cm, font=\footnotesize] at (5.8,-9.4) {remark: exact maths on a simplified model};
+  \node[he, text width=3.4cm, minimum height=0.55cm, font=\footnotesize] at (11.6,-9.4) {heuristic: argument sketch};
+\end{tikzpicture}}
+\caption[Status of the formal statements and the hypotheses they inform.]{Status of the formal statements and the hypotheses (H1 to H4) they inform. Arrows point from a statement to those that build on it.}
+\label{fig:theory-map}
+\end{figure}

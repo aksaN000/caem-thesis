@@ -14,7 +14,7 @@ Baseline build (latexmk, 2026-10-16): 324 pages, 0 errors, 0 undefined refs/cita
 | Chapter 1 | done; merged (PR #5) | branch `review/ch1`; 45 changes logged in fixes_applied.md |
 | Chapter 2 | done; merged (PR #6 into review/ch1, then PR #7 into main) | branch `review/ch2`; 16 152 → 11 740 words |
 | Chapter 3 | done; author read-through closed 2026-10-16; merged (PR #8) | branch `review/ch3`; 6 437 → 4 861 words |
-| Chapter 4 | pending | |
+| Chapter 4 | Claude pass done (full rewrite + 6 figures); PR open; awaiting author's read | branch `review/ch4`; ~21 000 → ~9 700 words |
 | Chapter 5 | pending | pre-found issues: `review_ch5_part1.md` |
 | Chapter 6 | pending | pre-found issues: `review_ch5_part2_ch6.md` |
 | Appendices A–G | pending | |
@@ -215,3 +215,23 @@ ch5 decision is made (locked configuration is not the criterion-3 maximum; justi
   (script `scripts/replay_early_stop_gate.py`): corrected wiring fires no signal at C5. ch4/ch5/ch6/appendix C should say
   the fault was corrected after the run and cite the replay, as ch3 sec:env-cycles does.
 - **Earlier runs:** three earlier trajectories (author confirmed 2026-10-16: "mark it as 3").
+
+## Carried from chapter 4 (2026-10-16)
+
+- **ch5 L239 and L509:** use CHM_1 and the old ε_arch inequality; align to ch4 (H_1(t) Tier-1 error rate; equality
+  H_t = (1−τ1)H_gen + τ1 H_mem). The "≈ 0.36" ceiling comes from the unreproducible π_store ≈ 0.64 (Q4): recompute or drop.
+- **FEVER eval-fold π_store dip** (0.614–0.634 at C1–C4, 0.649 at C5; tab:pi-store-trajectory) was discussed in ch4's old
+  purity receipt and is now only referenced there; make sure ch5 discusses it.
+- **Phantom "context" citations** in Tier 2 answers after SIL (3% at C0 → 93–99% at C1–C5; memory
+  caem_phantom_context_finding): ask the author how to report it in ch5/ch6.
+- **ch6 L32** still has "fifteen to fifty percentage points".
+- **Early-stop disclosure** still to apply in ch5 (L104, L116, L609), ch6, appendix C (L94).
+- **Isotonic small-sample caveat (ch6 limitation, optional):** per-benchmark isotonic curves are fitted on 500 points, inside
+  the 200–1,000 range where Niculescu-Mizil and Caruana find isotonic can overfit; mitigated by shrinkage (α 0.6), clipping,
+  the 50-sample floor and C = 0.01. A Platt-versus-isotonic comparison per benchmark is a possible future-work item.
+- **Storage quality filter:** active in the main run, rejected 7 answers (12,218 stored); regex-based, so it can reject a
+  correct answer whose reasoning says "cannot be determined" and it does not catch the phantom "The context provides"
+  phrasing. Mention in ch5/ch6 only if the phantom-context finding is reported.
+- **Theory kept (recommendation given to author 2026-10-16):** all 11 statements stay, labelled by status; removing them
+  would break the H1–H4 mappings and the CO5 "theoretical proofs" outcome.
+- **Abstract:** still "storage precision 0.796 over 289" (legacy composite, Q4).

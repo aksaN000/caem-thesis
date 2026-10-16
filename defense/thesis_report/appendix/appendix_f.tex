@@ -54,7 +54,7 @@ The glossary collects every concept word that recurs in body prose and whose mea
 
 \item[Pool purity.] The empirical correctness rate of the stored memory pool against the ground-truth label, reported as $\pi_{\text{store}}$ on the calibration fold (the theorem-anchored reading) and on the evaluation fold (the deployment-realised reading). The calibration-fold band across the committed-cycle subsequence is $[0.732, 0.746]$. See \Cref{sec:check-purity}.
 
-\item[Pre-routing confidence (\boldmath$u_{\text{pre}}$).] The single-pass scalar that fuses the generator's token-probability aggregate over a short greedy decode with the encoder-layer convergence ratio into a per-query confidence reading consumed by the safety override. See \Cref{sec:pre-routing}.
+\item[Pre-routing confidence (\boldmath$u_{\text{pre}}$).] A cheap confidence score computed before an answer is generated: it combines the token confidence of a $32$-token greedy decode with a decoder layer-convergence ratio from one forward pass, calibrated by temperature, and drives the safety override. See \Cref{sec:pre-routing}.
 
 \item[Production envelope.] The per-query four-outcome rendering on the deployment surface: every served answer carries the calibrated correctness probability as a continuous percentage alongside the categorical decision tag (store-and-serve, defer, abstain, retrieve-and-serve). See \Cref{sec:func-reqs}.
 

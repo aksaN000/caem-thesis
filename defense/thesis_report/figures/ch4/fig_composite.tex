@@ -1,0 +1,19 @@
+% Calibrated probability composite (Stage 5 to 6).
+\begin{figure}[!htbp]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[
+  font=\small,
+  box/.style={rectangle, rounded corners=4pt, line width=0.9pt, align=center, inner sep=5pt, text width=3.1cm, minimum height=1.55cm},
+  flow/.style={-{Stealth[length=2.2mm]}, line width=0.9pt, draw=black!65},
+]
+  \node[box, draw=black!55, fill=black!4, text width=2.2cm] (s) at (0,0) {\textbf{nine raw}\\\textbf{signals}};
+  \node[box, draw=blue!60!black, fill=blue!6] (iso) at (3.6,0) {\textbf{1. one curve per signal}\\{\footnotesize raw value $\to$ probability the answer is correct (isotonic)}};
+  \node[box, draw=violet!60!black, fill=violet!6] (shr) at (7.7,0) {\textbf{2. per benchmark}\\{\footnotesize each benchmark's curve pulled $40\%$ toward the pooled curve}};
+  \node[box, draw=green!50!black, fill=green!7] (bst) at (11.8,0) {\textbf{3. weighted sum}\\{\footnotesize log-odds combined by a regularised logistic regression}};
+  \node[box, draw=orange!70!black, fill=orange!8, text width=1.9cm] (u) at (15.2,0) {$\ustored$\\{\footnotesize one probability}};
+  \draw[flow] (s) -- (iso); \draw[flow] (iso) -- (shr); \draw[flow] (shr) -- (bst); \draw[flow] (bst) -- (u);
+\end{tikzpicture}}
+\caption[The calibrated probability composite in three steps.]{The calibrated probability composite in three steps. All three are refitted at every cycle boundary on the re-scored calibration fold.}
+\label{fig:composite-pipeline}
+\end{figure}
