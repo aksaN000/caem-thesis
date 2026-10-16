@@ -171,3 +171,16 @@ ch5 decision is made (locked configuration is not the criterion-3 maximum; justi
 - **D6 → ch1 now number-free** ("chosen on the cycle-zero calibration fold before the main run"), so the Q4 outcome in ch5 cannot
   contradict it.
 - **Signpost → keep** (all chapters use one; the BRAC template lists minimum sections, not a closed list).
+
+## Carried from the ch1/ch2 read-through (author, 2026-10-16)
+
+- **Citation pass, ch3–ch6 + appendices (NOT yet done):** apply the citation-style rule in SESSION_START "Standing author
+  decisions". Bracket-as-noun counts found on 2026-10-16: ch3 1 (L163), ch4 12 (e.g. L64, L73, L278, L285, L343, L507 ×3,
+  L600 ×2), ch5 7 (e.g. L366, L426, L600), appendices 0; also name the study on bare claims that carry a number.
+- **Transfer-panel framing (ch5, ch6, abstract):** keep both transfer benchmarks; say plainly that the headline is the
+  training panel; split the TruthfulQA loss into the part present at C0 before any training (−5.3 points, retrieval and
+  architecture) and the part during self-improvement (−8.0 points, C0 → C5; "consistent with" drift away from what
+  TruthfulQA rewards, not shown). StrategyQA: EM flat, CHM falls. Source: tab_per_bench_trajectory, tab_headline_decomposition.
+- **Forgetting controls (if an examiner-facing passage needs it, ch4/ch6):** LoRA rank 32 on a frozen base, retention probe
+  with rollback (fired once, C4, TriviaQA-test 0.395 → 0.345), pool rebalancing (max share 0.40), training filter 0.70; no L2,
+  no EWC. LoRA + EWC was never ablated: say so if the choice is defended.

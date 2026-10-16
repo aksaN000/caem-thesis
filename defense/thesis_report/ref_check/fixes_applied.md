@@ -1174,3 +1174,16 @@ hboxes 89 (base 90; chapter 1 now has two small ones: 2.0 pt in the H1 list item
 
 Build (latexmk, clean): 278 pages (was 281), 0 errors, 0 undefined refs/citations, 0 multiply-defined labels, 0 biber warnings,
 overfull 89. Chapter 1: 9 215 → 8 377 words.
+
+### Chapter 1, part 3: author read-through (2026-10-16)
+
+- sec:stateless-gap retitled "The stateless gap" → "Three reinforcing shortcomings" (the section lists three distinct shortcomings;
+  the phrase matches the objective; label kept). The First/Second/Third paragraphs now open with bold lead-ins:
+  **No memory.** / **No reliable confidence.** / **No learning after deployment.**
+- sec:prior-pipelines: the single paragraph split into three with bold lead-ins (**Retrieval-augmented generation.**,
+  **Prompting interventions.**, **Post-generation verification.**); "verification ... supports/does" → plural to match
+  "verifiers such as SelfCheckGPT and semantic entropy".
+- Citation style (author rule): studies named where the sentence relies on their finding or number: Guo et al., Kadavath et al.,
+  Xiong et al., Kirkpatrick et al., Lewis et al., Wei et al., Wang et al., Manakul et al., Farquhar et al., Alkaissi and
+  McFarlane, Chelli et al.; "Lin and colleagues" / "Min and colleagues" → "et al." with the citation next to the name;
+  bracket-as-noun fixed (Valentin et al.; Song et al.). Bare citations kept on general background sentences.
