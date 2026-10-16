@@ -10,7 +10,7 @@ Baseline build (latexmk, 2026-10-16): 324 pages, 0 errors, 0 undefined refs/cita
 | Part | Status | Notes |
 |---|---|---|
 | Step 1: p_ground^mean vs p_ground^atomic | done (report) | Identical on 14,951/14,951 run samples; see open question Q1 |
-| Front matter | fixes applied, decisions open (Q2–Q7) | branch `review/front`; 10 changes logged |
+| Front matter | done; PR open; Q8 (parskip) + title month pending | branch `review/front`; 22 changes logged |
 | Chapter 1 | pending | |
 | Chapter 2 | pending | |
 | Chapter 3 | pending | |
@@ -57,3 +57,26 @@ evaluation queries (tab_per_tier_em_capability) and no cost saving was measured.
 own 95% CI in 31 of 40 rows (e.g. cot·fever −0.042 vs [−0.034, −0.012]); the CHM column and the CHM bootstrap appear to be
 computed on different quantities. Also: ch5 L301 "tenfold tighter" vs C = 0.01 against 1.0 (hundredfold); sweep_top caption
 names "sklearn".
+
+## Author decisions (2026-10-16)
+
+- **Q1 → (a):** keep "nine signals" as the design; add a realized-run note (atomic = passage-mean on every run sample) and a
+  limitation + matching future-work item. Apply in ch4 (signal definitions) and ch5 (tables showing identical rows); ch6
+  limitation/future work.
+- **Q2 → match the BRAC template:** applied in `review/front` (report class, 150 mm text, single spacing, no indent, plain
+  pages, black links, IEEE year-sorted references, template TOC entries).
+- **Q3 → final defense Fall 2026:** title page "Fall 2026." and approval "in Fall 2026" applied; author to confirm whether the
+  title page should show an exact month ("Month Year" in the template).
+- **Q4 → re-run the 100-variant sweep** offline on the cycle-0 calibration fold and persist it (affects abstract, ch3, ch5,
+  sweep_top). Status: not started.
+- **Q5 → condense the abstract last**, after ch5/ch6 are final.
+- **Q6 → drafted** `core/acknowledgement.tex` (professional thanks only); authors to personalise.
+- **Q7 → already measured:** `outputs/tier1_routing_probe/` (2026-05-30, cycle 5, 100 queries built from stored episodes):
+  Tier 1 fired on 42/50 exact repeats (84%) and 19/50 paraphrases (38%); Tier-1 answers correct 41/42 and 19/19
+  (`em_analysis.json`). Not reported anywhere in the thesis. Plan: report it in ch5's Tier-1 discussion and use it to
+  ground the abstract's memory-tier claim (no new GPU run needed). Author's explanation: Tier 1 rarely fires on the main
+  evaluation because evaluation questions are content-disjoint from training episodes; it fires on repeated or
+  paraphrased questions.
+
+**Q8 (new).** With the template's `\parindent 0em` and no `\parskip`, consecutive paragraphs run together. Add a small
+paragraph gap (e.g. `\setlength{\parskip}{0.5\baselineskip}`), or keep the template exactly?

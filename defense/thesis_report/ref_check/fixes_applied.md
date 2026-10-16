@@ -1069,3 +1069,27 @@ README consistency pass logged separately in ref_check/fixes_readme.md.
 | core/lists/list_of_acronyms.tex | BCa, SOTA, SDPA | TPR, FPR, TTL | BCa/SOTA/SDPA used 0× (intervals are percentile, not BCa); TPR 20×, FPR 16×, TTL 8× used but unlisted |
 
 Build after these edits (latexmk): 324 pages, 0 errors, 0 undefined refs/citations, 0 multiply-defined labels, overfull hboxes 74 (baseline 75).
+
+### Front matter, part 2: BRAC template formatting and dates (author decisions Q2, Q3, Q6)
+
+Template reference: `archive/brac_thesis_template_reference/main.tex`.
+
+| Location | Before | After | Evidence / reason |
+|---|---|---|---|
+| main.tex class | `\documentclass[12pt,a4paper,oneside]{book}` | `\documentclass[12pt,a4paper,oneside,openany]{report}` | template uses `report` with `oneside,openany` |
+| main.tex geometry | top/bottom 1in, left 1.25in, right 1in (text width 434.9 pt) | `width=150mm,top=25mm,bottom=25mm` | template geometry |
+| main.tex spacing | `\onehalfspacing` | single spacing | template sets no spacing (default single) |
+| main.tex paragraphs | default indent | `\setlength{\parindent}{0em}` | template |
+| main.tex page style | book running headers | `\pagestyle{plain}`, `\let\cleardoublepage=\clearpage` | template |
+| main.tex hyperref | `urlcolor=blue`, `hidelinks` | all link colours black, `\urlstyle{same}` | template `\hypersetup` |
+| main.tex biblatex | `style=numeric-comp,sorting=none,maxbibnames=99` | `style=ieee,sorting=ynt` | template biblatex line (installed `biblatex-ieee` via tlmgr) |
+| main.tex front matter | `\frontmatter` … `\mainmatter` | title page `\thispagestyle{empty}`; `\pagenumbering{roman}` after it; `\pagenumbering{arabic}` before chapter 1; TOC entries for Declaration, Approval, Abstract, Acknowledgment, Table of Contents, List of Figures/Tables/Algorithms; `\contentsname` = "Table of Contents" | template front-matter block (empty optional Ethics/Dedication pages get no TOC entry) |
+| core/abstract.tex | `\chapter*{Abstract}` + own `\addcontentsline` | `\section*{Abstract}` … `\pagebreak` (TOC entry now in main.tex) | template abstract.tex |
+| core/titlepage.tex | "February 2026." | "Fall 2026." | author: final defense is in Fall 2026 (exact month to confirm) |
+| core/approval.tex | "… degree of B.Sc. in Computer Science in Spring 2026." | "… in Fall 2026." | author: final defense Fall 2026 (start semester "Fall, 2025" kept) |
+| core/acknowledgement.tex | empty | draft thanking supervisor, co-supervisor, department, families | template expects the page; DRAFT for the authors to personalise |
+
+Build (latexmk, clean): 279 pages (was 324: single spacing), 0 errors, 0 undefined refs/citations, 0 multiply-defined labels,
+0 biber warnings, overfull hboxes 90 (>10 pt: 40; narrower 150 mm text block). Visual check: references now IEEE-formatted and
+year-sorted; with `\parindent 0em` and no `\parskip` (as in the template) consecutive paragraphs are not visually separated
+(open question Q8).
