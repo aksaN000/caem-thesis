@@ -118,7 +118,7 @@ A verified-memory system that learns from its own interactions could memorise ha
 
 \textbf{Retroactive re-verification:} At each cycle boundary every stored episode is re-scored with the updated generator and the refitted composite; its score can go down as well as up, and entries whose score falls below $0.50$ are removed, so a bad entry does not persist unchallenged.
 
-\textbf{Strict training threshold:} The training pool admits only episodes whose storage score clears a threshold above the storage cut-point, so marginal episodes stay out of the fine-tune even when they are admissible for retrieval.
+\textbf{Strict training threshold:} The training pool admits only episodes whose storage score is at least $0.70$, above the storage cut-point of $0.60$, so marginal episodes stay out of the fine-tune even when they are admissible for retrieval.
 
 \textbf{Retention guard:} If a fine-tune degrades any probe in the multi-modal panel (general-knowledge multiple choice plus held-out test slices of two training benchmarks) below the floor, the cycle is aborted and the adapter is rolled back, so one damaging cycle cannot silently carry forward.
 
@@ -127,7 +127,7 @@ These mechanisms reduce the risk but do not remove it; how far they reach depend
 \subsection{Marginalised-user impact}
 \label{sec:soc-marginalised}
 
-The harm caused by confident hallucination is not evenly distributed. Users who cannot independently check a confident-sounding answer, such as students using language-model tutors, patients using language-model health agents, and applicants using language-model administrative agents, are the most exposed, because they have no domain expert to fall back on. The calibrated abstention class is a partial response: by returning an explicit refusal rather than a hedged guess on low-confidence answers, the system reduces the most dangerous failure mode for exactly these users. The abstention is governed by a fixed cut-point on a calibrated probability rather than by a soft heuristic, and the abstention rate is reported in the four-outcome decision distribution in \Cref{ch:evaluation}. The architecture does not solve unequal access to verification, but it narrows one channel through which fluency is mistaken for reliability.
+The harm caused by confident hallucination is not evenly distributed. Users who cannot independently check a confident-sounding answer, such as students using language-model tutors, patients using language-model health agents, and applicants using language-model administrative agents, are the most exposed, because they have no domain expert to fall back on. The calibrated abstention class is a partial response: by returning an explicit refusal rather than a hedged guess when confidence is low and little supporting evidence is found, the system reduces the most dangerous failure mode for exactly these users. The abstention is governed by a fixed cut-point on a calibrated probability rather than by a soft heuristic, and the abstention rate is reported in the four-outcome decision distribution in \Cref{ch:evaluation}. The architecture does not solve unequal access to verification, but it narrows one channel through which fluency is mistaken for reliability.
 
 \section{Environmental Impact}
 \label{sec:environment}
@@ -135,7 +135,7 @@ The harm caused by confident hallucination is not evenly distributed. Users who 
 \subsection{Compute footprint of the experiment}
 \label{sec:env-experiment}
 
-The compute of the empirical programme falls into four phases: the cycle-zero calibration phase, the main run, the external baseline panel, and the retrieval-utility-classifier ablation at the cycle-three close. All four ran on a single rented graphics processor of the consumer thirty-two-gigabyte class (an RTX 5090). The main run was the largest: according to its run log, cycles zero to five took $6.0$, $29.0$, $35.4$, $43.2$, $24.3$ and $54.6$ hours, about $193$ hours (eight days) in total. Part of the growth comes from the retroactive re-verification pass, which grows with the memory (about $38$ minutes for $431$ entries at cycle one, about $16$ hours for $10{,}214$ entries at cycle five). The carbon footprint of a phase can be estimated with the method of \textcite{strubell2019energy},
+The compute of the empirical programme falls into three phases: the cycle-zero calibration phase, the main run, and the external baseline panel. The retrieval-utility-classifier ablation needed no run of its own: it compares the main run, at the cycle-three close, with an earlier trajectory that ran without the classifier. Everything ran on a single rented graphics processor of the consumer $32$-gigabyte class (an RTX 5090). The main run was the largest: according to its run log, cycles zero to five took $6.0$, $29.0$, $35.4$, $43.2$, $24.3$ and $54.6$ hours, about $193$ hours (eight days) in total. Part of the growth comes from the retroactive re-verification pass, which grows with the memory (about $38$ minutes for $431$ entries at cycle one, about $16$ hours for $10{,}214$ entries at cycle five). The main run was not the first. Three earlier trajectories were rejected or superseded: the first benchmark panel, a run stopped in May 2026, and the trajectory without the classifier. The last took about $134$ hours over cycles zero to five according to its run log, and its first three cycles supply the classifier-off arm of the ablation; the run logs of the first two were not archived, so their compute cannot be reported exactly. Counting these runs, the programme used several times the compute of the main run alone. The carbon footprint of a phase can be estimated with the method of \textcite{strubell2019energy},
 \begin{equation}
 \mathrm{kgCO_{2}e}_{\,\phi} \;=\; T_{\phi} \cdot P_{\mathrm{TDP}} \cdot \varepsilon_{\mathrm{grid}},
 \label{eq:carbon-per-phase}
@@ -145,7 +145,7 @@ where $T_{\phi}$ is the wall-clock duration of phase $\phi$ in hours, $P_{\mathr
 \subsection{Cycle budget rationale}
 \label{sec:env-cycles}
 
-The ten-cycle cap bounds the compute that the loop may spend. The convergence heuristic of \Cref{ch:methodology} (\Cref{thm:convergence}; a heuristic, not a proven result) suggests that gains flatten within a few cycles, and Song et al.~\cite{song2024gap} find that iterative self-improvement saturates within a few rounds; a cap of ten leaves room above that while bounding cost. Each cycle adds its own fine-tuning and re-verification energy, so stopping once gains have flattened is an environmental choice as well as an experimental one. The realised run stopped after cycle five, as planned once cycle four had been aborted by the retention guard and its weights rolled back. The automatic early-stop check fired at the same point, but two of its three inputs were wired to the wrong quantities: its storage-saturation signal read the storage rate of the evaluation fold, where nothing is ever stored, instead of the stream admission rate (about half of each chunk), and its retention signal compared raw MMLU accuracy (about $0.61$) with the $0.93$ ratio floor instead of the retention ratio (between $0.94$ and $1.00$). Both signals were therefore certain to fire as soon as the check first ran, at cycle five, so its firing is not evidence that the trajectory had levelled off. The trajectory is reported in \Cref{ch:evaluation}.
+The ten-cycle cap bounds the compute that the loop may spend. The convergence heuristic of \Cref{ch:methodology} (\Cref{thm:convergence}; a heuristic, not a proven result) suggests that gains flatten within a few cycles, and Song et al.~\cite{song2024gap} find that iterative self-improvement saturates within a few rounds; a cap of ten leaves room above that while bounding cost. Each cycle adds its own fine-tuning and re-verification energy, so stopping once gains have flattened is an environmental choice as well as an experimental one. The realised run stopped after cycle five, as planned once cycle four had been aborted by the retention guard and its weights rolled back. The automatic early-stop check fired at the same point, but two of its three inputs were wired to the wrong quantities: its storage-saturation signal read the storage rate of the evaluation fold, where nothing is ever stored, instead of the stream admission rate (about half of each chunk), and its retention signal compared raw MMLU accuracy (about $0.61$) with the $0.93$ ratio floor instead of the retention ratio (between $0.94$ and $1.00$). Both signals were therefore certain to fire as soon as the check first ran, at cycle five, so its firing is not evidence that the trajectory had levelled off. The wiring was corrected after the run; replaying the check on the realised cycle values with the corrected inputs, none of its three signals fires at cycle five. The trajectory is reported in \Cref{ch:evaluation}.
 
 \subsection{Retention versus retraining}
 \label{sec:env-retention}
@@ -163,7 +163,7 @@ The architecture treats explicit abstention as a first-class action rather than 
 \subsection{Bias propagation through episodic memory}
 \label{sec:ethics-bias}
 
-A system that commits its own outputs to memory and then trains on that memory can amplify biases in the verifier or in the underlying data. Three mechanisms limit this. The retroactive re-verification pass re-scores every stored episode at every cycle boundary and removes entries whose score falls below $0.50$, so a bias that enters the stored pool does not persist unchallenged. The per-cycle refit of the calibrated composite, with each benchmark's curve shrunk toward the pooled fit, follows score-distribution drift on each cycle's own labelled fold, while the storage cut-point stays fixed so that the gate's operating point does not move. The strict training threshold holds the training pool to a higher bar than the storage tier, so marginal episodes cannot enter the next fine-tune even when they pass the retrieval gate. None of these mechanisms removes bias inherited from the pre-training corpus, which remains a limitation of the approach; what they do is limit the rate at which new bias can enter through the self-improvement loop itself.
+A system that commits its own outputs to memory and then trains on that memory can amplify biases in the verifier or in the underlying data. Three mechanisms limit this. The retroactive re-verification pass re-scores every stored episode at every cycle boundary and removes entries whose score falls below $0.50$, so a bias that enters the stored pool does not persist unchallenged. The per-cycle refit of the calibrated composite, with each benchmark's curve shrunk toward the pooled fit, follows score-distribution drift on each cycle's own labelled fold, while the storage cut-point stays fixed so that the gate's operating point does not move. The strict training threshold holds the training pool to a higher bar than the storage tier (a storage score of at least $0.70$ against $0.60$ for storage), so marginal episodes cannot enter the next fine-tune even when they pass the retrieval gate. None of these mechanisms removes bias inherited from the pre-training corpus, which remains a limitation of the approach; what they do is limit the rate at which new bias can enter through the self-improvement loop itself.
 
 \subsection{Data provenance and licensing}
 \label{sec:ethics-provenance}
@@ -226,14 +226,13 @@ The pre-thesis milestone, a locked methodology design, was met on schedule. The 
 \subsection{Deliverables}
 \label{sec:pm-deliverables}
 
-The project releases six deliverables.
+The project releases five deliverables.
 \begin{itemize}
-    \item \textbf{Source code}, public at \url{https://github.com/aksaN000/caem-thesis}: the implementation of the architecture, the cycle-zero calibration scripts, the cycle-boundary passes, and the baseline and ablation drivers.
-    \item \textbf{Artefact bundle}, in the shared Google Drive folder \url{https://drive.google.com/drive/folders/1xErhsRDYe_qO0ZgUBn0WXK81eHc5jZCa}: the cycle-zero calibrated composite, the locked cut-points, the cold-start memory snapshot, and the per-cycle artefacts of the realised trajectory. The $64$-gigabyte Wikipedia passage index is mirrored on a private Hugging Face repository, available on request (\Cref{app:code-data-availability}).
-    \item \textbf{Thesis report}, this document.
-    \item \textbf{Defence presentation}, summarising the headline result, the method and the threats to validity.
-    \item \textbf{Live demonstration}, running the per-query pipeline on a small representative workload for the supervisor and the examiner.
-    \item \textbf{Journal manuscript}, planned for after the defence and prepared from the evaluation chapter.
+    \item \textbf{Source code:} public at \url{https://github.com/aksaN000/caem-thesis}: the implementation of the architecture, the cycle-zero calibration scripts, the cycle-boundary passes, and the baseline and ablation drivers.
+    \item \textbf{Artefact bundle:} stored in the shared Google Drive folder \url{https://drive.google.com/drive/folders/1xErhsRDYe_qO0ZgUBn0WXK81eHc5jZCa}: the cycle-zero calibrated composite, the locked cut-points, the cold-start memory snapshot, and the per-cycle artefacts of the realised trajectory. The $64$-gigabyte Wikipedia passage index is mirrored on a private Hugging Face repository, available on request (\Cref{app:code-data-availability}).
+    \item \textbf{Thesis report:} this document.
+    \item \textbf{Defence presentation:} a talk summarising the headline result, the method and the threats to validity.
+    \item \textbf{Journal manuscript:} planned for after the defence and prepared from the evaluation chapter.
 \end{itemize}
 
 \section{Risk Management}
@@ -248,7 +247,7 @@ Six technical risks were identified before the main run. Each is paired with its
     \item \textbf{Verifier and judge disagreement:} The short-answer entailment judge and the long-answer judge could score the same answer inconsistently. Mitigation: drop the long-answer judge if its agreement with the short-answer judge misses a fixed correlation floor.
     \item \textbf{Out-of-memory failures:} A long answer could send the verifier down a branch that exceeds the memory of the graphics processor and halt the cycle. Mitigation: chunking the long-answer batch, and a clean restart from the previous checkpoint after an out-of-memory abort.
     \item \textbf{Forgetting:} A fine-tune could erode general capability. Mitigation: the retention guard with adapter rollback (\Cref{eq:nfr-retention-floor}).
-    \item \textbf{Early-stop misfire:} The automatic early-stop check could stop the run too early or fail to stop a run that is not converging. Mitigation: requiring two of its three signals to agree, and the ten-cycle cap.
+    \item \textbf{Early-stop misfire:} The automatic early-stop check could stop the run too early or fail to stop a run that is not converging. Mitigation: requiring two of its three signals to agree, and the ten-cycle cap. In the realised run two of the signals were wired to the wrong quantities, which made the check fire at its first run; the fault is described in \Cref{sec:env-cycles} and was corrected after the run.
     \item \textbf{Retrieval-utility classifier shift:} The classifier is trained on data that deliberately includes a benchmark outside the evaluation panel (the Natural Questions training split), so it may send some queries to the wrong tier on the panel. Mitigation: nested cross-validation, a threshold sweep, and the on/off ablation on the same trajectory.
 \end{itemize}
 
@@ -259,7 +258,7 @@ Three infrastructure risks were identified.
 \begin{itemize}
     \item \textbf{Credit exhaustion:} Running out of rented graphics-processor credit before the trajectory and the comparisons finish would leave a partial run that cannot be compared against the baselines. Mitigation: budgeting each phase against the recorded credit, and archiving every state before it is overwritten.
     \item \textbf{Node reclamation:} The provider could reclaim the rented machine in the middle of a cycle. Mitigation: committing artefacts at every cycle boundary, so that a lost machine costs at most the cycle in flight, and the pre-self-improvement snapshot, from which the run can resume.
-    \item \textbf{Storage exhaustion:} The artefacts, model snapshots and passage index could exceed the quota of the hosts that hold them. Mitigation: sizing the artefact catalogue in advance and keeping the larger snapshots and the passage index on separate storage.
+    \item \textbf{Storage exhaustion:} The artefacts, model snapshots and passage index could exceed the disk of the rented machine or the quota of the hosts that hold them. Mitigation: sizing the artefact catalogue in advance and keeping the larger snapshots and the passage index on separate storage.
 \end{itemize}
 
 \subsection{Mitigation register}
@@ -278,11 +277,11 @@ Calibration drift across cycles & Composite loses its precision at the frozen $\
 Verifier and judge disagreement & Short- and long-answer judges score the same answer inconsistently & Drop the long-answer judge if it misses the correlation floor & \textbf{Yes}: long-answer judge dropped (Pearson $0.584 < 0.70$) \\
 Out-of-memory failure on long paths & A long answer sends the verifier past the GPU's memory & Chunked long-answer batch; clean restart after an abort & \textbf{Yes}: chunking added; degenerate samples skipped on out-of-memory \\
 Forgetting & A fine-tune erodes general capability & Retention guard with adapter rollback & \textbf{Yes}: cycle four, TriviaQA-test ratio $0.886 < 0.93$; adapter rolled back, memory kept \\
-Early-stop misfire & Premature stop, or a run that never stops & Two-of-three signal rule; ten-cycle cap & \textbf{Yes}: two inputs mis-wired, so the check fired at its first run (cycle five) regardless of the trajectory; the stop coincided with the planned end (\Cref{sec:env-cycles}) \\
+Early-stop misfire & Premature stop, or a run that never stops & Two-of-three signal rule; ten-cycle cap & \textbf{Yes}: two inputs mis-wired, so the check fired at its first run (cycle five) regardless of the trajectory; the stop coincided with the planned end; wiring corrected after the run (\Cref{sec:env-cycles}) \\
 Classifier distribution shift & Classifier routes some panel queries to the wrong tier & Nested cross-validation; threshold sweep; on/off ablation & Reported in the ablation (\Cref{ch:evaluation}) \\
 GPU credit exhaustion & Run does not finish within the rented credit & Phase budgeting; archive before overwrite & \textbf{Yes}, once (May 2026, during an earlier run); resumed from the recorded step after a top-up \\
 Node reclamation & Cycle in flight lost when the machine is reclaimed & Per-cycle artefact commit; pre-self-improvement snapshot & Not observed \\
-Storage exhaustion & Artefacts and snapshots exceed the host's quota & Advance sizing; separate storage for large snapshots & Not observed \\
+Storage exhaustion & Artefacts and snapshots exceed the available disk & Advance sizing; separate storage for large snapshots & \textbf{Yes}: the rented node's disk filled; the data were copied to a new node with the provider's support and the run resumed from its last checkpoint \\
 Calibration iteration failure & Cycle-zero composite fails the validation gate & Re-iterate with the signal-dump bug fixed and a wider grid & \textbf{Yes}: first iteration failed on the signal-dump bug; second iteration locked \\
 \bottomrule
 \end{tabular}
@@ -296,7 +295,7 @@ Calibration iteration failure & Cycle-zero composite fails the validation gate &
 \subsection{Compute budget}
 \label{sec:econ-budget}
 
-The compute budget is measured in graphics-processor hours on the rented thirty-two-gigabyte machine used throughout. The main run took about $193$ hours (\Cref{sec:env-experiment}). The cost of the external baseline panel scales with the number of samples and the number of decode passes per sample, with the chain-of-thought and retrieval-augmented baselines the most expensive. The retrieval-utility-classifier ablation is a single on/off contrast at the cycle-three close. \Cref{app:repro-hardware} also gives a reduced configuration that reproduces the trajectory on a sixteen-gigabyte device, so that the cost on smaller hardware can be estimated without re-running the experiment.
+The compute budget is measured in graphics-processor hours on the rented $32$-gigabyte machine used throughout. The main run took about $193$ hours (\Cref{sec:env-experiment}). The cost of the external baseline panel scales with the number of samples and the number of decode passes per sample, with the chain-of-thought and retrieval-augmented baselines the most expensive. The retrieval-utility-classifier ablation added no run: it compares the main run with the earlier trajectory without the classifier at the cycle-three close, the last cycle that both trajectories committed (the earlier one aborted its cycles four and five under the retention guard). \Cref{app:repro-hardware} also gives a reduced configuration that reproduces the trajectory on a $16$-gigabyte device, so that the cost on smaller hardware can be estimated without re-running the experiment.
 
 \subsection{Cost-benefit on the storage gate}
 \label{sec:econ-cost-benefit}

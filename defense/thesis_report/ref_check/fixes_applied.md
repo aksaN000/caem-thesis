@@ -1325,3 +1325,27 @@ Words 6,437 → 4,861. Every claim checked against code, run logs, outputs and a
 - Tier 1: cost-benefit and deployment sections now say why it never fired: each cycle drew a fresh stream chunk sharing no
   question with earlier chunks, and the evaluation fold is disjoint from both (disjoint per-cycle chunks built in
   `scripts/run_experiment.py`, "Build disjoint 6-way pool splits").
+
+### Chapter 3, part 3: author read-through (2026-10-16)
+
+- RUC ablation is not a separate run: tab_ruc_ablation compares Phase 1d (classifier off; Drive `3_ruc_ablation_phase1d/`,
+  `run_complete.json`: committed cycles 1–3, cycles 4–5 aborted) with the main run at C3. Compute phases are now three; the
+  ablation "needed no run of its own"; econ-budget explains why C3 (last cycle both trajectories committed).
+- Earlier runs added: three earlier trajectories (first benchmark panel = Drive `9_archive/v1_panel/`; run stopped May 2026 =
+  `9_archive/phase1c_failed_2026-05-09/`; Phase 1d). Phase 1d wall clock from its run log (Drive
+  `3_ruc_ablation_phase1d/full_run/experiment.log`, "Cycle N done in": 312.5, 1506.3, 1874.1, 2053.9, 1149.7, 1150.3 min →
+  ≈134 h). Logs of the first two not archived; "several times the compute of the main run" per author's account (3–4 earlier
+  runs of similar cost). Author to confirm the count.
+- Digits: "thirty-two-gigabyte" → "$32$-gigabyte", "sixteen-gigabyte" → "$16$-gigabyte" (matches "$64$-gigabyte").
+- Strict training threshold stated: 0.70 against 0.60 (`min_u_stored_for_training = 0.70`).
+- Abstention checked against `caem/verification/verifier.py` L64–70: ABSTAIN = u_stored < 0.45 and p_ground_max < 0.20;
+  DISCARD = u_stored < 0.45 with p_ground_max ≥ 0.20 (answer shown with a "conflicting" warning); STORE and DEFERRED shown
+  with tags (`caem/production/confidence.py`). Ch1/ch2 wording already matches; ch3 marginalised-user sentence tightened.
+- Live demonstration removed (not planned; 15-minute defence); deliverables now five, lead-ins with colons.
+- Early-stop: code fixed (`scripts/run_experiment.py`: storage signal now reads the Step 4 stream-pass admission rate,
+  sample-weighted; retention signal receives the ratio current/pristine). Replay
+  (`scripts/replay_early_stop_gate.py` → `outputs/analysis/early_stop_gate_replay.json`): realised wiring fires
+  storage_saturation + mmlu_floor (stop); corrected wiring fires none (no stop) at C5. Ch3 sec:env-cycles, risk item and
+  register row now say the wiring was corrected after the run and what the replay shows.
+- Storage exhaustion: realised (author's account): the rented node's disk filled; data copied node to node with the
+  provider's support; run resumed from its last checkpoint. Register row Yes.

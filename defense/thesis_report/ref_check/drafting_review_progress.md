@@ -211,3 +211,7 @@ ch5 decision is made (locked configuration is not the criterion-3 maximum; justi
 - **Lead-in punctuation (author 2026-10-16):** bold openings end with a colon, not a full stop. Fixed in ch1 and ch3;
   still to fix: ch4 L306 ("Fit stage."), L322 ("Predict stage."); ch5 L613–L618 (six items). Table abbreviations such as
   "MMLU acc." (appendix C) and "Stored conf." (ch2 table) are not lead-ins; leave them.
+- **Early-stop code fixed (2026-10-16)** in `scripts/run_experiment.py`; replay evidence `outputs/analysis/early_stop_gate_replay.json`
+  (script `scripts/replay_early_stop_gate.py`): corrected wiring fires no signal at C5. ch4/ch5/ch6/appendix C should say
+  the fault was corrected after the run and cite the replay, as ch3 sec:env-cycles does.
+- **Earlier runs:** ch3 says three earlier trajectories; author to confirm the count (he recalled 3 or 4).

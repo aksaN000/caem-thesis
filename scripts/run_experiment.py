@@ -1883,7 +1883,9 @@ def run_experiment(ns: argparse.Namespace) -> None:
             "  Step 4: Generating Episodic Memory from CYCLE-%d stream chunk (sizes=%s)",
             cycle_num, chunk_sizes,
         )
-        harness.run_all(this_cycle_chunk, cycle=cycle_num, store_to_memory=True)
+        stream_results = harness.run_all(
+            this_cycle_chunk, cycle=cycle_num, store_to_memory=True,
+        )
 
         # ------------------------------------------------------------------ #
         # Step 4b (added 2026-04-30): snapshot Step-4 stream-chunk JSONs    #
@@ -2048,14 +2050,21 @@ def run_experiment(ns: argparse.Namespace) -> None:
         # caem/eval/equilibrium.py and Ch4 Corollary C4.
         # -------------------------------------------------------------- #
         # CES proxy: mean EM across eval benchmarks this cycle.
-        # storage-rate proxy: mean of the per-benchmark storage_rate
-        # fields written by the harness. mmlu_retention already lives
-        # in mmlu_per_cycle (appended above).
+        # Storage-rate signal: sample-weighted admission rate of the Step 4
+        # stream-chunk pass (store_to_memory=True). Fix 2026-10-16: the
+        # signal previously read the Step 5 evaluation pass, which runs with
+        # store_to_memory=False and therefore always reports 0.0, so the
+        # storage-saturation signal fired unconditionally (the realised
+        # C5 early stop in outputs/full_run/experiment.log is affected).
         try:
             _em_vals = [float(r.get("em", 0.0)) for r in cycle_results.values()]
-            _sr_vals = [float(r.get("storage_rate", 0.0)) for r in cycle_results.values()]
             mean_em = sum(_em_vals) / len(_em_vals) if _em_vals else 0.0
-            mean_sr = sum(_sr_vals) / len(_sr_vals) if _sr_vals else 0.0
+            _n_stream = sum(int(r.get("n", 0)) for r in stream_results.values())
+            _n_stored = sum(
+                float(r.get("storage_rate", 0.0)) * int(r.get("n", 0))
+                for r in stream_results.values()
+            )
+            mean_sr = _n_stored / _n_stream if _n_stream else float("nan")
         except Exception as exc:
             logger.warning(
                 "equilibrium hook: failed to extract per-cycle signals (%s); "
@@ -2094,7 +2103,14 @@ def run_experiment(ns: argparse.Namespace) -> None:
             _decision = three_signal_gate(
                 ces_history=ces_history,
                 storage_rates=storage_rates,
-                mmlu_retentions=mmlu_per_cycle,
+                # Fix 2026-10-16: pass the retention RATIO (current over
+                # pristine) to match the ratio floor; raw MMLU accuracy
+                # (~0.61) was previously compared with the 0.93 floor, so
+                # the retention signal fired unconditionally.
+                mmlu_retentions=(
+                    [m / mmlu_per_cycle[0] for m in mmlu_per_cycle]
+                    if mmlu_per_cycle and mmlu_per_cycle[0] > 0 else []
+                ),
                 ces_eps=ns.early_stop_ces_eps,
                 storage_frac=ns.early_stop_storage_frac,
                 mmlu_floor=config.forgetting_tolerance,
