@@ -106,6 +106,16 @@ HOW TO WORK
 - Code is the source of truth over report prose; TruthfulQA EM is the Haiku-judged field (`em_llm_judged`), never the
   ROUGE proxy.
 
+## Per-chapter workflow (author, 2026-10-16)
+1. Claude does the full pass on the chapter (findings, allowed fixes, log, build, push, PR).
+2. The author then reads the whole chapter manually and discusses it with Claude section by section; Claude applies the
+   agreed adjustments on the same branch/PR.
+3. Only after that final adjustment is the chapter finished (author merges the PR).
+4. After all chapters are cleared: a full chapters 1–6 consistency check (plus abstract and appendices).
+Several chapters may share one conversation when context allows. If the previous chapter's PR is still under the author's
+reading, stack the next branch on it (PR base = previous review branch) and retarget the base to `branch/ruc-classifier`
+after the previous PR merges.
+
 ## Standing author decisions (2026-10-16, ch1 session; apply in every chapter)
 - **Dropped benchmarks:** mention only HotpotQA and Natural Questions; ARC-Challenge is removed from the thesis prose (a cited
   study's ARC metric in ch2 L212 stays). Reason, from the receipts on Drive (`9_archive/pre_main_snapshot/700b9e3_phase1d/
@@ -116,7 +126,9 @@ HOW TO WORK
   real status (only thm:purity and thm:bayes-purity are proven; never call heuristics or remarks "formal claims" or "proven"),
   and write the explanation in plain language with terms defined (e.g. "committed cycles = cycles whose fine-tune was kept").
   Pre-specified hypothesis statements are never reworded; their mapping column and explanatory notes may be corrected.
-  H2 now maps to thm:bayes-convergence (ch1 + ch5 tables).
+  H2 now maps to thm:bayes-convergence (ch1 + ch5 tables). **H2 verdict change APPROVED (2026-10-16):** in ch5 report H2 as
+  unsupported as registered (cal-fold purity 0.746 → 0.740 → 0.736 → 0.746 → 0.732 falls at C1, C2, C5), noting the range
+  (0.014) is within binomial noise and purity stays above the thm:purity floor; drop the "bounded-band restatement" wording.
 - **Trim:** the thesis is long; where a passage repeats another, keep one canonical place and cross-reference (panel and
   dropped benchmarks: ch1 sec:scope-research / ch5 sec:setup; method detail: ch4; rejected designs such as the conformal gate:
   ch4 sec:conformal-gate only). The author pre-approved merging or deleting duplicated passages; still ask before cutting a

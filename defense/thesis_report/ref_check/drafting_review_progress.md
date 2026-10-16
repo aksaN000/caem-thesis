@@ -11,7 +11,7 @@ Baseline build (latexmk, 2026-10-16): 324 pages, 0 errors, 0 undefined refs/cita
 |---|---|---|
 | Step 1: p_ground^mean vs p_ground^atomic | done (report) | Identical on 14,951/14,951 run samples; see open question Q1 |
 | Front matter | done; PR #4 open; title month pending | branch `review/front`; 22 changes logged |
-| Chapter 1 | done; PR #5 open (D1–D6 resolved, part 2 logged) | branch `review/ch1`; 45 changes logged in fixes_applied.md |
+| Chapter 1 | Claude pass done; PR #5 open; awaiting author's manual read + discussion | branch `review/ch1`; 45 changes logged in fixes_applied.md |
 | Chapter 2 | pending | |
 | Chapter 3 | pending | |
 | Chapter 4 | pending | |
@@ -158,7 +158,7 @@ ch5 decision is made (locked configuration is not the criterion-3 maximum; justi
   atomic_scope and tab_prompt_design_ablation still carry ARC-C rows (earlier-panel data with NQ and ARC but no
   CommonsenseQA); decide whether to drop those rows or the tables.
 - **D2 → mapping fixed.** H2 maps to the Bayes-purification recurrence remark (thm:bayes-convergence) in ch1 and ch5; the
-  pre-specified hypothesis text is unchanged. **ch5 session (verdict change, needs author OK):** as registered, H2 is falsified
+  pre-specified hypothesis text is unchanged. **ch5 session (verdict change APPROVED by the author 2026-10-16):** as registered, H2 is falsified
   (cal-fold purity 0.746 → 0.740 → 0.736 → 0.746 → 0.732 falls at C1, C2, C5); recommended verdict "unsupported as registered;
   the fluctuation (width 0.014) is within binomial noise and purity stays above the thm:purity floor". The ch5 caption's
   "bounded-band restatement of thm:purity" must go with it.
