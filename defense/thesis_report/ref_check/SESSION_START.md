@@ -106,6 +106,35 @@ HOW TO WORK
 - Code is the source of truth over report prose; TruthfulQA EM is the Haiku-judged field (`em_llm_judged`), never the
   ROUGE proxy.
 
+## Standing author decisions (2026-10-16, ch1 session; apply in every chapter)
+- **Dropped benchmarks:** mention only HotpotQA and Natural Questions; ARC-Challenge is removed from the thesis prose (a cited
+  study's ARC metric in ch2 L212 stays). Reason, from the receipts on Drive (`9_archive/pre_main_snapshot/700b9e3_phase1d/
+  cycle_0/eval_excluded_v21/hotpotqa_cycle0.json`, `9_archive/v1_panel/full_run/cycle_0/eval/natural_questions_cycle0.json`):
+  base EM 0.090 / 0.172; the gate stored 26 / 12 of 500 at purity 0.500 / 0.417. The gate's balanced accuracy was 0.630 / 0.521
+  (above one half), so never say they "violated the balanced-accuracy precondition". Canonical wording: ch1 sec:scope-research.
+- **Theory:** whenever a theorem, proposition, heuristic or remark appears, check its maths and its hypotheses, name it by its
+  real status (only thm:purity and thm:bayes-purity are proven; never call heuristics or remarks "formal claims" or "proven"),
+  and write the explanation in plain language with terms defined (e.g. "committed cycles = cycles whose fine-tune was kept").
+  Pre-specified hypothesis statements are never reworded; their mapping column and explanatory notes may be corrected.
+  H2 now maps to thm:bayes-convergence (ch1 + ch5 tables).
+- **Trim:** the thesis is long; where a passage repeats another, keep one canonical place and cross-reference (panel and
+  dropped benchmarks: ch1 sec:scope-research / ch5 sec:setup; method detail: ch4; rejected designs such as the conformal gate:
+  ch4 sec:conformal-gate only). The author pre-approved merging or deleting duplicated passages; still ask before cutting a
+  unique result or section.
+- **Claims that no longer hold** (guarantees from rejected designs, promises of analyses that were never run): pick the best of
+  delete / soften / find more context, check the alternatives, then apply and log.
+- **Tier 1:** answers only repeated or paraphrased questions; evaluation questions are content-disjoint from stored episodes, so
+  Tier 1 rarely fires on the evaluation fold (7 of 9 000). Probe (`outputs/tier1_routing_probe/`): fired on 42/50 exact repeats
+  and 19/50 paraphrases, correct 41/42 and 19/19. Describe tier migration as design intent, with the realised shares.
+- **TruthfulQA:** language-model judged (Haiku), justified as following the judge-based protocol of the TruthfulQA paper (GPT-judge)
+  and applied uniformly to every system; state this, do not apologise for it.
+- **Number style:** digits for measured quantities ("$58$ percent", "$0.63$"); no spelled-out decimals.
+- **"Chapter signpost" sections:** keep (the BRAC template lists minimum sections, not a closed list).
+- **Code facts that the prose gets wrong in several chapters:** pre-route ratio is a decoder "layer-convergence ratio" from a
+  32-token greedy decode (not "encoder-layer", not "a single forward pass"); the retroactive pass rewrites stored scores up or
+  down and prunes below 0.50 (not "upward-only", not "below the storage threshold"); no L2 anchor on the LoRA path
+  (λ_anc = 0); memory search is exact at the realised 12 175 entries (IVF-PQ only from 20 000); value-score pruning never fired.
+
 ## Carried items (apply when you reach the chapter)
 - **Q1 decision (ch4, ch5, ch6):** `p_ground^atomic` equalled `p_ground^mean` on all 14,951 run samples (length gate
   `atomic_min_tokens = 12`: 99.0% skipped; remaining 1.0% returned no facts). Keep "nine signals" as the design; add a

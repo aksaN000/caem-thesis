@@ -11,7 +11,7 @@ Baseline build (latexmk, 2026-10-16): 324 pages, 0 errors, 0 undefined refs/cita
 |---|---|---|
 | Step 1: p_ground^mean vs p_ground^atomic | done (report) | Identical on 14,951/14,951 run samples; see open question Q1 |
 | Front matter | done; PR #4 open; title month pending | branch `review/front`; 22 changes logged |
-| Chapter 1 | fixes applied; PR #5 open; decisions D1–D6 pending | branch `review/ch1`; 45 changes logged in fixes_applied.md |
+| Chapter 1 | done; PR #5 open (D1–D6 resolved, part 2 logged) | branch `review/ch1`; 45 changes logged in fixes_applied.md |
 | Chapter 2 | pending | |
 | Chapter 3 | pending | |
 | Chapter 4 | pending | |
@@ -94,7 +94,7 @@ paragraph gap (e.g. `\setlength{\parskip}{0.5\baselineskip}`), or keep the templ
   its choice should be justified by the shrinkage rationale. (v) every variant stores 0 TriviaQA items on the validation
   fold (calibration-to-validation shift), consistent with the main run's C1 calibration fold (1 TriviaQA store).
 
-## Chapter 1 (2026-10-16): decisions for the author
+## Chapter 1 (2026-10-16): decisions for the author (RESOLVED same day, see resolutions below)
 
 **D1 (ch1 L64; also ch2 L275/281/287/291 [frozen], ch3 L145, ch4 L555, ch5 L41, appendix E L15).** Every chapter says HotpotQA,
 Natural Questions and ARC-Challenge were retired "on cycle-zero diagnostic evidence that they violated the
@@ -148,3 +148,26 @@ ch5 decision is made (locked configuration is not the criterion-3 maximum; justi
   evidence.
 - **Style, all chapters:** the closing section is titled "Chapter signpost" (sentence case) in ch1–ch5 while other headings
   use title case; left unchanged because ch2 is frozen.
+
+### Resolutions (author, 2026-10-16)
+
+- **D1 → applied globally.** Only HotpotQA and Natural Questions are mentioned; ARC-Challenge removed from the prose
+  everywhere (ch2 L212 keeps a cited study's ARC metric). The real reason, from the receipts on Drive: base EM 0.090 / 0.172;
+  the gate stored 26 / 12 of 500 at purity 0.500 / 0.417; gate balanced accuracy was 0.630 / 0.521, i.e. above one half, so the
+  old "balanced-accuracy precondition violated" reason was false. **Appendix session:** appendix B tables prompt_compliance,
+  atomic_scope and tab_prompt_design_ablation still carry ARC-C rows (earlier-panel data with NQ and ARC but no
+  CommonsenseQA); decide whether to drop those rows or the tables.
+- **D2 → mapping fixed.** H2 maps to the Bayes-purification recurrence remark (thm:bayes-convergence) in ch1 and ch5; the
+  pre-specified hypothesis text is unchanged. **ch5 session (verdict change, needs author OK):** as registered, H2 is falsified
+  (cal-fold purity 0.746 → 0.740 → 0.736 → 0.746 → 0.732 falls at C1, C2, C5); recommended verdict "unsupported as registered;
+  the fluctuation (width 0.014) is within binomial noise and purity stays above the thm:purity floor". The ch5 caption's
+  "bounded-band restatement of thm:purity" must go with it.
+- **D3 → softened** to a per-cycle refitted calibrated probability whose precision is checked on held-out data; rejected
+  conformal history removed from ch1 (kept in ch4).
+- **D4 → trimmed:** shortcomings/coupling merged; per-query-pipeline duplicate removed; mitigation subsection removed;
+  objective-section methodology paragraph moved; panel described once (sec:scope-research). 9 215 → 8 377 words.
+- **D5 → figure bullets and caption reworded;** Tier-1 probe numbers added to ch1 L58. **ch5 session:** report the probe in
+  ch5 with a table/label, then point ch1 L58 at it.
+- **D6 → ch1 now number-free** ("chosen on the cycle-zero calibration fold before the main run"), so the Q4 outcome in ch5 cannot
+  contradict it.
+- **Signpost → keep** (all chapters use one; the BRAC template lists minimum sections, not a closed list).
