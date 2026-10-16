@@ -52,25 +52,25 @@ FR7 & Calibrated probability rendered to the user with every answer & Production
 
 Five non-functional requirements bound the operating envelope of the architecture (\Cref{tab:nonfunc-reqs}).
 
-\textbf{Latency.} The cost of a query depends on its tier: the memory-direct tier costs an embedding lookup and a similarity search, the zero-shot tier adds one decode, and the retrieval-augmented tier adds passage retrieval and a grounded decode. Per-tier latencies are reported in \Cref{ch:evaluation}.
+\textbf{Latency:} The cost of a query depends on its tier: the memory-direct tier costs an embedding lookup and a similarity search, the zero-shot tier adds one decode, and the retrieval-augmented tier adds passage retrieval and a grounded decode. Per-tier latencies are reported in \Cref{ch:evaluation}.
 
-\textbf{Storage precision.} Among the answers that the gate stores, the fraction that are correct should be high. The requirement is stated on the calibration fold at the locked cut-point $\tau_{\text{store}} = 0.60$, where the storage precision $\pi_{\text{store}}$ is
+\textbf{Storage precision:} Among the answers that the gate stores, the fraction that are correct should be high. The requirement is stated on the calibration fold at the locked cut-point $\tau_{\text{store}} = 0.60$, where the storage precision $\pi_{\text{store}}$ is
 \begin{equation}
 \Pr\!\big(\mathrm{EM} = 1 \,\big|\, u_{\text{stored}} \ge \tau_{\text{store}}\big)_{\text{cal}} \;=\; \pi_{\text{store}}.
 \label{eq:nfr-precision-floor}
 \end{equation}
 The cut-point was chosen on the cycle-zero calibration fold before the main run, and the realised precision at every cycle is reported in \Cref{ch:evaluation}.
 
-\textbf{Retention.} After every fine-tune, accuracy on each probe of the multi-modal probe panel must stay at or above $93$ percent of its value before any fine-tuning; otherwise the cycle is aborted and the adapter is rolled back:
+\textbf{Retention:} After every fine-tune, accuracy on each probe of the multi-modal probe panel must stay at or above $93$ percent of its value before any fine-tuning; otherwise the cycle is aborted and the adapter is rolled back:
 \begin{equation}
 \min_{p \in \mathcal{P}}\; \rho_{p}(M_{t}) \;:=\; \min_{p \in \mathcal{P}}\; \frac{\mathrm{EM}(M_{t},\,p)}{\mathrm{EM}(M_{0},\,p)} \;\ge\; \rho_{\min} = 0.93,
 \label{eq:nfr-retention-floor}
 \end{equation}
 where $M_{t}$ is the generator after the fine-tune at cycle $t$ and $\mathcal{P}$ is the probe panel: a general-knowledge multiple-choice probe (MMLU), an open-text factoid probe drawn from the TriviaQA test fold, and a commonsense multiple-choice probe drawn from the CommonsenseQA test fold.
 
-\textbf{Reproducibility.} Every released artefact, including the locked cut-points, the calibrated composite, the seed-pool composition and the per-cycle snapshots, must be regenerable from one recorded random seed and a published code commit.
+\textbf{Reproducibility:} Every released artefact, including the locked cut-points, the calibrated composite, the seed-pool composition and the per-cycle snapshots, must be regenerable from one recorded random seed and a published code commit.
 
-\textbf{Integrity.} No sample in the evaluation fold may appear in the calibration fold, the seed pool or the per-cycle stream chunks, so that calibration-fold and evaluation-fold results are measured on disjoint samples.
+\textbf{Integrity:} No sample in the evaluation fold may appear in the calibration fold, the seed pool or the per-cycle stream chunks, so that calibration-fold and evaluation-fold results are measured on disjoint samples.
 
 \begin{table}[!htbp]
 \centering
@@ -95,12 +95,12 @@ NFR5 & Integrity & Evaluation, calibration, seed and stream-chunk folds disjoint
 
 The requirements imply six design commitments, all fixed before the main run.
 \begin{itemize}
-    \item \textbf{Single backbone.} The generator backbone is the same in every cycle and every tier; only the low-rank adapter is trained, so reported gains come from memory, calibration and adapter fine-tuning rather than from a change of backbone.
-    \item \textbf{Frozen cut-points.} The storage and deferral cut-points, $\tau_{\text{store}} = 0.60$ and $\tau_{\text{defer}} = 0.45$ on the calibrated probability scale, are fixed once before the main run and never changed, so the operating point of the storage decision does not drift. Only the calibrated composite is refitted at each cycle boundary, on that cycle's labelled fold, with each benchmark's curve shrunk toward the pooled fit so that benchmarks with little data do not overfit.
-    \item \textbf{Local execution.} No external model service sits in the inference path: the generator, the verifier ensemble, the embedding encoder and the passage index all run from open weights on one rented graphics processor. The language-model judge that scores TruthfulQA belongs to the evaluation, not to the system.
-    \item \textbf{Bounded cycles.} The self-improvement loop is capped at ten cycles and may stop earlier on an automatic early-stop check (\Cref{ch:methodology}).
-    \item \textbf{Matched protocol.} Every external baseline is evaluated on the same samples, prompts and scoring rules as the architecture, so that the comparison in \Cref{ch:evaluation} is not confounded by re-implementation choices.
-    \item \textbf{Single seed.} All randomness derives from one recorded seed, and the per-cycle artefacts are archived so that a third party can regenerate the trajectory.
+    \item \textbf{Single backbone:} The generator backbone is the same in every cycle and every tier; only the low-rank adapter is trained, so reported gains come from memory, calibration and adapter fine-tuning rather than from a change of backbone.
+    \item \textbf{Frozen cut-points:} The storage and deferral cut-points, $\tau_{\text{store}} = 0.60$ and $\tau_{\text{defer}} = 0.45$ on the calibrated probability scale, are fixed once before the main run and never changed, so the operating point of the storage decision does not drift. Only the calibrated composite is refitted at each cycle boundary, on that cycle's labelled fold, with each benchmark's curve shrunk toward the pooled fit so that benchmarks with little data do not overfit.
+    \item \textbf{Local execution:} No external model service sits in the inference path: the generator, the verifier ensemble, the embedding encoder and the passage index all run from open weights on one rented graphics processor. The language-model judge that scores TruthfulQA belongs to the evaluation, not to the system.
+    \item \textbf{Bounded cycles:} The self-improvement loop is capped at ten cycles and may stop earlier on an automatic early-stop check (\Cref{ch:methodology}).
+    \item \textbf{Matched protocol:} Every external baseline is evaluated on the same samples, prompts and scoring rules as the architecture, so that the comparison in \Cref{ch:evaluation} is not confounded by re-implementation choices.
+    \item \textbf{Single seed:} All randomness derives from one recorded seed, and the per-cycle artefacts are archived so that a third party can regenerate the trajectory.
 \end{itemize}
 
 \section{Societal Impact}
@@ -116,11 +116,11 @@ The main societal benefit of the architecture is a reduction in confident misinf
 
 A verified-memory system that learns from its own interactions could memorise harmful content if the verifier is misconfigured or if adversarial inputs reach its training pool. Three mechanisms limit this risk.
 
-\textbf{Retroactive re-verification.} At each cycle boundary every stored episode is re-scored with the updated generator and the refitted composite; its score can go down as well as up, and entries whose score falls below $0.50$ are removed, so a bad entry does not persist unchallenged.
+\textbf{Retroactive re-verification:} At each cycle boundary every stored episode is re-scored with the updated generator and the refitted composite; its score can go down as well as up, and entries whose score falls below $0.50$ are removed, so a bad entry does not persist unchallenged.
 
-\textbf{Strict training threshold.} The training pool admits only episodes whose storage score clears a threshold above the storage cut-point, so marginal episodes stay out of the fine-tune even when they are admissible for retrieval.
+\textbf{Strict training threshold:} The training pool admits only episodes whose storage score clears a threshold above the storage cut-point, so marginal episodes stay out of the fine-tune even when they are admissible for retrieval.
 
-\textbf{Retention guard.} If a fine-tune degrades any probe in the multi-modal panel (general-knowledge multiple choice plus held-out test slices of two training benchmarks) below the floor, the cycle is aborted and the adapter is rolled back, so one damaging cycle cannot silently carry forward.
+\textbf{Retention guard:} If a fine-tune degrades any probe in the multi-modal panel (general-knowledge multiple choice plus held-out test slices of two training benchmarks) below the floor, the cycle is aborted and the adapter is rolled back, so one damaging cycle cannot silently carry forward.
 
 These mechanisms reduce the risk but do not remove it; how far they reach depends on the verifier's coverage, which is reported empirically and discussed as a threat to validity in \Cref{ch:evaluation}.
 
@@ -145,7 +145,7 @@ where $T_{\phi}$ is the wall-clock duration of phase $\phi$ in hours, $P_{\mathr
 \subsection{Cycle budget rationale}
 \label{sec:env-cycles}
 
-The ten-cycle cap bounds the compute that the loop may spend. The convergence heuristic of \Cref{ch:methodology} (\Cref{thm:convergence}; a heuristic, not a proven result) suggests that gains flatten within a few cycles, and Song et al.~\cite{song2024gap} find that iterative self-improvement saturates within a few rounds; a cap of ten leaves room above that while bounding cost. Each cycle adds its own fine-tuning and re-verification energy, so stopping once gains have flattened is an environmental choice as well as an experimental one. The realised run stopped after cycle five, when the automatic early-stop check fired, with cycle four aborted by the retention guard and its weights rolled back; the trajectory is reported in \Cref{ch:evaluation}.
+The ten-cycle cap bounds the compute that the loop may spend. The convergence heuristic of \Cref{ch:methodology} (\Cref{thm:convergence}; a heuristic, not a proven result) suggests that gains flatten within a few cycles, and Song et al.~\cite{song2024gap} find that iterative self-improvement saturates within a few rounds; a cap of ten leaves room above that while bounding cost. Each cycle adds its own fine-tuning and re-verification energy, so stopping once gains have flattened is an environmental choice as well as an experimental one. The realised run stopped after cycle five, as planned once cycle four had been aborted by the retention guard and its weights rolled back. The automatic early-stop check fired at the same point, but two of its three inputs were wired to the wrong quantities: its storage-saturation signal read the storage rate of the evaluation fold, where nothing is ever stored, instead of the stream admission rate (about half of each chunk), and its retention signal compared raw MMLU accuracy (about $0.61$) with the $0.93$ ratio floor instead of the retention ratio (between $0.94$ and $1.00$). Both signals were therefore certain to fire as soon as the check first ran, at cycle five, so its firing is not evidence that the trajectory had levelled off. The trajectory is reported in \Cref{ch:evaluation}.
 
 \subsection{Retention versus retraining}
 \label{sec:env-retention}
@@ -183,10 +183,10 @@ The implementation is written in Python and broadly follows the PEP~8 convention
 
 Reproducibility is treated as a deliverable rather than a courtesy. Four kinds of artefact support it.
 \begin{itemize}
-    \item \textbf{Recipe.} \Cref{app:reproducibility} gives the run sequence from data preparation to the final tables, together with a checklist for comparing reproduced numbers against the thesis.
-    \item \textbf{Pre-self-improvement snapshot.} The cold-start memory, the cycle-zero calibrated composite and the configuration at the start of the main run are archived, so that a run can resume from that point instead of from scratch.
-    \item \textbf{Per-cycle artefacts.} Each cycle's run summary, memory snapshot, retention-probe readings, precision audit and decision log are kept together.
-    \item \textbf{Locked configuration.} One configuration file records the storage and deferral cut-points, the shrinkage prior, the boost-layer regulariser and the low-rank adapter settings used at every downstream scoring and training step.
+    \item \textbf{Recipe:} \Cref{app:reproducibility} gives the run sequence from data preparation to the final tables, together with a checklist for comparing reproduced numbers against the thesis.
+    \item \textbf{Pre-self-improvement snapshot:} The cold-start memory, the cycle-zero calibrated composite and the configuration at the start of the main run are archived, so that a run can resume from that point instead of from scratch.
+    \item \textbf{Per-cycle artefacts:} Each cycle's run summary, memory snapshot, retention-probe readings, precision audit and decision log are kept together.
+    \item \textbf{Locked configuration:} One configuration file records the storage and deferral cut-points, the shrinkage prior, the boost-layer regulariser and the low-rank adapter settings used at every downstream scoring and training step.
 \end{itemize}
 Together these let a reader check a specific claim in \Cref{ch:evaluation} by re-running the stage that produced it rather than by trusting the reported number.
 
@@ -195,13 +195,13 @@ Together these let a reader check a specific claim in \Cref{ch:evaluation} by re
 
 The empirical comparisons follow four protocol standards.
 
-\textbf{Matched protocol.} Every external baseline is evaluated on the same samples, the same prompt template family and the same scoring rules as the architecture.
+\textbf{Matched protocol:} Every external baseline is evaluated on the same samples, the same prompt template family and the same scoring rules as the architecture.
 
-\textbf{Pre-specification.} The calibration sweep grid, the cut-point targets and the expected effect bands of the ablation were recorded in the runbook before the corresponding results were read, and the locked configuration was applied unchanged in every cycle of the main run; outcomes outside the expected bands are reported rather than tuned away. Throughout the thesis, a quantity described as pre-specified or registered was fixed in the project's configuration and runbook before the main evaluation run; the term does not refer to an entry in an external pre-registration registry.
+\textbf{Pre-specification:} The calibration sweep grid, the cut-point targets and the expected effect bands of the ablation were recorded in the runbook before the corresponding results were read, and the locked configuration was applied unchanged in every cycle of the main run; outcomes outside the expected bands are reported rather than tuned away. Throughout the thesis, a quantity described as pre-specified or registered was fixed in the project's configuration and runbook before the main evaluation run; the term does not refer to an entry in an external pre-registration registry.
 
-\textbf{Selective prediction.} Abstentions are reported per benchmark alongside accuracy, following the selective-prediction framing of Kamath et al.~\cite{kamath2020selective}, in which a system that may abstain is judged both on how often it answers and on how accurate its answers are.
+\textbf{Selective prediction:} Abstentions are reported per benchmark alongside accuracy, following the selective-prediction framing of Kamath et al.~\cite{kamath2020selective}, in which a system that may abstain is judged both on how often it answers and on how accurate its answers are.
 
-\textbf{Multiple comparisons.} Within each benchmark, the baseline contrasts are corrected with the Holm--Bonferroni procedure \cite{holm1979simple}, so that a significance verdict cannot be inflated by the number of comparisons. Each contrast uses the paired McNemar test with the continuity correction of Edwards~\cite{edwards1948note}, and a bootstrap $95$ percent confidence interval on the exact-match difference is reported alongside the corrected $p$-value, so that effect size is visible as well as significance.
+\textbf{Multiple comparisons:} Within each benchmark, the baseline contrasts are corrected with the Holm--Bonferroni procedure \cite{holm1979simple}, so that a significance verdict cannot be inflated by the number of comparisons. Each contrast uses the paired McNemar test with the continuity correction of Edwards~\cite{edwards1948note}, and a bootstrap $95$ percent confidence interval on the exact-match difference is reported alongside the corrected $p$-value, so that effect size is visible as well as significance.
 
 \section{Project Management Plan}
 \label{sec:project-management}
@@ -211,11 +211,11 @@ The empirical comparisons follow four protocol standards.
 
 The project has five phases, each producing what the next consumes.
 \begin{enumerate}
-    \item \textbf{Pre-thesis.} Literature review, problem statement, methodology design, and the per-stage pipeline that the empirical phases depend on.
-    \item \textbf{Calibration.} Fit the calibrated composite on the disjoint cycle-zero calibration fold, fix the storage and deferral cut-points, and lock the configuration for the main run (only the composite is refitted in later cycles).
-    \item \textbf{Main run.} Iterate the per-query pipeline and the cycle-boundary passes for up to ten cycles, producing the per-cycle artefacts.
-    \item \textbf{Comparison.} Run the external baseline panel and the retrieval-utility-classifier on/off ablation under matched protocol, followed by the statistical analysis.
-    \item \textbf{Write-up.} The thesis report, the defence presentation, and a journal manuscript planned for after the defence.
+    \item \textbf{Pre-thesis:} Literature review, problem statement, methodology design, and the per-stage pipeline that the empirical phases depend on.
+    \item \textbf{Calibration:} Fit the calibrated composite on the disjoint cycle-zero calibration fold, fix the storage and deferral cut-points, and lock the configuration for the main run (only the composite is refitted in later cycles).
+    \item \textbf{Main run:} Iterate the per-query pipeline and the cycle-boundary passes for up to ten cycles, producing the per-cycle artefacts.
+    \item \textbf{Comparison:} Run the external baseline panel and the retrieval-utility-classifier on/off ablation under matched protocol, followed by the statistical analysis.
+    \item \textbf{Write-up:} The thesis report, the defence presentation, and a journal manuscript planned for after the defence.
 \end{enumerate}
 
 \subsection{Milestone schedule}
@@ -244,12 +244,12 @@ The project releases six deliverables.
 
 Six technical risks were identified before the main run. Each is paired with its mitigation below, and \Cref{tab:risk-register} records whether it materialised.
 \begin{itemize}
-    \item \textbf{Calibration drift.} The composite, refitted every cycle, could lose its precision at the frozen cut-point as each adapter update shifts the score distribution. Mitigation: the per-cycle refit (per-signal isotonic curves, per-benchmark shrinkage and boost layer) and a per-cycle precision audit at the locked cut-points.
-    \item \textbf{Verifier and judge disagreement.} The short-answer entailment judge and the long-answer judge could score the same answer inconsistently. Mitigation: drop the long-answer judge if its agreement with the short-answer judge misses a fixed correlation floor.
-    \item \textbf{Out-of-memory failures.} A long answer could send the verifier down a branch that exceeds the memory of the graphics processor and halt the cycle. Mitigation: chunking the long-answer batch, and a clean restart from the previous checkpoint after an out-of-memory abort.
-    \item \textbf{Forgetting.} A fine-tune could erode general capability. Mitigation: the retention guard with adapter rollback (\Cref{eq:nfr-retention-floor}).
-    \item \textbf{Early-stop misfire.} The automatic early-stop check could stop the run too early or fail to stop a run that is not converging. Mitigation: requiring two of its three signals to agree, and the ten-cycle cap.
-    \item \textbf{Retrieval-utility classifier shift.} The classifier is trained on data that deliberately includes a benchmark outside the evaluation panel (the Natural Questions training split), so it may send some queries to the wrong tier on the panel. Mitigation: nested cross-validation, a threshold sweep, and the on/off ablation on the same trajectory.
+    \item \textbf{Calibration drift:} The composite, refitted every cycle, could lose its precision at the frozen cut-point as each adapter update shifts the score distribution. Mitigation: the per-cycle refit (per-signal isotonic curves, per-benchmark shrinkage and boost layer) and a per-cycle precision audit at the locked cut-points.
+    \item \textbf{Verifier and judge disagreement:} The short-answer entailment judge and the long-answer judge could score the same answer inconsistently. Mitigation: drop the long-answer judge if its agreement with the short-answer judge misses a fixed correlation floor.
+    \item \textbf{Out-of-memory failures:} A long answer could send the verifier down a branch that exceeds the memory of the graphics processor and halt the cycle. Mitigation: chunking the long-answer batch, and a clean restart from the previous checkpoint after an out-of-memory abort.
+    \item \textbf{Forgetting:} A fine-tune could erode general capability. Mitigation: the retention guard with adapter rollback (\Cref{eq:nfr-retention-floor}).
+    \item \textbf{Early-stop misfire:} The automatic early-stop check could stop the run too early or fail to stop a run that is not converging. Mitigation: requiring two of its three signals to agree, and the ten-cycle cap.
+    \item \textbf{Retrieval-utility classifier shift:} The classifier is trained on data that deliberately includes a benchmark outside the evaluation panel (the Natural Questions training split), so it may send some queries to the wrong tier on the panel. Mitigation: nested cross-validation, a threshold sweep, and the on/off ablation on the same trajectory.
 \end{itemize}
 
 \subsection{Budget and infrastructure risks}
@@ -257,9 +257,9 @@ Six technical risks were identified before the main run. Each is paired with its
 
 Three infrastructure risks were identified.
 \begin{itemize}
-    \item \textbf{Credit exhaustion.} Running out of rented graphics-processor credit before the trajectory and the comparisons finish would leave a partial run that cannot be compared against the baselines. Mitigation: budgeting each phase against the recorded credit, and archiving every state before it is overwritten.
-    \item \textbf{Node reclamation.} The provider could reclaim the rented machine in the middle of a cycle. Mitigation: committing artefacts at every cycle boundary, so that a lost machine costs at most the cycle in flight, and the pre-self-improvement snapshot, from which the run can resume.
-    \item \textbf{Storage exhaustion.} The artefacts, model snapshots and passage index could exceed the quota of the hosts that hold them. Mitigation: sizing the artefact catalogue in advance and keeping the larger snapshots and the passage index on separate storage.
+    \item \textbf{Credit exhaustion:} Running out of rented graphics-processor credit before the trajectory and the comparisons finish would leave a partial run that cannot be compared against the baselines. Mitigation: budgeting each phase against the recorded credit, and archiving every state before it is overwritten.
+    \item \textbf{Node reclamation:} The provider could reclaim the rented machine in the middle of a cycle. Mitigation: committing artefacts at every cycle boundary, so that a lost machine costs at most the cycle in flight, and the pre-self-improvement snapshot, from which the run can resume.
+    \item \textbf{Storage exhaustion:} The artefacts, model snapshots and passage index could exceed the quota of the hosts that hold them. Mitigation: sizing the artefact catalogue in advance and keeping the larger snapshots and the passage index on separate storage.
 \end{itemize}
 
 \subsection{Mitigation register}
@@ -278,7 +278,7 @@ Calibration drift across cycles & Composite loses its precision at the frozen $\
 Verifier and judge disagreement & Short- and long-answer judges score the same answer inconsistently & Drop the long-answer judge if it misses the correlation floor & \textbf{Yes}: long-answer judge dropped (Pearson $0.584 < 0.70$) \\
 Out-of-memory failure on long paths & A long answer sends the verifier past the GPU's memory & Chunked long-answer batch; clean restart after an abort & \textbf{Yes}: chunking added; degenerate samples skipped on out-of-memory \\
 Forgetting & A fine-tune erodes general capability & Retention guard with adapter rollback & \textbf{Yes}: cycle four, TriviaQA-test ratio $0.886 < 0.93$; adapter rolled back, memory kept \\
-Early-stop misfire & Premature stop, or a run that never stops & Two-of-three signal rule; ten-cycle cap & Check fired after cycle five (\Cref{ch:evaluation}) \\
+Early-stop misfire & Premature stop, or a run that never stops & Two-of-three signal rule; ten-cycle cap & \textbf{Yes}: two inputs mis-wired, so the check fired at its first run (cycle five) regardless of the trajectory; the stop coincided with the planned end (\Cref{sec:env-cycles}) \\
 Classifier distribution shift & Classifier routes some panel queries to the wrong tier & Nested cross-validation; threshold sweep; on/off ablation & Reported in the ablation (\Cref{ch:evaluation}) \\
 GPU credit exhaustion & Run does not finish within the rented credit & Phase budgeting; archive before overwrite & \textbf{Yes}, once (May 2026, during an earlier run); resumed from the recorded step after a top-up \\
 Node reclamation & Cycle in flight lost when the machine is reclaimed & Per-cycle artefact commit; pre-self-improvement snapshot & Not observed \\
@@ -306,7 +306,7 @@ On the main run the storage gate admitted about half of each $4{,}700$-sample st
 \Delta B_{\text{store}} \;\ge\; n_{\text{hit}} \cdot c_{\text{gen}},
 \label{eq:storage-cost-benefit}
 \end{equation}
-where $n_{\text{hit}}$ is the number of later queries that the entry answers through the memory-direct tier and $c_{\text{gen}}$ is the cost of the zero-shot or retrieval-augmented decode it replaces. This benefit appears only when questions recur. In a direct probe of the router (\Cref{ch:evaluation}), the memory-direct tier answered $42$ of $50$ exact repeats and $19$ of $50$ paraphrases of stored questions; on the evaluation fold, whose questions never repeat stored ones, it answered only $7$ of $9{,}000$ queries. The precision of the gate is what makes the reused answers worth serving.
+where $n_{\text{hit}}$ is the number of later queries that the entry answers through the memory-direct tier and $c_{\text{gen}}$ is the cost of the zero-shot or retrieval-augmented decode it replaces. This benefit appears only when questions recur, and in the realised run they never did: each cycle drew a fresh stream chunk that shares no question with earlier chunks, and the evaluation fold is disjoint from both, so almost no query matched a stored episode closely enough for the memory-direct tier to answer it. On the evaluation fold that tier answered only $7$ of $9{,}000$ queries. A direct probe of the router (\Cref{ch:evaluation}) shows the tier working when questions do recur: it answered $42$ of $50$ exact repeats and $19$ of $50$ paraphrases of stored questions. The precision of the gate is what makes the reused answers worth serving.
 
 \subsection{Deployment cost projection}
 \label{sec:econ-deployment}
@@ -317,7 +317,7 @@ By design, the cost per query should fall as the memory grows, because a memory-
 \qquad \pi_{1}(t) + \pi_{2}(t) + \pi_{3}(t) = 1,
 \label{eq:deployment-cost}
 \end{equation}
-where $\pi_{i}(t)$ is the share of incoming queries dispatched to tier $i$ at cycle $t$ and $c_{i}$ is the average per-query cost on that tier. The design expects $\pi_{1}(t)$ to rise and $\pi_{3}(t)$ to fall as cycles progress. In the realised run neither moved as designed: the memory-direct share stayed at or below $0.1$ percent, because the evaluation questions never repeat stored ones, and the zero-shot and retrieval-augmented shares each stayed between about $45$ and $55$ percent across cycles (\Cref{ch:evaluation}). The memory-direct saving is therefore expected only where real traffic repeats or paraphrases earlier questions, which is the setting that the deployment-study future-work item in \Cref{ch:conclusion} would test under live user traffic.
+where $\pi_{i}(t)$ is the share of incoming queries dispatched to tier $i$ at cycle $t$ and $c_{i}$ is the average per-query cost on that tier. The design expects $\pi_{1}(t)$ to rise and $\pi_{3}(t)$ to fall as cycles progress. In the realised run neither moved as designed: the memory-direct share stayed at or below $0.1$ percent, because by design no stream or evaluation question repeated a stored one (\Cref{sec:econ-cost-benefit}), and the zero-shot and retrieval-augmented shares each stayed between about $45$ and $55$ percent across cycles (\Cref{ch:evaluation}). The memory-direct saving is therefore expected only where real traffic repeats or paraphrases earlier questions, which is the setting that the deployment-study future-work item in \Cref{ch:conclusion} would test under live user traffic.
 
 \section{Chapter signpost}
 \label{sec:ch3-signpost}

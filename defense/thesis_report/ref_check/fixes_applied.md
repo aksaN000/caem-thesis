@@ -1313,3 +1313,15 @@ Words 6,437 → 4,861. Every claim checked against code, run logs, outputs and a
   duplicated three times).
 - Citations: Kamath et al. (bracket-as-noun fixed), Alkaissi and McFarlane, Chelli et al., Kadavath et al., Song et al.,
   Edwards. Header comment "Status: SKELETON" removed.
+
+### Chapter 3, part 2: author decisions (2026-10-16)
+
+- Lead-in punctuation: every bold opening now ends in a colon instead of a full stop (ch3: 36; ch1: 6, the three
+  shortcomings and the three prior-pipeline families). Author: the full-stop form looks machine-written.
+- Early stop disclosed (author approved): sec:env-cycles now states that the run stopped after cycle five as planned after the
+  cycle-four abort, and that the automatic check fired at the same point on two mis-wired inputs (evaluation-fold storage rate,
+  always 0, instead of the stream admission rate ≈ half; raw MMLU accuracy ≈0.61 against the 0.93 ratio floor instead of the
+  ratio, 0.94–1.00), so its firing is not evidence of saturation. Risk register row: Yes, with that reading.
+- Tier 1: cost-benefit and deployment sections now say why it never fired: each cycle drew a fresh stream chunk sharing no
+  question with earlier chunks, and the evaluation fold is disjoint from both (disjoint per-cycle chunks built in
+  `scripts/run_experiment.py`, "Build disjoint 6-way pool splits").

@@ -199,7 +199,7 @@ ch5 decision is made (locked configuration is not the criterion-3 maximum; justi
 
 ## Carried from chapter 3 (2026-10-16)
 
-- **Early-stop gate (AUTHOR DECISION PENDING; ch3 table row + ch4, ch5 L104/L609, ch6, appendix C L94):** the C5 stop
+- **Early-stop gate (APPROVED 2026-10-16: disclose; ch3 done, apply in ch3 table row + ch4, ch5 L104/L609, ch6, appendix C L94):** the C5 stop
   fired on two mis-wired signals (`outputs/full_run/experiment.log` L70711; `caem/eval/equilibrium.py::three_signal_gate`
   fed from `scripts/run_experiment.py` ~L2046–2100): storage_saturation read the eval harness `storage_rate` (always 0;
   real stream admissions ≈50–53%); mmlu_floor compared raw MMLU accuracy (≈0.61) with the 0.93 ratio floor (real ratios
@@ -208,3 +208,6 @@ ch5 decision is made (locked configuration is not the criterion-3 maximum; justi
 - **Q4 numbers** remain for ch5 (ch3 is now number-free on the sweep).
 - **Appendix A:** the Drive subfolder names (`v2_1_phase1e_main/`, `pre_main_snapshot/`) predate the numbered Drive layout
   (1_thesis … 9_archive); update in the appendix session.
+- **Lead-in punctuation (author 2026-10-16):** bold openings end with a colon, not a full stop. Fixed in ch1 and ch3;
+  still to fix: ch4 L306 ("Fit stage."), L322 ("Predict stage."); ch5 L613–L618 (six items). Table abbreviations such as
+  "MMLU acc." (appendix C) and "Stored conf." (ch2 table) are not lead-ins; leave them.
