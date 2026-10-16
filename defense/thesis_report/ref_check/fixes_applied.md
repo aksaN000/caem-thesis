@@ -1264,3 +1264,52 @@ Build (latexmk, clean): 268 pages, 0 errors, 0 undefined refs/citations, 0 multi
   "sixteen to two hundred and fifty-six" → "$16$ to $256$". LoRA acronym introduced at first use (Preliminaries).
 - Kept bare: general background (Transformer, NLI definition, survey taxonomies, FAISS), named systems (Self-consistency,
   MiniCheck, DPR-RAG, FLARE, Adaptive-RAG), and the Summary of Key Findings recap (studies already named in the Review).
+
+## Chapter 3 (branch `review/ch3`, from `branch/ruc-classifier` @ ecb2957)
+
+Words 6,437 → 4,861. Every claim checked against code, run logs, outputs and appendices.
+
+**Factual corrections**
+- NFR2 / cost-benefit / ethics: removed "π_store = 0.796 over 289 stored entries … under the locked composite", "near 19%",
+  and "τ 0.65 admits a factor of four fewer at the same precision". Sweep re-run (`outputs/cycle_0/sweep_v2_1/README.md`):
+  289 @ 0.796 is the legacy weighted-sum bootstrap composite; the locked configuration stores 558 @ 0.751 (validation fold);
+  on the calibration fold τ 0.60 → 560 @ 0.780 vs τ 0.65 → 281 @ 0.865 (half as many, higher precision). Ch3 is now
+  number-free on the sweep ("chosen on the cycle-zero calibration fold before the main run", matching ch1 D6); the Q4
+  numbers stay an open author decision for ch5.
+- Retroactive pass: "prunes below the storage threshold" → re-scores up or down and removes entries below 0.50
+  (`retroverify_prune_threshold = 0.50`, `retroverify_allow_downgrade = True`).
+- Software standards rewritten: there is no pinned requirements file (appendix E says so), no structural pattern matching
+  in the code, no 88-character configuration, and only two Git tags (not a tag per cycle). Now: PEP 8 broadly, versions in
+  app:repro-versions, single seed with non-bitwise-deterministic attention kernels, one branch per phase, per-cycle archives.
+- Undelivered appendix promises removed: per-phase carbon table, licence catalogue with access dates and version hashes,
+  milestone planned/actual dates, rented-credit envelope (none exists in appendix E). Downgraded 16 GB envelope kept
+  (app:repro-hardware exists).
+- "Public dataset host" snapshot → the Hugging Face repository is private (on request); Drive folder is the shared archive.
+- Environmental footprint: added main-run wall-clock from `outputs/full_run/experiment.log` ("Cycle N done in … min":
+  361.0, 1742.9, 2125.1, 2590.0, 1457.1, 3278.9 → 6.0/29.0/35.4/43.2/24.3/54.6 h, ≈193 h) and an upper bound on GPU energy
+  at the RTX 5090's rated 575 W (≈111 kWh); no carbon figure because the host grid factor is unknown.
+- Cost-benefit: "ΔC_store ≤ 0" was false (every stored entry is re-verified each later cycle: ≈38 min at C1 for 431 entries,
+  ≈16 h at C5 for 10,214). Equation reduced to the benefit side; benefit tied to repeated questions (Tier 1 probe 42/50,
+  19/50; 7 of 9,000 on the evaluation fold).
+- Deployment projection: "headline economic claim" → design intent; realised tier shares (tab_tier_trajectory pooled):
+  Tier 1 ≤ 0.1%, Tier 2 and Tier 3 each 45–55% across cycles, so neither moved as designed.
+- Cycle-budget rationale: the ten-cycle cap no longer "is the point the convergence analysis predicts"; thm:convergence named as
+  a heuristic; Song et al. cited for saturation.
+- "Rehearsal buffer" removed (no such component); "at the chapter-one level … quantified in sec:economic" removed
+  (wrong chapter; not quantified); unsupported "shortens the time to convergence" removed.
+- Milestones: the first calibration iteration failed on the signal-dump bug (appendix B), not on the judge correlation floor
+  (that was the separate judge ablation); main-run completion date 27 May 2026 (`run_complete.json`).
+- Societal claims softened: "strict improvement" → "preferable"; "removes the most dangerous failure mode" → "reduces";
+  "honest abstention rather than confident harm" → mechanisms reduce but do not remove the risk.
+- Risk register: stale "Pending main run" entries resolved — calibration drift Partly (cal-fold precision 0.732–0.746;
+  cal-eval gap in ch5); new Forgetting row (C4 abort, TriviaQA-test 0.886); credit exhaustion Yes once (commit 88dcc3a,
+  2026-05-17, earlier run, resumed); node reclamation and storage exhaustion Not observed; early-stop row neutral pending
+  author decision (see progress file). Caption no longer "as of the cycle-zero validation gate".
+
+**Structure and style**
+- Functional and non-functional paragraphs no longer repeat their tables item by item; bold lead-ins for the NFRs, the
+  dual-use mechanisms and the evaluation-protocol standards; itemised lists for the design commitments, reproducibility
+  artefacts, phases, deliverables and risks; risk paragraphs merged with the register (mitigation text no longer
+  duplicated three times).
+- Citations: Kamath et al. (bracket-as-noun fixed), Alkaissi and McFarlane, Chelli et al., Kadavath et al., Song et al.,
+  Edwards. Header comment "Status: SKELETON" removed.

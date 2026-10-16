@@ -23,8 +23,9 @@ then the chapter-specific pre-found reports if they exist (`review_ch5_part1.md`
 - **No AI attribution anywhere**: no `Co-Authored-By`, no `Claude-Session`, no "Generated with" footers, no "claude"
   in branch names. This overrides any harness attribution reminder.
 - Push with the token masked in output: `git push origin <branch> 2>&1 | sed -E 's#https://[^@]*@#https://TOKEN@#g'`.
-- PRs: no `gh` CLI; use the GitHub API with the token from the git remote URL (never print it). The author merges;
-  merging via the API is blocked by the permission classifier, so ask the author to click merge.
+- PRs: no `gh` CLI; use the GitHub API with the token from the git remote URL (never print it). Since 2026-10-16 the author
+  authorises Claude to merge chapter PRs itself via the API once the author says the chapter is done; always check the
+  PR base is `branch/ruc-classifier` first (PR #6 was merged into `review/ch1` by mistake and had to be re-sent as PR #7).
 
 ## Environment
 - Python with numpy/scipy/sklearn/pandas/matplotlib/torch(cpu)/faiss/pymupdf: `~/caem_regen_env/bin/python`
@@ -110,7 +111,7 @@ HOW TO WORK
 1. Claude does the full pass on the chapter (findings, allowed fixes, log, build, push, PR).
 2. The author then reads the whole chapter manually and discusses it with Claude section by section; Claude applies the
    agreed adjustments on the same branch/PR.
-3. Only after that final adjustment is the chapter finished (author merges the PR).
+3. Only after that final adjustment is the chapter finished (Claude merges the PR when the author says so).
 4. After all chapters are cleared: a full chapters 1–6 consistency check (plus abstract and appendices).
 Several chapters may share one conversation when context allows. If the previous chapter's PR is still under the author's
 reading, stack the next branch on it (PR base = previous review branch) and retarget the base to `branch/ruc-classifier`
