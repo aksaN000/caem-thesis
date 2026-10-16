@@ -11,9 +11,9 @@ Baseline build (latexmk, 2026-10-16): 324 pages, 0 errors, 0 undefined refs/cita
 |---|---|---|
 | Step 1: p_ground^mean vs p_ground^atomic | done (report) | Identical on 14,951/14,951 run samples; see open question Q1 |
 | Front matter | done; PR #4 open; title month pending | branch `review/front`; 22 changes logged |
-| Chapter 1 | Claude pass + author read-through applied (2026-10-16); PR #5 open, ready for the author to merge | branch `review/ch1`; 45 changes logged in fixes_applied.md |
-| Chapter 2 | Claude pass + author read-through applied (2026-10-16); PR #6 open (stacked on review/ch1; retarget after #5 merges) | branch `review/ch2`; 16 152 → 11 740 words |
-| Chapter 3 | pending | |
+| Chapter 1 | done; merged (PR #5) | branch `review/ch1`; 45 changes logged in fixes_applied.md |
+| Chapter 2 | done; merged (PR #6 into review/ch1, then PR #7 into main) | branch `review/ch2`; 16 152 → 11 740 words |
+| Chapter 3 | done; author read-through closed 2026-10-16; merged (PR #8) | branch `review/ch3`; 6 437 → 4 861 words |
 | Chapter 4 | pending | |
 | Chapter 5 | pending | pre-found issues: `review_ch5_part1.md` |
 | Chapter 6 | pending | pre-found issues: `review_ch5_part2_ch6.md` |
@@ -194,5 +194,24 @@ ch5 decision is made (locked configuration is not the criterion-3 maximum; justi
   architecture) and the part during self-improvement (−8.0 points, C0 → C5; "consistent with" drift away from what
   TruthfulQA rewards, not shown). StrategyQA: EM flat, CHM falls. Source: tab_per_bench_trajectory, tab_headline_decomposition.
 - **Forgetting controls (if an examiner-facing passage needs it, ch4/ch6):** LoRA rank 32 on a frozen base, retention probe
-  with rollback (fired once, C4, TriviaQA-test 0.395 → 0.345), pool rebalancing (max share 0.40), training filter 0.70; no L2,
+  with rollback (fired once, C4, TriviaQA-test 0.395 → 0.350, ratio 0.886), pool rebalancing (max share 0.40), training filter 0.70; no L2,
   no EWC. LoRA + EWC was never ablated: say so if the choice is defended.
+
+## Carried from chapter 3 (2026-10-16)
+
+- **Early-stop gate (APPROVED 2026-10-16: disclose; ch3 done, apply in ch3 table row + ch4, ch5 L104/L609, ch6, appendix C L94):** the C5 stop
+  fired on two mis-wired signals (`outputs/full_run/experiment.log` L70711; `caem/eval/equilibrium.py::three_signal_gate`
+  fed from `scripts/run_experiment.py` ~L2046–2100): storage_saturation read the eval harness `storage_rate` (always 0;
+  real stream admissions ≈50–53%); mmlu_floor compared raw MMLU accuracy (≈0.61) with the 0.93 ratio floor (real ratios
+  0.937–1.00). The gate was certain to fire at C5, the first cycle it ran. Ch3 currently says only "stopped after cycle
+  five, when the automatic early-stop check fired" (true, neutral).
+- **Q4 numbers** remain for ch5 (ch3 is now number-free on the sweep).
+- **Appendix A:** the Drive subfolder names (`v2_1_phase1e_main/`, `pre_main_snapshot/`) predate the numbered Drive layout
+  (1_thesis … 9_archive); update in the appendix session.
+- **Lead-in punctuation (author 2026-10-16):** bold openings end with a colon, not a full stop. Fixed in ch1 and ch3;
+  still to fix: ch4 L306 ("Fit stage."), L322 ("Predict stage."); ch5 L613–L618 (six items). Table abbreviations such as
+  "MMLU acc." (appendix C) and "Stored conf." (ch2 table) are not lead-ins; leave them.
+- **Early-stop code fixed (2026-10-16)** in `scripts/run_experiment.py`; replay evidence `outputs/analysis/early_stop_gate_replay.json`
+  (script `scripts/replay_early_stop_gate.py`): corrected wiring fires no signal at C5. ch4/ch5/ch6/appendix C should say
+  the fault was corrected after the run and cite the replay, as ch3 sec:env-cycles does.
+- **Earlier runs:** three earlier trajectories (author confirmed 2026-10-16: "mark it as 3").

@@ -23,8 +23,9 @@ then the chapter-specific pre-found reports if they exist (`review_ch5_part1.md`
 - **No AI attribution anywhere**: no `Co-Authored-By`, no `Claude-Session`, no "Generated with" footers, no "claude"
   in branch names. This overrides any harness attribution reminder.
 - Push with the token masked in output: `git push origin <branch> 2>&1 | sed -E 's#https://[^@]*@#https://TOKEN@#g'`.
-- PRs: no `gh` CLI; use the GitHub API with the token from the git remote URL (never print it). The author merges;
-  merging via the API is blocked by the permission classifier, so ask the author to click merge.
+- PRs: no `gh` CLI; use the GitHub API with the token from the git remote URL (never print it). Since 2026-10-16 the author
+  authorises Claude to merge chapter PRs itself via the API once the author says the chapter is done; always check the
+  PR base is `branch/ruc-classifier` first (PR #6 was merged into `review/ch1` by mistake and had to be re-sent as PR #7).
 
 ## Environment
 - Python with numpy/scipy/sklearn/pandas/matplotlib/torch(cpu)/faiss/pymupdf: `~/caem_regen_env/bin/python`
@@ -110,7 +111,7 @@ HOW TO WORK
 1. Claude does the full pass on the chapter (findings, allowed fixes, log, build, push, PR).
 2. The author then reads the whole chapter manually and discusses it with Claude section by section; Claude applies the
    agreed adjustments on the same branch/PR.
-3. Only after that final adjustment is the chapter finished (author merges the PR).
+3. Only after that final adjustment is the chapter finished (Claude merges the PR when the author says so).
 4. After all chapters are cleared: a full chapters 1–6 consistency check (plus abstract and appendices).
 Several chapters may share one conversation when context allows. If the previous chapter's PR is still under the author's
 reading, stack the next branch on it (PR base = previous review branch) and retarget the base to `branch/ruc-classifier`
@@ -147,7 +148,8 @@ after the previous PR merges.
   down and prunes below 0.50 (not "upward-only", not "below the storage threshold"); no L2 anchor on the LoRA path
   (λ_anc = 0); memory search is exact at the realised 12 175 entries (IVF-PQ only from 20 000); value-score pruning never fired.
 - **Skimmable structure (2026-10-16):** where a passage lists parallel items, mark them visibly and pick the device per
-  passage: bold run-in lead-ins for paragraph-length items, itemize for short items, subsubsection headings only for
+  passage: bold run-in lead-ins ending in a colon, never a full stop ("\textbf{No memory:}"; the full-stop form reads as
+  machine-written, author 2026-10-16) for paragraph-length items, itemize for short items, subsubsection headings only for
   multi-paragraph or cross-referenced items. The section title must name all the items (ch1 sec:stateless-gap renamed
   "Three reinforcing shortcomings"; label kept).
 - **Citation style (2026-10-16):** name the study ("Guo et al.~\cite{..} found ...") whenever a sentence relies on its finding,
@@ -158,6 +160,14 @@ after the previous PR merges.
 - **Transfer benchmarks (2026-10-16): KEEP** TruthfulQA and StrategyQA (pre-registered in ch1; dropping them after seeing
   results would be selective reporting; TruthfulQA is the second RUC-ablation gate in ch6). Only TruthfulQA is negative:
   EM 0.433 (B1) → 0.380 (C0, before any training) → 0.300 (C5); StrategyQA is flat (0.650 → 0.640, CHM 0.120 → 0.099).
+- **Early stop at cycle five (APPROVED 2026-10-16, author: "thesis should be as transparent as it is supposed to be"):**
+  say the run stopped after C5 as planned after the C4 retention abort; the automatic early-stop check fired at the same
+  point, but two inputs were mis-wired (storage signal read the evaluation-fold storage rate, always 0, instead of the stream
+  admission rate ≈50%; retention signal compared raw MMLU accuracy ≈0.61 with the 0.93 ratio floor instead of the ratio,
+  0.94–1.00), so it was certain to fire at its first run and is not evidence of saturation. Canonical wording: ch3
+  sec:env-cycles. Never write "closed on / terminated by the equilibrium-saturation gate" as evidence of equilibrium.
+- **Tier 1 in the run:** never fired because every per-cycle stream chunk is fresh (disjoint from earlier chunks) and the
+  evaluation fold is disjoint from both; say this wherever Tier 1 shares or memory-direct savings are discussed.
 
 ## Carried items (apply when you reach the chapter)
 - **Q1 decision (ch4, ch5, ch6):** `p_ground^atomic` equalled `p_ground^mean` on all 14,951 run samples (length gate

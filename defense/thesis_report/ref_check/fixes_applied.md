@@ -1264,3 +1264,98 @@ Build (latexmk, clean): 268 pages, 0 errors, 0 undefined refs/citations, 0 multi
   "sixteen to two hundred and fifty-six" → "$16$ to $256$". LoRA acronym introduced at first use (Preliminaries).
 - Kept bare: general background (Transformer, NLI definition, survey taxonomies, FAISS), named systems (Self-consistency,
   MiniCheck, DPR-RAG, FLARE, Adaptive-RAG), and the Summary of Key Findings recap (studies already named in the Review).
+
+## Chapter 3 (branch `review/ch3`, from `branch/ruc-classifier` @ ecb2957)
+
+Words 6,437 → 4,861. Every claim checked against code, run logs, outputs and appendices.
+
+**Factual corrections**
+- NFR2 / cost-benefit / ethics: removed "π_store = 0.796 over 289 stored entries … under the locked composite", "near 19%",
+  and "τ 0.65 admits a factor of four fewer at the same precision". Sweep re-run (`outputs/cycle_0/sweep_v2_1/README.md`):
+  289 @ 0.796 is the legacy weighted-sum bootstrap composite; the locked configuration stores 558 @ 0.751 (validation fold);
+  on the calibration fold τ 0.60 → 560 @ 0.780 vs τ 0.65 → 281 @ 0.865 (half as many, higher precision). Ch3 is now
+  number-free on the sweep ("chosen on the cycle-zero calibration fold before the main run", matching ch1 D6); the Q4
+  numbers stay an open author decision for ch5.
+- Retroactive pass: "prunes below the storage threshold" → re-scores up or down and removes entries below 0.50
+  (`retroverify_prune_threshold = 0.50`, `retroverify_allow_downgrade = True`).
+- Software standards rewritten: there is no pinned requirements file (appendix E says so), no structural pattern matching
+  in the code, no 88-character configuration, and only two Git tags (not a tag per cycle). Now: PEP 8 broadly, versions in
+  app:repro-versions, single seed with non-bitwise-deterministic attention kernels, one branch per phase, per-cycle archives.
+- Undelivered appendix promises removed: per-phase carbon table, licence catalogue with access dates and version hashes,
+  milestone planned/actual dates, rented-credit envelope (none exists in appendix E). Downgraded 16 GB envelope kept
+  (app:repro-hardware exists).
+- "Public dataset host" snapshot → the Hugging Face repository is private (on request); Drive folder is the shared archive.
+- Environmental footprint: added main-run wall-clock from `outputs/full_run/experiment.log` ("Cycle N done in … min":
+  361.0, 1742.9, 2125.1, 2590.0, 1457.1, 3278.9 → 6.0/29.0/35.4/43.2/24.3/54.6 h, ≈193 h) and an upper bound on GPU energy
+  at the RTX 5090's rated 575 W (≈111 kWh); no carbon figure because the host grid factor is unknown.
+- Cost-benefit: "ΔC_store ≤ 0" was false (every stored entry is re-verified each later cycle: ≈38 min at C1 for 431 entries,
+  ≈16 h at C5 for 10,214). Equation reduced to the benefit side; benefit tied to repeated questions (Tier 1 probe 42/50,
+  19/50; 7 of 9,000 on the evaluation fold).
+- Deployment projection: "headline economic claim" → design intent; realised tier shares (tab_tier_trajectory pooled):
+  Tier 1 ≤ 0.1%, Tier 2 and Tier 3 each 45–55% across cycles, so neither moved as designed.
+- Cycle-budget rationale: the ten-cycle cap no longer "is the point the convergence analysis predicts"; thm:convergence named as
+  a heuristic; Song et al. cited for saturation.
+- "Rehearsal buffer" removed (no such component); "at the chapter-one level … quantified in sec:economic" removed
+  (wrong chapter; not quantified); unsupported "shortens the time to convergence" removed.
+- Milestones: the first calibration iteration failed on the signal-dump bug (appendix B), not on the judge correlation floor
+  (that was the separate judge ablation); main-run completion date 27 May 2026 (`run_complete.json`).
+- Societal claims softened: "strict improvement" → "preferable"; "removes the most dangerous failure mode" → "reduces";
+  "honest abstention rather than confident harm" → mechanisms reduce but do not remove the risk.
+- Risk register: stale "Pending main run" entries resolved — calibration drift Partly (cal-fold precision 0.732–0.746;
+  cal-eval gap in ch5); new Forgetting row (C4 abort, TriviaQA-test 0.886); credit exhaustion Yes once (commit 88dcc3a,
+  2026-05-17, earlier run, resumed); node reclamation and storage exhaustion Not observed; early-stop row neutral pending
+  author decision (see progress file). Caption no longer "as of the cycle-zero validation gate".
+
+**Structure and style**
+- Functional and non-functional paragraphs no longer repeat their tables item by item; bold lead-ins for the NFRs, the
+  dual-use mechanisms and the evaluation-protocol standards; itemised lists for the design commitments, reproducibility
+  artefacts, phases, deliverables and risks; risk paragraphs merged with the register (mitigation text no longer
+  duplicated three times).
+- Citations: Kamath et al. (bracket-as-noun fixed), Alkaissi and McFarlane, Chelli et al., Kadavath et al., Song et al.,
+  Edwards. Header comment "Status: SKELETON" removed.
+
+### Chapter 3, part 2: author decisions (2026-10-16)
+
+- Lead-in punctuation: every bold opening now ends in a colon instead of a full stop (ch3: 36; ch1: 6, the three
+  shortcomings and the three prior-pipeline families). Author: the full-stop form looks machine-written.
+- Early stop disclosed (author approved): sec:env-cycles now states that the run stopped after cycle five as planned after the
+  cycle-four abort, and that the automatic check fired at the same point on two mis-wired inputs (evaluation-fold storage rate,
+  always 0, instead of the stream admission rate ≈ half; raw MMLU accuracy ≈0.61 against the 0.93 ratio floor instead of the
+  ratio, 0.94–1.00), so its firing is not evidence of saturation. Risk register row: Yes, with that reading.
+- Tier 1: cost-benefit and deployment sections now say why it never fired: each cycle drew a fresh stream chunk sharing no
+  question with earlier chunks, and the evaluation fold is disjoint from both (disjoint per-cycle chunks built in
+  `scripts/run_experiment.py`, "Build disjoint 6-way pool splits").
+
+### Chapter 3, part 3: author read-through (2026-10-16)
+
+- RUC ablation is not a separate run: tab_ruc_ablation compares Phase 1d (classifier off; Drive `3_ruc_ablation_phase1d/`,
+  `run_complete.json`: committed cycles 1–3, cycles 4–5 aborted) with the main run at C3. Compute phases are now three; the
+  ablation "needed no run of its own"; econ-budget explains why C3 (last cycle both trajectories committed).
+- Earlier runs added: three earlier trajectories (first benchmark panel = Drive `9_archive/v1_panel/`; run stopped May 2026 =
+  `9_archive/phase1c_failed_2026-05-09/`; Phase 1d). Phase 1d wall clock from its run log (Drive
+  `3_ruc_ablation_phase1d/full_run/experiment.log`, "Cycle N done in": 312.5, 1506.3, 1874.1, 2053.9, 1149.7, 1150.3 min →
+  ≈134 h). Logs of the first two not archived; "several times the compute of the main run" per author's account (3–4 earlier
+  runs of similar cost). Author to confirm the count.
+- Digits: "thirty-two-gigabyte" → "$32$-gigabyte", "sixteen-gigabyte" → "$16$-gigabyte" (matches "$64$-gigabyte").
+- Strict training threshold stated: 0.70 against 0.60 (`min_u_stored_for_training = 0.70`).
+- Abstention checked against `caem/verification/verifier.py` L64–70: ABSTAIN = u_stored < 0.45 and p_ground_max < 0.20;
+  DISCARD = u_stored < 0.45 with p_ground_max ≥ 0.20 (answer shown with a "conflicting" warning); STORE and DEFERRED shown
+  with tags (`caem/production/confidence.py`). Ch1/ch2 wording already matches; ch3 marginalised-user sentence tightened.
+- Live demonstration removed (not planned; 15-minute defence); deliverables now five, lead-ins with colons.
+- Early-stop: code fixed (`scripts/run_experiment.py`: storage signal now reads the Step 4 stream-pass admission rate,
+  sample-weighted; retention signal receives the ratio current/pristine). Replay
+  (`scripts/replay_early_stop_gate.py` → `outputs/analysis/early_stop_gate_replay.json`): realised wiring fires
+  storage_saturation + mmlu_floor (stop); corrected wiring fires none (no stop) at C5. Ch3 sec:env-cycles, risk item and
+  register row now say the wiring was corrected after the run and what the replay shows.
+- Storage exhaustion: realised (author's account): the rented node's disk filled; data copied node to node with the
+  provider's support; run resumed from its last checkpoint. Register row Yes.
+
+### Chapter 3, part 4: closing checks (2026-10-16)
+
+- Earlier-run count confirmed by the author as three.
+- Ablation sentence notes that the main run continued to cycle five and its other results cover C0–C5.
+- Early-stop fix re-checked: gate docstring asks for the retention ratio against the guard's 0.93 floor; the eval-pass
+  `storage_rate` in `outputs/full_run/eval/<bench>_cycle<N>.json` is 0.0 for every benchmark and cycle; the stream-pass files
+  `<bench>_cycle<N>_streamchunk.json` record actual memory insertions (`stored_flag` is True only after the novelty filter and
+  `memory_store.add`): 0.520, 0.527, 0.526, 0.529, 0.499 for C1–C5, matching appendix C. Replay script now reads these
+  admission rates; result unchanged (corrected wiring fires no signal at C5). `tests/test_equilibrium.py`: 23 passed.
