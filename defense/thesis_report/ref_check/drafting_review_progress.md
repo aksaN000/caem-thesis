@@ -11,7 +11,7 @@ Baseline build (latexmk, 2026-10-16): 324 pages, 0 errors, 0 undefined refs/cita
 |---|---|---|
 | Step 1: p_ground^mean vs p_ground^atomic | done (report) | Identical on 14,951/14,951 run samples; see open question Q1 |
 | Front matter | done; PR #4 open; title month pending | branch `review/front`; 22 changes logged |
-| Chapter 1 | pending | |
+| Chapter 1 | Claude pass done; PR #5 open; awaiting author's manual read + discussion | branch `review/ch1`; 45 changes logged in fixes_applied.md |
 | Chapter 2 | pending | |
 | Chapter 3 | pending | |
 | Chapter 4 | pending | |
@@ -93,3 +93,94 @@ paragraph gap (e.g. `\setlength{\parskip}{0.5\baselineskip}`), or keep the templ
   locked configuration passes criteria 1–2 but is not the criterion-3 maximum (α = 1.0 stores more correct items), so
   its choice should be justified by the shrinkage rationale. (v) every variant stores 0 TriviaQA items on the validation
   fold (calibration-to-validation shift), consistent with the main run's C1 calibration fold (1 TriviaQA store).
+
+## Chapter 1 (2026-10-16): decisions for the author (RESOLVED same day, see resolutions below)
+
+**D1 (ch1 L64; also ch2 L275/281/287/291 [frozen], ch3 L145, ch4 L555, ch5 L41, appendix E L15).** Every chapter says HotpotQA,
+Natural Questions and ARC-Challenge were retired "on cycle-zero diagnostic evidence that they violated the
+verifier-balanced-accuracy precondition", and that "all three are kept on disk as registered exclusion evidence". The only
+record found (archive/branch_C_log_historical.md:4680–4717) gives a different reason: HotpotQA cold-start base EM 0.090,
+"unstoreable" (the Bayes floor at the then-conformal target needed a TPR/FPR ratio near 192); Natural Questions halted
+part-way (384 processed) and dropped with it; no record found for ARC-Challenge. The receipts the log names
+(`outputs/cycle_0/eval_excluded_v21/`, `outputs/cycle_0/eval/{hotpotqa,natural_questions}_cycle0.json`) are not in local
+`outputs/`. Options: (a) search Drive `9_archive` for the receipts and restate the real reason (base accuracy too low for the
+gate to store at the target precision); (b) soften everywhere to "retired before the main run on cycle-zero diagnostics" and
+drop "kept on disk" unless found. Touches frozen ch2.
+
+**D2 (tab:hyp-registration; ch5 tab:hypothesis-verdicts).** H2 ("pool purity is non-decreasing") is mapped to thm:purity,
+which is a floor, not a monotonicity result. The monotonicity statement in ch4 is the remark thm:bayes-convergence (and the
+storage-rate heuristic thm:monotone). Hypothesis text left untouched (pre-specified); correct only the mapping column? Ties to
+the H2 verdict problem already logged for ch5.
+
+**D3 (ch1 L72, problem statement).** The requirement "user-facing answers carry a precision guarantee that holds under modest
+distribution shift between calibration data and live data" conflicts with the design history (conformal rejected because the
+shift broke its guarantee) and with thm:purity's exchangeability premise. Soften to e.g. "carry a calibrated reliability
+estimate whose precision is checked on held-out data"? Changes the problem definition, so not applied.
+
+**D4 (redundancy).** sec:three-shortcomings and sec:coupling-exclusions (L76–90) restate sec:stateless-gap (L25–34) almost
+sentence for sentence, with the same citations. Proposal: shrink sec:three-shortcomings to three sentences that point back to
+sec:stateless-gap, and keep only the exclusions paragraph of sec:coupling-exclusions. Cuts content, so not applied.
+
+**D5 (fig:experimental-workflow body).** Caption now says "design view". The bullets "Tier 1 share rises", "Highest Tier 1
+share" and "Memory: mature, near-equilibrium" still read as outcomes (realised Tier 1 ≤ 0.1%). Reword the bullets (e.g.
+"Memory grows; Tier 1 serves repeated questions"), or keep them as the design picture?
+
+**D6 (Obj 4 L116, L275).** "The storage cut-point is selected against the cycle-zero threshold sweep so that the realised
+per-store empirical precision on the calibration fold is anchored to a known number": align with the Q4 sweep outcome once the
+ch5 decision is made (locked configuration is not the criterion-3 maximum; justify by the shrinkage rationale).
+
+## Carried from chapter 1 to later chapters
+
+- **ch4 L37/49/73, appendix F L57:** "encoder-layer convergence ratio": the backbone is decoder-only; the ratio is computed
+  from decoder-stack hidden states (`caem/confidence/pre_routing.py`). Ch1 now says "layer-convergence ratio".
+- **ch4 L42/97/105, ch5 L507:** "upward-only" retroactive update rule: the code overwrites the stored score up or down
+  (`retroverify_allow_downgrade = True`) and prunes below 0.50, not below the storage threshold. Ch4's thm:purity (ii) is
+  already correct.
+- **ch4 L509, thm:bayes-convergence (ch4 ~L694), ch5 L232:** "the $L_2$ adapter anchor of eq:sil-anchor": the L2 anchor is
+  removed on the LoRA path (`caem/config.py:670`); check what eq:sil-anchor defines. Ch1 says "no explicit quadratic anchor".
+- **ch2 L118 (frozen), ch4 L348, ch5 L317/L575, ch6 L32:** "fifteen to fifty percentage points" below the conformal target:
+  only source is archive/branch_C_log_historical.md:4788; no artefact. Removed from ch1.
+- **ch6:** the novelty threshold (0.95) has no sensitivity analysis; ch1's promise was removed. Consider a limitation +
+  future-work pair.
+- **ch3/ch6 (cost):** retroactive pass wall time grows with memory: about 38 min for 431 entries (C1) to about 16 h for
+  10,214 entries (C5) (experiment.log).
+- **ch5 (Q7):** once the Tier-1 probe is reported, ch1 L58 (realised tier shares) can point to it as the repeated-question
+  evidence.
+- **Style, all chapters:** the closing section is titled "Chapter signpost" (sentence case) in ch1–ch5 while other headings
+  use title case; left unchanged because ch2 is frozen.
+
+### Resolutions (author, 2026-10-16)
+
+- **D1 → applied globally.** Only HotpotQA and Natural Questions are mentioned; ARC-Challenge removed from the prose
+  everywhere (ch2 L212 keeps a cited study's ARC metric). The real reason, from the receipts on Drive: base EM 0.090 / 0.172;
+  the gate stored 26 / 12 of 500 at purity 0.500 / 0.417; gate balanced accuracy was 0.630 / 0.521, i.e. above one half, so the
+  old "balanced-accuracy precondition violated" reason was false. **Appendix session:** appendix B tables prompt_compliance,
+  atomic_scope and tab_prompt_design_ablation still carry ARC-C rows (earlier-panel data with NQ and ARC but no
+  CommonsenseQA); decide whether to drop those rows or the tables.
+- **D2 → mapping fixed.** H2 maps to the Bayes-purification recurrence remark (thm:bayes-convergence) in ch1 and ch5; the
+  pre-specified hypothesis text is unchanged. **ch5 session (verdict change APPROVED by the author 2026-10-16):** as registered, H2 is falsified
+  (cal-fold purity 0.746 → 0.740 → 0.736 → 0.746 → 0.732 falls at C1, C2, C5); recommended verdict "unsupported as registered;
+  the fluctuation (width 0.014) is within binomial noise and purity stays above the thm:purity floor". The ch5 caption's
+  "bounded-band restatement of thm:purity" must go with it.
+- **D3 → softened** to a per-cycle refitted calibrated probability whose precision is checked on held-out data; rejected
+  conformal history removed from ch1 (kept in ch4).
+- **D4 → trimmed:** shortcomings/coupling merged; per-query-pipeline duplicate removed; mitigation subsection removed;
+  objective-section methodology paragraph moved; panel described once (sec:scope-research). 9 215 → 8 377 words.
+- **D5 → figure bullets and caption reworded;** Tier-1 probe numbers added to ch1 L58. **ch5 session:** report the probe in
+  ch5 with a table/label, then point ch1 L58 at it.
+- **D6 → ch1 now number-free** ("chosen on the cycle-zero calibration fold before the main run"), so the Q4 outcome in ch5 cannot
+  contradict it.
+- **Signpost → keep** (all chapters use one; the BRAC template lists minimum sections, not a closed list).
+
+## Carried from the ch1/ch2 read-through (author, 2026-10-16)
+
+- **Citation pass, ch3–ch6 + appendices (NOT yet done):** apply the citation-style rule in SESSION_START "Standing author
+  decisions". Bracket-as-noun counts found on 2026-10-16: ch3 1 (L163), ch4 12 (e.g. L64, L73, L278, L285, L343, L507 ×3,
+  L600 ×2), ch5 7 (e.g. L366, L426, L600), appendices 0; also name the study on bare claims that carry a number.
+- **Transfer-panel framing (ch5, ch6, abstract):** keep both transfer benchmarks; say plainly that the headline is the
+  training panel; split the TruthfulQA loss into the part present at C0 before any training (−5.3 points, retrieval and
+  architecture) and the part during self-improvement (−8.0 points, C0 → C5; "consistent with" drift away from what
+  TruthfulQA rewards, not shown). StrategyQA: EM flat, CHM falls. Source: tab_per_bench_trajectory, tab_headline_decomposition.
+- **Forgetting controls (if an examiner-facing passage needs it, ch4/ch6):** LoRA rank 32 on a frozen base, retention probe
+  with rollback (fired once, C4, TriviaQA-test 0.395 → 0.345), pool rebalancing (max share 0.40), training filter 0.70; no L2,
+  no EWC. LoRA + EWC was never ablated: say so if the choice is defended.

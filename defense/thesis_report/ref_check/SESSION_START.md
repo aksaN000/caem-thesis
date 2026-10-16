@@ -106,6 +106,59 @@ HOW TO WORK
 - Code is the source of truth over report prose; TruthfulQA EM is the Haiku-judged field (`em_llm_judged`), never the
   ROUGE proxy.
 
+## Per-chapter workflow (author, 2026-10-16)
+1. Claude does the full pass on the chapter (findings, allowed fixes, log, build, push, PR).
+2. The author then reads the whole chapter manually and discusses it with Claude section by section; Claude applies the
+   agreed adjustments on the same branch/PR.
+3. Only after that final adjustment is the chapter finished (author merges the PR).
+4. After all chapters are cleared: a full chapters 1–6 consistency check (plus abstract and appendices).
+Several chapters may share one conversation when context allows. If the previous chapter's PR is still under the author's
+reading, stack the next branch on it (PR base = previous review branch) and retarget the base to `branch/ruc-classifier`
+after the previous PR merges.
+
+## Standing author decisions (2026-10-16, ch1 session; apply in every chapter)
+- **Dropped benchmarks:** mention only HotpotQA and Natural Questions; ARC-Challenge is removed from the thesis prose (a cited
+  study's ARC metric in ch2 L212 stays). Reason, from the receipts on Drive (`9_archive/pre_main_snapshot/700b9e3_phase1d/
+  cycle_0/eval_excluded_v21/hotpotqa_cycle0.json`, `9_archive/v1_panel/full_run/cycle_0/eval/natural_questions_cycle0.json`):
+  base EM 0.090 / 0.172; the gate stored 26 / 12 of 500 at purity 0.500 / 0.417. The gate's balanced accuracy was 0.630 / 0.521
+  (above one half), so never say they "violated the balanced-accuracy precondition". Canonical wording: ch1 sec:scope-research.
+- **Theory:** whenever a theorem, proposition, heuristic or remark appears, check its maths and its hypotheses, name it by its
+  real status (only thm:purity and thm:bayes-purity are proven; never call heuristics or remarks "formal claims" or "proven"),
+  and write the explanation in plain language with terms defined (e.g. "committed cycles = cycles whose fine-tune was kept").
+  Pre-specified hypothesis statements are never reworded; their mapping column and explanatory notes may be corrected.
+  H2 now maps to thm:bayes-convergence (ch1 + ch5 tables). **H2 verdict change APPROVED (2026-10-16):** in ch5 report H2 as
+  unsupported as registered (cal-fold purity 0.746 → 0.740 → 0.736 → 0.746 → 0.732 falls at C1, C2, C5), noting the range
+  (0.014) is within binomial noise and purity stays above the thm:purity floor; drop the "bounded-band restatement" wording.
+- **Trim:** the thesis is long; where a passage repeats another, keep one canonical place and cross-reference (panel and
+  dropped benchmarks: ch1 sec:scope-research / ch5 sec:setup; method detail: ch4; rejected designs such as the conformal gate:
+  ch4 sec:conformal-gate only). The author pre-approved merging or deleting duplicated passages; still ask before cutting a
+  unique result or section.
+- **Claims that no longer hold** (guarantees from rejected designs, promises of analyses that were never run): pick the best of
+  delete / soften / find more context, check the alternatives, then apply and log.
+- **Tier 1:** answers only repeated or paraphrased questions; evaluation questions are content-disjoint from stored episodes, so
+  Tier 1 rarely fires on the evaluation fold (7 of 9 000). Probe (`outputs/tier1_routing_probe/`): fired on 42/50 exact repeats
+  and 19/50 paraphrases, correct 41/42 and 19/19. Describe tier migration as design intent, with the realised shares.
+- **TruthfulQA:** language-model judged (Haiku), justified as following the judge-based protocol of the TruthfulQA paper (GPT-judge)
+  and applied uniformly to every system; state this, do not apologise for it.
+- **Number style:** digits for measured quantities ("$58$ percent", "$0.63$"); no spelled-out decimals.
+- **"Chapter signpost" sections:** keep (the BRAC template lists minimum sections, not a closed list).
+- **Code facts that the prose gets wrong in several chapters:** pre-route ratio is a decoder "layer-convergence ratio" from a
+  32-token greedy decode (not "encoder-layer", not "a single forward pass"); the retroactive pass rewrites stored scores up or
+  down and prunes below 0.50 (not "upward-only", not "below the storage threshold"); no L2 anchor on the LoRA path
+  (λ_anc = 0); memory search is exact at the realised 12 175 entries (IVF-PQ only from 20 000); value-score pruning never fired.
+- **Skimmable structure (2026-10-16):** where a passage lists parallel items, mark them visibly and pick the device per
+  passage: bold run-in lead-ins for paragraph-length items, itemize for short items, subsubsection headings only for
+  multi-paragraph or cross-referenced items. The section title must name all the items (ch1 sec:stateless-gap renamed
+  "Three reinforcing shortcomings"; label kept).
+- **Citation style (2026-10-16):** name the study ("Guo et al.~\cite{..} found ...") whenever a sentence relies on its finding,
+  number or method; a bare citation at the end of a general background sentence is fine; never use the bracket as a noun
+  ("in the sense of \cite{..}", "the approach of \cite{..}"); write "et al." (not "and colleagues"). Recap sections such as
+  ch2 Summary of Key Findings may stay bare because the studies were named earlier. DONE for ch1 and ch2; ch3, ch4, ch5,
+  ch6 and appendices still to do (see carried items).
+- **Transfer benchmarks (2026-10-16): KEEP** TruthfulQA and StrategyQA (pre-registered in ch1; dropping them after seeing
+  results would be selective reporting; TruthfulQA is the second RUC-ablation gate in ch6). Only TruthfulQA is negative:
+  EM 0.433 (B1) → 0.380 (C0, before any training) → 0.300 (C5); StrategyQA is flat (0.650 → 0.640, CHM 0.120 → 0.099).
+
 ## Carried items (apply when you reach the chapter)
 - **Q1 decision (ch4, ch5, ch6):** `p_ground^atomic` equalled `p_ground^mean` on all 14,951 run samples (length gate
   `atomic_min_tokens = 12`: 99.0% skipped; remaining 1.0% returned no facts). Keep "nine signals" as the design; add a
