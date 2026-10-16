@@ -13,7 +13,7 @@ Baseline build (latexmk, 2026-10-16): 324 pages, 0 errors, 0 undefined refs/cita
 | Front matter | done; PR #4 open; title month pending | branch `review/front`; 22 changes logged |
 | Chapter 1 | done; merged (PR #5) | branch `review/ch1`; 45 changes logged in fixes_applied.md |
 | Chapter 2 | done; merged (PR #6 into review/ch1, then PR #7 into main) | branch `review/ch2`; 16 152 → 11 740 words |
-| Chapter 3 | Claude pass done; PR open; awaiting author's read + early-stop decision | branch `review/ch3`; 6 437 → 4 861 words |
+| Chapter 3 | done; author read-through closed 2026-10-16; merged (PR #8) | branch `review/ch3`; 6 437 → 4 861 words |
 | Chapter 4 | pending | |
 | Chapter 5 | pending | pre-found issues: `review_ch5_part1.md` |
 | Chapter 6 | pending | pre-found issues: `review_ch5_part2_ch6.md` |
@@ -214,4 +214,4 @@ ch5 decision is made (locked configuration is not the criterion-3 maximum; justi
 - **Early-stop code fixed (2026-10-16)** in `scripts/run_experiment.py`; replay evidence `outputs/analysis/early_stop_gate_replay.json`
   (script `scripts/replay_early_stop_gate.py`): corrected wiring fires no signal at C5. ch4/ch5/ch6/appendix C should say
   the fault was corrected after the run and cite the replay, as ch3 sec:env-cycles does.
-- **Earlier runs:** ch3 says three earlier trajectories; author to confirm the count (he recalled 3 or 4).
+- **Earlier runs:** three earlier trajectories (author confirmed 2026-10-16: "mark it as 3").

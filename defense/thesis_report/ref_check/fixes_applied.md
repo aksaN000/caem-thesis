@@ -1349,3 +1349,13 @@ Words 6,437 → 4,861. Every claim checked against code, run logs, outputs and a
   register row now say the wiring was corrected after the run and what the replay shows.
 - Storage exhaustion: realised (author's account): the rented node's disk filled; data copied node to node with the
   provider's support; run resumed from its last checkpoint. Register row Yes.
+
+### Chapter 3, part 4: closing checks (2026-10-16)
+
+- Earlier-run count confirmed by the author as three.
+- Ablation sentence notes that the main run continued to cycle five and its other results cover C0–C5.
+- Early-stop fix re-checked: gate docstring asks for the retention ratio against the guard's 0.93 floor; the eval-pass
+  `storage_rate` in `outputs/full_run/eval/<bench>_cycle<N>.json` is 0.0 for every benchmark and cycle; the stream-pass files
+  `<bench>_cycle<N>_streamchunk.json` record actual memory insertions (`stored_flag` is True only after the novelty filter and
+  `memory_store.add`): 0.520, 0.527, 0.526, 0.529, 0.499 for C1–C5, matching appendix C. Replay script now reads these
+  admission rates; result unchanged (corrected wiring fires no signal at C5). `tests/test_equilibrium.py`: 23 passed.

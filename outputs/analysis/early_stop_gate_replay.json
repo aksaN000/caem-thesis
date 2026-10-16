@@ -31,13 +31,13 @@
     0.9783,
     0.9592
   ],
-  "stream_store_rate": [
-    0.3774,
-    0.5776,
-    0.5645,
-    0.5843,
-    0.5915,
-    0.5513
+  "stream_admission_rate": [
+    null,
+    0.5198,
+    0.527,
+    0.5257,
+    0.5285,
+    0.4985
   ],
   "realised_wiring": {
     "signals_fired": [
