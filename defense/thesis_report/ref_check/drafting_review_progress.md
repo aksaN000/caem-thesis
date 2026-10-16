@@ -11,8 +11,8 @@ Baseline build (latexmk, 2026-10-16): 324 pages, 0 errors, 0 undefined refs/cita
 |---|---|---|
 | Step 1: p_ground^mean vs p_ground^atomic | done (report) | Identical on 14,951/14,951 run samples; see open question Q1 |
 | Front matter | done; PR #4 open; title month pending | branch `review/front`; 22 changes logged |
-| Chapter 1 | Claude pass done; PR #5 open; awaiting author's manual read + discussion | branch `review/ch1`; 45 changes logged in fixes_applied.md |
-| Chapter 2 | pending | |
+| Chapter 1 | Claude pass + author read-through applied (2026-10-16); PR #5 open, ready for the author to merge | branch `review/ch1`; 45 changes logged in fixes_applied.md |
+| Chapter 2 | Claude pass + author read-through applied (2026-10-16); PR #6 open (stacked on review/ch1; retarget after #5 merges) | branch `review/ch2`; 16 152 → 11 740 words |
 | Chapter 3 | pending | |
 | Chapter 4 | pending | |
 | Chapter 5 | pending | pre-found issues: `review_ch5_part1.md` |
@@ -172,6 +172,18 @@ ch5 decision is made (locked configuration is not the criterion-3 maximum; justi
   contradict it.
 - **Signpost → keep** (all chapters use one; the BRAC template lists minimum sections, not a closed list).
 
+## Carried from chapter 2
+
+- **ch5 L446 (B6):** says vanilla fine-tuning trains "on the verified episode pool … every selected episode is treated as a clean
+  label" and "without the bounded low-rank-adapter envelope". Code: full fine-tune on raw question–answer pairs from the three
+  training benchmarks (`scripts/run_simple_ft.py`, `launch_baselines.sh`: 700 per benchmark, 5 cycles), no verifier filter.
+- **ch5 (B5):** five-shot demonstrations come from the first benchmark of the launch list (`scripts/run_baseline.py:296`); confirm
+  which benchmark the final B5 run used before naming it.
+- **ch5/ch6:** STaR and Self-RAG are not run; remove any "optional reference" rows or promises.
+- **Semantic entropy as a signal:** canonical reason now in ch2 sec:lit-self-consistency, ch4 L285 and appendix G (learned weight
+  ≈ −0.0005, largest verifier cost). Never cite the "Pearson = 0" reading: it was measured after the signal had been disabled.
+- **Unsourced claims removed from ch2** (tell the author if wanted back with a source): Google FACTS 6.4% legal, Vectara 3%/27.2%,
+  retrieval-utility AUC "ceiling" 0.80–0.86 / 0.65–0.75 and SeaKR.
 ## Carried from the ch1/ch2 read-through (author, 2026-10-16)
 
 - **Citation pass, ch3–ch6 + appendices (NOT yet done):** apply the citation-style rule in SESSION_START "Standing author
