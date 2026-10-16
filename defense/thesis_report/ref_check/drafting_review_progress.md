@@ -264,3 +264,10 @@ ch5 decision is made (locked configuration is not the criterion-3 maximum; justi
 - **Repo clean-up phase (author request 2026-10-16):** after the chapter pass, make the repository plug-and-play (one
   environment file, one command per stage, generators that reproduce every committed table without hand edits, superseded
   scripts archived with a README).
+- **ch6 must contain (promised by ch5, 2026-10-16):** a frozen-composite ablation cycle (monotonicity); an arm-isolating
+  classifier run (corrections without the classifier); the phantom-context preprocessing fix (one sentence, author request);
+  multi-seed and second-backbone replication; flexible-match re-scoring (format learning); retraining on a cleaned pool
+  (poison test); a labelled per-cycle TPR/FPR/p measurement; ≥ 15 kept cycles; tier-latency at batch 1; corpus-ceiling proxy;
+  evaluation with repeated questions (deployment). ch6 and the abstract must also adopt the ch5 headline (three-step
+  decomposition), the verdicts (H1 supported, H2 unsupported, H3 supported, H4 partially supported, H5 unsupported), and drop
+  "clean StrategyQA win", "parity with fine-tuned baselines", "deployed cost envelope / without scaling".

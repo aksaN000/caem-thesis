@@ -1,3 +1,4 @@
+% Caption shortened by hand in the final drafting pass (2026-10); detail moved to chapter 5 text.
 % Auto-generated from outputs/tab_decision_matrix_trajectory.csv
 % Per-bench per-decision (STORE / DEFER / DISCARD) outcome counts and STORE precision
 % at C2 (within-trajectory best) and C5 (trajectory-end).
@@ -26,6 +27,6 @@ C5 & StrategyQA & $45$ & $10$ & $0.818$ & $100$ & $53$ & $0$ & $1$ \\
 \bottomrule
 \end{tabular}%
 }
-\caption[Per-benchmark four-outcome decomposition at the best (C2) and final (C5) cycles.]{Per-benchmark four-outcome decomposition at the within-trajectory best cycle (C2) and the trajectory-end cycle (C5). \emph{Store} $\checkmark$ and \emph{Store} $\times$ are the correct and incorrect counts in the storage class; \emph{Store $\pi$} is the realised per-bench storage precision $\pi_{\text{store}}$ at the locked cut-point $\tau_{\text{store}} = 0.60$. The training-panel benchmarks (FEVER, TriviaQA, CommonsenseQA) admit large storage classes at $\pi_{\text{store}}$ in the band $[0.66, 0.78]$ across the two anchor cycles; the transfer-panel TruthfulQA storage class is small (storage gate does not fire on transfer-panel queries by design, so the few storage cells reflect the calibration-fold rescore rather than live storage) and StrategyQA records the highest per-bench precision at $0.818$ on the trajectory-end cycle. The within-bench ordering $\pi_{\text{store}} > \mathrm{prec}(\text{defer}) > \mathrm{prec}(\text{discard})$ holds in five of the ten rows (C2 TriviaQA, C2 TruthfulQA, C5 TriviaQA, C5 TruthfulQA, C5 StrategyQA). The first inequality, $\pi_{\text{store}} > \mathrm{prec}(\text{defer})$, holds in every row; the exceptions are C2 FEVER, C2 CommonsenseQA, C2 StrategyQA, C5 FEVER and C5 CommonsenseQA, where the discard class is more precise than the defer class (in C2 CommonsenseQA and C2 StrategyQA the discard class holds a single entry).}
+\caption[Correct and wrong answers per decision at C2 and C5.]{Correct and wrong answers in each decision at C2 and C5, with the precision of the stored class. Training-panel rows come from the stream chunks, transfer-panel rows from the evaluation fold.}
 \label{tab:decision-matrix-trajectory}
 \end{table}

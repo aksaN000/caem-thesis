@@ -70,7 +70,7 @@ Two of these, confident confabulation and false refusal, are defined through the
 \label{eq:ces}
 \end{equation}
 
-\textbf{Retention ratio:} accuracy on each probe divided by its value before any fine-tuning (\Cref{eq:nfr-retention-floor}); the worst probe decides whether a cycle is kept.
+\textbf{Retention ratio:} accuracy on each probe divided by its value before any fine-tuning (\Cref{eq:nfr-retention-floor}); the worst probe decides whether a cycle is kept. \Cref{tab:metrics} summarises the metrics.
 
 \begin{table}[!htbp]
 \centering
@@ -109,15 +109,21 @@ All results in this section use the locked configuration chosen at cycle zero; \
 
 \input{figures/auto/tab_headline_steps.tex}
 
-\textbf{The architecture adds accuracy:} memory, routing, the retrieval-utility classifier and the verifier together raise pooled EM from $0.507$ to $0.541$ before any fine-tuning.
+\input{figures/ch5/fig_trajectory.tex}
+
+\textbf{The architecture adds accuracy:} as \Cref{fig:trajectory} shows, memory, routing, the retrieval-utility classifier and the verifier together raise pooled EM from $0.507$ to $0.541$ before any fine-tuning.
 
 \textbf{The architecture alone is over-cautious:} at C0 the system abstains on $34$ percent of evaluation questions and discards another $32$ percent. False refusal reaches $0.305$, which raises CHM to $0.135$, above B1's $0.120$, even though confident confabulation falls from $0.268$ to $0.087$.
 
 \textbf{Self-improvement helps briefly, then erodes:} after the first cycle the system abstains on only $14$ percent and discards $10$ percent, false refusal falls to $0.067$ and CHM to $0.112$; CHM reaches its minimum of $0.107$ at C2. Pooled EM barely moves ($0.541$ to $0.544$ at C2) and ends at $0.517$, below C0. On the training panel EM peaks at C1 ($0.584$, \Cref{tab:per-bench-trajectory}) and ends at $0.549$.
 
-\textbf{Confident confabulation returns:} as the refitted gate becomes more permissive, confident confabulation rises back to $0.269$ by C5, the level of B1. Because this rate and false refusal are both defined through the verifier's own score, they trade off: their sum is $0.39$ at C0 and between $0.29$ and $0.33$ afterwards. Most of the CHM gain from C0 to C5 is therefore the C0 over-refusal being undone, not fewer wrong answers.
+\textbf{Confident confabulation returns:} as the refitted gate becomes more permissive, confident confabulation rises back to $0.269$ by C5, the level of B1. Because this rate and false refusal are both defined through the verifier's own score, they trade off: their sum is $0.39$ at C0 and between $0.29$ and $0.33$ afterwards. Most of the CHM gain from C0 to C5 is therefore the C0 over-refusal being undone, not fewer wrong answers (\Cref{fig:tradeoff}).
 
-\textbf{The whole system ends ahead of B1, but less careful over time:} at C5, CHM is $0.109$ against $0.120$ for B1, and lower than every external baseline (\Cref{sec:comp-baselines}). In the selective view, which does not depend on the verifier, CAEM is wrong on $38.1$ percent of the questions it answers at C0 and $45.1$ percent at C5, against $49.3$ percent for B1, which answers everything; the error among answered rises in every cycle as the share answered grows from $66$ to $83$ to $88$ percent.
+\input{figures/ch5/fig_tradeoff.tex}
+
+\textbf{The whole system ends ahead of B1, but less careful over time:} at C5, CHM is $0.109$ against $0.120$ for B1, and lower than every external baseline (\Cref{sec:comp-baselines}). In the selective view, which does not depend on the verifier, CAEM is wrong on $38.1$ percent of the questions it answers at C0 and $45.1$ percent at C5, against $49.3$ percent for B1, which answers everything; the error among answered rises from cycle to cycle as the share answered grows from $66$ percent at C0 to $86$ to $88$ percent at C1 to C4 and $83$ percent at C5 (\Cref{fig:selective}).
+
+\input{figures/ch5/fig_selective.tex}
 
 \Cref{tab:pooled-trajectory} gives every cycle, with the three retention ratios. MMLU never comes near the floor (between $0.975$ and $1.041$); the TriviaQA test probe falls to $0.886$ at cycle four and triggers the only rollback. The composite evaluation score (\Cref{tab:ces-caem-trajectory}) rises from $0.593$ to $0.710$, mostly through its verifier-reliability axis, which grows with the calibration-fold separation $d$ (\Cref{tab:gate-quality}); its accuracy axis falls over the same cycles, so the rise in CES should not be read as a rise in accuracy.
 
@@ -166,9 +172,11 @@ The three tables in this subsection use three different folds, named in each par
 \subsubsection{Per-tier hit rate trajectory and per-tier exact match}
 \label{sec:tier-hit}
 
-The design expects the memory-direct share to grow as the memory fills and the zero-shot share to grow as fine-tuning folds retrieved knowledge into the generator. Neither happened on the evaluation fold (\Cref{tab:tier-trajectory}). Tier 1 answered $7$ of the $9{,}000$ evaluation queries over six cycles, because every stream chunk and the evaluation fold share no question with the stored episodes; all seven answers were correct, and a direct probe of the router answered $42$ of $50$ exact repeats and $19$ of $50$ paraphrases of stored questions, $41$ and $19$ of them correctly. The zero-shot share moved from $48.7$ percent at C0 to $50.2$ percent at C5, peaking at $55.2$ percent at C2.
+The design expects the memory-direct share to grow as the memory fills and the zero-shot share to grow as fine-tuning folds retrieved knowledge into the generator. Neither happened on the evaluation fold (\Cref{tab:tier-trajectory}). Tier 1 answered $7$ of the $9{,}000$ evaluation queries over six cycles, because every stream chunk and the evaluation fold share no question with the stored episodes; all seven answers were correct, and a direct probe of the router answered $42$ of $50$ exact repeats and $19$ of $50$ paraphrases of stored questions, $41$ and $19$ of them correctly (\Cref{tab:tier1-probe}). The zero-shot share moved from $48.7$ percent at C0 to $50.2$ percent at C5, peaking at $55.2$ percent at C2.
 
 Within tiers, zero-shot answers are more accurate than retrieval-augmented ones at every cycle ($0.602$ against $0.482$ at C0, $0.537$ against $0.497$ at C5). At C0 this holds on four of five benchmarks, with TriviaQA the exception (\Cref{tab:per-tier-em}). Part of the difference is selection: the router and the classifier send to Tier 2 the questions they judge the generator can already answer. The zero-shot tier's accuracy also falls over the cycles, which is where the self-improvement loop acts.
+
+\input{figures/auto/tab_tier1_probe.tex}
 
 \input{figures/auto/tab_tier_trajectory.tex}
 
@@ -380,11 +388,13 @@ The full contingency counts, the Holm sequences and the procedural detail are in
 
 The eight baselines are zero-shot (B1), chain of thought (B2), retrieval-augmented generation (B3), chain of thought with retrieval (B4), five-shot chain of thought (B5), vanilla fine-tuning (B6), FLARE active retrieval (B7) and semantic-entropy abstention (B8); \Cref{sec:external-baselines} describes them. All use the same backbone. Their CHM is computed by passing their answers through the same verifier with the composite fixed at cycle three, so the hallucination comparison holds the scoring instrument fixed.
 
-\textbf{Pooled comparison} (\Cref{tab:baseline-pooled}): CAEM's CHM is lower than every baseline at both C2 ($0.107$) and C5 ($0.109$); the nearest are B1 and B8 ($0.120$) and B2 ($0.123$), the furthest FLARE ($0.173$). On EM, CAEM leads every baseline at C2 ($0.544$); at C5 ($0.517$) FLARE is slightly ahead ($0.525$) and every other baseline behind, including vanilla fine-tuning ($0.490$).
+\textbf{Pooled comparison} (\Cref{tab:baseline-pooled}, \Cref{fig:baselines}): CAEM's CHM is lower than every baseline at both C2 ($0.107$) and C5 ($0.109$); the nearest are B1 and B8 ($0.120$) and B2 ($0.123$), the furthest FLARE ($0.173$). On EM, CAEM leads every baseline at C2 ($0.544$); at C5 ($0.517$) FLARE is slightly ahead ($0.525$) and every other baseline behind, including vanilla fine-tuning ($0.490$).
 
 \textbf{Per-benchmark tests} (\Cref{tab:sig-test} at C5, \Cref{tab:sig-test-c2} at C2): at C5, $9$ of $40$ EM contrasts are significant wins and $3$ significant defeats; at C2, $14$ wins and $3$ defeats. On the approximate CHM axis, $21$ of $35$ contrasts are starred wins and $3$ defeats at C5, and $20$ wins and $4$ defeats at C2 (B6 has no paired CHM cell). Every starred defeat is on TruthfulQA, against B1, B2, B8 and, at C2, FLARE, the baselines with the highest TruthfulQA accuracy. Against vanilla fine-tuning, CAEM's EM is lower on FEVER and CommonsenseQA with bootstrap intervals below zero (at C5, $[-0.123, -0.010]$ and $[-0.120, -0.010]$), although these contrasts do not survive the Holm correction.
 
 \input{figures/auto/tab_baseline_pooled.tex}
+
+\input{figures/ch5/fig_baselines.tex}
 
 \begin{table}[!htbp]
 \centering\scriptsize
@@ -500,7 +510,7 @@ Headline (\Cref{ch:introduction}) & CAEM reduces confident factual hallucination
 
 \textbf{What carries the gain:} the measured gains come mainly from the architecture rather than from self-improvement. Memory, routing, the classifier and the verifier together add accuracy before any fine-tuning, and the verifier's ability to abstain is what lets CAEM be wrong less often than B1 on the questions it answers. The self-improvement loop's main measurable effect was behavioural: after one cycle the generator stopped refusing questions it could answer, which removed the cold-start over-refusal. Its accuracy gains lasted one or two cycles, in line with Song et al.~\cite{song2024gap}, who find that self-improvement loops saturate within a few rounds.
 
-\textbf{Why the theory does not promise more:} the purification results of \Cref{sec:theory} are about the stored pool, not the model. They held: the stored pool was purer than the generator's raw answers. Whether a model trained on a pool that is still about one-fifth wrong improves is a separate question, and Fu et al.~\cite{fu2025collapse} show that training filtered through a verifier converges to the verifier's own knowledge, mistakes included. The fall in zero-shot accuracy after C2 is consistent with that, though the retraining on a cleaned pool that would show it was not run.
+\textbf{Why the theory does not promise more:} the purification results of \Cref{sec:theory} are about the stored pool, not the model. They held: the stored pool was purer than the generator's raw answers. Whether a model trained on a pool that is still about one-fifth wrong improves is a separate question, and Yi et al.~\cite{fu2025collapse} show that training filtered through a verifier converges to the verifier's own knowledge, mistakes included. The fall in zero-shot accuracy after C2 is consistent with that, though the retraining on a cleaned pool that would show it was not run.
 
 \textbf{TruthfulQA:} the loss has two parts with different causes. Before any fine-tuning, retrieval supports misconceptions and costs $5.3$ points; the classifier reduces this but does not remove it. During self-improvement a further $8.0$ points are lost while abstention on TruthfulQA falls slightly, so the loss is not explained by more abstention; training on the training panel moving the generator away from what TruthfulQA rewards is the more likely cause.
 
@@ -579,7 +589,7 @@ From the re-run sweep (\Cref{tab:sweep-variants}): moving the cut-point from $0.
 \paragraph{Limitations identified against the literature:} six further limitations follow from the cited literature.
 \begin{itemize}
 \item \textbf{Saturation and format learning:} Song et al.~\cite{song2024gap} report that verifier-filtered self-improvement saturates within two or three rounds and that part of the first-round gain at larger scales comes from better adherence to the answer format. The run is consistent with early saturation, and because the main metric is exact match, part of the early gain may be format learning; a flexible-match re-scoring would separate the two.
-\item \textbf{Optimising toward the verifier:} Gulcehre et al.~\cite{gulcehre2023rest} find reward-model gains rising while human-judged quality peaks after the first round, and Fu et al.~\cite{fu2025collapse} show that verifier-filtered retraining converges to the verifier's own knowledge. Exact match against gold labels is independent of CAEM's verifier; CHM is not (\Cref{sec:disc-threat-verifier}).
+\item \textbf{Optimising toward the verifier:} Gulcehre et al.~\cite{gulcehre2023rest} find reward-model gains rising while human-judged quality peaks after the first round, and Yi et al.~\cite{fu2025collapse} show that verifier-filtered retraining converges to the verifier's own knowledge. Exact match against gold labels is independent of CAEM's verifier; CHM is not (\Cref{sec:disc-threat-verifier}).
 \item \textbf{Systematic verifier errors:} agreement-based signals do not detect misconceptions the model holds consistently, as Farquhar et al.~\cite{farquhar2024semantic} warn, and repeated verification removes only independent errors (\Cref{cor:self-correction}); TruthfulQA's low stored precision is the realised case. The sample-agreement signal is an embedding cosine similarity, a family that Sinha~\cite{sinha2025semantic} shows can miss plausible hallucinations, although that evidence concerns similarity to a source rather than agreement across samples.
 \item \textbf{Calibration-fold size:} Niculescu-Mizil and Caruana~\cite{niculescu2005predicting} find isotonic regression reliable only from about $1{,}000$ calibration points; CAEM fits per-benchmark curves on $500$ points, and the shrinkage toward the pooled fit limits but does not remove the resulting variance.
 \item \textbf{Low chance floor:} Ho et al.~\cite{ho2023large} note that filtering on the final answer does not ensure correct reasoning, and Zelikman et al.~\cite{NEURIPS2022_639a9a17} that binary tasks yield many correct answers with poor rationales. StrategyQA and FEVER have chance levels of one half and one third, and FEVER answers enter the training pool.

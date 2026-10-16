@@ -1,3 +1,4 @@
+% Caption shortened by hand in the final drafting pass (2026-10); detail moved to chapter 5 text.
 % Auto-generated from outputs/full_run/experiment.log "Consolidation pass" /
 % "Consolidation complete" / per-merge debug lines. Source: caem/memory/store.py
 % EpisodicMemoryStore.consolidate() invoked at Stage 8c of self_improvement.py.
@@ -22,6 +23,6 @@ C5 & $100$ & $43$ & $45$ & $12$ & $0$ & $44$ \\
 \multicolumn{7}{@{}l}{\footnotesize $^{\ast}$ Cycle four consolidation was skipped under the asymmetric-rollback contract; candidates from C4 accumulated and were processed at the C5 pass.} \\
 \end{tabular}%
 }
-\caption[Per-cycle memory-consolidation trajectory]{Per-cycle memory-consolidation trajectory sourced from the memory-store consolidation pass's log emissions. The pass runs at every successful cycle close and collapses candidate clusters of near-duplicate-meaning episodes into a single representative under three safety guards: a cosine-similarity floor of $0.92$ across top-$20$ FAISS neighbours, an answer-equality guard that requires normalised gold answers to match, and a $u_{\text{stored}}$-spread guard that rejects clusters whose stored-confidence range exceeds $0.15$. The pre-split FAISS index between training and transfer pools eliminates cross-pool merges by construction; the realised counter is zero at every cycle. The pooled $57$ merges across the trajectory remove $58$ episodes (one size-three cluster at cycle five contributes the extra removal), small in absolute terms relative to the $1\,094$ retroverify prunes and $620$ deferred-buffer promotions of \Cref{tab:em-conditional-breakdown} but architecturally distinct: consolidation reduces redundancy at fixed accuracy rather than removing wrong-confident entries or rescuing low-confidence correct entries.}
+\caption[Memory consolidation by cycle.]{Groups of near-duplicate entries merged at each cycle and the merges blocked by the same-answer and score-spread guards.}
 \label{tab:consolidation-trajectory}
 \end{table}

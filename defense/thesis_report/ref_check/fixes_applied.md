@@ -1456,3 +1456,60 @@ appendix F pre-routing entry fixed ("encoder-layer"); ch3 calibration-fold phras
   citation-as-noun, full-stop lead-ins, spelled percentages, stale phrases from the standing decisions):
   ch2 positioning table "---" empty cells → "--"; ch2 summary "multi-scoring of \cite{..}" → "of Valentin et al."; spelled
   percentages to digits (ch1 ×2, ch2 ×6). Remaining hit: abstract "0.796 over 289" (Q4, abstract session).
+
+## Chapter 5 (branch `review/ch5`, from `branch/ruc-classifier` @ a0ea1e1) — in progress, PR pending B8 decision
+
+Author decisions applied (SESSION_START "Chapter 5 decisions"): title drops "Progressive"; three-step headline; verdicts H1
+supported / H2 unsupported / H3 supported / H4 partially supported / H5 unsupported; sweep re-run numbers only; validation
+gate wording; "Optional reference points" and "Tier-by-baseline cost" deleted; statistics procedures to appendix D;
+baseline descriptions cut to realised-versus-expected; phantom-context paragraph.
+
+**New evidence (scripts, reproducible):** `scripts/build_ch5_evidence_tables.py` → tab_headline_steps, tab_gate_quality,
+tab_sweep_variants, tab_tier1_probe, figures/ch5/{fig_trajectory, fig_tradeoff, fig_selective, fig_baselines};
+`scripts/recompute_validation_gate.py` → tab_validation_gate_locked, tab_cross_bench_locked (replace the legacy-composite
+tab_validation_gate and cross_benchmark_summary, no longer input).
+
+**Corrections against code and data**
+- Gate balanced accuracy (H1's registered statistic) now reported per cycle: 0.615, 0.663, 0.664, 0.658 (C1–C5; C0 0.753
+  in-sample); old text used one C0 Cohen's d on a different fold.
+- H2 trace made consistent: C0 0.780 (locked composite, cal fold, in-sample) instead of 0.746 (weight_validation reading,
+  validation fold, five benchmarks, legacy composite).
+- Validation gate under the locked composite: pooled d 0.717; per-benchmark FEVER 0.555, TriviaQA 1.396, CSQA 0.142;
+  TriviaQA stored 0, CSQA discarded 0 → two per-benchmark checks not computable (old table: every check passed).
+- Sweep: 560 @ 0.780 (τ 0.60) vs 281 @ 0.865 (τ 0.65) on the cal fold; 558 @ 0.751 on the validation fold; α = 1 stores
+  more correct answers (476 vs 437); C sensitivity (validation stored 558 vs ≤ 313 for C ≥ 0.025) replaces the false "spread
+  bounded by one point". Removed 289 @ 0.796, 306/478, 70/105, 4.4×, 0.64 floor, 0.36 ceiling.
+- CHM significance described as run (`scripts/baseline_sig_tests_v2.py`: approximate bootstrap, CAEM fixed, no Holm, floor
+  0.01), not paired Wilcoxon + Holm. EM: McNemar + Holm + |ΔEM| ≥ 0.02 (appendix D rule).
+- B5 demonstrations come from FEVER (first benchmark of the final run, `fiveshot_cot.gen.log`), not TriviaQA.
+- B6 described as run: full fine-tune on raw question–answer pairs (700 per benchmark per cycle, 5 cycles), no verifier.
+- "Parity with the strongest fine-tuned baselines" → only FLARE edges CAEM on EM at C5; B6 at 0.490.
+- "Every defeat against RAG-free baselines" → FLARE retrieves; defeats are against B1, B2, B8 (and FLARE at C2).
+- StrategyQA "clean −17.5% CHM win" removed (not significant).
+- TruthfulQA "decline tracks rising abstention" removed (abstention fell 33% → 23%); loss split −5.3 (C0, architecture)
+  / −8.0 (C0→C5).
+- Tier 1: rarity explained by fresh streams; router probe table added (`outputs/tier1_routing_probe/`); probe field
+  top1_is_source_rate not used (id-space bug, tracker C2).
+- Latency: B1 is about 100× faster (142 ms vs 13.6–14.7 s); units fixed (hours per cycle).
+- Safety override: 63/9,000, explained by the temperature cap.
+- Early-stop disclosure; "equilibrium-saturation gate terminated the run" removed throughout.
+- Judge ablation: appendix holds only ρ and the floor; "rank correlation of Pearson" fixed.
+- Failed iteration: unsupported "audit summary auto-generated" claim removed.
+- Stale tables hand-corrected (comment in each file): tab_theorem_receipts_summary (rewritten), tab_pi_store_trajectory (C0
+  cal cell), cohen_d (u_stored row, ARC caption), sweep_top (rationale, "sklearn"); 24 long captions shortened to one or
+  two sentences (comment in each file).
+- Duplicate tables no longer input: tab_continual_retention, tab_stochastic_equilibrium, tab_deferred_buffer_ttl.
+- Metrics: TruthfulQA judge defined; F1, label accuracy and the "reported separately" contradiction rate removed; subtypes
+  listed with the two verifier-defined ones flagged; selective-prediction view (Kamath et al., Geifman and El-Yaniv) added.
+- New threat: measuring hallucination with the system's own verifier. New discussion: phantom context (3% → 93–99%).
+- Citations: all claim-bearing citations named; "Fu et al." → "Yi et al." (ch4 ×3, ch5 ×2; bib first author Yi).
+  Re-checked against PDFs (Drive CAEM_references): Mohri "78% → 93% on NaturalQuestions" ✓; Yi "linear regression
+  setting" ✓; Ho "answer-based filtering does not ensure the correctness of the rationales" ✓; Biderman recommends
+  "targeting 'All' transformer modules" and α = 2r ✓; others matched reference_check_2 quotes.
+
+**Outside ch5:** titlepage and approval page (title); ch2 "progressively improves" → "is meant to improve"; ch2 and ch4
+TruthfulQA 52.2% (legacy table) → 31–38% stored precision on the evaluation fold (C1–C5); ch1/ch3/ch4 probe pointers →
+tab:tier1-probe; abstract "0.796 over 289" → "558 answers at precision 0.751".
+
+**Open before the PR:** B8 CHM (old-run values; author's group to decide), paired CHM test, appendix D correction.
+Build: 216 pages, 0 errors, 0 undefined, 0 multiply-defined, 0 biber warnings, 76 overfull boxes.
