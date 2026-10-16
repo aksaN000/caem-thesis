@@ -18,9 +18,9 @@ $p_{\text{ground,max}}$ & Top-$1$ passage entailment & $p_{\text{ground,mean}}$ 
 $p_{\text{ground,atomic}}$ & Length-gated atomic-fact entailment & $q_{\text{a,rel}}$ & Question-answer relevance \\
 \multicolumn{4}{@{}p{\textwidth}@{}}{\footnotesize $h_{\text{norm}}$ (normalised semantic entropy, $K{=}10$) was registered then retired post Cycle-0 audit (boost weight $\approx -5\times10^{-4}$); deployed verifier consumes nine signals.} \\
 $\taustore,\taudefer$ & Fixed store / defer cut-points on $\ustored$ ($0.60$ / $0.45$) & $\tautrain$ & Strict training-pool threshold ($0.70$) \\
-$\tau_{\text{retro}}$ & Retroactive prune threshold ($0.50$) & $\tau_{\text{ttl}}$ & Deferred-buffer TTL (cycles) \\
-$\tau_{\text{cons}}$ & Memory consolidation cosine & $\phi_{\text{pg}}$ & Abstention floor on top-passage entailment ($0.20$) \\
-$\phi_{\text{safe}}$ & Pre-routing safety floor on $\upre$ ($0.38$; per-benchmark refit) & & \\
+$\tau_{\text{retro}}$ & Retroactive prune threshold ($0.50$) & $\tau_{\text{ttl}}$ & Deferred-buffer time-to-live ($2$ passes) \\
+$\tau_{\text{cons}}$ & Memory consolidation cosine ($0.92$) & $\phi_{\text{pg}}$ & Abstention floor on top-passage entailment ($0.20$) \\
+$\phi_{\text{safe}}$ & Pre-routing safety floor on $\upre$ ($0.38$; per-benchmark refit) & $\theta_{1},\theta_{\text{sim}}$ & Tier 1 combined-score / Tier 2 similarity thresholds ($0.90$ / $0.75$) \\
 $\eta_u,\eta_g$ & Early-exit thresholds & $\tau_{\text{RUC}}$ & Retrieval-utility classifier threshold ($0.375$) \\
 \\[-0.5em]
 \multicolumn{4}{@{}l@{}}{\textbf{\normalsize Calibrated probability composite}}\\
@@ -31,16 +31,17 @@ $\pi_t,\pi_\infty$ & Pool purity at cycle $t$, asymptote & $P_c,P_c^{\text{theor
 $P_j,\mathrm{iso}_j$ & Per-signal isotonic probability & $L_{i,j}$ & Calibration log-odds matrix \\
 $\mathbf{w},b,w_j$ & Boost weights, intercept & $C$ & Boost L$_2$ strength ($0.01$) \\
 $T$ & Logit-space temperature & $\sigma(\cdot),\ell$ & Logistic; composite log-odds \\
+$\alpha_{\text{shrink}}$ & Per-benchmark shrinkage weight ($0.6$) & $c_{\text{conv}}$ & Layer-convergence ratio in $\upre$ \\
 \\[-0.5em]
 \multicolumn{4}{@{}l@{}}{\textbf{\normalsize Self-improvement, router, memory}}\\
 $\boldsymbol{\theta},\boldsymbol{\theta}^{(t)}$ & Generator parameters at cycle $t$ & $\boldsymbol{\theta}^\star$ & Pre-retention-guard argmin \\
-$\lambda_{\text{anc}}$ & L$_2$ anchor strength & $\mathcal{L}_{\mathrm{CE}},\mathcal{L}$ & CE loss; total per-cycle loss \\
+$\lambda_{\text{anc}}$ & L$_2$ anchor strength ($0$ on the adapter path) & $\mathcal{L}_{\mathrm{CE}},\mathcal{L}$ & CE loss; total per-cycle loss \\
 $\rho,\rho_{\min}$ & Retention ratio; floor ($0.93$) & $\rho_{\text{pre/post}}$ & Pre / post fine-tune probe accuracy \\
 $\mathcal{T}$ & Training pool above $\tautrain$ & $\mathcal{M},\mathcal{M}_t$ & Episodic memory; pool at cycle $t$ \\
 $\mathcal{M}_t^{\text{kept}},\mathcal{N}_{t+1}$ & Survivors; new admissions & $\mathcal{B},K_{\text{def}}$ & Deferred buffer; capacity \\
 $\lambda$ & Routing similarity weight ($0.70$) & $s,\mathcal{S}$ & Cosine; dispatch score $\lambda s{+}(1{-}\lambda)\ustored$ \\
-$\tau_1(t),\tau_1^{*}(D)$ & Tier-$1$ hit rate; asymptote & $\varepsilon_{\text{arch}}$ & Architectural false-negative rate \\
-$H_{\text{mem}}(t),H_t,H_\infty$ & Memory / total / asymptotic hallucination & $M,K$ & Chain count ($3$); answer count ($10$) \\
+$\tau_1(t)$ & Tier-$1$ share of queries & $H_{1}(t)$ & Tier-$1$ error rate \\
+$H_{\text{mem}}(t),H_{\text{gen}}(t),H_t$ & Memory / generated / overall error rate & $M,K$ & Chain count ($3$); answer count ($10$) \\
 $p_{\text{RAG}}$ & RUC retrieval-helpfulness score & $p_{\text{IK}}$ & Self-knowledge probe (Kadavath-style) \\
 \\[-0.5em]
 \multicolumn{4}{@{}l@{}}{\textbf{\normalsize Theorem trajectory and statistics}}\\
@@ -50,7 +51,7 @@ $\Phi(\cdot),\phi(\cdot)$ & Std-normal CDF; density & $\sigma_t$ & Empirical sto
 $r$ & Geometric contraction rate & $G_t$ & Cycle-$t$ gap $|\pi_t{-}\pi_\infty|$ \\
 $A,k,c^{*}(\varepsilon)$ & Decay fit; time-to-equilibrium & $p_c,\alpha_c$ & Base correctness; verifier balanced acc. \\
 $\mathrm{TPR}_c,\mathrm{FPR}_c,\mathrm{TNR}_c$ & Storage-gate rates at cycle $c$ & $f(p)$ & Recurrence $p\alpha/(p\alpha{+}(1{-}p)(1{-}\alpha))$ \\
-$x(\lvert\theta\rvert,C),K(C)$ & Asymptotic correctness; supportable set & $\chi^{2}_{\text{McN}},b,c$ & McNemar; discordant pair counts \\
+$K(C)$ & Questions supportable by corpus $C$ & $\chi^{2}_{\text{McN}},b,c$ & McNemar; discordant pair counts \\
 $B$ & Bootstrap replicates ($1\,000$) & $\alpha$ & Significance level (overloaded) \\
 $\mathrm{EM},\mathrm{F}_1$ & Per-task correctness & $\mathrm{CHM},\mathrm{CES},\mathrm{ECE}$ & Composite hallucination / eval / cal. error \\
 $N,T_{\text{cycles}}$ & Cycle index; registered cap ($10$); realised closure at $6$ & $\lvert\theta\rvert$ & Backbone parameters ($3.086{\times}10^{9}$) \\

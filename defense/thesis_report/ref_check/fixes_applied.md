@@ -1359,3 +1359,69 @@ Words 6,437 → 4,861. Every claim checked against code, run logs, outputs and a
   `<bench>_cycle<N>_streamchunk.json` record actual memory insertions (`stored_flag` is True only after the novelty filter and
   `memory_store.add`): 0.520, 0.527, 0.526, 0.529, 0.499 for C1–C5, matching appendix C. Replay script now reads these
   admission rates; result unchanged (corrected wiring fires no signal at C5). `tests/test_equilibrium.py`: 23 passed.
+
+## Chapter 4 (branch `review/ch4`, from `branch/ruc-classifier` @ ca91128)
+
+Rewritten for readability against the code and the main-run artefacts; prose about 21,000 → 9,700 words; all 72 labels
+kept (plus tab:worked-example, fig:routing-map, fig:verifier-flow, fig:composite-pipeline, fig:cycle-boundary-order,
+fig:purity-curves, fig:theory-map). Build: 250 pages, 0 errors, 0 undefined, 0 multiply-defined.
+
+**Code and artefact corrections**
+- Pre-routing: 32-token greedy decode + one forward pass over the query; decoder layer-convergence ratio (early-half over
+  late-half hidden-state variance, `caem/confidence/pre_routing.py`), not "encoder-layer" or "single forward pass".
+  Per-benchmark temperature hit the cap e^3 ≈ 20.1 on FEVER/TriviaQA at C0 (log L3621), EMA refit 14.1 → 9.9; this
+  compresses u_pre toward 0.5, so the override fired on 63 of 9,000 evaluation queries (tab_safety_override).
+- Dropout signal: share of 5 dropout-active samples whose extracted answer differs from the plurality
+  (`verifier.py::_compute_u_dropout`), not "variance of log-probability". u_token: teacher-forced geometric mean.
+- Grounding checks a task-shaped statement (negated claim for FEVER refutes; option text for multiple choice;
+  `directional_p_ground.py`, `multichoice_scorer.py`). Verifier retrieves 20, reranks to 3 (bge-reranker-v2-m3);
+  Tier 3 prompts with the top 5 dense passages (no rerank). Long-input Qwen judge inactive in the main run (log L20).
+- Q1 note added: p_ground^atomic = p_ground^mean on all 14,951 samples (99.0% length-gated, 1.0% no facts).
+- Semantic entropy: weight ≈ −0.0005, largest cost (no "Pearson 0").
+- Memory: exact search below 20,000 entries (12,175 reached); novelty 0.95 vs consolidation 0.92 (consolidation is the
+  LOWER threshold; old text said higher) with same-answer and score-spread ≤ 0.15 guards; capacity 10^6, value pruning
+  never fired. "Upward-only" removed everywhere (retroactive pass lowers or raises; prunes below 0.50).
+- Cycle-boundary order corrected from the run log: fine-tune → retention guard → deferred reconsideration →
+  consolidation → re-score calibration fold, refit temperature/floors/composite → retroactive pass (old text said
+  fine-tune after deferred and before retroactive in another order). On abort all later steps skipped.
+- Calibration fold is the same 1,500 held-out samples re-scored each cycle (`calib_samples = p.calibration`), not "a fresh
+  per-cycle fold"; ch3 wording aligned (two phrases).
+- Deferred buffer: promote if re-judged STORE with u ≥ 0.60; drop after two passes; no "drop below 0.45" rule
+  (`caem/memory/deferred.py`). Promotions 131/220/299.
+- SIL: 32-bit AdamW (8-bit skipped on LoRA path), lr 2e-4 (20× the 1e-5 full-FT rate, not 10×), 3 epochs, effective batch
+  16; λ_anc = 0 stated plainly; gold top-up only for a benchmark with zero verified episodes (`pool_reweighting.py`).
+- Early exit: query time only; DISCARD (answer shown with warning), no regeneration.
+- Router realised shares: Tier 1 ≤ 0.1%, Tier 2 and 3 each 45–55% (design intent stated as such); safety floor history
+  (0.60 → 0.38 from an earlier run; CSQA refit 0.491/0.569).
+- RUC numbers verified against `caem/ruc/v2/cv_results.json` and README; added: six zero-weight features, one unexpected
+  sign; "Moskvoretskii et al." → "Marina et al." (matches ch2); digits instead of spelled numbers.
+- Storage gate: "fifteen to fifty percentage points" removed; Q4 numbers (70/105, 306/478, 4.4×, 0.64) removed, threshold
+  text number-free as in ch1/ch3; shrinkage rationale "ten to fifteen AUROC points" (unsupported) replaced by the re-run
+  sweep: validation pooled d 0.845 (α 0) / 0.717 (α 0.6) / 0.665 (α 1).
+- Worked example replaced: the FEVER "French Revolution before 1792 / entry id 0" record does not exist in the artefacts
+  (cold-start entry 0 is a Planet of the Apes claim). New: TriviaQA qf_1438 (C1 stream, Tier 3, u 0.760, STORE, correct)
+  and sfq_5372 (C0 eval, Tier 3, u 0.127, ABSTAIN; old text said ≈0.07 and a safety override that cannot fire on TriviaQA).
+- Architecture figure: Tier 2 = fine-tuned generator (not base), Tier 3 top-5 passages, no "upward-only", no λ = 0.01
+  anchor, S8 order corrected, deferred box, caption shortened.
+
+**Theory (re-derived)**
+- thm:purity restated with the two parts of the pool and a one-line proof (weighted average ≥ min); clarified it holds in
+  expectation under exchangeability; receipt uses cal-fold 0.732–0.746 and stream-chunk new-entry precision 0.753, 0.751,
+  0.724, 0.738, 0.724 (tab_decision_matrix_trajectory, training panel); TruthfulQA 0.522 as the counter-case.
+- thm:bayes-purity: proof kept; plain reading; purity-curve figure.
+- thm:monotone-purification: derivative re-derived; holds for any α in (0,1) (old text required α > 1/2).
+- thm:bayes-convergence: stated as a model of re-filtering with independent errors; anchor mention removed; H2 note.
+- thm:monotone: midpoint-fixed assumption made explicit (needed for the ½ factor); long-hypothesis judge removed.
+- thm:convergence: limit existence stated as an assumption; sketch simplified; "asymptote of one" removed.
+- cor:tier1-floor: CHM replaced by Tier-1 error rate H_1; same-answer assumption added; convergence premise dropped (not
+  needed); consolidation "maximum across cluster" claim removed.
+- cor:self-correction: survival bounds stated as assumptions (TPR ≥ α, FPR ≤ 1−α); prune bound corrected to 1/α passes
+  (old "2α−1" derivation was loose and mis-stated); idealisation noted.
+- cor:stochastic-equilibrium: (i) open interval condition corrected; (iii) memory grows when admissions exceed removals
+  (not unconditionally; tier shares did not grow); probe ratios verified (1.006, 0.949, 0.976, 0.886, 0.958).
+- thm:asymptotic-elim: equality by total probability with H_gen (old ε_arch inequality and x(|θ|,C) term removed).
+- cor:corpus-floor: corrected (a system may abstain outside K(C)); "rectangular-record harness" jargon removed.
+- Early-stop disclosure in the theory intro; "L2 adapter anchor pins weights" removed.
+
+**Other files:** List of Symbols (θ1/θ_sim added; λ_anc, τ_ttl, τ_cons values; τ1/H symbols aligned; ε_arch, H∞, x removed);
+appendix F pre-routing entry fixed ("encoder-layer"); ch3 calibration-fold phrases.
