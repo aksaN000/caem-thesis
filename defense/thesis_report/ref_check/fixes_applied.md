@@ -1093,3 +1093,4 @@ Build (latexmk, clean): 279 pages (was 324: single spacing), 0 errors, 0 undefin
 0 biber warnings, overfull hboxes 90 (>10 pt: 40; narrower 150 mm text block). Visual check: references now IEEE-formatted and
 year-sorted; with `\parindent 0em` and no `\parskip` (as in the template) consecutive paragraphs are not visually separated
 (open question Q8).
+| main.tex paragraphs (Q8) | `\parindent 0em`, no paragraph spacing (consecutive paragraphs visually merged) | `\usepackage[skip=0.5\baselineskip plus 2pt]{parskip}` | the template sets only `\parindent 0em` and says nothing about spacing; author delegated the choice. Build: 281 pages, 0 errors/undefined/multiply-defined; overfull 90 (unchanged) |

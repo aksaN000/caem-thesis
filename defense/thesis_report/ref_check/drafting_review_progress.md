@@ -10,7 +10,7 @@ Baseline build (latexmk, 2026-10-16): 324 pages, 0 errors, 0 undefined refs/cita
 | Part | Status | Notes |
 |---|---|---|
 | Step 1: p_ground^mean vs p_ground^atomic | done (report) | Identical on 14,951/14,951 run samples; see open question Q1 |
-| Front matter | done; PR open; Q8 (parskip) + title month pending | branch `review/front`; 22 changes logged |
+| Front matter | done; PR #4 open; title month pending | branch `review/front`; 22 changes logged |
 | Chapter 1 | pending | |
 | Chapter 2 | pending | |
 | Chapter 3 | pending | |
@@ -80,3 +80,5 @@ names "sklearn".
 
 **Q8 (new).** With the template's `\parindent 0em` and no `\parskip`, consecutive paragraphs run together. Add a small
 paragraph gap (e.g. `\setlength{\parskip}{0.5\baselineskip}`), or keep the template exactly?
+
+- **Q8 → resolved:** template says nothing about paragraph spacing; added `parskip` (0.5 baselineskip gap), 281 pages.

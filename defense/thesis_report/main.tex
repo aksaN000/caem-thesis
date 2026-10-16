@@ -126,6 +126,8 @@
 
 % --- BRAC template layout controls ------------------------------------------
 \setlength{\parindent}{0em}
+% The template sets no paragraph spacing; with zero indent, paragraphs need a visible gap.
+\usepackage[skip=0.5\baselineskip plus 2pt]{parskip}
 \pagestyle{plain}
 \let\cleardoublepage=\clearpage
 
