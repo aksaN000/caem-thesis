@@ -33,7 +33,7 @@ corrected copy; generator still stale).
 ## Data and provenance problems
 | # | Where | Problem | Status |
 |---|---|---|---|
-| D1 | `outputs/baselines_phase1e/chm_comparison.json` (semantic_entropy) | B8 CHM comes from the OLD broken SE run (`baselines_phase1e_pre_se_rerun_backup`, rescored 2026-05-29); corrected run (2026-06-06) never rescored (u_stored None). | OPEN (author/group decision: GPU rescore or report unavailable) |
+| D1 | `outputs/baselines_phase1e/chm_comparison.json` (semantic_entropy) | B8 CHM comes from the OLD broken SE run (`baselines_phase1e_pre_se_rerun_backup`, rescored 2026-05-29); corrected run (2026-06-06) never rescored (u_stored None). | DOCUMENTED 2026-10-16 (no budget): B8 CHM reported as unavailable; sig/pooled tables set to n/a by hand; rescore = future work |
 | D2 | `outputs/cycle_0/eval/*_cycle0.json` | `u_stored` from the legacy weighted-sum bootstrap composite, not the locked composite (sweep README finding 1). | WORKAROUND (`scripts/recompute_validation_gate.py`) |
 | D3 | `outputs/full_run/pi_store_trajectory.csv` row C0 | "weight_validation" reading (validation fold, five benchmarks, legacy composite) mixed into a calibration-fold series. | WORKAROUND (table hand-corrected) |
 | D4 | `outputs/baselines_phase1e/vanilla_ft/eval/*_cycle3_with_chm.json` | Same CHM as cycle 5 (e.g. FEVER 0.1308 both): c3 file appears to be a copy of c5. | OPEN (check) |

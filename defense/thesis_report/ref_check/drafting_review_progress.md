@@ -271,3 +271,5 @@ ch5 decision is made (locked configuration is not the criterion-3 maximum; justi
   evaluation with repeated questions (deployment). ch6 and the abstract must also adopt the ch5 headline (three-step
   decomposition), the verdicts (H1 supported, H2 unsupported, H3 supported, H4 partially supported, H5 unsupported), and drop
   "clean StrategyQA win", "parity with fine-tuned baselines", "deployed cost envelope / without scaling".
+- **B8 decided (author's group, 2026-10-16, no budget):** B8 CHM reported as unavailable in ch5 (tables n/a, figure omits B8, limitation + future work). CHM counts without B8: C5 19 wins / 2 defeats of 30; C2 18 / 3. ch6 must add 'rescore the corrected B8 run' to future work; abstract/ch6 'every baseline' → 'every baseline whose CHM was measured'.
+- **Paired CHM test (next session):** replace the approximate CHM test with a paired Wilcoxon + Holm from `eval/metrics.py::per_sample_chm` (validated for CAEM C2/C5 and B1–B7; B6 at c5); then fix appendix D (L63 Wilcoxon claim, L96 Holm 'each axis', CHM floor 0.01 not 0.02).

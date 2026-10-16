@@ -241,7 +241,7 @@ POOLED_CHM = [0.135, 0.112, 0.107, 0.115, 0.115, 0.109]
 CONFAB = [0.087, 0.223, 0.239, 0.268, 0.270, 0.269]
 REFUSAL = [0.305, 0.067, 0.057, 0.047, 0.048, 0.064]
 BASELINES = [("B1", 0.507, 0.120), ("B2", 0.500, 0.123), ("B3", 0.458, 0.148), ("B4", 0.464, 0.142),
-             ("B5", 0.405, 0.136), ("B6", 0.490, 0.127), ("B7", 0.525, 0.173), ("B8", 0.505, 0.120)]
+             ("B5", 0.405, 0.136), ("B6", 0.490, 0.127), ("B7", 0.525, 0.173)]  # B8 omitted: CHM unavailable (tracker D1)
 
 
 def figures():
@@ -322,8 +322,8 @@ def figures():
 \label{fig:selective}
 \end{figure}
 """)
-    anch = {"B1": "south west", "B2": "east", "B3": "south", "B4": "west", "B5": "south", "B6": "south", "B7": "south", "B8": None}
-    lab = {"B1": "B1, B8"}
+    anch = {"B1": "south west", "B2": "east", "B3": "south", "B4": "west", "B5": "south", "B6": "south", "B7": "south"}
+    lab = {}
     bl = "\n".join(f"  \\addplot[black!70, only marks, mark=o, mark size=2.2pt] coordinates {{({e},{c})}};"
                    + (f"\n  \\node[font=\\scriptsize, anchor={anch[n]}] at (axis cs:{e},{c}) {{{lab.get(n, n)}}};" if anch[n] else "")
                    for n, e, c in BASELINES)
@@ -338,7 +338,7 @@ def figures():
   \node[font=\scriptsize, anchor=north east, text=blue!65!black] at (axis cs:0.517,0.109) {CAEM C5};
 \end{axis}
 \end{tikzpicture}
-\caption[CAEM and the eight baselines on EM and CHM.]{CAEM at C2 and C5 and the eight baselines on pooled EM and CHM (\Cref{tab:baseline-pooled}). The best systems sit at the lower right.}
+\caption[CAEM and the baselines on EM and CHM.]{CAEM at C2 and C5 and seven baselines on pooled EM and CHM (\Cref{tab:baseline-pooled}); B8 is omitted because its CHM could not be measured. The best systems sit at the lower right.}
 \label{fig:baselines}
 \end{figure}
 """)

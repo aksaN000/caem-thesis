@@ -1513,3 +1513,9 @@ tab:tier1-probe; abstract "0.796 over 289" → "558 answers at precision 0.751".
 
 **Open before the PR:** B8 CHM (old-run values; author's group to decide), paired CHM test, appendix D correction.
 Build: 216 pages, 0 errors, 0 undefined, 0 multiply-defined, 0 biber warnings, 76 overfull boxes.
+- **B8 CHM (author's group, 2026-10-16):** reported as unavailable. Drive searched (CAEM_thesis, vast backup, author folder
+  1NDl20m8…): only the old-run `semantic_entropy/*_with_chm.json` (2026-05-29) exist; the corrected run (2026-06-06) was never
+  rescored (`phase2_rerun_logs/PHASE2_SUMMARY.txt`: phase 2 rescored B6 and B7 only). Edits: tab_sig_test and _c2 B8 CHM cells
+  → n/a; tab_baseline_pooled B8 CHM → n/a; fig_baselines omits B8; ch5 counts without B8 (C5 19 / 2 of 30; C2 18 / 3); defeat
+  lists corrected (EM: B1, B2, FLARE; CHM: B1, B2, FLARE at C2); B8 bullet discloses; limitation added; "every baseline" →
+  "every baseline whose CHM was measured".
