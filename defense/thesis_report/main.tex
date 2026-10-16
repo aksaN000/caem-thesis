@@ -123,6 +123,8 @@
 \newtheorem{heuristic}[theorem]{Heuristic}
 \crefname{heuristic}{Heuristic}{Heuristics}
 \Crefname{heuristic}{Heuristic}{Heuristics}
+% Argument sketches for heuristics end without the end-of-proof box, which is kept for proofs.
+\newenvironment{sketch}{\begin{proof}[Argument sketch]\renewcommand{\qedsymbol}{}}{\end{proof}}
 
 % --- BRAC template layout controls ------------------------------------------
 \setlength{\parindent}{0em}

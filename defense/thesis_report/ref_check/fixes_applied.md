@@ -1425,3 +1425,24 @@ fig:purity-curves, fig:theory-map). Build: 250 pages, 0 errors, 0 undefined, 0 m
 
 **Other files:** List of Symbols (θ1/θ_sim added; λ_anc, τ_ttl, τ_cons values; τ1/H symbols aligned; ε_arch, H∞, x removed);
 appendix F pre-routing entry fixed ("encoder-layer"); ch3 calibration-fold phrases.
+
+### Chapter 4, part 2: author questions (2026-10-16)
+
+- Argument sketches no longer end with the end-of-proof box (new `sketch` environment in main.tex); the box stays on the
+  two real proofs (thm:purity, thm:bayes-purity).
+- thm:purity: the proof and the plain reading now use assumption (i) (fixed gate is what lets the calibration-fold
+  precision apply to every cycle's admissions); "up to the sampling error of the calibration estimate" added.
+- cor:tier1-floor: second assumption added (entries Tier 1 serves are at least as often correct as the pool), so the
+  conclusion is H_1 ≤ 1 − π_t rather than equality; thm:asymptotic-elim defines H_mem directly and uses the bound.
+- thm:convergence: "t counts only kept cycles". cor:corpus-floor: "any answer it gives is wrong, so it must abstain or err".
+- Citations: isotonic sentence names Niculescu-Mizil and Caruana with their small-sample caveat (reference_check_2 item 11:
+  isotonic overfits below about 200–1,000 points; per-benchmark folds hold 500, one reason for shrinkage); storage-gate
+  sentence names Niculescu-Mizil and Caruana, Geifman and El-Yaniv, Ovadia et al., Kamath et al.
+- Memory section: storage-time quality filter (template placeholders, evasive phrases; `pipeline.py::_answer_is_unstorable`),
+  serve counter (re-verify after 10 Tier 1 serves; never triggered), and cold start (603 verified seed answers, 172
+  wrong against gold removed, 431 kept: FEVER 155, TriviaQA 136, CommonsenseQA 140;
+  `outputs/cold_start_memory/em_pruning_report.json`) added; answer format ("Answer:" line) added to the substrate.
+- Atomic signal note explains the scope mismatch (short answers are single facts; FActScore targets long-form) and
+  points to future work on reasoning chains.
+- Consistency outside ch4: ch1 scope sentence ("closed at cycle five under that gate") → early-stop disclosure; ch2
+  "Monte Carlo dropout variance" → "disagreement among Monte Carlo dropout samples"; abstract "upward-only" removed.
