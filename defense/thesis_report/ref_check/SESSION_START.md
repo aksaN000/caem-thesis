@@ -146,6 +146,18 @@ after the previous PR merges.
   32-token greedy decode (not "encoder-layer", not "a single forward pass"); the retroactive pass rewrites stored scores up or
   down and prunes below 0.50 (not "upward-only", not "below the storage threshold"); no L2 anchor on the LoRA path
   (λ_anc = 0); memory search is exact at the realised 12 175 entries (IVF-PQ only from 20 000); value-score pruning never fired.
+- **Skimmable structure (2026-10-16):** where a passage lists parallel items, mark them visibly and pick the device per
+  passage: bold run-in lead-ins for paragraph-length items, itemize for short items, subsubsection headings only for
+  multi-paragraph or cross-referenced items. The section title must name all the items (ch1 sec:stateless-gap renamed
+  "Three reinforcing shortcomings"; label kept).
+- **Citation style (2026-10-16):** name the study ("Guo et al.~\cite{..} found ...") whenever a sentence relies on its finding,
+  number or method; a bare citation at the end of a general background sentence is fine; never use the bracket as a noun
+  ("in the sense of \cite{..}", "the approach of \cite{..}"); write "et al." (not "and colleagues"). Recap sections such as
+  ch2 Summary of Key Findings may stay bare because the studies were named earlier. DONE for ch1 and ch2; ch3, ch4, ch5,
+  ch6 and appendices still to do (see carried items).
+- **Transfer benchmarks (2026-10-16): KEEP** TruthfulQA and StrategyQA (pre-registered in ch1; dropping them after seeing
+  results would be selective reporting; TruthfulQA is the second RUC-ablation gate in ch6). Only TruthfulQA is negative:
+  EM 0.433 (B1) → 0.380 (C0, before any training) → 0.300 (C5); StrategyQA is flat (0.650 → 0.640, CHM 0.120 → 0.099).
 
 ## Carried items (apply when you reach the chapter)
 - **Q1 decision (ch4, ch5, ch6):** `p_ground^atomic` equalled `p_ground^mean` on all 14,951 run samples (length gate
