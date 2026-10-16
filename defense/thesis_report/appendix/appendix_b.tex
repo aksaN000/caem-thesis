@@ -1,0 +1,78 @@
+% ============================================================================
+% Appendix B — Cycle 0 evidence catalog
+% Status: SKELETON. Populates from locked Cycle 0 evidence on disk.
+% ============================================================================
+
+\chapter{Cycle 0 evidence catalog}
+\label{app:cycle0-catalog}
+
+% Purpose: a complete listing of every Cycle 0 measurement that
+% influenced a design decision. Body prose in Chapter 5 reports the
+% headline numbers; this appendix is the full archive.
+
+\section{The one-hundred-variant composite parameter sweep}
+\label{app:sweep-full}
+
+The locked configuration selected from the sweep, with the rationale for each parameter, appears in \Cref{tab:sweep-top} of \Cref{ch:evaluation}. The full sweep over the pre-specified $\tau_{\text{store}} \times C \times \alpha_{\text{shrink}}$ grid ($4 \times 5 \times 5 = 100$ variants) is recorded in the cycle-zero sweep archive with one record per variant; no per-variant comparison table is reproduced in the thesis. Per-benchmark sweep diagnostics for any variant in the grid are recoverable by reading the corresponding JSON entry.
+
+\section{The calibration-to-evaluation gap analysis}
+\label{app:cal-eval-gap}
+
+The pooled gap reading at the locked configuration is reported in \Cref{sec:adj-cal-eval-gap}. The per-benchmark decomposition is reported in \Cref{tab:cross-bench-summary}, which is auto-generated from the cycle-zero evaluation outputs. The narrative analysis behind the per-benchmark gap is recorded in the calibration-to-evaluation gap note within the cycle-zero sweep archive.
+
+\section{The first-iteration failure trace}
+\label{app:first-iteration-trace}
+
+The first iteration of the cycle-zero calibration failed the pre-specified validation gate due to a JSONL signal-dump bug; the narrative is recorded in \Cref{sec:adj-failed-iterations}. The diagnostic record is preserved in the first-iteration archival snapshot dated to the failure, together with the degenerate composite calibration record whose conformal-threshold collapse triggered the corrective patch.
+
+\section{The long-hypothesis judge ablation diagnostic}
+\label{app:judge-ablation}
+
+The Platt fit diagnostic that licensed the ablation of the long-hypothesis judge is recorded in the long-hypothesis-judge Platt-ablation calibration record. The two persisted headline statistics are the observed Pearson $\rho = 0.5843$ in logit space and the pre-specified floor of $\rho_{\min} = 0.70$ against which the observed correlation is audited. The verdict is therefore that the long-hypothesis judge fails the registered correlation floor; the architectural consequence is the ablation of the long-hypothesis backend from the deployed configuration, with the unified verifier dispatching every hypothesis through the short-hypothesis backend under a documented five-hundred-and-twelve-token truncation contract. \Cref{sec:adj-judge-ablation} reports the architectural consequence and the future-work item that would re-fit the judge under task-specific training. The companion long-hypothesis judge Platt diagnostic log records the per-sample diagnostic trace whose summary statistics produced the headline correlation reading.
+
+\section{Pre and post prompt-fix compliance}
+\label{app:prompt-compliance}
+
+The per-benchmark empty-answer and abstention rates before and after the registered prompt-design fixes are auto-generated from the cycle-zero evaluation outputs.
+
+\input{figures/auto/prompt_compliance.tex}
+
+\section{Atomic decomposition coverage}
+\label{app:atomic-coverage}
+
+The per-benchmark coverage of the atomic-fact decomposition signal $p_{\text{ground,atomic}}$, conditioned on the registered length gate of twelve tokens, is auto-generated below.
+
+\input{figures/auto/atomic_scope.tex}
+
+\section{Composite weight table}
+\label{app:composite-weights}
+
+The cycle-zero composite-weight table is reported in \Cref{tab:composite-calibration} of \Cref{ch:evaluation}. The per-cycle re-calibration of the composite (the per-benchmark temperature scalars, the per-benchmark safety floors, and the pooled boost-layer weights on the nine deployed signals) across the realised cycle-one through cycle-five trajectory is reported in the four-panel \Cref{tab:calibration-trajectory} of \Cref{sec:adj-trajectory}, with the cycle-four entry omitted under the asymmetric-rollback contract that skips the cal-fold refit on aborted cycles. The per-signal isotonic curves themselves are non-parametric step functions on the calibration fold and are not enumerated cell-by-cell across cycles; they are recoverable from the per-cycle composite calibration records, with the cycle-zero canonical record held immutable across the trajectory under the lock-cycle-zero patch. The storage and deferral cut-points stay frozen at the cycle-zero registered values throughout, so the per-cycle composite refit moves the signal-to-probability mapping the cut-points operate on rather than the cut-points themselves.
+
+\section{Per-benchmark precision-cliff curves}
+\label{app:precision-cliff}
+
+The threshold-versus-precision tradeoff at the locked storage cut-point $\tau_{\text{store}}=0.60$, which licenses the rate-precision frontier discussed in \Cref{sec:disc-sensitivity}, is auto-generated below: \Cref{fig:precision-cliff} renders the curve and \Cref{tab:precision-cliff} reports the underlying threshold and precision values.
+
+\begin{figure}[!htbp]
+\centering
+\includegraphics[width=0.85\textwidth]{figures/auto/precision_cliff.pdf}
+\caption[Per-benchmark precision-cliff curves at the locked configuration]{Per-benchmark precision-cliff curves at the locked configuration. Auto-generated from the precision-cliff diagnostic; the underlying threshold-versus-precision data are in \Cref{tab:precision-cliff}.}
+\label{fig:precision-cliff}
+\end{figure}
+
+\input{figures/auto/precision_cliff.tex}
+
+\section{Production-envelope sample renderings}
+\label{app:production-envelope}
+
+The production-envelope rendering script presents two representative serving samples per outcome tag (store, defer, abstain, discard) with the verifier signal block and the served answer alongside, so that a reader can audit the four-outcome decision tree on real entries.
+
+\input{figures/auto/tab_production_envelope_examples.tex}
+
+\section{Prompt-design ablation}
+\label{app:prompt-design-ablation}
+
+The pre-specified prompt-design ablation isolates the contribution of two prompt fixes (the empty-answer compliance fix and the open-QA over-abstention fix) by re-running the cycle-zero evaluation under the pre-fix prompt template family and comparing against the post-fix template family on the identical evaluation fold.
+
+\input{figures/auto/tab_prompt_design_ablation.tex}

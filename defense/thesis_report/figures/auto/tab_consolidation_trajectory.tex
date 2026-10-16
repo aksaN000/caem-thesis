@@ -1,0 +1,27 @@
+% Auto-generated from outputs/full_run/experiment.log "Consolidation pass" /
+% "Consolidation complete" / per-merge debug lines. Source: caem/memory/store.py
+% EpisodicMemoryStore.consolidate() invoked at Stage 8c of self_improvement.py.
+\begin{table}[H]
+\centering\footnotesize
+\setlength{\tabcolsep}{4pt}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{@{}lrrrrrr@{}}
+\toprule
+ & & & \multicolumn{3}{c}{\textbf{Candidate clusters rejected}} & \\
+\cmidrule(lr){4-6}
+\textbf{Cycle} & \textbf{Candidates} & \textbf{Clusters merged} & \textbf{Answer-mismatch} & \textbf{u-spread $>0.15$} & \textbf{Cross-pool} & \textbf{Episodes removed} \\
+\midrule
+C1 & $1$ & $0$ & $1$ & $0$ & $0$ & $0$ \\
+C2 & $7$ & $3$ & $4$ & $0$ & $0$ & $3$ \\
+C3 & $29$ & $11$ & $17$ & $1$ & $0$ & $11$ \\
+C4$^{\ast}$ & --- & --- & --- & --- & --- & --- \\
+C5 & $100$ & $43$ & $45$ & $12$ & $0$ & $44$ \\
+\midrule
+\textbf{Pooled} & $\mathbf{137}$ & $\mathbf{57}$ & $\mathbf{67}$ & $\mathbf{13}$ & $\mathbf{0}$ & $\mathbf{58}$ \\
+\bottomrule
+\multicolumn{7}{@{}l}{\footnotesize $^{\ast}$ Cycle four consolidation was skipped under the asymmetric-rollback contract; candidates from C4 accumulated and were processed at the C5 pass.} \\
+\end{tabular}%
+}
+\caption[Per-cycle memory-consolidation trajectory]{Per-cycle memory-consolidation trajectory sourced from the memory-store consolidation pass's log emissions. The pass runs at every successful cycle close and collapses candidate clusters of near-duplicate-meaning episodes into a single representative under three safety guards: a cosine-similarity floor of $0.92$ across top-$20$ FAISS neighbours, an answer-equality guard that requires normalised gold answers to match, and a $u_{\text{stored}}$-spread guard that rejects clusters whose stored-confidence range exceeds $0.15$. The pre-split FAISS index between training and transfer pools eliminates cross-pool merges by construction; the realised counter is zero at every cycle. The pooled $57$ merges across the trajectory remove $58$ episodes (one size-three cluster at cycle five contributes the extra removal), small in absolute terms relative to the $1\,094$ retroverify prunes and $620$ deferred-buffer promotions of \Cref{tab:em-conditional-breakdown} but architecturally distinct: consolidation reduces redundancy at fixed accuracy rather than removing wrong-confident entries or rescuing low-confidence correct entries.}
+\label{tab:consolidation-trajectory}
+\end{table}

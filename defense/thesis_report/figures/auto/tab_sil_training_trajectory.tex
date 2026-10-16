@@ -1,0 +1,26 @@
+% Auto-generated from outputs/full_run/retroverify_cycle*.json::fine_tune
+% + outputs/full_run/all_cycle_results.json (multi-modal retention probes).
+% Per-cycle SIL training trajectory: episode count, final training loss,
+% three-probe retention panel (MMLU + TQA-test + CSQA-test), rollback status.
+\begin{table}[H]
+\centering\footnotesize
+\setlength{\tabcolsep}{6pt}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{@{}lrrrrrl@{}}
+\toprule
+ & & & \multicolumn{3}{c}{\textbf{Retention probe ratio}} & \\
+\cmidrule(lr){4-6}
+\textbf{Cycle} & $\boldsymbol{n_{\text{episodes used}}}$ & \textbf{Final loss} & \textbf{MMLU} & \textbf{TQA-test} & \textbf{CSQA-test} & \textbf{Outcome} \\
+\midrule
+C1 & $107$ & $0.258$ & $1.041$ & $1.013$ & $1.006$ & commit \\
+C2 & $1\,474$ & $0.171$ & $0.975$ & $0.949$ & $0.982$ & commit \\
+C3 & $2\,966$ & $0.109$ & $0.992$ & $0.987$ & $0.976$ & commit \\
+C4 & $3\,624$ & $0.070$ & $1.018$ & $\mathbf{0.886}^{\dagger}$ & $0.982$ & abort (retention rollback) \\
+C5 & $5\,006$ & $0.091$ & $0.999$ & $1.013$ & $0.958$ & commit (post-rollback recovery) \\
+\bottomrule
+\multicolumn{7}{@{}l}{\footnotesize $^{\dagger}$ Cycle-four TriviaQA-test ratio of $0.886$ crossed below the registered floor of $\rho_{\min} = 0.93$, triggering the asymmetric rollback.} \\
+\end{tabular}%
+}
+\caption[Per-cycle self-improvement loop training trajectory with retention probe panel]{Per-cycle self-improvement loop training trajectory with the full three-probe retention panel. The episode-count column reports the number of memory-pool entries that passed the $\tau_{\text{train}} = 0.70$ filter and entered the per-cycle SIL training batch (sourced from \texttt{retroverify\_cycle*.json::fine\_tune.n\_episodes\_used}); the batch grows monotonically from $107$ at the first fine-tune to $5\,006$ at the trajectory-end cycle. The final-loss column reports the loss at the last gradient step of each per-cycle fine-tune; the trajectory $0.258 \to 0.171 \to 0.109 \to 0.070$ across the four uninterrupted cycles is monotone decreasing, the empirical receipt that the SIL loop is making coherent gradient progress on the verified pool. The cycle-five uptick to $0.091$ is the post-rollback recovery reading after the cycle-four retention abort re-anchored the adapter at the cycle-three checkpoint. The three retention-probe columns report the post-fine-tune ratio against the pristine cycle-zero capability on each of the registered multi-modal probes: MMLU (general-knowledge multiple choice), TQA-test (held-out open-text factoid), and CSQA-test (held-out five-option multiple choice). MMLU stays above the floor at every cycle in the band $[0.975, 1.041]$, so the retention contract is governed in practice by the two open-text and commonsense probes rather than by general-knowledge retention; the cycle-four TriviaQA-test ratio of $0.886$ is the first in-flight breach of $\rho_{\min} = 0.93$ in the realised trajectory and the event that triggered the asymmetric rollback registered in \Cref{sec:retention}.}
+\label{tab:sil-training-trajectory}
+\end{table}
