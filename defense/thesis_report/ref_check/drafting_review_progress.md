@@ -82,3 +82,14 @@ names "sklearn".
 paragraph gap (e.g. `\setlength{\parskip}{0.5\baselineskip}`), or keep the template exactly?
 
 - **Q8 → resolved:** template says nothing about paragraph spacing; added `parskip` (0.5 baselineskip gap), 281 pages.
+
+- **Q4 → done (re-run 2026-10-16):** `scripts/rerun_cycle0_sweep.py` → `outputs/cycle_0/sweep_v2_1/` (variants.json/.csv +
+  README). Findings that change thesis numbers (author decision needed in the ch5 session, also abstract/ch3/ch6):
+  (i) "289 entries at 0.796" was produced by the legacy weighted-sum bootstrap composite, not the locked configuration;
+  the locked configuration scores 558 stored at 0.751 on the held-out validation fold (FEVER 93, TriviaQA 0,
+  CommonsenseQA 465), pooled d 0.72. (ii) "306 of 478" and "70 of 105" are not reproduced by any variant on either fold;
+  re-run calibration-fold values are 437/560 (τ 0.60) and 243/281 (τ 0.65). (iii) tab_validation_gate is computed from
+  the bootstrap scores and needs recomputing under the locked composite (gate still passes: d 0.72 ≥ 0.20). (iv) the
+  locked configuration passes criteria 1–2 but is not the criterion-3 maximum (α = 1.0 stores more correct items), so
+  its choice should be justified by the shrinkage rationale. (v) every variant stores 0 TriviaQA items on the validation
+  fold (calibration-to-validation shift), consistent with the main run's C1 calibration fold (1 TriviaQA store).

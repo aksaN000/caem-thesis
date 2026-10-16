@@ -111,10 +111,11 @@ HOW TO WORK
   `atomic_min_tokens = 12`: 99.0% skipped; remaining 1.0% returned no facts). Keep "nine signals" as the design; add a
   realized-run note where the signals are defined (ch4) and where tables show identical rows (ch5); add a limitation
   and a matching future-work item (ch6).
-- **Q4 (abstract, ch3, ch5, sweep_top):** re-run the 4×5×5 = 100-variant sweep offline on the cycle-0 calibration fold
-  (`outputs/cycle_0/calibration/calibration_fold_samples.json`, 1500 samples with all signals + em + decision) and
-  persist it under `outputs/`; no final-panel sweep artefact exists today (only a 25-variant v1-panel sweep in Drive
-  `CAEM_thesis/9_archive/v1_panel/full_run/cycle_0/sweep/`). Do this before the ch3 session.
+- **Q4 sweep (DONE; apply in ch3/ch5/ch6 + abstract):** re-run persisted in `outputs/cycle_0/sweep_v2_1/` (read its
+  README). "289 at 0.796" is the bootstrap weighted-sum composite's, not the locked configuration's (locked: 558 at
+  0.751 on the validation fold, TriviaQA 0); "306/478" and "70/105" are unreproducible (re-run: 437/560, 243/281);
+  tab_validation_gate must be recomputed under the locked composite; the locked configuration is not the criterion-3
+  maximum. All of these change stated results: present options to the author before editing.
 - **Q5:** condense the abstract (709 words) at the end, after ch5/ch6 are final.
 - **Q7 (ch5 + abstract):** report the Tier-1 probe `outputs/tier1_routing_probe/` (Tier 1 fired on 42/50 exact repeats
   and 19/50 paraphrases; Tier-1 answers correct 41/42 and 19/19); use it to ground the abstract's memory-tier claim.
