@@ -11,7 +11,7 @@ Baseline build (latexmk, 2026-10-16): 324 pages, 0 errors, 0 undefined refs/cita
 |---|---|---|
 | Step 1: p_ground^mean vs p_ground^atomic | done (report) | Identical on 14,951/14,951 run samples; see open question Q1 |
 | Front matter | done; PR #4 open; title month pending | branch `review/front`; 22 changes logged |
-| Chapter 1 | fixes applied; PR open; decisions D1–D6 pending | branch `review/ch1`; 45 changes logged in fixes_applied.md |
+| Chapter 1 | fixes applied; PR #5 open; decisions D1–D6 pending | branch `review/ch1`; 45 changes logged in fixes_applied.md |
 | Chapter 2 | pending | |
 | Chapter 3 | pending | |
 | Chapter 4 | pending | |
