@@ -1446,3 +1446,13 @@ appendix F pre-routing entry fixed ("encoder-layer"); ch3 calibration-fold phras
   points to future work on reasoning chains.
 - Consistency outside ch4: ch1 scope sentence ("closed at cycle five under that gate") → early-stop disclosure; ch2
   "Monte Carlo dropout variance" → "disagreement among Monte Carlo dropout samples"; abstract "upward-only" removed.
+
+### Chapter 4, part 3 and chapters 1–4 closing check (2026-10-16)
+
+- Table 4.2 (pre-classifier dispatch rules) removed: it repeated the numbered list in the text and Algorithm 2. Its label
+  now points to the post-classifier table (caption retitled "Dispatch rules of the router and the retrieval-utility
+  classifier"), so all references still resolve.
+- Chapters 1–4 + abstract scripted check (em dash, section symbol, we/our, American spelling, straight quotes,
+  citation-as-noun, full-stop lead-ins, spelled percentages, stale phrases from the standing decisions):
+  ch2 positioning table "---" empty cells → "--"; ch2 summary "multi-scoring of \cite{..}" → "of Valentin et al."; spelled
+  percentages to digits (ch1 ×2, ch2 ×6). Remaining hit: abstract "0.796 over 289" (Q4, abstract session).

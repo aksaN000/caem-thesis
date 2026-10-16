@@ -144,7 +144,7 @@ The episodic memory is CAEM's long-term store of verified answers. It follows me
 \subsection{Three-tier router with the safety override}
 \label{sec:router}
 
-The router chooses the tier from three inputs: the similarity $s$ between the query and its nearest stored question, that neighbour's stored score $\ustored$, and the pre-routing confidence $\upre$. Its rules are checked in a fixed order (\Cref{tab:dispatch-rules}, \Cref{alg:router}, \Cref{fig:routing-map}).
+The router chooses the tier from three inputs: the similarity $s$ between the query and its nearest stored question, that neighbour's stored score $\ustored$, and the pre-routing confidence $\upre$. Its rules are checked in a fixed order (\Cref{alg:router}, \Cref{fig:routing-map}; \Cref{tab:ruc-dispatch} gives the final rules including the classifier).
 \begin{enumerate}
     \item \textbf{Safety override:} if $\upre < 0.38$, the query skips the memory and goes to the retrieval-utility classifier.
     \item \textbf{Tier 1:} if the combined score $\mathcal{S} = 0.70\,s + 0.30\,\ustored$ is at least $0.90$, the neighbour's stored answer is returned without generating.
@@ -159,22 +159,6 @@ Separating the three questions (is there a trusted close match, is the model rea
 
 \input{figures/ch4/fig_routing_map.tex}
 
-\begin{table}[!htbp]
-\centering
-\small
-\begin{tabular}{@{}p{1.2cm}p{1.3cm}>{\raggedright\arraybackslash}p{5.7cm}>{\raggedright\arraybackslash}p{4.2cm}@{}}
-\toprule
-\textbf{Order} & \textbf{Tier} & \textbf{Condition} & \textbf{Output path} \\
-\midrule
-1 & Tier 3 & $\upre < 0.38$ (safety override) & Retrieval-augmented generation \\
-2 & Tier 1 & $\mathcal{S} = 0.7\,s + 0.3\,\ustored \ge 0.90$ & Serve neighbour's stored answer \\
-3 & Tier 2 & $s \ge 0.75$ & Zero-shot generation \\
-4 & Tier 3 & otherwise & Retrieval-augmented generation (fall-through) \\
-\bottomrule
-\end{tabular}
-\caption[Three-tier dispatch rules in order of evaluation.]{Three-tier dispatch rules in order of evaluation, before the retrieval-utility classifier (\Cref{tab:ruc-dispatch}).}
-\label{tab:dispatch-rules}
-\end{table}
 
 \begin{algorithm}[!htbp]
 \caption[Three-tier router with safety override (Stage~3).]{Three-tier router with safety override (Stage~3).}
@@ -223,7 +207,8 @@ Retrieval does not help every question. On questions built around a popular misc
 4 & Tier 3 / 2 & otherwise (fall-through): Tier 3 if $p_{\text{RAG}} \ge 0.375$, else Tier 2 & Retrieval-augmented or zero-shot generation \\
 \bottomrule
 \end{tabular}
-\caption[Dispatch rules after the retrieval-utility classifier.]{Dispatch rules after the retrieval-utility classifier. The classifier is consulted only in rows 1 and 4, the two cases that would otherwise always retrieve.}
+\caption[Dispatch rules of the router and the retrieval-utility classifier.]{Dispatch rules of the router and the retrieval-utility classifier, in order of evaluation. The classifier is consulted only in rows 1 and 4, the two cases that would otherwise always retrieve.}
+\label{tab:dispatch-rules}
 \label{tab:ruc-dispatch}
 \end{table}
 

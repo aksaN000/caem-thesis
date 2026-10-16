@@ -226,3 +226,12 @@ ch5 decision is made (locked configuration is not the criterion-3 maximum; justi
   caem_phantom_context_finding): ask the author how to report it in ch5/ch6.
 - **ch6 L32** still has "fifteen to fifty percentage points".
 - **Early-stop disclosure** still to apply in ch5 (L104, L116, L609), ch6, appendix C (L94).
+- **Isotonic small-sample caveat (ch6 limitation, optional):** per-benchmark isotonic curves are fitted on 500 points, inside
+  the 200–1,000 range where Niculescu-Mizil and Caruana find isotonic can overfit; mitigated by shrinkage (α 0.6), clipping,
+  the 50-sample floor and C = 0.01. A Platt-versus-isotonic comparison per benchmark is a possible future-work item.
+- **Storage quality filter:** active in the main run, rejected 7 answers (12,218 stored); regex-based, so it can reject a
+  correct answer whose reasoning says "cannot be determined" and it does not catch the phantom "The context provides"
+  phrasing. Mention in ch5/ch6 only if the phantom-context finding is reported.
+- **Theory kept (recommendation given to author 2026-10-16):** all 11 statements stay, labelled by status; removing them
+  would break the H1–H4 mappings and the CO5 "theoretical proofs" outcome.
+- **Abstract:** still "storage precision 0.796 over 289" (legacy composite, Q4).
