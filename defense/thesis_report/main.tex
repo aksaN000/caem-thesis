@@ -11,16 +11,16 @@
 % Style rules: see audit_phase_a.md and the per-chapter scope notes.
 % ============================================================================
 
-\documentclass[12pt,a4paper,oneside]{book}
+\documentclass[12pt,a4paper,oneside,openany]{report}
 
 % --- Page geometry and typography -------------------------------------------
-\usepackage[a4paper,top=1in,bottom=1in,left=1.25in,right=1in]{geometry}
+\usepackage[a4paper,width=150mm,top=25mm,bottom=25mm]{geometry}  % BRAC template
 \usepackage[utf8]{inputenc}
 \usepackage[T1]{fontenc}
 \usepackage{lmodern}
 \usepackage{microtype}
 \usepackage{setspace}
-\onehalfspacing
+% single spacing, as in the BRAC template (no \onehalfspacing)
 
 % --- Math and symbols -------------------------------------------------------
 \usepackage{amsmath}
@@ -58,11 +58,12 @@
 \usepackage{algpseudocode}
 
 % --- Cross-references and hyperlinks ----------------------------------------
-\usepackage[hidelinks,colorlinks=true,linkcolor=black,citecolor=black,urlcolor=blue]{hyperref}
+\usepackage[colorlinks=true,linkcolor=black,filecolor=magenta,citecolor=black,urlcolor=black]{hyperref}  % BRAC template colours
+\urlstyle{same}
 \usepackage[noabbrev,capitalize]{cleveref}
 
 % --- Bibliography -----------------------------------------------------------
-\usepackage[backend=biber,style=numeric-comp,sorting=none,maxbibnames=99]{biblatex}
+\usepackage[backend=biber,style=ieee,sorting=ynt]{biblatex}  % BRAC template
 \addbibresource{bibliography/references.bib}
 % Render-time backstop: suppress any field that might still leak thesis-internal
 % commentary or non-bibliographic clutter into the rendered bibliography.
@@ -123,29 +124,59 @@
 \crefname{heuristic}{Heuristic}{Heuristics}
 \Crefname{heuristic}{Heuristic}{Heuristics}
 
+% --- BRAC template layout controls ------------------------------------------
+\setlength{\parindent}{0em}
+% The template sets no paragraph spacing; with zero indent, paragraphs need a visible gap.
+\usepackage[skip=0.5\baselineskip plus 2pt]{parskip}
+\pagestyle{plain}
+\let\cleardoublepage=\clearpage
+
 % ============================================================================
 \begin{document}
 
 % --- Front matter -----------------------------------------------------------
-\frontmatter
-
+\thispagestyle{empty}
 \input{core/titlepage}
+\cleardoublepage
+\pagenumbering{roman}
+\phantomsection
+\addcontentsline{toc}{chapter}{Declaration}
 \input{core/declaration}
+\phantomsection
+\addcontentsline{toc}{chapter}{Approval}
 \input{core/approval}
-\input{core/ethics_statement}
+\input{core/ethics_statement}      % optional page; empty, so no TOC entry
+\phantomsection
+\addcontentsline{toc}{chapter}{Abstract}
 \input{core/abstract}
-\input{core/dedication}
+\input{core/dedication}            % optional page; empty, so no TOC entry
+\phantomsection
+\addcontentsline{toc}{chapter}{Acknowledgment}
 \input{core/acknowledgement}
 
+\renewcommand{\contentsname}{Table of Contents}
+\cleardoublepage
+\phantomsection
+\addcontentsline{toc}{chapter}{Table of Contents}
 \tableofcontents
+\cleardoublepage
+\phantomsection
+\addcontentsline{toc}{chapter}{\listfigurename}
 \listoffigures
+\cleardoublepage
+\phantomsection
+\addcontentsline{toc}{chapter}{\listtablename}
 \listoftables
+\cleardoublepage
+\phantomsection
+\addcontentsline{toc}{chapter}{List of Algorithms}
 \listofalgorithms
 \input{core/lists/list_of_acronyms}
 \input{core/lists/list_of_symbols}
 
 % --- Main matter ------------------------------------------------------------
-\mainmatter
+\cleardoublepage
+\pagenumbering{arabic}
 
 % Chapter list mandated by the BRAC University CSE400 thesis rubric. Each
 % chapter title and section number is fixed by the rubric; depth is added
