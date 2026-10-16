@@ -11,8 +11,8 @@ Baseline build (latexmk, 2026-10-16): 324 pages, 0 errors, 0 undefined refs/cita
 |---|---|---|
 | Step 1: p_ground^mean vs p_ground^atomic | done (report) | Identical on 14,951/14,951 run samples; see open question Q1 |
 | Front matter | done; PR #4 open; title month pending | branch `review/front`; 22 changes logged |
-| Chapter 1 | Claude pass done; PR #5 open; awaiting author's manual read + discussion | branch `review/ch1`; 45 changes logged in fixes_applied.md |
-| Chapter 2 | Claude pass done; PR #6 open (stacked on review/ch1); awaiting author's read | branch `review/ch2`; 16 152 → 11 740 words |
+| Chapter 1 | Claude pass + author read-through applied (2026-10-16); PR #5 open, ready for the author to merge | branch `review/ch1`; 45 changes logged in fixes_applied.md |
+| Chapter 2 | Claude pass + author read-through applied (2026-10-16); PR #6 open (stacked on review/ch1; retarget after #5 merges) | branch `review/ch2`; 16 152 → 11 740 words |
 | Chapter 3 | pending | |
 | Chapter 4 | pending | |
 | Chapter 5 | pending | pre-found issues: `review_ch5_part1.md` |
