@@ -1048,3 +1048,24 @@ README consistency pass logged separately in ref_check/fixes_readme.md.
 | tab_decision_distribution (correction, 2026-10-15) | panel (b) removed | panel (b) restored with identical values; caption now limits the store > defer > discard > abstain ordering to the pooled panel and states the per-benchmark exceptions (FEVER discard, 21 queries; CommonsenseQA discard and abstain, 8 each); the false "discussed in the surrounding prose" sentence stays removed | the removal was wrong: all 36 panel (b) values recompute exactly from outputs/full_run/cycle_3/calibration/{fever,triviaqa,commonsense_qa}_cycle3.json with the panel (a) computation (the earlier search missed these per-benchmark files) |
 | ch5:181 | "the present reading is therefore registered as an as-shipped null receipt" | "the present reading, sixty-three firings concentrated on CommonsenseQA after its floor refit, is therefore registered as a low-rate receipt" | contradicted the corrected 63/9,000 count |
 | README, "Checking the tables" | — | "do not regenerate by overwriting" table: survival distribution, decision distribution, tier trajectory, validation gate, theorem receipts, hand-built tables | aggregate_survival_distribution disagrees with the run log; several tables are hand-finished |
+
+---
+
+# Final drafting pass (2026-10), working copy `defense/thesis_report/`
+
+## Front matter (branch `review/front`)
+
+| Location | Before | After | Evidence / reason |
+|---|---|---|---|
+| core/abstract.tex, para 2 | "StrategyQA shows a clean transfer-panel win of $-17.5$ percent composite hallucination at trajectory end." | "On the transfer panel, StrategyQA's composite hallucination falls by $17.5$ percent at trajectory end, a reduction that does not reach statistical significance." | tab_per_bench_trajectory StrategyQA CHM 0.120 → 0.099 (−17.5%); tab_sig_test zero_shot·strategyqa Sig "- / -", ΔCHM CI [−0.017, +0.002] includes 0; StrategyQA EM at C5 is −1.5% vs B1 |
+| core/abstract.tex, para 2 | "and reaches exact-match parity with the strongest fine-tuned and active-retrieval baselines at the trajectory-end cycle;" | "and at the trajectory-end cycle leads the fine-tuned baseline on pooled exact match ($0.517$ against $0.490$) while trailing the active-retrieval baseline by $0.008$;" | tab_baseline_pooled: CAEM C5 0.517, B6 0.490 (+0.027), B7 FLARE 0.525 (−0.008); REVIEW_HANDOFF A |
+| core/abstract.tex, para 3 | "and the registered ablations are reported in the empirical chapter and appendices." | "and the retrieval-utility classifier ablation are reported in the empirical chapter and appendices." | ch5 L463: the RUC on/off contrast "is the one architectural ablation reported within the realised cycle horizon"; outputs/ablation/ holds only aggregate_ablation.log, no variant results |
+| core/approval.tex | "Large Language Models ”" | "Large Language Models”" | stray space before closing quote |
+| core/lists/list_of_symbols.tex | $\phi_{\text{pg}}$ "Pre-routing safety floor" | "Abstention floor on top-passage entailment ($0.20$)" | every use in the text is the abstention floor 0.20 (ch4 early-exit rule, ch5 L301, sweep_top, tab captions) |
+| core/lists/list_of_symbols.tex | (missing) | new row $\phi_{\text{safe}}$ "Pre-routing safety floor on $\upre$ ($0.38$; per-benchmark refit)" | used in 9 places (ch2:301, ch4:142/144, ch5:308/595, app A/C/F, tab_calibration_trajectory); config `safety_u_pre_min = 0.38` |
+| core/lists/list_of_symbols.tex | $B$ "Bootstrap replicates ($10\,000$)" | "($1\,000$)" | scripts/baseline_sig_tests_v2.py:142,237 `n_bootstrap=1000`; ch5:376 and appendix D:68,87 already say 1,000 |
+| core/lists/list_of_symbols.tex | "$\mathrm{EM},\mathrm{F}_1,\mathrm{ROUGE\text{-}L}$" | "$\mathrm{EM},\mathrm{F}_1$" | ROUGE-L never used in the text (0 occurrences) |
+| core/lists/list_of_acronyms.tex | ROUGE-L "Longest-common-subsequence overlap" | ROUGE "Recall-Oriented Understudy for Gisting Evaluation" | "ROUGE" used 4× undefined (appendix D:26 ×3, ch4:165); "ROUGE-L" used 0× |
+| core/lists/list_of_acronyms.tex | BCa, SOTA, SDPA | TPR, FPR, TTL | BCa/SOTA/SDPA used 0× (intervals are percentile, not BCa); TPR 20×, FPR 16×, TTL 8× used but unlisted |
+
+Build after these edits (latexmk): 324 pages, 0 errors, 0 undefined refs/citations, 0 multiply-defined labels, overfull hboxes 74 (baseline 75).
