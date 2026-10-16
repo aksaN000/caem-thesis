@@ -168,6 +168,33 @@ after the previous PR merges.
   sec:env-cycles. Never write "closed on / terminated by the equilibrium-saturation gate" as evidence of equilibrium.
 - **Tier 1 in the run:** never fired because every per-cycle stream chunk is fresh (disjoint from earlier chunks) and the
   evaluation fold is disjoint from both; say this wherever Tier 1 shares or memory-direct savings are discussed.
+- **Chapter 5 decisions (author, 2026-10-16):**
+  - **Title:** "Progressive" dropped → "Confidence-Aware Episodic Memory with Self-Improvement for Hallucination Reduction in
+    Large Language Models" (titlepage, approval page).
+  - **Headline = three-step decomposition** on EM and CHM: B1→C0 (architecture: EM 0.507→0.541), C0→C5 (self-improvement:
+    EM 0.541→0.517; CHM 0.135→0.109), B1→C5 (whole system: CHM 0.120→0.109, lower than every baseline). Self-improvement
+    helps for one or two cycles (training-panel EM 0.571→0.584 at C1) then erodes; its CHM gain is mostly undoing the C0
+    over-refusal (eval abstain 34% / discard 32% at C0 → 14% / 10% at C1). Confident confabulation 0.268 (B1) → 0.087 (C0)
+    → 0.269 (C5) mirrors false refusal 0.060 → 0.305 → 0.064: both are defined by the verifier's own score (wrong with
+    u ≥ 0.50, which includes the deferral band; correct but abstained/discarded), so they trade off as the refitted gate becomes more permissive.
+  - **Selective-prediction view added** (operating-point independent): coverage / error among answered — B1 1.00 / 0.493;
+    C0 0.661 / 0.381; C1 0.856 / 0.421; C2 0.877 / 0.425; C5 0.830 / 0.451 (ABSTAIN = not answered).
+  - **Verdicts:** H1 supported (pooled gate balanced accuracy 0.753 C0 in-sample; 0.616, 0.668, 0.669, 0.661 at C1, C2,
+    C3, C5; weak: CommonsenseQA 0.52–0.56, TriviaQA C1 0.502); H2 unsupported as registered; H4 partially supported; H5
+    unsupported as registered (no repeat questions; latency falls only if Tier 1/2 shares rise, which did not happen).
+    Only the three registered verdict words.
+  - **Sweep (Q4):** only the final re-run numbers (`outputs/cycle_0/sweep_v2_1/`), a top-variants table, locked choice
+    justified by shrinkage, not by most correct stored (α = 1 stores more). Update stale scripts too.
+  - **Phantom context:** paragraph in ch5 (discussion/limitations, per-cycle numbers, preprocessing mistake), one sentence in
+    ch6 future work.
+  - **Purification theorem is about the pool, not the model:** say so wherever SIL results are interpreted.
+  - **Theory framing everywhere (author, 2026-10-16):** present the two proven results as simple but necessary (a testable
+    precondition and a design target), never as deep or load-bearing; heuristics and remarks keep their labels. Check ch1,
+    ch6 and the abstract for overselling in their sessions and in the final pass.
+  - **Accepted for ch5:** gate verdict = "registered pooled check passes; two per-benchmark checks cannot be computed at
+    C0; CommonsenseQA discrimination weak"; delete "Optional reference points" and "Tier-by-baseline cost" (one sentence on
+    why STaR/Self-RAG were not run); statistical procedures → appendix D pointer + Appendix D licensing rule; baseline
+    descriptions cut to realised-versus-expected.
 
 ## Carried items (apply when you reach the chapter)
 - **Q1 decision (ch4, ch5, ch6):** `p_ground^atomic` equalled `p_ground^mean` on all 14,951 run samples (length gate

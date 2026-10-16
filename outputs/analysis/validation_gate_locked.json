@@ -1,0 +1,81 @@
+{
+  "per_bench": {
+    "fever": {
+      "n": 500,
+      "em": 0.48,
+      "d": 0.5550253082849855,
+      "stored": 93,
+      "precision": 0.7204301075268817,
+      "poisoning": 0.27956989247311825,
+      "store_minus_discard": 0.2675297663005065,
+      "decisions": {
+        "STORE": 93,
+        "DEFERRED": 70,
+        "ABSTAIN": 315,
+        "DISCARD": 22
+      }
+    },
+    "triviaqa": {
+      "n": 500,
+      "em": 0.454,
+      "d": 1.3963026490387218,
+      "stored": 0,
+      "precision": null,
+      "poisoning": null,
+      "store_minus_discard": null,
+      "decisions": {
+        "STORE": 0,
+        "DEFERRED": 0,
+        "ABSTAIN": 156,
+        "DISCARD": 344
+      }
+    },
+    "commonsense_qa": {
+      "n": 500,
+      "em": 0.75,
+      "d": 0.14235673327480705,
+      "stored": 465,
+      "precision": 0.7569892473118279,
+      "poisoning": 0.24301075268817207,
+      "store_minus_discard": null,
+      "decisions": {
+        "STORE": 465,
+        "DEFERRED": 35,
+        "ABSTAIN": 0,
+        "DISCARD": 0
+      }
+    },
+    "truthfulqa": {
+      "n": 500,
+      "em": 0.384,
+      "d": 0.38348413952855087,
+      "stored": 3,
+      "precision": 1.0,
+      "poisoning": 0.0,
+      "store_minus_discard": 0.5069389599224543,
+      "decisions": {
+        "STORE": 3,
+        "DEFERRED": 3,
+        "ABSTAIN": 171,
+        "DISCARD": 323
+      }
+    },
+    "strategyqa": {
+      "n": 500,
+      "em": 0.606,
+      "d": -0.0019573225906184765,
+      "stored": 64,
+      "precision": 0.640625,
+      "poisoning": 0.359375,
+      "store_minus_discard": 0.36741517483933567,
+      "decisions": {
+        "STORE": 64,
+        "DEFERRED": 128,
+        "ABSTAIN": 210,
+        "DISCARD": 98
+      }
+    }
+  },
+  "d_pooled_train": 0.7168879652327007,
+  "d_pooled_transfer": 0.41847410187302814
+}

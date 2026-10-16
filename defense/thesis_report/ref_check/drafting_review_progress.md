@@ -235,3 +235,32 @@ ch5 decision is made (locked configuration is not the criterion-3 maximum; justi
 - **Theory kept (recommendation given to author 2026-10-16):** all 11 statements stay, labelled by status; removing them
   would break the H1–H4 mappings and the CO5 "theoretical proofs" outcome.
 - **Abstract:** still "storage precision 0.796 over 289" (legacy composite, Q4).
+
+## Chapter 5 in progress (2026-10-16, branch `review/ch5`)
+
+- New evidence scripts (committed with the chapter): `scripts/build_ch5_evidence_tables.py` → `figures/auto/tab_gate_quality.tex`,
+  `tab_sweep_variants.tex`, `tab_headline_steps.tex`, `outputs/analysis/ch5_evidence_tables.json`;
+  `scripts/recompute_validation_gate.py` → `figures/auto/tab_validation_gate_locked.tex`, `outputs/analysis/validation_gate_locked.json`.
+- Gate quality (cal fold, STORE decision; matches pi_store_trajectory): balanced accuracy C1 0.615, C2 0.663, C3 0.664,
+  C5 0.658 (C0 0.753 in-sample); Cohen's d 0.593 → 0.842; per-benchmark CSQA 0.52–0.55, TriviaQA C1 0.500.
+- H2 trace must use one consistent C0 value: the old C0 0.746 is the "weight_validation" reading (validation fold, five
+  benchmarks, legacy composite). Locked C0 on the cal fold is 0.780 (in-sample).
+- Validation gate under the locked composite (validation fold): pooled training d 0.717 (pass); per-benchmark d FEVER
+  0.555, TriviaQA 1.396, CSQA 0.142 (< 0.20); stored 93 / 0 / 465; store-minus-discard gap computable only on FEVER
+  (0.268; TriviaQA stored nothing, CSQA discarded nothing); wrong share among stored FEVER 0.28, CSQA 0.243; transfer d
+  TruthfulQA 0.383, StrategyQA −0.002. AUTHOR DECISION PENDING on the verdict wording (old table said every check passed).
+- CHM confident-confabulation threshold in code is u ≥ 0.50 (eval/metrics.py), as the chapter states (not 0.60).
+- **B8 CHM is from the OLD, broken semantic-entropy run (found 2026-10-16):** `outputs/baselines_phase1e/chm_comparison.json`
+  semantic_entropy CHM (FEVER 0.1571, TriviaQA 0.1750, CSQA 0.0967, TruthfulQA 0.0500, StrategyQA 0.1192) equals the
+  per-sample mean of `outputs/baselines_phase1e_pre_se_rerun_backup/semantic_entropy/*_with_chm.json` (rescored 2026-05-29,
+  `rescore.log` L1251–1351). The corrected B8 run (2026-06-06, `baselines_phase1e/semantic_entropy/*_cycle0.json`) has
+  `u_stored = None` on every sample: it was never rescored through the verifier. B8 EM uses the corrected run. Rescoring needs
+  a GPU (verifier resampling + MiniCheck + 64 GB passage index). AUTHOR DECISION PENDING: rescore on GPU, or report B8 CHM as
+  unavailable.
+- **CHM significance is approximate in the code** (`scripts/baseline_sig_tests_v2.py::_approx_chm_ci`: CAEM fixed, baseline
+  subtype rates binomially resampled, no Holm, floor 0.01); ch5 and appendix D claimed paired Wilcoxon + Holm. Per-sample
+  CHM (`eval/metrics.py::per_sample_chm`) reproduces the committed CHM for CAEM (C2, C5) and B1–B7, so a true paired test is
+  possible without GPU for every baseline except B8 (no per-sample verifier fields in the corrected run).
+- **Repo clean-up phase (author request 2026-10-16):** after the chapter pass, make the repository plug-and-play (one
+  environment file, one command per stage, generators that reproduce every committed table without hand edits, superseded
+  scripts archived with a README).
