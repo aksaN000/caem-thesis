@@ -17,7 +17,7 @@ corrected copy; generator still stale).
 | # | Where | Problem | Status |
 |---|---|---|---|
 | C1 | `scripts/run_experiment.py` (early-stop gate) | Storage signal read the evaluation-pass storage rate (always 0); MMLU signal compared raw accuracy with the 0.93 ratio floor. Gate certain to fire at C5. | FIXED 2026-10-16 (review/ch3); replay `scripts/replay_early_stop_gate.py` |
-| C2 | `scripts/run_tier1_routing_probe.py` L239–275 | `top1_is_source_rate` compares the sample-list index with the memory entry id (different id spaces), so it is always 0. Retrieved question text matches. | OPEN (field not used in thesis) |
+| C2 | `scripts/run_tier1_routing_probe.py` L239–275 | `top1_is_source_rate` compares the sample-list index with the memory entry id (different id spaces), so it is always 0. Retrieved question text matches. | FIXED 2026-10-17: identity = question text; re-summarised from saved results, rate 1.0 exact / 1.0 paraphrase (not used in thesis) |
 | C3 | `scripts/baseline_sig_tests_v2.py` `_approx_chm_ci` | CHM "significance" is an unpaired approximation (CAEM fixed, baseline subtype rates resampled), no Holm, floor 0.01; thesis/appendix D described paired Wilcoxon + Holm. | FIXED 2026-10-17: `scripts/paired_baseline_tests.py` (Wilcoxon + Holm per benchmark, paired bootstrap; reproduces EM 9/3, 14/3); v2 script superseded, archive in clean-up |
 | C4 | `caem/verification/verifier.py` early-exit log line | Log says "route to Tier 3 regen"; code only marks DISCARD. | OPEN (cosmetic) |
 | C5 | `caem/training/self_improvement.py` docstring L48 | Says "8-bit AdamW + L2 anchor on adapter"; LoRA path uses 32-bit AdamW and λ_anc = 0. | OPEN (comment) |

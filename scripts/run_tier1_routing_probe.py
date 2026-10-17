@@ -199,9 +199,14 @@ def main() -> int:
     p.add_argument("--cycle", type=int, default=5)
     p.add_argument("--queries_path", type=Path, required=True)
     p.add_argument("--output_dir", type=Path, required=True)
+    p.add_argument("--resummarize", action="store_true",
+                   help="rebuild summary_cycle<N>.json from the saved results file (no GPU)")
     ns = p.parse_args()
 
     ns.output_dir.mkdir(parents=True, exist_ok=True)
+    out_results = ns.output_dir / f"results_cycle{ns.cycle}.json"
+    if ns.resummarize:
+        return _summarize(json.loads(out_results.read_text()), ns)
     queries = json.loads(ns.queries_path.read_text())
     logger.info("Loaded %d queries from %s", len(queries), ns.queries_path)
 
@@ -225,11 +230,13 @@ def main() -> int:
                         res.get("latency_ms", {}).get("total", -1),
                         res.get("tier"))
 
-    out_results = ns.output_dir / f"results_cycle{ns.cycle}.json"
     out_results.write_text(json.dumps(results, indent=2))
     logger.info("Wrote %s", out_results)
+    return _summarize(results, ns)
 
-    # Summary aggregation
+
+def _summarize(results: List[Dict], ns) -> int:
+    """Summary aggregation over probe results."""
     from collections import Counter
     by_kind_tier = {}
     routing_score_by_kind = {}
@@ -247,10 +254,10 @@ def main() -> int:
         similarity_by_kind.setdefault(k, []).append(r["similarity"])
         u_pre_by_kind.setdefault(k, []).append(r["u_pre"])
         safety_by_kind.setdefault(k, []).append(1 if r["safety_override"] else 0)
-        if r.get("source_episode_id") is not None and r.get("retrieved_entry_id") is not None:
-            top1_is_source.setdefault(k, []).append(
-                1 if r["retrieved_entry_id"] == r["source_episode_id"] else 0
-            )
+        # The source episode id is a position in the sampled list and the retrieved id is a memory entry id
+        # (different id spaces; comparing them always gave 0, tracker C2). Identity is the question text.
+        if r.get("exact_text_match") is not None:
+            top1_is_source.setdefault(k, []).append(1 if r["exact_text_match"] else 0)
 
     def _stats(xs):
         if not xs:

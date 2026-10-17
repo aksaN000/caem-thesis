@@ -33,12 +33,17 @@ Local runs stopped and local environments/caches removed at the author's request
 - [ ] B3/B4: re-run TruthfulQA on the rental (prompts unchanged; the 268 good answers must reproduce).
 - [ ] Verifier pass on every re-run baseline (CHM; B8 gets its first valid CHM).
 ### M-B. Scoring (must fix)
-- [ ] TruthfulQA judge reads the final answer only; a refusal is correct only if the references include one.
-      Re-judge CAEM (all cycles) and every baseline.
-- [ ] TriviaQA strict-vs-lenient re-check for every system after the prompt fix; one rule for all.
-- [ ] CommonsenseQA scoring rule (tracker D20): accept one valid letter with optional option text, reject
-      multiple letters; applied to every system. Benchmark audit otherwise clean: no leakage (D21).
-- [ ] Router-probe id-space bug.
+- [x] TruthfulQA judge reads the final answer only; a refusal is correct only if the references include one
+      (commit 7c72b27, protocol final_answer_v2; v1 verdicts kept as *_v1). v1 read the full response on CAEM's
+      suppressed rows (197/300 at C0) and the refusal string on abstained rows, but the final answer for baselines.
+- [ ] Re-judge: CAEM C0–C5 + Phase 1d C3 (running locally 2026-10-17, log outputs/rerun_v2/tqa_judge_v2_caem.log;
+      backups outputs/rerun_v2/backup_tqa_judge_v1/); baselines after their rental re-run.
+- [x] One scorer for all systems (commit 1cf7c55): eval.metrics.score_uniform, used by the harness and by
+      scripts/rescore_uniform.py (writes em_final / em_lenient). CommonsenseQA: one letter, option text allowed,
+      two letters wrong (the harness had no CSQA branch). TriviaQA strict = stored EM for every system (checked);
+      lenient reported as an upper bound. Identical to the audit preview on 13,200 rows.
+- [ ] Run scripts/rescore_uniform.py after the judge and the baseline re-runs; downstream scripts read em_final.
+- [x] Router-probe id-space bug (tracker C2): fixed, re-summarised without GPU (1.0 / 1.0; not used in thesis).
 ### M-C. Text that does not match the code (must fix)
 - [ ] Describe as it behaved, briefly (author 2026-10-17: no fault sections): token score = generator's average
       token probability for its full response given the question (+1 limitation sentence); atomic signal reduces
