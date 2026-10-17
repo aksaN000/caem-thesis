@@ -44,13 +44,18 @@ System faults (token score scope, early exit reachability, question-match signal
 temperature cap, FEVER prefix); self-improvement erosion after C1 with its diagnosis (phantom context
 3 % → 93–99 %, about a fifth of the training pool wrong) and fixes S1–S4 as future work; repeated-question
 evaluation (router probe stands in); live latency (first-run batched logs 13.6–14.7 s per question, caveated).
-### M-E. Agreed: trial of the self-improvement fixes (on the rental)
-- [ ] Resume from run 1's exact cycle-zero state (base model, cycle-zero composite, cold-start memory) and run
-      cycles again on the SAME stream chunks and evaluation fold with only S1 (clean chains) + S2 (purer pool)
-      changed; each trial cycle continues from the trial's own previous cycle, like run 1. Run 1 is the control.
-      Options: full-scale C1–C2 (~25–30 h, ~$18–22) or C1–C3 (~40–45 h, ~$28–32; C2→C3 is where erosion
-      starts). Estimates to be replaced after profiling. Reported as clearly labelled supporting evidence.
-- Decision pending: S2 = confidence-weighted loss at the 0.70 threshold (default) or a stricter threshold.
+### M-E. Trial of the self-improvement fixes: SKIPPED (author, 2026-10-17)
+Self-improvement fixes S1–S4 are reported as future work with the diagnosis only.
+
+### Uniform re-scoring preview (2026-10-17, `scripts/audit_scoring_uniform.py`, outputs/analysis/
+audit_scoring_uniform.json, chm_uniform_labels_preview.json)
+One fair rule for every system. FEVER, StrategyQA and TruthfulQA scoring are sound (no change for any system).
+Format effects are confined to TriviaQA (sentence answers) and CommonsenseQA (letter + option text; the stored
+scorer also credits the last letter of two-letter answers, 2 CAEM C0 cases). Pooled EM, stored -> uniform
+(TriviaQA lenient = upper bound): CAEM C0 0.541->0.545, C2 0.544->0.550, C5 0.517->0.523; B1 0.507->0.565,
+B2 0.500->0.561, B7 0.525->0.562, B6 0.490->0.523, B8 0.505->0.526. Seven-type CHM with uniform labels:
+CAEM C2 0.125, C5 0.132; B1 0.141, B2 0.144, B6 0.134, B7 0.211. The matched-prompt re-run (M-A) gives the
+definitive strict-format numbers.
 
 ---
 

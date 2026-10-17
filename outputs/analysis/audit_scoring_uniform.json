@@ -1,0 +1,453 @@
+{
+ "CAEM C0": {
+  "fever": {
+   "n": 300,
+   "stored": 0.4866666666666667,
+   "fair": 0.4866666666666667,
+   "fair_gains": 0,
+   "fair_losses": 0
+  },
+  "triviaqa": {
+   "n": 300,
+   "stored": 0.4633333333333333,
+   "fair": 0.49,
+   "fair_gains": 8,
+   "fair_losses": 0
+  },
+  "commonsense_qa": {
+   "n": 300,
+   "stored": 0.7633333333333333,
+   "fair": 0.7566666666666667,
+   "fair_gains": 0,
+   "fair_losses": 2
+  },
+  "truthfulqa": {
+   "n": 300,
+   "stored": 0.38,
+   "fair": 0.38,
+   "fair_gains": 0,
+   "fair_losses": 0
+  },
+  "strategyqa": {
+   "n": 300,
+   "stored": 0.61,
+   "fair": 0.61,
+   "fair_gains": 0,
+   "fair_losses": 0
+  },
+  "pooled": {
+   "stored": 0.5406666666666666,
+   "fair": 0.5446666666666667
+  }
+ },
+ "CAEM C2": {
+  "fever": {
+   "n": 300,
+   "stored": 0.5333333333333333,
+   "fair": 0.5333333333333333,
+   "fair_gains": 0,
+   "fair_losses": 0
+  },
+  "triviaqa": {
+   "n": 300,
+   "stored": 0.49333333333333335,
+   "fair": 0.5233333333333333,
+   "fair_gains": 9,
+   "fair_losses": 0
+  },
+  "commonsense_qa": {
+   "n": 300,
+   "stored": 0.7166666666666667,
+   "fair": 0.7166666666666667,
+   "fair_gains": 0,
+   "fair_losses": 0
+  },
+  "truthfulqa": {
+   "n": 300,
+   "stored": 0.3233333333333333,
+   "fair": 0.3233333333333333,
+   "fair_gains": 0,
+   "fair_losses": 0
+  },
+  "strategyqa": {
+   "n": 300,
+   "stored": 0.6533333333333333,
+   "fair": 0.6533333333333333,
+   "fair_gains": 0,
+   "fair_losses": 0
+  },
+  "pooled": {
+   "stored": 0.5439999999999999,
+   "fair": 0.55
+  }
+ },
+ "CAEM C5": {
+  "fever": {
+   "n": 300,
+   "stored": 0.4766666666666667,
+   "fair": 0.4766666666666667,
+   "fair_gains": 0,
+   "fair_losses": 0
+  },
+  "triviaqa": {
+   "n": 300,
+   "stored": 0.4533333333333333,
+   "fair": 0.48,
+   "fair_gains": 8,
+   "fair_losses": 0
+  },
+  "commonsense_qa": {
+   "n": 300,
+   "stored": 0.7166666666666667,
+   "fair": 0.7166666666666667,
+   "fair_gains": 0,
+   "fair_losses": 0
+  },
+  "truthfulqa": {
+   "n": 300,
+   "stored": 0.3,
+   "fair": 0.3,
+   "fair_gains": 0,
+   "fair_losses": 0
+  },
+  "strategyqa": {
+   "n": 300,
+   "stored": 0.64,
+   "fair": 0.64,
+   "fair_gains": 0,
+   "fair_losses": 0
+  },
+  "pooled": {
+   "stored": 0.5173333333333334,
+   "fair": 0.5226666666666666
+  }
+ },
+ "B1": {
+  "fever": {
+   "n": 300,
+   "stored": 0.4533333333333333,
+   "fair": 0.4533333333333333,
+   "fair_gains": 0,
+   "fair_losses": 0
+  },
+  "triviaqa": {
+   "n": 300,
+   "stored": 0.29333333333333333,
+   "fair": 0.5533333333333333,
+   "fair_gains": 78,
+   "fair_losses": 0
+  },
+  "commonsense_qa": {
+   "n": 300,
+   "stored": 0.7033333333333334,
+   "fair": 0.7333333333333333,
+   "fair_gains": 9,
+   "fair_losses": 0
+  },
+  "truthfulqa": {
+   "n": 300,
+   "stored": 0.43333333333333335,
+   "fair": 0.43333333333333335,
+   "fair_gains": 0,
+   "fair_losses": 0
+  },
+  "strategyqa": {
+   "n": 300,
+   "stored": 0.65,
+   "fair": 0.65,
+   "fair_gains": 0,
+   "fair_losses": 0
+  },
+  "pooled": {
+   "stored": 0.5066666666666666,
+   "fair": 0.5646666666666667
+  }
+ },
+ "B2": {
+  "fever": {
+   "n": 300,
+   "stored": 0.42,
+   "fair": 0.42,
+   "fair_gains": 0,
+   "fair_losses": 0
+  },
+  "triviaqa": {
+   "n": 300,
+   "stored": 0.27,
+   "fair": 0.5533333333333333,
+   "fair_gains": 85,
+   "fair_losses": 0
+  },
+  "commonsense_qa": {
+   "n": 300,
+   "stored": 0.71,
+   "fair": 0.7333333333333333,
+   "fair_gains": 7,
+   "fair_losses": 0
+  },
+  "truthfulqa": {
+   "n": 300,
+   "stored": 0.43666666666666665,
+   "fair": 0.43666666666666665,
+   "fair_gains": 0,
+   "fair_losses": 0
+  },
+  "strategyqa": {
+   "n": 300,
+   "stored": 0.6633333333333333,
+   "fair": 0.6633333333333333,
+   "fair_gains": 0,
+   "fair_losses": 0
+  },
+  "pooled": {
+   "stored": 0.5,
+   "fair": 0.5613333333333334
+  }
+ },
+ "B3": {
+  "fever": {
+   "n": 300,
+   "stored": 0.43666666666666665,
+   "fair": 0.43666666666666665,
+   "fair_gains": 0,
+   "fair_losses": 0
+  },
+  "triviaqa": {
+   "n": 300,
+   "stored": 0.4,
+   "fair": 0.43666666666666665,
+   "fair_gains": 11,
+   "fair_losses": 0
+  },
+  "commonsense_qa": {
+   "n": 300,
+   "stored": 0.6,
+   "fair": 0.6,
+   "fair_gains": 0,
+   "fair_losses": 0
+  },
+  "truthfulqa": {
+   "n": 300,
+   "stored": 0.24333333333333335,
+   "fair": 0.24333333333333335,
+   "fair_gains": 0,
+   "fair_losses": 0
+  },
+  "strategyqa": {
+   "n": 300,
+   "stored": 0.61,
+   "fair": 0.61,
+   "fair_gains": 0,
+   "fair_losses": 0
+  },
+  "pooled": {
+   "stored": 0.458,
+   "fair": 0.4653333333333333
+  }
+ },
+ "B4": {
+  "fever": {
+   "n": 300,
+   "stored": 0.43666666666666665,
+   "fair": 0.43666666666666665,
+   "fair_gains": 0,
+   "fair_losses": 0
+  },
+  "triviaqa": {
+   "n": 300,
+   "stored": 0.39666666666666667,
+   "fair": 0.43,
+   "fair_gains": 10,
+   "fair_losses": 0
+  },
+  "commonsense_qa": {
+   "n": 300,
+   "stored": 0.63,
+   "fair": 0.63,
+   "fair_gains": 0,
+   "fair_losses": 0
+  },
+  "truthfulqa": {
+   "n": 300,
+   "stored": 0.24,
+   "fair": 0.24,
+   "fair_gains": 0,
+   "fair_losses": 0
+  },
+  "strategyqa": {
+   "n": 300,
+   "stored": 0.6033333333333334,
+   "fair": 0.6033333333333334,
+   "fair_gains": 0,
+   "fair_losses": 0
+  },
+  "pooled": {
+   "stored": 0.4613333333333333,
+   "fair": 0.46799999999999997
+  }
+ },
+ "B5": {
+  "fever": {
+   "n": 300,
+   "stored": 0.49,
+   "fair": 0.49,
+   "fair_gains": 0,
+   "fair_losses": 0
+  },
+  "triviaqa": {
+   "n": 300,
+   "stored": 0.13666666666666666,
+   "fair": 0.16333333333333333,
+   "fair_gains": 8,
+   "fair_losses": 0
+  },
+  "commonsense_qa": {
+   "n": 300,
+   "stored": 0.7466666666666667,
+   "fair": 0.7466666666666667,
+   "fair_gains": 0,
+   "fair_losses": 0
+  },
+  "truthfulqa": {
+   "n": 300,
+   "stored": 0.15666666666666668,
+   "fair": 0.15666666666666668,
+   "fair_gains": 0,
+   "fair_losses": 0
+  },
+  "strategyqa": {
+   "n": 300,
+   "stored": 0.49666666666666665,
+   "fair": 0.49666666666666665,
+   "fair_gains": 0,
+   "fair_losses": 0
+  },
+  "pooled": {
+   "stored": 0.4053333333333334,
+   "fair": 0.4106666666666666
+  }
+ },
+ "B6": {
+  "fever": {
+   "n": 300,
+   "stored": 0.5433333333333333,
+   "fair": 0.5433333333333333,
+   "fair_gains": 0,
+   "fair_losses": 0
+  },
+  "triviaqa": {
+   "n": 300,
+   "stored": 0.22666666666666666,
+   "fair": 0.39,
+   "fair_gains": 49,
+   "fair_losses": 0
+  },
+  "commonsense_qa": {
+   "n": 300,
+   "stored": 0.78,
+   "fair": 0.78,
+   "fair_gains": 0,
+   "fair_losses": 0
+  },
+  "truthfulqa": {
+   "n": 300,
+   "stored": 0.2733333333333333,
+   "fair": 0.2733333333333333,
+   "fair_gains": 0,
+   "fair_losses": 0
+  },
+  "strategyqa": {
+   "n": 300,
+   "stored": 0.6266666666666667,
+   "fair": 0.6266666666666667,
+   "fair_gains": 0,
+   "fair_losses": 0
+  },
+  "pooled": {
+   "stored": 0.49000000000000005,
+   "fair": 0.5226666666666666
+  }
+ },
+ "B7": {
+  "fever": {
+   "n": 300,
+   "stored": 0.43666666666666665,
+   "fair": 0.43666666666666665,
+   "fair_gains": 0,
+   "fair_losses": 0
+  },
+  "triviaqa": {
+   "n": 300,
+   "stored": 0.4166666666666667,
+   "fair": 0.57,
+   "fair_gains": 46,
+   "fair_losses": 0
+  },
+  "commonsense_qa": {
+   "n": 300,
+   "stored": 0.7233333333333334,
+   "fair": 0.7533333333333333,
+   "fair_gains": 9,
+   "fair_losses": 0
+  },
+  "truthfulqa": {
+   "n": 300,
+   "stored": 0.45,
+   "fair": 0.45,
+   "fair_gains": 0,
+   "fair_losses": 0
+  },
+  "strategyqa": {
+   "n": 300,
+   "stored": 0.6,
+   "fair": 0.6,
+   "fair_gains": 0,
+   "fair_losses": 0
+  },
+  "pooled": {
+   "stored": 0.5253333333333334,
+   "fair": 0.562
+  }
+ },
+ "B8": {
+  "fever": {
+   "n": 300,
+   "stored": 0.4766666666666667,
+   "fair": 0.4766666666666667,
+   "fair_gains": 0,
+   "fair_losses": 0
+  },
+  "triviaqa": {
+   "n": 300,
+   "stored": 0.30333333333333334,
+   "fair": 0.4033333333333333,
+   "fair_gains": 30,
+   "fair_losses": 0
+  },
+  "commonsense_qa": {
+   "n": 300,
+   "stored": 0.76,
+   "fair": 0.7666666666666667,
+   "fair_gains": 2,
+   "fair_losses": 0
+  },
+  "truthfulqa": {
+   "n": 300,
+   "stored": 0.30666666666666664,
+   "fair": 0.30666666666666664,
+   "fair_gains": 0,
+   "fair_losses": 0
+  },
+  "strategyqa": {
+   "n": 300,
+   "stored": 0.6766666666666666,
+   "fair": 0.6766666666666666,
+   "fair_gains": 0,
+   "fair_losses": 0
+  },
+  "pooled": {
+   "stored": 0.5046666666666667,
+   "fair": 0.526
+  }
+ }
+}
