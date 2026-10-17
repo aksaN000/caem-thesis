@@ -149,3 +149,18 @@ B8 corpus ceiling; A9 frozen-composite control (optional if time allows); B3 rep
 
 ## Category 5 — after the re-run
 E text (one rewrite of chapters 1–6, appendices, abstract); F repository clean-up.
+
+## Update 2026-10-17 (author): repeated questions and deployment fidelity
+- **B3 moves from "avoided" to "do":** introduce repeated questions so Tier 1 is exercised.
+  Proposed design: from cycle 2 on, a share of each stream chunk re-asks questions from earlier chunks
+  (exact repeats and paraphrases, as in the router probe); a separate repeated-question evaluation set is
+  scored for CAEM and the baselines; the fresh evaluation fold stays the headline. The repeat share is a
+  stated design parameter, reported, not tuned.
+- **Retrieval cache is an experiment shortcut, not a deployment feature:** exact search gives the same
+  passages live or cached; deployment searches live per question. Latency must therefore be measured
+  separately with live search (batch-1 timing, B6 now "do").
+- **Parallel workers only in steps that do not write memory** (calibration re-score, evaluation,
+  re-verification checks, probes). The stream step stays sequential in batches of 32 as in the last run, so
+  routing and Tier-1 lookups see memory as a deployed system would (up to the same batch approximation).
+- WSL config written: C:\Users\aksan\.wslconfig (memory=12GB, swap=16GB on F:\WSL\swap.vhdx); needs
+  `wsl --shutdown` from Windows to take effect.
