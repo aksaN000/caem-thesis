@@ -1,0 +1,14 @@
+[  36.6s] libraries imported | GPU 0.00 GB, peak 0.00 GB
+`torch_dtype` is deprecated! Use `dtype` instead!
+Loading checkpoint shards:   0%|          | 0/2 [00:00<?, ?it/s]Loading checkpoint shards:  50%|█████     | 1/2 [00:01<00:01,  1.67s/it]Loading checkpoint shards: 100%|██████████| 2/2 [00:01<00:00,  1.17it/s]
+[ 535.1s] Qwen 3B loaded | GPU 5.85 GB, peak 5.85 GB
+`torch_dtype` is deprecated! Use `dtype` instead!
+MiniCheck SDPA attn_implementation rejected (T5ForConditionalGeneration does not support an attention implementation through torch.nn.functional.scaled_dot_product_attention yet. Please request the support for this architecture: https://github.com/huggingface/transformers/issues/28005. If you believe this error is a bug, please open an issue in Transformers GitHub repository and load your model with the argument `attn_implementation="eager"` meanwhile. Example: `model = AutoModel.from_pretrained("openai/whisper-tiny", attn_implementation="eager")`); falling back to eager. Verify transformers >= 4.39 for T5SdpaAttention.
+[ 773.9s] MiniCheck loaded (project loader) | GPU 7.33 GB, peak 7.33 GB
+[ 815.0s] reranker loaded | GPU 9.45 GB, peak 9.45 GB
+[ 827.9s] embedding model loaded | GPU 9.86 GB, peak 9.86 GB
+[ 846.8s] generate 1 question(s) x 3 chains, up to 128 tokens: 18.4s | GPU 9.87 GB, peak 9.91 GB
+[ 858.2s] generate 8 question(s) x 3 chains, up to 256 tokens: 11.3s | GPU 9.87 GB, peak 10.26 GB
+[ 859.0s] rerank 20 pairs | GPU 9.87 GB, peak 10.26 GB
+[ 859.6s] embed 32 questions | GPU 9.87 GB, peak 10.26 GB
+device total used incl. Windows: 11.85 of 12.00 GB

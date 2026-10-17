@@ -16,11 +16,19 @@ This file is the single checklist for the re-run. It replaces the scattered limi
 # PART 1 — THE PLAN (phases in order)
 
 ## Phase 0 — Machine setup (local)
-- [x] `C:\Users\aksan\.wslconfig`: memory=12GB, swap=16GB on `F:\WSL\swap.vhdx` (C: has 36 GB free).
-- [ ] Author: `wsl --shutdown` from PowerShell, reopen; Claude checks `free -g` shows about 12 GB.
-- [ ] Download MiniCheck-Flan-T5-Large and all-mpnet-base-v2; check they load on the RTX 3060 next to the
-      3B model (target about 10 GB of 12 GB GPU memory).
-- Already on disk: Qwen2.5-3B-Instruct, bge-reranker-v2-m3, passage index (61 GB) and passages (7 GB).
+- [x] `C:\Users\aksan\.wslconfig`: memory=12GB, swap=16GB on `G:\WSL\swap.vhdx` (SSD). Linux sees 11 GB RAM.
+- [x] Project environment `~/caem_env` with appendix-E versions: torch 2.10.0+cu130 (driver CUDA 13.0),
+      transformers 4.57.6, sentence-transformers 4.1.0, faiss 1.15.1 (requirements file in Phase 1a, F3).
+- [x] Models: Qwen2.5-3B-Instruct, MiniCheck-Flan-T5-Large, bge-reranker-v2-m3, all-mpnet-base-v2, in the
+      Hugging Face cache on the SSD (`HF_HUB_CACHE=/mnt/g/caem_hf/hub`, set in ~/.bashrc).
+- [x] GPU fit (`outputs/rerun_v2/phase0/gpu_fit_test.log`): all four models 9.86 GB; peak 10.26 GB generating
+      8 questions × 3 chains; 11.85 of 12 GB with the Windows display. Local runs need batches of about 4; the
+      reranker is loaded in fp32 (2.1 GB), check the first run's precision before changing it.
+- Disk: the WSL disk (D:) is on a hard disk, 90–120 MB/s; the SSD (C:, G:) reads at about 245 MB/s via /mnt.
+  Cold load of the 3B model: 535 s from the HDD, 27 s from the SSD. The 61 GB passage index stays on the HDD
+  (one batched pass is about 10 min). **Live exact search is not practical on this laptop** (the index does not
+  fit in 11 GB of RAM, so every search re-reads 61 GB); live latency (P4/B6) must be measured on a rented
+  machine with ≥ 64 GB RAM or a GPU that holds the index.
 
 ## Phase 1 — Speed work (no change to results; decided 2026-10-17)
 Evidence (main run log, 66,336 verified answers): the verifier took 108.6 h of about 193 h, 5.9 s per answer;
