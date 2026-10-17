@@ -955,7 +955,7 @@ def mcnemar_test(
 # annotated with (a) which evaluation task it serves and (b) where it
 # lands in the five-table reviewer layout designed in Phase 4l.
 #
-# Task/table mapping (see docs/metrics-audit.md and Ch.5 methodology):
+# Task/table mapping (see archive/audits/metrics-audit.md and Ch.5 methodology):
 #
 #   Table 5.1 Headline         -- em_by_tier, mean_latency_by_tier
 #   Table 5.2 Calibration      -- brier_score, auroc, reliability_bins

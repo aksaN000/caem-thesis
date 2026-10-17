@@ -42,7 +42,7 @@ logger = logging.getLogger(__name__)
 #: other tiers receive a `grad_accum_steps` that keeps `micro_batch *
 #: grad_accum_steps == TARGET_EFFECTIVE_BATCH_SIZE`, so fine-tuning loss
 #: dynamics stay hardware-invariant across reproducers. See the NOTE 14
-#: resolution in `docs/scripts-audit-report.md` for the rationale.
+#: resolution in `archive/audits/scripts-audit-report.md` for the rationale.
 TARGET_EFFECTIVE_BATCH_SIZE = 32
 
 

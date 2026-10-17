@@ -1,6 +1,6 @@
 """Paired CAEM-versus-baseline significance tests on EM and CHM (final drafting pass, 2026-10).
 
-Replaces the approximate CHM check of scripts/baseline_sig_tests_v2.py (CAEM held fixed,
+Replaces the approximate CHM check of archive/scripts_superseded/baseline_sig_tests_v2.py (CAEM held fixed,
 baseline subtype rates resampled, no Holm) with a true paired test on the per-question CHM of
 eval/metrics.py::per_sample_chm. The EM axis is unchanged (McNemar, Holm within each benchmark,
 the helpers of scripts/baseline_sig_tests.py), so its counts reproduce the committed ones.

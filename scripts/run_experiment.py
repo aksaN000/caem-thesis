@@ -154,7 +154,7 @@ def build_pipeline(config: Any, ns: Any, m: Dict[str, Any]) -> "CAEMPipeline":
     # accumulation on whatever hardware we're running on. On the thesis 5090
     # path grad_accum_steps==1 (numerical no-op); on a 4090 fallback it
     # becomes 2, on a 3060 it becomes 8, etc. See NOTE 14 resolution in
-    # docs/scripts-audit-report.md. Only overwrite when the config is using
+    # archive/audits/scripts-audit-report.md. Only overwrite when the config is using
     # the default of 1, so explicit CLI/config overrides are preserved.
     hw_grad_accum = int(getattr(hw, "grad_accum_steps", 1))
     if getattr(config, "grad_accum_steps", 1) == 1 and hw_grad_accum != 1:

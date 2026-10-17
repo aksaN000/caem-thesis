@@ -1,3 +1,7 @@
+> **Note (2026-10-17):** this handoff predates the repository reorganisation. `thesis_report/` here means the old
+> working copy, now `archive/thesis_report_2026-10-15/`; the review files it names (FINAL_FIX_LIST.md,
+> review_ch5_part1.md, local_regen_check.py, ...) are in `archive/audits/thesis_audit_2026-10-15/`. The live thesis is `defense/thesis_report/`.
+
 # Thesis review handoff (read this first)
 
 You are continuing a section-by-section review of the CAEM thesis in this repository (`thesis_report/`), working
