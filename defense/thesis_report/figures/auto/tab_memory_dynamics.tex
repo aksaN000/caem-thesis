@@ -1,0 +1,26 @@
+% Hand-merged 2026-10-17 (final drafting pass, ch5 table reduction) from three committed tables:
+% tab_memory_store_trajectory.tex (memory, deferred buffer, change), tab_survival_distribution.tex
+% (promoted, TTL-dropped) and tab_consolidation_trajectory.tex (groups merged, entries removed).
+% Values copied unchanged; logged in ref_check/fixes_applied.md and REPO_CLEANUP_TRACKER.md (T10).
+\begin{table}[!htbp]
+\centering\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{@{}lrrrrrrr@{}}
+\toprule
+ & \multicolumn{2}{c}{\textbf{Memory}} & \multicolumn{3}{c}{\textbf{Deferred buffer}} & \multicolumn{2}{c}{\textbf{Consolidation}} \\
+\cmidrule(lr){2-3}\cmidrule(lr){4-6}\cmidrule(lr){7-8}
+\textbf{Cycle} & \textbf{Entries} & \textbf{Change} & \textbf{Entries} & \textbf{Promoted} & \textbf{Dropped} & \textbf{Merged} & \textbf{Removed} \\
+\midrule
+C0 & $431$ & --- & $0$ & --- & --- & --- & --- \\
+C1 & $2\,818$ & $+2\,387$ & $1\,123$ & $0$ & $0$ & $0$ & $0$ \\
+C2 & $5\,151$ & $+2\,333$ & $2\,399$ & $131$ & $0$ & $3$ & $3$ \\
+C3 & $7\,477$ & $+2\,326$ & $2\,692$ & $220$ & $924$ & $11$ & $11$ \\
+C4$^{\ast}$ & $9\,961$ & $+2\,484$ & $4\,068$ & --- & --- & --- & --- \\
+C5 & $12\,175$ & $+2\,214$ & $4\,284$ & $299$ & $1\,169$ & $43$ & $44$ \\
+\midrule
+Total & & & & $650$ & $2\,093$ & $57$ & $58$ \\
+\bottomrule
+\end{tabular}
+\caption[Memory, deferred buffer and consolidation by cycle.]{Memory and deferred-buffer size at the close of each cycle, answers promoted from or dropped by the buffer, and near-duplicate groups merged. $^{\ast}$Cycle four was rolled back, so its reconsideration and consolidation passes were skipped.}
+\label{tab:memory-store-trajectory}
+\end{table}

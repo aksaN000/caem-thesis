@@ -1519,3 +1519,13 @@ Build: 216 pages, 0 errors, 0 undefined, 0 multiply-defined, 0 biber warnings, 7
   → n/a; tab_baseline_pooled B8 CHM → n/a; fig_baselines omits B8; ch5 counts without B8 (C5 19 / 2 of 30; C2 18 / 3); defeat
   lists corrected (EM: B1, B2, FLARE; CHM: B1, B2, FLARE at C2); B8 bullet discloses; limitation added; "every baseline" →
   "every baseline whose CHM was measured".
+
+## Chapter 5 read-through fixes (2026-10-17, author notes)
+- Tables 5.3 and 5.33 cut on the right: two-line headers (`\twoline` macro in main.tex); validation gate and per-benchmark diagnostics merged into one table (benchmarks as rows); tab_cross_bench_locked removed.
+- Table 5.7 zero rows explained: template leakage is a real zero; off-topic is zero because q_a_relevance is double-sigmoided into [0.50, 0.73] (tracker C14).
+- Early-stop mis-wiring disclosure removed from ch1/3/4/5 and appendix C (author decision); appendix C reports per-cycle outcome.
+- H5 removed (ch1 list, table, counts; ch5 verdict table, signpost); Tier 1 framing (built for repeated questions in deployment; fresh questions in the study; EM and CHM expected to improve with repeats) added to ch1 and ch5 sec:tier-hit; limitation reworded.
+- Tables reduced from 39 to 21 in the ch5 body: dropped pooled_trajectory, latency, safety_override, evidence_mapping; merged memory/survival/consolidation (tab_memory_dynamics); 11 moved to appendix C (new sec app:extra-tables) and appendix B (sweep_top, composite_weights); significance tables replaced by tab_sig_summary with full tables in appendix D.
+- All ch5 body tables: \small, no scaling.
+- CHM significance: paired Wilcoxon + Holm (scripts/paired_baseline_tests.py); counts C5 21/3 of 35, C2 24/4 of 35 (B6 now included); EM unchanged 9/3, 14/3; appendix D rewritten accordingly; Wilcoxon 1945 added to bib.
+- Threats paragraph on verifier dependence: verifier-free CHM check added (C5 0.067 vs B1 0.079; 26/4 of 35).

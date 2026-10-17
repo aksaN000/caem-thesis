@@ -13,7 +13,9 @@
 \section{The one-hundred-variant composite parameter sweep}
 \label{app:sweep-full}
 
-The locked configuration selected from the sweep, with the rationale for each parameter, appears in \Cref{tab:sweep-top} of \Cref{ch:evaluation}. The full sweep over the pre-specified $\tau_{\text{store}} \times C \times \alpha_{\text{shrink}}$ grid ($4 \times 5 \times 5 = 100$ variants) is recorded in the cycle-zero sweep archive with one record per variant; no per-variant comparison table is reproduced in the thesis. Per-benchmark sweep diagnostics for any variant in the grid are recoverable by reading the corresponding JSON entry.
+The locked configuration selected from the sweep, with the rationale for each parameter, is given in \Cref{tab:sweep-top}; the locked variant and its neighbours are compared in \Cref{tab:sweep-variants}. The full sweep over the pre-specified $\tau_{\text{store}} \times C \times \alpha_{\text{shrink}}$ grid ($4 \times 5 \times 5 = 100$ variants) is recorded in the cycle-zero sweep archive with one record per variant; no per-variant comparison table is reproduced in the thesis. Per-benchmark sweep diagnostics for any variant in the grid are recoverable by reading the corresponding JSON entry.
+
+\input{figures/auto/sweep_top.tex}
 
 \section{The calibration-to-evaluation gap analysis}
 \label{app:cal-eval-gap}
@@ -47,7 +49,9 @@ The per-benchmark coverage of the atomic-fact decomposition signal $p_{\text{gro
 \section{Composite weight table}
 \label{app:composite-weights}
 
-The cycle-zero composite-weight table is reported in \Cref{tab:composite-calibration} of \Cref{ch:evaluation}. The per-cycle re-calibration of the composite (the per-benchmark temperature scalars, the per-benchmark safety floors, and the pooled boost-layer weights on the nine deployed signals) across the realised cycle-one through cycle-five trajectory is reported in the four-panel \Cref{tab:calibration-trajectory} of \Cref{sec:adj-trajectory}, with the cycle-four entry omitted under the asymmetric-rollback contract that skips the cal-fold refit on aborted cycles. The per-signal isotonic curves themselves are non-parametric step functions on the calibration fold and are not enumerated cell-by-cell across cycles; they are recoverable from the per-cycle composite calibration records, with the cycle-zero canonical record held immutable across the trajectory under the lock-cycle-zero patch. The storage and deferral cut-points stay frozen at the cycle-zero registered values throughout, so the per-cycle composite refit moves the signal-to-probability mapping the cut-points operate on rather than the cut-points themselves.
+The cycle-zero direction and boost weight of each signal are given in \Cref{tab:composite-calibration}. The per-cycle re-calibration of the composite (the per-benchmark temperature scalars, the per-benchmark safety floors, and the pooled boost-layer weights on the nine deployed signals) across the realised cycle-one through cycle-five trajectory is reported in \Cref{tab:calibration-trajectory} (\Cref{app:extra-tables}), with the cycle-four entry omitted under the asymmetric-rollback contract that skips the cal-fold refit on aborted cycles. The per-signal isotonic curves themselves are non-parametric step functions on the calibration fold and are not enumerated cell-by-cell across cycles; they are recoverable from the per-cycle composite calibration records, with the cycle-zero canonical record held immutable across the trajectory under the lock-cycle-zero patch. The storage and deferral cut-points stay frozen at the cycle-zero registered values throughout, so the per-cycle composite refit moves the signal-to-probability mapping the cut-points operate on rather than the cut-points themselves.
+
+\input{figures/auto/composite_weights.tex}
 
 \section{Per-benchmark precision-cliff curves}
 \label{app:precision-cliff}

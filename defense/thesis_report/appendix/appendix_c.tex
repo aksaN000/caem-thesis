@@ -8,7 +8,7 @@
 \chapter{Per-cycle artifact dictionary}
 \label{app:per-cycle}
 
-The five tables below are the per-cycle index against the on-disk JSON snapshots that the empirical chapter reads. The dictionary covers calibration snapshots in \Cref{tab:app-per-cycle-cal}, the threshold history in \Cref{tab:app-per-cycle-tau}, the memory-store trajectory in \Cref{tab:app-per-cycle-memory}, the equilibrium-fit verdicts in \Cref{tab:app-per-cycle-equilibrium}, and the fine-tuning diagnostics in \Cref{tab:app-per-cycle-ft}. Cycle zero is the cold-start calibration cycle; cycles one through five are the main-run cycles; cycle four is aborted under the retention guard with the asymmetric-rollback contract that skips the cal-fold refit and the retroactive re-verification pass on the aborted cycle. The realised commit fraction is $\pi_{\mathrm{commit}} = 4/5$; the trajectory closes at cycle five under the two-of-three equilibrium-saturation gate.
+The five tables in the first five sections are the per-cycle index against the on-disk JSON snapshots that the empirical chapter reads. The dictionary covers calibration snapshots in \Cref{tab:app-per-cycle-cal}, the threshold history in \Cref{tab:app-per-cycle-tau}, the memory-store trajectory in \Cref{tab:app-per-cycle-memory}, the per-cycle outcomes in \Cref{tab:app-per-cycle-equilibrium}, and the fine-tuning diagnostics in \Cref{tab:app-per-cycle-ft}. Cycle zero is the cold-start calibration cycle; cycles one through five are the main-run cycles; cycle four is aborted under the retention guard with the asymmetric-rollback contract that skips the cal-fold refit and the retroactive re-verification pass on the aborted cycle. The realised commit fraction is $\pi_{\mathrm{commit}} = 4/5$; the run ended after cycle five as planned.
 
 \section{Per-cycle calibration snapshots}
 \label{app:per-cycle-cal}
@@ -84,7 +84,7 @@ C4$^{\ast}$ & $9\,961$ & $2\,484$ & ---   & ---   & --- & $+2\,484$ \\
 C5 & $12\,175$ & $2\,343$ & $382$ & $299$ & $44$ & $+2\,214$ \\
 \bottomrule
 \end{tabular}
-\caption[Per-cycle memory store trajectory]{Per-cycle memory store trajectory. The pool grows from the four-hundred-and-thirty-one-entry cold-start seed at cycle zero to twelve thousand one hundred and seventy-five entries at the cycle-five close, a twenty-eight-fold increase across the realised trajectory. The cycle-zero admissions row records the cold-start seed rather than a stream-chunk pass. The asterisk marks cycle four, which was aborted under the retention guard; the retroverify, deferred-reconsider, and consolidation passes are skipped under the asymmetric-rollback contract and rendered as em-dashes. The per-cycle stream-chunk admission count stays in the band $[2\,343, 2\,484]$ across cycles one through five against a stream-chunk candidate budget of $4\,700$ samples per cycle (two thousand FEVER, two thousand TriviaQA, seven hundred CommonsenseQA), so the storage gate admits approximately half of every candidate stream chunk. The admissions count the entries actually added to the store; they sit slightly below the gate-pass counts $n_{\text{stored}}$ of \Cref{tab:storage-pool-quality} because the memory store's novelty filter rejects near-duplicates of existing entries between the gate and the insert. The cycle-five admission count is the cycle-close pool minus the post-re-verification pool ($12\,175 - 9\,832$). The consolidation-removal column is the episodes-removed count of \Cref{tab:consolidation-trajectory}. Admissions minus prunes plus promotions minus consolidation removals reproduces the net change at every cycle except a residual of one entry at cycle two and two entries at cycle five; the residual is promoted entries dropped as duplicates of entries already in the store (the cycle-two consolidation pass sees $2\,948$ entries against $2\,818 + 131 = 2\,949$). Sources: the per-cycle memory-store metadata side-files supply the cycle-close pool sizes (the length of the metadata list inside the pickled snapshot); the per-cycle retroverification records supply the per-cycle prune counts; per-cycle deferred-buffer promotion counts are read from the deferred-reconsideration log emissions in the experiment run log.}
+\caption[Per-cycle memory store trajectory]{Per-cycle memory store trajectory. The pool grows from the four-hundred-and-thirty-one-entry cold-start seed at cycle zero to twelve thousand one hundred and seventy-five entries at the cycle-five close, a twenty-eight-fold increase across the realised trajectory. The cycle-zero admissions row records the cold-start seed rather than a stream-chunk pass. The asterisk marks cycle four, which was aborted under the retention guard; the retroverify, deferred-reconsider, and consolidation passes are skipped under the asymmetric-rollback contract and rendered as em-dashes. The per-cycle stream-chunk admission count stays in the band $[2\,343, 2\,484]$ across cycles one through five against a stream-chunk candidate budget of $4\,700$ samples per cycle (two thousand FEVER, two thousand TriviaQA, seven hundred CommonsenseQA), so the storage gate admits approximately half of every candidate stream chunk. The admissions count the entries actually added to the store; they sit slightly below the gate-pass counts $n_{\text{stored}}$ of \Cref{tab:storage-pool-quality} because the memory store's novelty filter rejects near-duplicates of existing entries between the gate and the insert. The cycle-five admission count is the cycle-close pool minus the post-re-verification pool ($12\,175 - 9\,832$). The consolidation-removal column is the episodes-removed count of \Cref{tab:memory-store-trajectory}. Admissions minus prunes plus promotions minus consolidation removals reproduces the net change at every cycle except a residual of one entry at cycle two and two entries at cycle five; the residual is promoted entries dropped as duplicates of entries already in the store (the cycle-two consolidation pass sees $2\,948$ entries against $2\,818 + 131 = 2\,949$). Sources: the per-cycle memory-store metadata side-files supply the cycle-close pool sizes (the length of the metadata list inside the pickled snapshot); the per-cycle retroverification records supply the per-cycle prune counts; per-cycle deferred-buffer promotion counts are read from the deferred-reconsideration log emissions in the experiment run log.}
 \label{tab:app-per-cycle-memory}
 \end{table}
 
@@ -109,7 +109,7 @@ C5 & committed (last) & CommonsenseQA-test & $0.958$ & $0.609$ & $0.556$ \\
 \bottomrule
 \end{tabular}
 \caption[Per-cycle outcome and retention probes]{Per-cycle outcome and retention probes. At cycle four the TriviaQA-test ratio of $0.886$ fell below the floor $\rho_{\min} = 0.93$, so the weights were rolled back to the cycle-three checkpoint with memory kept. The MMLU column is the post-training MMLU probe accuracy against the pristine anchor of $0.610$; the pooled-EM column is the pooled evaluation-fold exact match, the series stored as the history array of the cycle-five equilibrium-fit record.}
-$^{\ast}$Five-benchmark pooled exact match with string-match TruthfulQA scoring, the series the runner's equilibrium fit stores in its composite-evaluation-score field. It is neither the composite epistemic score (CES) of \Cref{eq:ces}, whose trajectory is reported in \Cref{tab:ces-caem-trajectory}, nor the judged pooled exact match of \Cref{tab:pooled-trajectory}.
+$^{\ast}$Five-benchmark pooled exact match with string-match TruthfulQA scoring, the series the runner's equilibrium fit stores in its composite-evaluation-score field. It is neither the composite epistemic score (CES) of \Cref{eq:ces}, whose trajectory is reported in \Cref{tab:ces-caem-trajectory}, nor the judged pooled exact match of \Cref{fig:trajectory}.
 \label{tab:app-per-cycle-equilibrium}
 \end{table}
 
@@ -138,3 +138,28 @@ C5 & $5\,006$ & $0.482$ & $0.194$ & $0.091$ & --- \\
 \caption[Per-cycle fine-tuning diagnostics]{Per-cycle fine-tuning diagnostics. The retention guard binds on the TriviaQA-test probe across the realised trajectory: the worst non-abort ratio occurs at cycle two ($0.949$ on TriviaQA-test) and the cycle-four abort fires on the same probe at ratio $0.886$ against the registered floor $\rho_{\min} = 0.93$. The MMLU probe ratio stays in the band $[0.975, 1.041]$ across the trajectory, confirming that TriviaQA-test is the binding retention constraint for the realised self-improvement trajectory and that the cycle-four rollback is a probe-specific regression rather than a pool-wide one. Pristine retention anchors held fixed across cycles: MMLU $0.610$, TriviaQA-test $0.395$, CommonsenseQA-test $0.825$. Sources: the per-cycle retroverification JSONs supply the training-batch size and the final-loss fields; the per-cycle post-training probe lines in the experiment-run log supply the per-probe retention ratios; the pristine probe-baseline record supplies the cycle-zero anchors.}
 \label{tab:app-per-cycle-ft}
 \end{table}
+
+\section{Additional per-cycle tables from the evaluation}
+\label{app:extra-tables}
+
+The tables in this section support statements made in \Cref{ch:evaluation}; each is referred to from the paragraph that uses it.
+
+\input{figures/auto/tab_ces_caem_trajectory.tex}
+
+\input{figures/auto/tab_decision_matrix_trajectory.tex}
+
+\input{figures/auto/tab_abstention_per_bench.tex}
+
+\input{figures/auto/tab_per_tier_em.tex}
+
+\input{figures/auto/tab_u_stored_distribution.tex}
+
+\input{figures/auto/tab_em_conditional_breakdown.tex}
+
+\input{figures/auto/tab_tier_chm_trajectory.tex}
+
+\input{figures/auto/tab_self_correction_check.tex}
+
+\input{figures/auto/tab_calibration_trajectory.tex}
+
+\FloatBarrier

@@ -1,27 +1,26 @@
+% Table sizing standardised 2026-10-17 (final drafting pass): \small, no \resizebox.
 % Caption shortened by hand in the final drafting pass (2026-10); detail moved to chapter 5 text.
 % Auto-generated from outputs/full_run/retroverify_cycle*.json::fine_tune
 % + outputs/full_run/all_cycle_results.json (multi-modal retention probes).
 % Per-cycle SIL training trajectory: episode count, final training loss,
 % three-probe retention panel (MMLU + TQA-test + CSQA-test), rollback status.
-\begin{table}[H]
-\centering\footnotesize
-\setlength{\tabcolsep}{6pt}
-\resizebox{\textwidth}{!}{%
+\begin{table}[!htbp]
+\centering\small
+\setlength{\tabcolsep}{5pt}
 \begin{tabular}{@{}lrrrrrl@{}}
 \toprule
  & & & \multicolumn{3}{c}{\textbf{Retention probe ratio}} & \\
 \cmidrule(lr){4-6}
-\textbf{Cycle} & $\boldsymbol{n_{\text{episodes used}}}$ & \textbf{Final loss} & \textbf{MMLU} & \textbf{TQA-test} & \textbf{CSQA-test} & \textbf{Outcome} \\
+\textbf{Cycle} & \textbf{Episodes} & \textbf{Final loss} & \textbf{MMLU} & \textbf{TQA-test} & \textbf{CSQA-test} & \textbf{Outcome} \\
 \midrule
 C1 & $107$ & $0.258$ & $1.041$ & $1.013$ & $1.006$ & commit \\
 C2 & $1\,474$ & $0.171$ & $0.975$ & $0.949$ & $0.982$ & commit \\
 C3 & $2\,966$ & $0.109$ & $0.992$ & $0.987$ & $0.976$ & commit \\
-C4 & $3\,624$ & $0.070$ & $1.018$ & $\mathbf{0.886}^{\dagger}$ & $0.982$ & abort (retention rollback) \\
-C5 & $5\,006$ & $0.091$ & $0.999$ & $1.013$ & $0.958$ & commit (post-rollback recovery) \\
+C4 & $3\,624$ & $0.070$ & $1.018$ & $\mathbf{0.886}^{\dagger}$ & $0.982$ & rolled back \\
+C5 & $5\,006$ & $0.091$ & $0.999$ & $1.013$ & $0.958$ & commit \\
 \bottomrule
-\multicolumn{7}{@{}l}{\footnotesize $^{\dagger}$ Cycle-four TriviaQA-test ratio of $0.886$ crossed below the registered floor of $\rho_{\min} = 0.93$, triggering the asymmetric rollback.} \\
-\end{tabular}%
-}
+\end{tabular}
+\par\vspace{2pt}{\footnotesize\parbox{\linewidth}{$^{\dagger}$ Cycle-four TriviaQA-test ratio of $0.886$ fell below the floor of $0.93$, so the cycle was rolled back.}\par}
 \caption[Self-improvement training by cycle.]{Episodes used for fine-tuning, final training loss and retention ratios by cycle.}
 \label{tab:sil-training-trajectory}
 \end{table}

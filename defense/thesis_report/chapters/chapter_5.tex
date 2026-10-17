@@ -125,11 +125,7 @@ All results in this section use the locked configuration chosen at cycle zero; \
 
 \input{figures/ch5/fig_selective.tex}
 
-\Cref{tab:pooled-trajectory} gives every cycle, with the three retention ratios. MMLU never comes near the floor (between $0.975$ and $1.041$); the TriviaQA test probe falls to $0.886$ at cycle four and triggers the only rollback. The composite evaluation score (\Cref{tab:ces-caem-trajectory}) rises from $0.593$ to $0.710$, mostly through its verifier-reliability axis, which grows with the calibration-fold separation $d$ (\Cref{tab:gate-quality}); its accuracy axis falls over the same cycles, so the rise in CES should not be read as a rise in accuracy.
-
-\input{figures/auto/tab_pooled_trajectory.tex}
-
-\input{figures/auto/tab_ces_caem_trajectory.tex}
+The retention ratios of every cycle are in \Cref{tab:sil-training-trajectory}: MMLU never comes near the floor (between $0.975$ and $1.041$); the TriviaQA test probe falls to $0.886$ at cycle four and triggers the only rollback. The composite evaluation score (\Cref{tab:ces-caem-trajectory} in \Cref{app:extra-tables}) rises from $0.593$ to $0.710$, mostly through its verifier-reliability axis, which grows with the calibration-fold separation $d$ (\Cref{tab:gate-quality}); its accuracy axis falls over the same cycles, so the rise in CES should not be read as a rise in accuracy.
 
 \subsubsection{Per-benchmark trajectory}
 \label{sec:headline-per-bench}
@@ -154,7 +150,7 @@ Against B1, the training panel gains clearly: pooled EM $0.483$ (B1) against $0.
 \subsection{Four-outcome decision distribution}
 \label{sec:decision-distribution}
 
-The three tables in this subsection use three different folds, named in each paragraph.
+The three readings in this subsection use three different folds, named in each paragraph; the second and third tables are in \Cref{app:extra-tables}.
 
 \textbf{On the calibration fold} (\Cref{tab:decision-distribution}), the share stored rises from $42$ percent at C1 to $59$ percent at C5, deferral from $12$ to $29$ percent, while discard falls from $25$ to $3$ percent and abstention from $21$ to $10$ percent. The outcomes are ordered by correctness at every cycle: stored answers are right $73$ to $75$ percent of the time, deferred ones less, discarded ones less again, and abstentions least ($0.38$ at C1, $0.17$ at C5). The gap between stored and the next outcome widens from $14$ points at C1 to between $24$ and $30$ points afterwards.
 
@@ -162,11 +158,7 @@ The three tables in this subsection use three different folds, named in each par
 
 \textbf{On the stream chunks and the transfer evaluation folds} (\Cref{tab:decision-matrix-trajectory}), stored answers are more often correct than deferred ones in every row. The full ordering stored, deferred, discarded holds in half the rows; where it fails, the discard class is small. On TruthfulQA, stored answers are right only $31$ to $38$ percent of the time at C1 to C5, far below the training panel.
 
-\input{figures/auto/tab_decision_matrix_trajectory.tex}
-
 \textbf{On the evaluation fold} (\Cref{tab:abstention-per-bench}), FEVER abstention falls from $64.3$ percent at C0 to $5.3$ percent at C5; CommonsenseQA almost never abstains, because a multiple-choice prompt forces an answer; TruthfulQA abstains on $23$ to $33$ percent of questions, a rate that falls slightly over the cycles while its EM also falls; StrategyQA swings between $2$ and $43$ percent.
-
-\input{figures/auto/tab_abstention_per_bench.tex}
 
 \FloatBarrier
 
@@ -176,7 +168,7 @@ The three tables in this subsection use three different folds, named in each par
 \subsubsection{Per-tier hit rate trajectory and per-tier exact match}
 \label{sec:tier-hit}
 
-The design expects the memory-direct share to grow as the memory fills and the zero-shot share to grow as fine-tuning folds retrieved knowledge into the generator. Neither happened on the evaluation fold (\Cref{tab:tier-trajectory}). Tier 1 answered $7$ of the $9{,}000$ evaluation queries over six cycles, because every stream chunk and the evaluation fold share no question with the stored episodes; all seven answers were correct, and a direct probe of the router answered $42$ of $50$ exact repeats and $19$ of $50$ paraphrases of stored questions, $41$ and $19$ of them correctly (\Cref{tab:tier1-probe}). The zero-shot share moved from $48.7$ percent at C0 to $50.2$ percent at C5, peaking at $55.2$ percent at C2.
+The design expects the memory-direct share to grow as the memory fills and the zero-shot share to grow as fine-tuning folds retrieved knowledge into the generator. Neither happened on the evaluation fold (\Cref{tab:tier-trajectory}). Tier 1 answered $7$ of the $9{,}000$ evaluation queries over six cycles, because every stream chunk and the evaluation fold share no question with the stored episodes; all seven answers were correct, and a direct probe of the router answered $42$ of $50$ exact repeats and $19$ of $50$ paraphrases of stored questions, $41$ and $19$ of them correctly (\Cref{tab:tier1-probe}). Tier 1 is built for deployment, where users repeat questions; this study used fresh questions to measure learning, so the probe is the test of this tier. Because a repeated question receives an answer that has already passed the storage gate, both exact match and the composite hallucination metric are expected to improve in deployment as the share of repeated questions grows. The zero-shot share moved from $48.7$ percent at C0 to $50.2$ percent at C5, peaking at $55.2$ percent at C2.
 
 Within tiers, zero-shot answers are more accurate than retrieval-augmented ones at every cycle ($0.602$ against $0.482$ at C0, $0.537$ against $0.497$ at C5). At C0 this holds on four of five benchmarks, with TriviaQA the exception (\Cref{tab:per-tier-em}). Part of the difference is selection: the router and the classifier send to Tier 2 the questions they judge the generator can already answer. The zero-shot tier's accuracy also falls over the cycles, which is where the self-improvement loop acts.
 
@@ -184,28 +176,22 @@ Within tiers, zero-shot answers are more accurate than retrieval-augmented ones 
 
 \input{figures/auto/tab_tier_trajectory.tex}
 
-\input{figures/auto/tab_per_tier_em.tex}
-
 \subsubsection{Per-tier latency and cost}
 \label{sec:tier-cost}
 
-\Cref{tab:tier-latency} gives the mean time per evaluation query, from the batched evaluation log. It stays between $13.6$ and $14.7$ seconds per query (about six hours per cycle for the $1{,}500$ evaluation questions), as expected when the tier shares hardly move. This is about a hundred times slower than B1 ($142$ milliseconds), because every generated answer passes through the verifier's resampling, retrieval and entailment steps. Per benchmark at C5, CommonsenseQA is fastest ($8.6$ seconds) and TruthfulQA slowest ($17.8$ seconds). The time per tier could not be separated from the batched log, so the deployment-cost model of \Cref{eq:deployment-cost} cannot be filled in tier by tier; given the flat tier shares, it would predict a flat cost in any case.
-
-\input{figures/auto/tab_tier_latency.tex}
+The mean time per evaluation query, from the batched evaluation log, stays between $13.6$ and $14.7$ seconds per query (about six hours per cycle for the $1{,}500$ evaluation questions), as expected when the tier shares hardly move. This is about a hundred times slower than B1 ($142$ milliseconds), because every generated answer passes through the verifier's resampling, retrieval and entailment steps. Per benchmark at C5, CommonsenseQA is fastest ($8.6$ seconds) and TruthfulQA slowest ($17.8$ seconds). The time per tier could not be separated from the batched log, so the deployment-cost model of \Cref{eq:deployment-cost} cannot be filled in tier by tier; given the flat tier shares, it would predict a flat cost in any case.
 
 \subsubsection{Why the safety override fires}
 \label{sec:tier-safety}
 
-The safety override fired on $63$ of the $9{,}000$ evaluation queries ($0.7$ percent) and on $3$ of the $23{,}500$ stream-chunk queries (\Cref{tab:safety-override}). Of the evaluation firings, $62$ were CommonsenseQA questions after that benchmark's floor was refitted from $0.38$ to $0.491$ at cycle three and $0.569$ at cycle five; the other was one StrategyQA question at cycle five. On FEVER and TriviaQA the override never fired, because their pre-routing temperature reached its upper bound and pulled $\upre$ toward $0.5$ (\Cref{sec:pre-routing}). The override therefore acted as a rarely used safeguard in this run, not as an active part of routing.
-
-\input{figures/auto/tab_safety_override.tex}
+The safety override fired on $63$ of the $9{,}000$ evaluation queries ($0.7$ percent) and on $3$ of the $23{,}500$ stream-chunk queries. Of the evaluation firings, $62$ were CommonsenseQA questions after that benchmark's floor was refitted from $0.38$ to $0.491$ at cycle three and $0.569$ at cycle five; the other was one StrategyQA question at cycle five. On FEVER and TriviaQA the override never fired, because their pre-routing temperature reached its upper bound and pulled $\upre$ toward $0.5$ (\Cref{sec:pre-routing}). The override therefore acted as a rarely used safeguard in this run, not as an active part of routing.
 
 \FloatBarrier
 
 \subsection{Retention and continual learning}
 \label{sec:retention}
 
-The retention guard reads three probes after every fine-tune (\Cref{tab:pooled-trajectory}). It kept cycles one, two, three and five, and rolled back cycle four, when the TriviaQA test ratio fell to $0.886$; the memory was kept and grew across the rollback. On the benchmarks themselves, CommonsenseQA lost $4.7$ points and TruthfulQA $8.0$ points from C0 to C5 (\Cref{tab:per-bench-trajectory}), losses the probe panel did not catch because TruthfulQA is not probed and the CommonsenseQA probe stayed above its floor. The training set grew from $107$ episodes at the first fine-tune to $5{,}006$ at the last, and the final training loss fell from $0.258$ to $0.070$ over cycles one to four, then rose to $0.091$ at cycle five after training restarted from the cycle-three adapter (\Cref{tab:sil-training-trajectory}).
+The retention guard reads three probes after every fine-tune (\Cref{tab:sil-training-trajectory}). It kept cycles one, two, three and five, and rolled back cycle four, when the TriviaQA test ratio fell to $0.886$; the memory was kept and grew across the rollback. On the benchmarks themselves, CommonsenseQA lost $4.7$ points and TruthfulQA $8.0$ points from C0 to C5 (\Cref{tab:per-bench-trajectory}), losses the probe panel did not catch because TruthfulQA is not probed and the CommonsenseQA probe stayed above its floor. The training set grew from $107$ episodes at the first fine-tune to $5{,}006$ at the last, and the final training loss fell from $0.258$ to $0.070$ over cycles one to four, then rose to $0.091$ at cycle five after training restarted from the cycle-three adapter (\Cref{tab:sil-training-trajectory}).
 
 \input{figures/auto/tab_sil_training_trajectory.tex}
 
@@ -216,21 +202,13 @@ The retention guard reads three probes after every fine-tune (\Cref{tab:pooled-t
 
 \textbf{Memory growth:} the memory grew from the $431$ gold-filtered cold-start entries to $12{,}175$ at C5, adding between $2{,}214$ and $2{,}484$ entries per cycle, including the rolled-back cycle four; the deferred buffer grew to $4{,}284$ entries (\Cref{tab:memory-store-trajectory}).
 
-\input{figures/auto/tab_memory_store_trajectory.tex}
+\input{figures/auto/tab_memory_dynamics.tex}
 
-\textbf{Training pool:} the training threshold ($\ustored \ge 0.70$) keeps a purer subset of the stored answers (\Cref{tab:storage-pool-quality}). On the stream chunks, the training pool is $79.8$ to $81.8$ percent correct, against $72.4$ to $75.3$ percent for everything stored, so the stricter threshold removes between $56$ and $73$ percent of the wrong stored answers before training. About a fifth of the training pool is still wrong. Stored scores are well ordered against correctness on the stream chunks at every cycle, but on the evaluation fold only at cycles one and four (\Cref{tab:u-stored-distribution}).
+\textbf{Training pool:} the training threshold ($\ustored \ge 0.70$) keeps a purer subset of the stored answers (\Cref{tab:storage-pool-quality}). On the stream chunks, the training pool is $79.8$ to $81.8$ percent correct, against $72.4$ to $75.3$ percent for everything stored, so the stricter threshold removes between $56$ and $73$ percent of the wrong stored answers before training. About a fifth of the training pool is still wrong. Stored scores are well ordered against correctness on the stream chunks at every cycle, but on the evaluation fold only at cycles one and four (\Cref{tab:u-stored-distribution} in \Cref{app:extra-tables}).
 
 \input{figures/auto/tab_storage_pool_quality.tex}
 
-\input{figures/auto/tab_u_stored_distribution.tex}
-
-\textbf{Re-verification and deferral:} reconstructing the memory snapshots identifies $1{,}094$ entries removed by the retroactive pass (the run log counts $1{,}061$); $38.4$ percent of them were wrong, against about $22$ percent in the pool, so the pass removes wrong entries at about $1.75$ times their base rate (\Cref{tab:em-conditional-breakdown}). The deferred buffer promoted $650$ answers ($131$, $220$ and $299$ at cycles two, three and five, \Cref{tab:survival-distribution}); of the $620$ promotions recovered from the snapshots, $55.6$ percent were correct, which is below the stored pool but means about $345$ correct answers rescued from the deferral band. Consolidation merged $57$ groups and removed $58$ entries (\Cref{tab:consolidation-trajectory}); its same-answer guard blocked several merges of near-identical questions with different answers.
-
-\input{figures/auto/tab_em_conditional_breakdown.tex}
-
-\input{figures/auto/tab_survival_distribution.tex}
-
-\input{figures/auto/tab_consolidation_trajectory.tex}
+\textbf{Re-verification and deferral:} reconstructing the memory snapshots identifies $1{,}094$ entries removed by the retroactive pass (the run log counts $1{,}061$); $38.4$ percent of them were wrong, against about $22$ percent in the pool, so the pass removes wrong entries at about $1.75$ times their base rate (\Cref{tab:em-conditional-breakdown} in \Cref{app:extra-tables}). The deferred buffer promoted $650$ answers ($131$, $220$ and $299$ at cycles two, three and five, \Cref{tab:memory-store-trajectory}); of the $620$ promotions recovered from the snapshots, $55.6$ percent were correct, which is below the stored pool but means about $345$ correct answers rescued from the deferral band. Consolidation merged $57$ groups and removed $58$ entries (\Cref{tab:memory-store-trajectory}); its same-answer guard blocked several merges of near-identical questions with different answers.
 
 \FloatBarrier
 
@@ -267,16 +245,12 @@ This subsection reads the statements of \Cref{sec:theory} against the run. The t
 \subsubsection{Asymptotic hallucination floor}
 \label{sec:check-asymptotic}
 
-\Cref{cor:tier1-floor} bounds the error rate of Tier 1 answers by the impurity of the pool. On the evaluation fold Tier 1 gave $7$ answers, all correct, which is consistent but too few to estimate a rate; the router probe gives the testable case (\Cref{sec:tier-hit}). Per tier, CHM is $0.101$ to $0.111$ for zero-shot answers and $0.113$ to $0.158$ for retrieval-augmented ones (\Cref{tab:tier-chm-trajectory}). The decomposition of \Cref{thm:asymptotic-elim} cannot be tested here, because Tier 1 answered at most $0.1$ percent of evaluation queries.
-
-\input{figures/auto/tab_tier_chm_trajectory.tex}
+\Cref{cor:tier1-floor} bounds the error rate of Tier 1 answers by the impurity of the pool. On the evaluation fold Tier 1 gave $7$ answers, all correct, which is consistent but too few to estimate a rate; the router probe gives the testable case (\Cref{sec:tier-hit}). Per tier, CHM is $0.101$ to $0.111$ for zero-shot answers and $0.113$ to $0.158$ for retrieval-augmented ones (\Cref{tab:tier-chm-trajectory} in \Cref{app:extra-tables}). The decomposition of \Cref{thm:asymptotic-elim} cannot be tested here, because Tier 1 answered at most $0.1$ percent of evaluation queries.
 
 \subsubsection{Heuristic checks: equilibrium structure and self-correction}
 \label{sec:check-corollaries}
 
-\Cref{cor:self-correction} predicts that repeated re-verification removes wrong entries over time. The share of checked entries removed fell from $13.0$ percent at C1 to $9.2$, $6.6$ and $3.7$ percent at C2, C3 and C5 (\Cref{tab:self-correction-check}), and removed entries were wrong more often than the pool (\Cref{sec:pool-dynamics}), both consistent with the heuristic; the falling rate is partly diluted by the growing number of fresh entries. The entry records do not count how many passes each entry survived, so the predicted survival distribution could not be measured. The corpus ceiling of \Cref{cor:corpus-floor} was not measured.
-
-\input{figures/auto/tab_self_correction_check.tex}
+\Cref{cor:self-correction} predicts that repeated re-verification removes wrong entries over time. The share of checked entries removed fell from $13.0$ percent at C1 to $9.2$, $6.6$ and $3.7$ percent at C2, C3 and C5 (\Cref{tab:self-correction-check} in \Cref{app:extra-tables}), and removed entries were wrong more often than the pool (\Cref{sec:pool-dynamics}), both consistent with the heuristic; the falling rate is partly diluted by the growing number of fresh entries. The entry records do not count how many passes each entry survived, so the predicted survival distribution could not be measured. The corpus ceiling of \Cref{cor:corpus-floor} was not measured.
 
 \input{figures/auto/tab_theorem_receipts_summary.tex}
 
@@ -313,18 +287,12 @@ Four criteria were set in advance, applied in order: (1) pooled calibration-fold
 \subsection{The locked configuration}
 \label{sec:adj-locked}
 
-The locked configuration ($\tau_{\text{store}} = 0.60$, $C = 0.01$, $\alpha_{\text{shrink}} = 0.6$, together with $\tau_{\text{defer}} = 0.45$, the abstention floor $0.20$, $\tau_{\text{retro}} = 0.50$ and $\rho_{\min} = 0.93$) was carried unchanged into every cycle (\Cref{tab:sweep-top}). $C = 0.01$ is the strongest regularisation in the grid, a hundredfold tighter penalty than the library default of $1.0$. \Cref{tab:composite-calibration} gives the cycle-zero direction and boost weight of each signal.
-
-\input{figures/auto/sweep_top.tex}
-
-\input{figures/auto/composite_weights.tex}
+The locked configuration ($\tau_{\text{store}} = 0.60$, $C = 0.01$, $\alpha_{\text{shrink}} = 0.6$, together with $\tau_{\text{defer}} = 0.45$, the abstention floor $0.20$, $\tau_{\text{retro}} = 0.50$ and $\rho_{\min} = 0.93$) was carried unchanged into every cycle (\Cref{tab:sweep-top} in \Cref{app:cycle0-catalog}). $C = 0.01$ is the strongest regularisation in the grid, a hundredfold tighter penalty than the library default of $1.0$. \Cref{tab:composite-calibration} in \Cref{app:cycle0-catalog} gives the cycle-zero direction and boost weight of each signal.
 
 \subsection{Per-cycle composite-refit trajectory}
 \label{sec:adj-trajectory}
 
-The cut-points stay fixed, but the mapping from signals to probability is refitted at every kept cycle (\Cref{tab:calibration-trajectory}). The pooled pre-routing temperature starts at its upper bound ($T = 20.086 \approx e^{3}$), drops to $1.089$ at cycle one and stays between $0.74$ and $0.87$ afterwards; the FEVER and TriviaQA temperatures remain $4.8$ to $10.7$ times that of CommonsenseQA, and CommonsenseQA's safety floor is the only one refitted (to $0.491$ and $0.569$). The expected calibration error after each refit stays between $0.041$ and $0.049$. Of the nine boost weights, two move: the chain-entailment weight rises from $0.067$ to $0.285$ and the relevance weight falls from $0.491$ to about $0.26$; the other seven move by at most $0.07$.
-
-\input{figures/auto/tab_calibration_trajectory.tex}
+The cut-points stay fixed, but the mapping from signals to probability is refitted at every kept cycle (\Cref{tab:calibration-trajectory} in \Cref{app:extra-tables}). The pooled pre-routing temperature starts at its upper bound ($T = 20.086 \approx e^{3}$), drops to $1.089$ at cycle one and stays between $0.74$ and $0.87$ afterwards; the FEVER and TriviaQA temperatures remain $4.8$ to $10.7$ times that of CommonsenseQA, and CommonsenseQA's safety floor is the only one refitted (to $0.491$ and $0.569$). The expected calibration error after each refit stays between $0.041$ and $0.049$. Of the nine boost weights, two move: the chain-entailment weight rises from $0.067$ to $0.285$ and the relevance weight falls from $0.491$ to about $0.26$; the other seven move by at most $0.07$.
 
 \FloatBarrier
 
@@ -375,11 +343,11 @@ The first cycle-zero calibration failed the validation gate because of a bug in 
 \label{sec:sig-holm}
 \label{sec:sig-licensing}
 
-Every baseline was run on the same evaluation questions, with the same prompt family and scoring, so each comparison is paired question by question; questions missing on either side are excluded (\Cref{app:sig-pairing}). The two axes use different procedures, which are reported here as they were run.
+Every baseline was run on the same evaluation questions, with the same prompt family and scoring, so each comparison is paired question by question; questions missing on either side are excluded (\Cref{app:sig-pairing}).
 
-\textbf{Exact match:} for each benchmark and baseline, a paired McNemar test with continuity correction (Edwards~\cite{edwards1948note}) gives a $p$-value; the $p$-values of the baselines within a benchmark are corrected with the Holm--Bonferroni procedure \cite{holm1979simple}; and a paired bootstrap gives a $95$ percent interval on the EM difference ($1{,}000$ replicates). A contrast is starred when the Holm-corrected $p$-value is below $0.05$ \emph{and} the absolute EM difference is at least $0.02$.
+\textbf{Exact match:} for each benchmark and baseline, a paired McNemar test with continuity correction (Edwards~\cite{edwards1948note}) gives a $p$-value; the $p$-values of the baselines within a benchmark are corrected with the Holm--Bonferroni procedure \cite{holm1979simple}; and a paired bootstrap gives a $95$ percent interval on the EM difference ($2{,}000$ replicates). A contrast is starred when the Holm-corrected $p$-value is below $0.05$ \emph{and} the absolute EM difference is at least $0.02$.
 
-\textbf{Composite hallucination metric:} the per-question CHM values were not paired in the significance script. Instead, a bootstrap resamples the baseline's eight subtype rates with CAEM's CHM held fixed, and a contrast is starred when that interval excludes zero and the absolute CHM difference is at least $0.01$. There is no Holm correction on this axis. Because this interval ignores CAEM's own sampling variation, it is narrower than a paired interval would be, and it can even exclude the point difference; CHM stars are therefore weaker evidence than EM stars and are read as approximate.
+\textbf{Composite hallucination metric:} every question has its own CHM value, the share of the eight failure flags it raises, so this axis is paired in the same way. A Wilcoxon signed-rank test (Wilcoxon~\cite{wilcoxon1945individual}) on the per-question differences gives a $p$-value, with questions that show no difference dropped; the $p$-values are Holm-corrected within each benchmark; and a paired bootstrap gives the interval. A contrast is starred when the corrected $p$-value is below $0.05$ \emph{and} the absolute CHM difference is at least $0.01$. B8 has no valid CHM and is left out of this axis.
 
 The full contingency counts, the Holm sequences and the procedural detail are in \Cref{app:significance}.
 
@@ -393,31 +361,13 @@ The eight baselines are zero-shot (B1), chain of thought (B2), retrieval-augment
 
 \textbf{Pooled comparison} (\Cref{tab:baseline-pooled}, \Cref{fig:baselines}): CAEM's CHM is lower than every baseline whose CHM could be measured, at both C2 ($0.107$) and C5 ($0.109$); the nearest are B1 ($0.120$) and B2 ($0.123$), the furthest FLARE ($0.173$). B8's CHM is not available (see B8 below). On EM, CAEM leads every baseline at C2 ($0.544$); at C5 ($0.517$) FLARE is slightly ahead ($0.525$) and every other baseline behind, including vanilla fine-tuning ($0.490$).
 
-\textbf{Per-benchmark tests} (\Cref{tab:sig-test} at C5, \Cref{tab:sig-test-c2} at C2): at C5, $9$ of $40$ EM contrasts are significant wins and $3$ significant defeats; at C2, $14$ wins and $3$ defeats. On the approximate CHM axis, $19$ of $30$ contrasts are starred wins and $2$ defeats at C5, and $18$ wins and $3$ defeats at C2 (B6 and B8 have no CHM cell). Every starred defeat is on TruthfulQA, against the baselines with the highest TruthfulQA accuracy: on EM against B1, B2 and FLARE at both cycles; on CHM against B1 and B2, and FLARE at C2. Against vanilla fine-tuning, CAEM's EM is lower on FEVER and CommonsenseQA with bootstrap intervals below zero (at C5, $[-0.123, -0.010]$ and $[-0.120, -0.010]$), although these contrasts do not survive the Holm correction.
+\textbf{Per-benchmark tests} (\Cref{tab:sig-summary}; every contrast with its interval is in \Cref{tab:sig-full-c5,tab:sig-full-c2}): at C5, $9$ of $40$ EM contrasts are significant wins and $3$ significant defeats; at C2, $14$ wins and $3$ defeats. On CHM, $21$ of $35$ contrasts are significant wins and $3$ defeats at C5, and $24$ wins and $4$ defeats at C2. The EM defeats are all on TruthfulQA, against the baselines most accurate there: B1, B2 and FLARE. The CHM defeats are on TruthfulQA against B1 and B2 (and FLARE at C2), and on CommonsenseQA against vanilla fine-tuning. Against vanilla fine-tuning, CAEM's EM is also lower on FEVER and CommonsenseQA at C5, with bootstrap intervals below zero ($[-0.123, -0.010]$ and $[-0.120, -0.007]$), although these contrasts do not survive the Holm correction.
 
 \input{figures/auto/tab_baseline_pooled.tex}
 
 \input{figures/ch5/fig_baselines.tex}
 
-\begin{table}[!htbp]
-\centering\scriptsize
-\setlength{\tabcolsep}{3pt}
-\resizebox{\textwidth}{!}{%
-\input{figures/auto/tab_sig_test.tex}%
-}
-\caption[Paired significance against the eight baselines at C5.]{Paired significance against the eight baselines at the cycle-five close. EM: McNemar, Holm-corrected within each benchmark, star if significant and $|\Delta| \ge 0.02$. CHM: approximate bootstrap with CAEM fixed, star if the interval excludes zero and $|\Delta| \ge 0.01$. (B) marks a baseline win.}
-\label{tab:sig-test}
-\end{table}
-
-\begin{table}[!htbp]
-\centering\scriptsize
-\setlength{\tabcolsep}{3pt}
-\resizebox{\textwidth}{!}{%
-\input{figures/auto/tab_sig_test_c2.tex}%
-}
-\caption[Paired significance against the eight baselines at C2.]{Paired significance against the eight baselines at cycle two, with the same procedure as \Cref{tab:sig-test}.}
-\label{tab:sig-test-c2}
-\end{table}
+\input{figures/auto/tab_sig_summary.tex}
 
 \textbf{Each baseline against its expectation:}
 \begin{itemize}
@@ -458,49 +408,21 @@ The architecture adds accuracy, and the full system ends with a lower hallucinat
 
 Each pre-specified hypothesis of \Cref{sec:hypotheses} is judged by its registered statistic, using only the three registered verdicts (\Cref{tab:hypothesis-verdicts}).
 
-\begin{table}[!t]
-\centering\scriptsize
-\setlength{\tabcolsep}{3pt}
-\renewcommand{\arraystretch}{1.05}
-\begin{tabular}{@{}p{0.4cm}>{\raggedright\arraybackslash}p{4.2cm}>{\raggedright\arraybackslash}p{1.9cm}>{\raggedright\arraybackslash}p{8.3cm}@{}}
-\toprule
-\textbf{ID} & \textbf{Hypothesis (registered in \Cref{sec:hypotheses})} & \textbf{Verdict} & \textbf{Deciding statistic and reading} \\
-\midrule
-H1 & Verifier balanced accuracy exceeds one half on the calibration-matched distribution at every cycle (\Cref{thm:bayes-purity} precondition). & \textbf{supported} & Pooled gate balanced accuracy on the calibration fold: $0.615$, $0.663$, $0.664$, $0.658$ at C1, C2, C3, C5 (C0 $0.753$, in-sample; \Cref{tab:gate-quality}). Weakest: CommonsenseQA $0.52$ to $0.55$; TriviaQA $0.500$ at C1, when no TriviaQA answer was stored. \\[1pt]
-H2 & Pool purity is non-decreasing across cycles whenever the precondition is satisfied (\Cref{thm:bayes-convergence}). & \textbf{unsupported} & Calibration-fold precision $0.780$ (C0, in-sample), $0.740$, $0.736$, $0.746$, $0.732$: it falls at C1, C2 and C5. The changes are within sampling noise and purity stays above the floor of \Cref{thm:purity} (\Cref{tab:pi-store-trajectory}). \\[1pt]
-H3 & Late-cycle pool-purity increments enter a bounded stationary band on the committed-cycle subsequence (\Cref{thm:convergence}). & \textbf{supported} & Precision within $0.732$ to $0.746$ at C1 to C5, a band of width $0.014$, about one standard error of a single reading; a convergence rate cannot be estimated in six cycles. \\[1pt]
-H4 & The composite hallucination metric at the realised cycle horizon approaches a parameter-bounded asymptote (\Cref{thm:asymptotic-elim}). & \textbf{partially supported} & CHM falls from $0.135$ to $0.112$ at C1 and stays between $0.107$ and $0.115$ afterwards ($0.109$ at C5), consistent with flattening; the fitted saturation curve explains only $21$ percent of the variation, so no limit can be estimated. \\[1pt]
-H5 & Per-cycle Tier 1 hit rate grows monotonically as memory accumulates, producing a measurable per-query cost reduction (operational claim, \Cref{sec:econ-deployment}). & \textbf{unsupported} & Tier 1 answered at most $0.1$ percent of evaluation queries in every cycle, because no evaluation question repeats a stored one; with tier shares flat, latency stayed at $13.6$ to $14.7$ seconds per query. The router probe shows Tier 1 answering repeated questions ($42$ of $50$ repeats, $19$ of $50$ paraphrases). \\
-\bottomrule
-\end{tabular}
-\caption[Hypothesis verdicts.]{Verdicts on the five pre-specified hypotheses.}
-\label{tab:hypothesis-verdicts}
-\end{table}
-
-\subsection{Evidence-to-claim mapping}
-\label{sec:summary-mapping}
-
-\Cref{tab:evidence-mapping} links each claim made in earlier chapters to the evidence for it in this chapter.
-
 \begin{table}[!htbp]
-\centering
-\small
-\begin{tabular}{@{}>{\raggedright\arraybackslash}p{3.6cm}>{\raggedright\arraybackslash}p{5.6cm}>{\raggedright\arraybackslash}p{5.0cm}@{}}
+\centering\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabularx}{\textwidth}{@{}l>{\raggedright\arraybackslash}p{3.6cm}>{\raggedright\arraybackslash}p{2.2cm}>{\raggedright\arraybackslash}X@{}}
 \toprule
-\textbf{Claim site} & \textbf{Claim} & \textbf{Evidence in this chapter} \\
+\textbf{ID} & \textbf{Hypothesis (\Cref{sec:hypotheses})} & \textbf{Verdict} & \textbf{Deciding statistic and reading} \\
 \midrule
-H1 to H5 (\Cref{sec:hypotheses}) & Pre-specified hypotheses & \Cref{tab:hypothesis-verdicts} \\
-Headline (\Cref{ch:introduction}) & CAEM reduces confident factual hallucination & \Cref{sec:headline-pooled,sec:comp-baselines} \\
-\Cref{sec:nonfunc-reqs} (NFR2) & Storage precision at $\tau_{\text{store}} = 0.60$ & \Cref{tab:pi-store-trajectory,tab:sweep-variants} \\
-\Cref{sec:nonfunc-reqs} (NFR3) & Retention floor & \Cref{sec:retention} \\
-\Cref{sec:env-cycles} & Stop after cycle five & \Cref{sec:setup-reproducibility} \\
-\Cref{sec:econ-deployment} & Cost falls as the memory share grows & \Cref{sec:tier-hit,sec:tier-cost} (shares and cost flat) \\
-\Cref{sec:ruc} & The classifier routes retrieval-hurt questions away from retrieval & \Cref{sec:ruc-ablation} \\
-\Cref{sec:theory} & Formal statements & \Cref{sec:theory-checks}, \Cref{tab:theorem-receipts-summary} \\
+H1 & Verifier balanced accuracy exceeds one half on the calibration-matched distribution at every cycle (\Cref{thm:bayes-purity} precondition). & \textbf{supported} & Pooled gate balanced accuracy on the calibration fold: $0.615$, $0.663$, $0.664$, $0.658$ at C1, C2, C3, C5 (C0 $0.753$, in-sample; \Cref{tab:gate-quality}). Weakest: CommonsenseQA $0.52$ to $0.55$; TriviaQA $0.500$ at C1, when no TriviaQA answer was stored. \\
+H2 & Pool purity is non-decreasing across cycles whenever the precondition is satisfied (\Cref{thm:bayes-convergence}). & \textbf{unsupported} & Calibration-fold precision $0.780$ (C0, in-sample), $0.740$, $0.736$, $0.746$, $0.732$: it falls at C1, C2 and C5. The changes are within sampling noise and purity stays above the floor of \Cref{thm:purity} (\Cref{tab:pi-store-trajectory}). \\
+H3 & Late-cycle pool-purity increments enter a bounded stationary band on the committed-cycle subsequence (\Cref{thm:convergence}). & \textbf{supported} & Precision within $0.732$ to $0.746$ at C1 to C5, a band of width $0.014$, about one standard error of a single reading; a convergence rate cannot be estimated in six cycles. \\
+H4 & The composite hallucination metric at the realised cycle horizon approaches a parameter-bounded asymptote (\Cref{thm:asymptotic-elim}). & \textbf{partially supported} & CHM falls from $0.135$ to $0.112$ at C1 and stays between $0.107$ and $0.115$ afterwards ($0.109$ at C5), consistent with flattening; the fitted saturation curve explains only $21$ percent of the variation, so no limit can be estimated. \\
 \bottomrule
-\end{tabular}
-\caption[Where each earlier claim is tested.]{Where each earlier claim is tested in this chapter.}
-\label{tab:evidence-mapping}
+\end{tabularx}
+\caption[Hypothesis verdicts.]{Verdicts on the four pre-specified hypotheses.}
+\label{tab:hypothesis-verdicts}
 \end{table}
 
 \FloatBarrier
@@ -558,7 +480,11 @@ The classifier's accuracy differs widely across benchmarks (AUROC $0.718$ on FEV
 \subsubsection{Measuring hallucination with the system's own verifier}
 \label{sec:disc-threat-verifier}
 
-Two of the eight CHM subtypes, and the composite fixed at cycle three that scores the baselines, use CAEM's own verifier, and the CHM significance test is approximate (\Cref{sec:significance}). CHM differences are therefore partly measured by the instrument the system was built around. Exact match against gold labels, and the selective view built on it, do not depend on the verifier and are the safer basis for comparison.
+Two of the eight CHM subtypes depend on CAEM's own verifier: confident confabulation uses its stored score and false refusal uses its decision. The baselines have no verifier of their own, so their answers were scored with CAEM's verifier and the composite fixed at cycle three. CHM differences are therefore partly measured with the instrument CAEM was built around. Two checks limit this concern:
+\begin{itemize}
+    \item \textbf{Without the two verifier-defined subtypes:} the other six use neither CAEM's composite score nor its decisions. Restricted to them, CAEM at C5 is still lower than every measured baseline (pooled $0.067$ against $0.079$ for B1, the nearest), and the paired test gives $26$ significant wins and $4$ defeats out of $35$ contrasts.
+    \item \textbf{Exact match and the selective view:} both are scored against gold labels and do not depend on the verifier at all.
+\end{itemize}
 
 \subsection{Sensitivity analyses}
 \label{sec:disc-sensitivity}
@@ -587,7 +513,7 @@ From the re-run sweep (\Cref{tab:sweep-variants}): moving the cut-point from $0.
     \item \textbf{Deferred-pool horizon:} only three reconsideration passes ran, so the long-run behaviour of the deferred buffer is not known.
     \item \textbf{Phantom context:} fine-tuning on retrieval-written chains taught the generator to cite a non-existent context (\Cref{sec:disc-phantom}).
     \item \textbf{B8 hallucination metric:} the corrected semantic-entropy run was not re-scored through the verifier, so B8 has no CHM; the comparison on CHM covers seven of the eight baselines.
-    \item \textbf{No live traffic:} with no repeated questions in the evaluation, the memory-direct path and its cost saving were exercised only by the router probe.
+    \item \textbf{No repeated questions:} the evaluation uses fresh questions to measure learning, so the memory-direct path, built for repeated questions in deployment, and its cost saving were exercised only by the router probe; the gain in deployment depends on the share of repeats, which this study does not measure.
 \end{itemize}
 
 \paragraph{Limitations identified against the literature:} six further limitations follow from the cited literature.
@@ -603,4 +529,4 @@ From the re-run sweep (\Cref{tab:sweep-variants}): moving the cut-point from $0.
 \section{Chapter signpost}
 \label{sec:ch5-signpost}
 
-This chapter reported the main run, the cycle-zero choices behind it, the comparison with eight baselines and the classifier ablation, and judged the five hypotheses: H1 and H3 supported, H4 partially supported, H2 and H5 unsupported. \Cref{ch:conclusion} restates the contributions against these results and turns the limitations above into future work.
+This chapter reported the main run, the cycle-zero choices behind it, the comparison with eight baselines and the classifier ablation, and judged the four hypotheses: H1 and H3 supported, H4 partially supported, H2 unsupported. \Cref{ch:conclusion} restates the contributions against these results and turns the limitations above into future work.

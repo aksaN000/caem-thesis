@@ -1,3 +1,4 @@
+% Table sizing standardised 2026-10-17 (final drafting pass): \small, no \resizebox.
 % Caption shortened by hand in the final drafting pass (2026-10); detail moved to chapter 5 text.
 % Auto-generated from outputs/full_run/eval/{bench}_cycle{c}.json,
 % outputs/full_run/eval/{bench}_cycle{c}_streamchunk.json, retroverify_cycle*.json
@@ -5,15 +6,14 @@
 % SIL training-batch size per cycle, reported on both the held-out evaluation fold
 % (panel a) and the SIL stream chunks (panel b, the production candidate pool).
 % Hand-corrected 2026-10-15 (see ref_check/fixes_applied.md)
-\begin{table}[H]
-\centering\footnotesize
-\setlength{\tabcolsep}{3pt}
-\resizebox{\textwidth}{!}{%
+\begin{table}[!htbp]
+\centering\small
+\setlength{\tabcolsep}{4pt}
 \begin{tabular}{@{}lrrrrrrrr@{}}
 \toprule
-\textbf{Cycle} & $\boldsymbol{n_{\text{stored}}}$ & \textbf{em-correct} & \textbf{em-wrong} & $\boldsymbol{\pi_{\text{store}}}$ & $\boldsymbol{n_{\text{pass}\,\tau_{\text{train}}}}$ & \textbf{pass rate} & $\boldsymbol{\pi_{\text{SIL}}}$ & $\boldsymbol{n_{\text{used SIL}}}$ \\
+\textbf{Cycle} & $\boldsymbol{n_{\text{stored}}}$ & \textbf{Correct} & \textbf{Wrong} & $\boldsymbol{\pi_{\text{store}}}$ & \twoline{Above\\$\boldsymbol{\tau_{\text{train}}}$} & \twoline{Share\\above} & $\boldsymbol{\pi_{\text{SIL}}}$ & \twoline{Used in\\training} \\
 \midrule
-\multicolumn{9}{@{}l}{\textit{(a) Evaluation fold (held-out, content-hash disjoint from the training stream)}} \\
+\multicolumn{9}{@{}l}{\textit{(a) Evaluation fold}} \\
 C0 & $336$ & $255$ & $81$  & $0.759$ & $58$  & $17.3\%$ & $0.793$ & --- \\
 C1 & $515$ & $374$ & $141$ & $0.726$ & $231$ & $44.9\%$ & $0.788$ & --- \\
 C2 & $534$ & $370$ & $164$ & $0.693$ & $266$ & $49.8\%$ & $0.726$ & --- \\
@@ -21,16 +21,15 @@ C3 & $565$ & $402$ & $163$ & $0.712$ & $279$ & $49.4\%$ & $0.735$ & --- \\
 C4$^{\ast}$ & $566$ & $402$ & $164$ & $0.710$ & $272$ & $48.1\%$ & $0.735$ & --- \\
 C5 & $504$ & $353$ & $151$ & $0.700$ & $181$ & $35.9\%$ & $0.735$ & --- \\
 \midrule
-\multicolumn{9}{@{}l}{\textit{(b) SIL stream chunks (training-panel candidate pool where storage decisions populate memory)}} \\
+\multicolumn{9}{@{}l}{\textit{(b) Stream chunks}} \\
 C1 & $2\,456$ & $1\,850$ & $606$ & $0.753$ & $1\,309$ & $53.3\%$ & $0.818$ & $107$ \\
 C2 & $2\,494$ & $1\,873$ & $621$ & $0.751$ & $1\,448$ & $58.1\%$ & $0.810$ & $1\,474$ \\
 C3 & $2\,490$ & $1\,802$ & $688$ & $0.724$ & $1\,337$ & $53.7\%$ & $0.798$ & $2\,966$ \\
 C4$^{\ast}$ & $2\,522$ & $1\,862$ & $660$ & $0.738$ & $1\,413$ & $56.0\%$ & $0.803$ & --- \\
 C5 & $2\,380$ & $1\,724$ & $656$ & $0.724$ & $895$ & $37.6\%$ & $0.803$ & $5\,006$ \\
 \bottomrule
-\multicolumn{9}{@{}l}{\footnotesize $^{\ast}$ Cycle four was aborted under the retention guard; the cycle-four retroverify pass was skipped, so $n_{\text{used SIL}}$ is not reported for C4.} \\
-\end{tabular}%
-}
+\end{tabular}
+\par\vspace{2pt}{\footnotesize\parbox{\linewidth}{$^{\ast}$Cycle four was rolled back, so its training pool is not reported.}\par}
 \caption[Stored answers and the training pool by cycle.]{Stored answers, their precision, the share passing the training threshold ($\ustored \ge 0.70$) and the precision of that training pool, on (a) the evaluation fold and (b) the stream chunks.}
 \label{tab:storage-pool-quality}
 \end{table}
