@@ -99,3 +99,10 @@ corrected copy; generator still stale).
 | D17 | TruthfulQA Haiku judge on refusals | Judge reads the whole response. Refusals are credited 100% when the reference answers include a no-comment/unknown answer (benchmark convention), but also 30% of the time when they do not (CAEM C0: 98 such refusals, ~29 credited ≈ 0.10 of TruthfulQA EM). | OPEN (author decision; proposed: judge the final answer line, refusal correct only if references include one) |
 | D18 | B3/B4 TruthfulQA | 32/300 empty responses (generation failure), counted wrong; B4's 16 unjudged are among them. | OPEN (re-generate locally with B5) |
 | D19 | B6 output format | No "Answer:" line ("Reasoning:supports"); extraction still scores it (FEVER EM 0.543). | DOCUMENTED |
+
+## Benchmark audit (2026-10-17, `scripts/audit_benchmarks.py` → `outputs/analysis/audit_benchmarks.json`)
+| # | Where | Problem | Status |
+|---|---|---|---|
+| D20 | CommonsenseQA scorer | A correct letter with option text ("(D) cast shadow") scores 0: B1 10/300, B7 10, B2 7, B8 3, B3 2. Multi-letter answers ("D \| E", CAEM C0) are correctly wrong. | OPEN: one rule for all systems (single valid letter, option text allowed); mostly removed by matched prompts |
+| D21 | FEVER ids in dataset_splits.json | 46 evaluation ids also in train_ids (1 each in calib/purity), but the claims differ (FEVER ids not unique across source splits). No text overlap: 0 evaluation questions in any stream chunk or in the calibration fold, on all five benchmarks. | DOCUMENTED (no leakage) |
+| D22 | B6 output | No "Answer:" line on 300/300 FEVER, 300/300 CommonsenseQA, 263/300 StrategyQA ("Reasoning:supports"); the scorer's fallback extracts it. | DOCUMENTED (see D19) |

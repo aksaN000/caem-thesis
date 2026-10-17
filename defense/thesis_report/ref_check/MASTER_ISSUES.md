@@ -12,7 +12,7 @@ one rental runbook script (setup → exact search → baselines → FLARE → ve
 Rental spec: RTX 5090 32 GB (or larger), ≥ 96 GB RAM preferred (61 GB index + 7 GB passages + models), ≥ 200 GB
 disk, driver supporting CUDA 13 (torch 2.10+cu130). Estimated 8–12 h, about $10–15 with trial E.
 After the rental (local): recompute results, chapter 5/6/1–4/appendix/abstract text, repository clean-up.
-Local exact search of the evaluation fold also runs as an independent cross-check of the rental's search.
+Local runs stopped and local environments/caches removed at the author's request (2026-10-17); all compute on the rental.
 
 ### M-A. Unfair comparisons (must fix)
 - [ ] Exact passage search for the 1,500 evaluation questions (one batched pass), checked against the first
@@ -28,6 +28,8 @@ Local exact search of the evaluation fold also runs as an independent cross-chec
 - [ ] TruthfulQA judge reads the final answer only; a refusal is correct only if the references include one.
       Re-judge CAEM (all cycles) and every baseline.
 - [ ] TriviaQA strict-vs-lenient re-check for every system after the prompt fix; one rule for all.
+- [ ] CommonsenseQA scoring rule (tracker D20): accept one valid letter with optional option text, reject
+      multiple letters; applied to every system. Benchmark audit otherwise clean: no leakage (D21).
 - [ ] Router-probe id-space bug.
 ### M-C. Text that does not match the code (must fix)
 - [ ] Describe as it behaved, briefly (author 2026-10-17: no fault sections): token score = generator's average
@@ -42,9 +44,13 @@ System faults (token score scope, early exit reachability, question-match signal
 temperature cap, FEVER prefix); self-improvement erosion after C1 with its diagnosis (phantom context
 3 % → 93–99 %, about a fifth of the training pool wrong) and fixes S1–S4 as future work; repeated-question
 evaluation (router probe stands in); live latency (first-run batched logs 13.6–14.7 s per question, caveated).
-### M-E. Optional, agreed: local trial of the self-improvement fixes
-- [ ] After M-A to M-C: S1 (clean chains) + S2 (purer pool) on a subset, cycle zero + 1–2 cycles, on the RTX
-      3060; reported as clearly labelled supporting evidence for the future-work section, not a main result.
+### M-E. Agreed: trial of the self-improvement fixes (on the rental)
+- [ ] Resume from run 1's exact cycle-zero state (base model, cycle-zero composite, cold-start memory) and run
+      cycles again on the SAME stream chunks and evaluation fold with only S1 (clean chains) + S2 (purer pool)
+      changed; each trial cycle continues from the trial's own previous cycle, like run 1. Run 1 is the control.
+      Options: full-scale C1–C2 (~25–30 h, ~$18–22) or C1–C3 (~40–45 h, ~$28–32; C2→C3 is where erosion
+      starts). Estimates to be replaced after profiling. Reported as clearly labelled supporting evidence.
+- Decision pending: S2 = confidence-weighted loss at the 0.70 threshold (default) or a stricter threshold.
 
 ---
 

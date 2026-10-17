@@ -1,0 +1,239 @@
+{
+ "leakage": {
+  "fever": {
+   "eval_n": 300,
+   "id_overlap": {
+    "calib_ids": 1,
+    "purity_ids": 1,
+    "train_ids": 46
+   },
+   "eval_questions_in_stream_chunks": 0,
+   "duplicate_questions_in_eval": 0
+  },
+  "triviaqa": {
+   "eval_n": 300,
+   "id_overlap": {
+    "calib_ids": 0,
+    "purity_ids": 0,
+    "train_ids": 0
+   },
+   "eval_questions_in_stream_chunks": 0,
+   "duplicate_questions_in_eval": 0
+  },
+  "commonsense_qa": {
+   "eval_n": 300,
+   "id_overlap": {
+    "calib_ids": 0,
+    "purity_ids": 0,
+    "train_ids": 0
+   },
+   "eval_questions_in_stream_chunks": 0,
+   "duplicate_questions_in_eval": 0
+  },
+  "truthfulqa": {
+   "eval_n": 300,
+   "id_overlap": {},
+   "eval_questions_in_stream_chunks": 0,
+   "duplicate_questions_in_eval": 0
+  },
+  "strategyqa": {
+   "eval_n": 300,
+   "id_overlap": {},
+   "eval_questions_in_stream_chunks": 0,
+   "duplicate_questions_in_eval": 0
+  }
+ },
+ "gold": {
+  "fever": {
+   "missing": 0,
+   "distribution": {
+    "refutes": 108,
+    "not enough info": 104,
+    "supports": 88
+   }
+  },
+  "triviaqa": {
+   "missing": 0,
+   "distribution": null
+  },
+  "commonsense_qa": {
+   "missing": 0,
+   "distribution": {
+    "d": 68,
+    "e": 62,
+    "b": 61,
+    "c": 55,
+    "a": 54
+   }
+  },
+  "truthfulqa": {
+   "missing": 0,
+   "distribution": null
+  },
+  "strategyqa": {
+   "missing": 0,
+   "distribution": {
+    "no": 154,
+    "yes": 146
+   }
+  }
+ },
+ "closed_answers": {
+  "fever": {
+   "caem_c0": {
+    "n": 300,
+    "invalid_answer": 0,
+    "em_mismatch": 0
+   },
+   "caem_c5": {
+    "n": 300,
+    "invalid_answer": 0,
+    "em_mismatch": 0
+   },
+   "B1": {
+    "n": 300,
+    "invalid_answer": 0,
+    "em_mismatch": 0
+   },
+   "B2": {
+    "n": 300,
+    "invalid_answer": 0,
+    "em_mismatch": 0
+   },
+   "B3": {
+    "n": 300,
+    "invalid_answer": 0,
+    "em_mismatch": 0
+   },
+   "B4": {
+    "n": 300,
+    "invalid_answer": 0,
+    "em_mismatch": 0
+   },
+   "B5": {
+    "n": 300,
+    "invalid_answer": 0,
+    "em_mismatch": 0
+   },
+   "B6": {
+    "n": 300,
+    "invalid_answer": 300,
+    "em_mismatch": 163
+   },
+   "B7": {
+    "n": 300,
+    "invalid_answer": 0,
+    "em_mismatch": 0
+   },
+   "B8": {
+    "n": 300,
+    "invalid_answer": 0,
+    "em_mismatch": 0
+   }
+  },
+  "commonsense_qa": {
+   "caem_c0": {
+    "n": 300,
+    "invalid_answer": 0,
+    "em_mismatch": 6
+   },
+   "caem_c5": {
+    "n": 300,
+    "invalid_answer": 0,
+    "em_mismatch": 0
+   },
+   "B1": {
+    "n": 300,
+    "invalid_answer": 0,
+    "em_mismatch": 10
+   },
+   "B2": {
+    "n": 300,
+    "invalid_answer": 0,
+    "em_mismatch": 7
+   },
+   "B3": {
+    "n": 300,
+    "invalid_answer": 0,
+    "em_mismatch": 2
+   },
+   "B4": {
+    "n": 300,
+    "invalid_answer": 0,
+    "em_mismatch": 0
+   },
+   "B5": {
+    "n": 300,
+    "invalid_answer": 2,
+    "em_mismatch": 0
+   },
+   "B6": {
+    "n": 300,
+    "invalid_answer": 300,
+    "em_mismatch": 234
+   },
+   "B7": {
+    "n": 300,
+    "invalid_answer": 0,
+    "em_mismatch": 10
+   },
+   "B8": {
+    "n": 300,
+    "invalid_answer": 0,
+    "em_mismatch": 3
+   }
+  },
+  "strategyqa": {
+   "caem_c0": {
+    "n": 300,
+    "invalid_answer": 0,
+    "em_mismatch": 0
+   },
+   "caem_c5": {
+    "n": 300,
+    "invalid_answer": 0,
+    "em_mismatch": 0
+   },
+   "B1": {
+    "n": 300,
+    "invalid_answer": 0,
+    "em_mismatch": 0
+   },
+   "B2": {
+    "n": 300,
+    "invalid_answer": 4,
+    "em_mismatch": 1
+   },
+   "B3": {
+    "n": 300,
+    "invalid_answer": 0,
+    "em_mismatch": 0
+   },
+   "B4": {
+    "n": 300,
+    "invalid_answer": 0,
+    "em_mismatch": 0
+   },
+   "B5": {
+    "n": 300,
+    "invalid_answer": 74,
+    "em_mismatch": 0
+   },
+   "B6": {
+    "n": 300,
+    "invalid_answer": 263,
+    "em_mismatch": 163
+   },
+   "B7": {
+    "n": 300,
+    "invalid_answer": 0,
+    "em_mismatch": 0
+   },
+   "B8": {
+    "n": 300,
+    "invalid_answer": 1,
+    "em_mismatch": 0
+   }
+  }
+ }
+}
