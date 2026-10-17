@@ -50,7 +50,7 @@ corrected copy; generator still stale).
 | T2 | `tab_pi_store_trajectory.tex` | aggregate_section_5_* | C0 cal cell + caption | WORKAROUND |
 | T3 | `cohen_d.tex` | aggregate_section_5_7 | u_stored row + caption | WORKAROUND |
 | T4 | `sweep_top.tex` | aggregate_section_5_* | rationale cells + caption | WORKAROUND |
-| T5 | `tab_validation_gate.tex`, `cross_benchmark_summary.tex` | aggregate_section_5_7 | superseded by `*_locked.tex` from `scripts/recompute_validation_gate.py` | WORKAROUND (old files no longer input) |
+| T5 | `tab_validation_gate.tex`, `cross_benchmark_summary.tex` | aggregate_section_5_7 | superseded by `*_locked.tex` from `scripts/recompute_validation_gate.py` | WORKAROUND (old files no longer input); 2026-10-17 cross-bench merged into tab_validation_gate_locked, file removed |
 | T6 | `tab_tier_baseline_cost.tex` | placeholder stub | never input | OPEN (delete) |
 | T7 | Ch5 table captions (about 20 files) | various | shortened by hand in the ch5 caption pass | WORKAROUND |
 | T8 | Uninput auto tables (tab_headline, tab_purity, tab_calibration, tab_continual, ... see review_ch5_part2_ch6.md §17) | various | -- | OPEN (archive or delete) |
@@ -75,3 +75,4 @@ corrected copy; generator still stale).
 |---|---|---|---|
 | D10 | `fu2025collapse` bib key | First author is Yi (bib author field correct); key name misleads (text had "Fu et al."). | FIXED in text; rename key in clean-up |
 | T9 | `scripts/build_ch5_evidence_tables.py` constants | Headline, subtype and baseline values are copied from committed tables (POOLED_EM, CONFAB, BASELINES); B8 CHM is the old-run value (D1). | OPEN (read from source JSON in clean-up) |
+| C14 | `caem/verification/verifier.py::_compute_q_a_relevance` | bge-reranker via sentence-transformers already returns a sigmoid probability; the verifier applies a second sigmoid, so `q_a_relevance` ∈ [0.50, 0.731]. Off-topic CHM subtype (threshold 0.50) can never fire (0 for every system). Composite unaffected (isotonic per signal). | DOCUMENTED (ch5 text, 2026-10-17); fix by dropping the second sigmoid or using raw logits |

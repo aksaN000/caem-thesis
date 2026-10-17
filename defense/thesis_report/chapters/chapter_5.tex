@@ -95,7 +95,7 @@ Retention ratio & probe panel & worst probe accuracy over its pre-fine-tuning va
 \subsubsection{Hardware, seed, reproducibility}
 \label{sec:setup-reproducibility}
 
-All phases ran on one rented graphics processor of the $32$-gigabyte class, under a single recorded random seed. The main run took cycles zero to five and stopped after cycle five as planned after the cycle-four rollback; the automatic early-stop check fired at the same point, but two of its inputs were wired incorrectly, so its firing is not evidence that the trajectory had saturated (\Cref{sec:env-cycles}). The code, the configuration files and the per-cycle artefacts are listed in \Cref{app:reproducibility}.
+All phases ran on one rented graphics processor of the $32$-gigabyte class, under a single recorded random seed. The main run took cycles zero to five and stopped after cycle five as planned after the cycle-four rollback (\Cref{sec:env-cycles}). The code, the configuration files and the per-cycle artefacts are listed in \Cref{app:reproducibility}.
 
 \subsection{Trajectory of headline metrics}
 \label{sec:headline-trajectory}
@@ -134,7 +134,11 @@ All results in this section use the locked configuration chosen at cycle zero; \
 \subsubsection{Per-benchmark trajectory}
 \label{sec:headline-per-bench}
 
-\Cref{tab:per-bench-trajectory} and \Cref{tab:halluc-subtypes} break the pooled numbers down. On the training panel, FEVER and TriviaQA end about one point away from where they started, with a peak at C1 or C2 (FEVER $0.533$, TriviaQA $0.493$), while CommonsenseQA falls from $0.763$ to $0.717$. On the transfer panel, TruthfulQA falls from $0.380$ to $0.300$ and StrategyQA settles at $0.640$. Across subtypes, factual and logical fabrication fall gently ($0.364$ to $0.303$, $0.283$ to $0.231$); off-topic answers and template leakage are zero throughout; defensive evasion and over-long output are near zero.
+\Cref{tab:per-bench-trajectory} and \Cref{tab:halluc-subtypes} break the pooled numbers down. On the training panel, FEVER and TriviaQA end about one point away from where they started, with a peak at C1 or C2 (FEVER $0.533$, TriviaQA $0.493$), while CommonsenseQA falls from $0.763$ to $0.717$. On the transfer panel, TruthfulQA falls from $0.380$ to $0.300$ and StrategyQA settles at $0.640$. Across subtypes, factual and logical fabrication fall gently ($0.364$ to $0.303$, $0.283$ to $0.231$); defensive evasion and over-long output are near zero. Two subtypes are zero for every cycle and every baseline, for different reasons:
+\begin{itemize}
+    \item \textbf{Template leakage:} a real zero. The answer prompt shows the reasoning line as a bracketed placeholder, and no system ever copied a placeholder into its output.
+    \item \textbf{Off-topic:} zero by construction. The reranker already returns a probability, and the verifier passes it through a second logistic function, so the stored relevance score can only lie between $0.50$ and $0.73$ and never falls below the $0.50$ threshold. Every system was scored by the same verifier, so the comparisons in this chapter are not affected, and neither is the composite, whose per-signal calibration curves are unchanged by an order-preserving rescaling. In practice the composite hallucination metric is therefore the sum of seven active failure rates divided by eight.
+\end{itemize}
 
 \input{figures/auto/tab_per_bench_trajectory.tex}
 
@@ -329,9 +333,8 @@ The cut-points stay fixed, but the mapping from signals to probability is refitt
 
 The earlier split-conformal design was dropped because its guarantees depend on the calibration and evaluation data being alike (\Cref{sec:conformal-gate}). The locked fixed-threshold gate makes no such promise, and the gap can be read directly. On the training panel the calibration-fold precision ($0.732$ to $0.746$) and the evaluation-fold precision ($0.693$ to $0.759$) stay within about five points of each other (\Cref{tab:pi-store-trajectory}).
 
-At cycle zero the gap is large per benchmark (\Cref{tab:cross-bench-summary}). On the held-out validation fold the locked composite stores $93$ FEVER answers ($0.720$ correct), $465$ CommonsenseQA answers ($93$ percent of them, $0.757$ correct) and no TriviaQA answer at all. CommonsenseQA's scores barely separate correct from incorrect answers (\Cref{sec:adj-gate}), so almost everything clears the cut-point; TriviaQA's scores separate well but sit below $0.60$ on this fold. From cycle one the refitted composite stores TriviaQA answers normally. Storing fewer answers on a benchmark is the gate doing what it is asked: it promises precision at the cut-point, not balance across benchmarks. The deferred buffer and re-verification give rejected but correct answers later chances (\Cref{sec:pool-dynamics}).
+At cycle zero the gap is large per benchmark (\Cref{tab:validation-gate}). On the held-out validation fold the locked composite stores $93$ FEVER answers ($0.720$ correct), $465$ CommonsenseQA answers ($93$ percent of them, $0.757$ correct) and no TriviaQA answer at all. CommonsenseQA's scores barely separate correct from incorrect answers (\Cref{sec:adj-gate}), so almost everything clears the cut-point; TriviaQA's scores separate well but sit below $0.60$ on this fold. From cycle one the refitted composite stores TriviaQA answers normally. Storing fewer answers on a benchmark is the gate doing what it is asked: it promises precision at the cut-point, not balance across benchmarks. The deferred buffer and re-verification give rejected but correct answers later chances (\Cref{sec:pool-dynamics}).
 
-\input{figures/auto/tab_cross_bench_locked.tex}
 
 \FloatBarrier
 
@@ -540,7 +543,7 @@ The storage precision promised at the cut-point is measured on the calibration f
 \subsubsection{Cycle budget}
 \label{sec:disc-threat-cycles}
 
-The run stopped after cycle five as planned; the automatic early-stop check that fired at the same point was wired incorrectly and does not show that the trajectory had levelled off (\Cref{sec:env-cycles}). Six cycles are too few to estimate convergence rates or long-run limits; that would need at least fifteen kept cycles.
+The run stopped after cycle five as planned (\Cref{sec:env-cycles}). Six cycles are too few to estimate convergence rates or long-run limits; that would need at least fifteen kept cycles.
 
 \subsubsection{Storage-tail sample size}
 \label{sec:disc-threat-n}

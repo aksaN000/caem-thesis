@@ -185,7 +185,7 @@ def headline_table():
         "% per-sample evaluation files (ABSTAIN = not answered; TruthfulQA uses the judged correctness field).",
         "\\begin{table}[!htbp]", "\\centering\\small", "\\setlength{\\tabcolsep}{5pt}",
         "\\begin{tabular}{@{}lrrrrrr@{}}", "\\toprule",
-        "\\textbf{System} & \\textbf{EM} & \\textbf{CHM} & \\textbf{Conf.\\ confab.} & \\textbf{False refusal} & \\textbf{Answered} & \\textbf{Wrong among answered} \\\\",
+        "\\textbf{System} & \\textbf{EM} & \\textbf{CHM} & \\twoline{Confident\\\\confab.} & \\twoline{False\\\\refusal} & \\textbf{Answered} & \\twoline{Wrong among\\\\answered} \\\\",
         "\\midrule",
     ]
     for name, em, chm, cf, fr, cov, err in rows:

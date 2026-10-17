@@ -91,29 +91,29 @@ C5 & $12\,175$ & $2\,343$ & $382$ & $299$ & $44$ & $+2\,214$ \\
 \section{Per-cycle equilibrium fit}
 \label{app:per-cycle-equilibrium}
 
-\Cref{tab:app-per-cycle-equilibrium} reports the per-cycle stop-trigger verdict against the two-of-three equilibrium-saturation gate, together with the worst-probe retention ratio, the post-training MMLU probe accuracy, and the pooled evaluation-fold exact match on each cycle (the series the equilibrium fit reads). The equilibrium-saturation gate is the disjunction of three trigger signals (storage saturation under repeated zero-admission cycles, MMLU-floor breach against the cycle-zero pristine baseline, and composite-evaluation-score plateau across the late-cycle subsequence); the gate fires when at least two of the three signals fire simultaneously. The realised trajectory records three CONTINUE verdicts at cycles one through three, one ABORT verdict at cycle four under the retention guard (TriviaQA-test ratio $0.886$ below the registered floor of $0.93$), and one STOP verdict at cycle five under the equilibrium gate (storage saturation and the MMLU floor both firing; the composite-evaluation-score plateau signal did not fire).
+\Cref{tab:app-per-cycle-equilibrium} reports the outcome of each cycle together with the worst-probe retention ratio, the post-training MMLU probe accuracy, and the pooled evaluation-fold exact match on each cycle (the series the equilibrium fit reads). The equilibrium-saturation gate is the disjunction of three trigger signals (storage saturation under repeated zero-admission cycles, MMLU-floor breach against the cycle-zero pristine baseline, and composite-evaluation-score plateau across the late-cycle subsequence); the gate fires when at least two of the three signals fire simultaneously. Cycles one to three were committed; cycle four was rolled back by the retention guard (TriviaQA-test ratio $0.886$ below the registered floor of $0.93$); cycle five was committed, and the run ended there as planned.
 
 \begin{table}[!htbp]
 \centering\footnotesize
 \setlength{\tabcolsep}{4pt}
 \renewcommand{\arraystretch}{1.1}
-\begin{tabular}{@{}lcccccc@{}}
+\begin{tabular}{@{}lccccc@{}}
 \toprule
-\textbf{Cycle} & \textbf{Verdict} & \textbf{Committed} & \textbf{Worst probe} & \textbf{Worst ratio} & \textbf{MMLU acc.} & \textbf{Pooled EM$^{\ast}$} \\
+\textbf{Cycle} & \textbf{Outcome} & \textbf{Worst probe} & \textbf{Worst ratio} & \textbf{MMLU acc.} & \textbf{Pooled EM$^{\ast}$} \\
 \midrule
-C1 & CONTINUE & yes & CommonsenseQA-test & $1.006$ & $0.635$ & $0.557$ \\
-C2 & CONTINUE & yes & TriviaQA-test       & $0.949$ & $0.595$ & $0.567$ \\
-C3 & CONTINUE & yes & CommonsenseQA-test & $0.976$ & $0.605$ & $0.547$ \\
-C4 & \textbf{ABORT} & no  & TriviaQA-test  & $\mathbf{0.886}$ & $0.621$ & $0.548$ \\
-C5 & \textbf{STOP}  & yes & CommonsenseQA-test & $0.958$ & $0.609$ & $0.556$ \\
+C1 & committed & CommonsenseQA-test & $1.006$ & $0.635$ & $0.557$ \\
+C2 & committed & TriviaQA-test       & $0.949$ & $0.595$ & $0.567$ \\
+C3 & committed & CommonsenseQA-test & $0.976$ & $0.605$ & $0.547$ \\
+C4 & \textbf{rolled back} & TriviaQA-test  & $\mathbf{0.886}$ & $0.621$ & $0.548$ \\
+C5 & committed (last) & CommonsenseQA-test & $0.958$ & $0.609$ & $0.556$ \\
 \bottomrule
 \end{tabular}
-\caption[Per-cycle stop-trigger verdict trajectory]{Per-cycle stop-trigger verdict trajectory against the two-of-three equilibrium-saturation gate plus the per-cycle retention probe panel. At cycle four the abort is driven by the TriviaQA-test ratio of $0.886$ falling below the registered floor $\rho_{\min} = 0.93$; weights are rolled back to the cycle-three checkpoint, memory is preserved, and the cal-fold refit and retroactive re-verification passes are skipped under the asymmetric-rollback contract. At cycle five the stop verdict is driven by the two-of-three equilibrium-saturation gate firing on the storage-saturation and MMLU-floor signals; the composite-evaluation-score plateau signal did not fire. The trajectory closes at cycle five and the remaining cycles of the registered horizon are skipped. The MMLU column is the post-training MMLU probe accuracy against the pristine anchor of $0.610$; the pooled-EM column is the pooled evaluation-fold exact match, the series stored as the history array of the cycle-five equilibrium-fit record.}
+\caption[Per-cycle outcome and retention probes]{Per-cycle outcome and retention probes. At cycle four the TriviaQA-test ratio of $0.886$ fell below the floor $\rho_{\min} = 0.93$, so the weights were rolled back to the cycle-three checkpoint with memory kept. The MMLU column is the post-training MMLU probe accuracy against the pristine anchor of $0.610$; the pooled-EM column is the pooled evaluation-fold exact match, the series stored as the history array of the cycle-five equilibrium-fit record.}
 $^{\ast}$Five-benchmark pooled exact match with string-match TruthfulQA scoring, the series the runner's equilibrium fit stores in its composite-evaluation-score field. It is neither the composite epistemic score (CES) of \Cref{eq:ces}, whose trajectory is reported in \Cref{tab:ces-caem-trajectory}, nor the judged pooled exact match of \Cref{tab:pooled-trajectory}.
 \label{tab:app-per-cycle-equilibrium}
 \end{table}
 
-The equilibrium-saturation fit at the cycle-five close lives at the cycle-five equilibrium-fit record and reports the saturating-exponential parameters $c_{\infty} = 0.548$, $a = -0.018$, $k = 0.350$, $R^{2} = 0.207$ over the five-cycle pooled evaluation-fold exact-match history (the pooled-EM column of \Cref{tab:app-per-cycle-equilibrium}, which the record stores as its composite-evaluation-score history); the low coefficient of determination reflects the noisy plateau that drives the two-of-three gate rather than a clean exponential ramp. Per-cycle coverage diagnostics covering admission rates, candidate counts, pool entropy, and adapter singular-value spectra are persisted as a single artefact at the cycle-five close under the cycle-five coverage diagnostic record. The pre-cycle-five admission behaviour is reconstructable from the composite-evaluation-score and storage-rate history arrays inside the equilibrium-fit record and from the per-cycle commit verdicts in the experiment-run stochastic-equilibrium trajectory CSV.
+The equilibrium-saturation fit at the cycle-five close lives at the cycle-five equilibrium-fit record and reports the saturating-exponential parameters $c_{\infty} = 0.548$, $a = -0.018$, $k = 0.350$, $R^{2} = 0.207$ over the five-cycle pooled evaluation-fold exact-match history (the pooled-EM column of \Cref{tab:app-per-cycle-equilibrium}, which the record stores as its composite-evaluation-score history); the low coefficient of determination shows that five points do not support a saturating-exponential fit. Per-cycle coverage diagnostics covering admission rates, candidate counts, pool entropy, and adapter singular-value spectra are persisted as a single artefact at the cycle-five close under the cycle-five coverage diagnostic record. The pre-cycle-five admission behaviour is reconstructable from the composite-evaluation-score and storage-rate history arrays inside the equilibrium-fit record and from the per-cycle commit verdicts in the experiment-run stochastic-equilibrium trajectory CSV.
 
 \section{Per-cycle fine-tuning diagnostics}
 \label{app:per-cycle-ft}

@@ -160,12 +160,12 @@ after the previous PR merges.
 - **Transfer benchmarks (2026-10-16): KEEP** TruthfulQA and StrategyQA (pre-registered in ch1; dropping them after seeing
   results would be selective reporting; TruthfulQA is the second RUC-ablation gate in ch6). Only TruthfulQA is negative:
   EM 0.433 (B1) → 0.380 (C0, before any training) → 0.300 (C5); StrategyQA is flat (0.650 → 0.640, CHM 0.120 → 0.099).
-- **Early stop at cycle five (APPROVED 2026-10-16, author: "thesis should be as transparent as it is supposed to be"):**
-  say the run stopped after C5 as planned after the C4 retention abort; the automatic early-stop check fired at the same
-  point, but two inputs were mis-wired (storage signal read the evaluation-fold storage rate, always 0, instead of the stream
-  admission rate ≈50%; retention signal compared raw MMLU accuracy ≈0.61 with the 0.93 ratio floor instead of the ratio,
-  0.94–1.00), so it was certain to fire at its first run and is not evidence of saturation. Canonical wording: ch3
-  sec:env-cycles. Never write "closed on / terminated by the equilibrium-saturation gate" as evidence of equilibrium.
+- **Early stop at cycle five (REVISED 2026-10-17, author):** the thesis says only that the run stopped after C5 as
+  planned after the C4 retention abort. The mis-wired early-stop check is NOT mentioned (author: it "doesn't add any value
+  but shows our carelessness. we would've stopped at cycle 5 anyways"). Removed from ch1/3/4/5; appendix C reports per-cycle
+  outcome (committed / rolled back), not the gate verdict. Hard rule that remains: never present the gate's firing or a
+  "STOP verdict" as evidence of saturation or equilibrium anywhere (ch6, abstract, appendices). The fault stays recorded
+  in the repo (tracker C1, code fix, replay script).
 - **Tier 1 in the run:** never fired because every per-cycle stream chunk is fresh (disjoint from earlier chunks) and the
   evaluation fold is disjoint from both; say this wherever Tier 1 shares or memory-direct savings are discussed.
 - **Chapter 5 decisions (author, 2026-10-16):**
