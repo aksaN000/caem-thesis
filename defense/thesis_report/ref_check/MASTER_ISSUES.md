@@ -26,7 +26,7 @@ rest, skip the main re-run. The full re-run plan below (PART 1) is kept for the 
       to mean grounding on short answers (existing sentence); early exit: rule + "fired on no evaluation answers
       at C0 and 3–23 per cycle afterwards"; temperature cap / safety override: honest reporting (already in ch5).
       These signals were active (cycle-zero weights: token 0.126 and half of internal 0.334; atomic 0.184), so
-      they are not removed from the thesis. (Pending author confirmation of this wording.)
+      they are not removed from the thesis. (Wording ACCEPTED by the author, 2026-10-17.)
 - [ ] Matched-protocol claim (true after M-A), chapter 6, appendices, abstract; tables regenerated.
 ### M-D. Disclosed as limitations + future work
 System faults (token score scope, early exit reachability, question-match signal, atomic duplicate,
