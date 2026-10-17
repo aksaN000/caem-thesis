@@ -98,3 +98,54 @@ Fix types:
 | G6 | Low-rank adaptation learns less and forgets more with training |
 | G7 | Conformal guarantees dropped because calibration and evaluation data differ |
 | G8 | Long-input judge dropped; MiniCheck truncates inputs over 512 tokens |
+
+---
+# Plan agreed direction (2026-10-17)
+
+Author: avoid multi-seed runs and extra baselines; fix only what makes the current system good, with special
+care for changes that let self-improvement actually help.
+
+## Run-time evidence (main run, `outputs/full_run/run.log`, 8,204 verifier batches, 66,336 answers)
+Verifier total 108.6 h of the ~193 h run (5.89 s per answer):
+- passage search + rerank 74.7 h (69 %, 4.05 s/answer): `_retrieve_and_rerank_batch` loops over questions and
+  searches the 61 GB flat index on the CPU one question at a time; the rerank itself is small.
+- token score + 5 dropout samples 17.3 h (16 %); 3 chains 14.4 h (13 %); per-answer checks 2.2 h (2 %).
+Steps run one after another (calibration re-score → memory re-verification → stream chunk → evaluation →
+fine-tune) on one process and one GPU, in batches of 8–32.
+
+## Speed plan (no change to results)
+- P1 Retrieval cache: the search query is the question alone, and every question is known before the run
+  (stream chunks, folds, probes). Search all of them once with batched exact search and store the top 20;
+  the same cache serves the verifier and Tier 3. Removes most of the 69 %.
+- P2 Larger batches for the sampling stages (chains, dropout samples, token score).
+- P3 Question-level parallel workers inside each step (answers are independent); storing to memory and the
+  novelty check stay serial after each shard returns.
+
+## Category 1 — make the system correct (do)
+A1 token score on the answer only, under the real prompt; A2 early exit re-checked after A1; A3 question-match
+fix (no double conversion; claim built from question and answer) or drop; A4 drop the duplicate atomic signal;
+A5 pre-routing temperature / safety floor; A11 Tier-1 prefix stripping; A12 fixed early-stop (already done);
+A13 remove dead signals.
+
+## Category 2 — let self-improvement help (do, special care)
+S1 (A6) strip or rewrite "the context" references in training chains (train Tier-2-style targets).
+S2 (A7) purer training pool: raise the training threshold and/or confidence-weighted loss (the
+   SIL_POISON_DRIFT_FINDINGS fix); measure pool precision before training.
+S3 (A8) retention probes on every benchmark, including TruthfulQA and CommonsenseQA, so a harmful cycle is
+   rolled back.
+S4 training targets in the evaluation's answer format (short final answer), so gains are not format effects.
+S5 A1/A2 fixes also purify the pool (confident, unsupported answers discarded before storage).
+
+## Category 3 — fair measurement (do; local GPU / CPU / API)
+C1 matched prompts for all baselines; C2 B5 demonstrations per benchmark; C3 B3/B4 empty answers; C4 B8
+verifier pass; C5 B6 checks; D1 TriviaQA scoring check; D2 TruthfulQA judge on the final answer only;
+D9 probe bug.
+
+## Category 4 — avoided (reported as limitations / future work)
+B1 multiple seeds and a second backbone; B2 fifteen cycles; B4 classifier-off run; B5 held-out benchmark;
+B7 longer deferred horizon; B9 larger calibration fold; C6 STaR and Self-RAG; A10 step-level verification;
+B8 corpus ceiling; A9 frozen-composite control (optional if time allows); B3 repeated-question evaluation
+(the router probe stands in); B6 batch-1 latency (optional, cheap).
+
+## Category 5 — after the re-run
+E text (one rewrite of chapters 1–6, appendices, abstract); F repository clean-up.
