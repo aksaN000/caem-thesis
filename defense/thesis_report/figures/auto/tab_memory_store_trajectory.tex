@@ -1,3 +1,4 @@
+% Caption shortened by hand in the final drafting pass (2026-10); detail moved to chapter 5 text.
 % Auto-generated from outputs/tab_memory_store_trajectory.csv
 % Memory pool size + deferred buffer size + per-cycle delta across the realised
 % 6-cycle trajectory.
@@ -16,6 +17,6 @@ C4$^{\ast}$ & $9\,961$ & $4\,068$ & $+2\,484$ \\
 C5 & $12\,175$ & $4\,284$ & $+2\,214$ \\
 \bottomrule
 \end{tabular}
-\caption[Memory pool and deferred-buffer accumulation across the realised trajectory]{Memory pool and deferred-buffer accumulation across the realised six-cycle trajectory. The pool grows from $431$ cold-start entries to $12\,175$ entries at the trajectory-end cycle (a $28\times$ multiplier), with per-cycle increments in the band $[2\,214, 2\,484]$. The deferred buffer holds entries in the storage-gate's deferral band that are rescored at each cycle boundary under the post-fine-tune verifier (\Cref{sec:retroverify}). The pool grows monotonically even across the cycle-four retention abort (marked $^{\ast}$) because the asymmetric-rollback contract reverts the adapter while preserving memory.}
+\caption[Memory and deferred-buffer size by cycle.]{Number of entries in the memory and the deferred buffer at the close of each cycle; $^{\ast}$ marks the rolled-back cycle four.}
 \label{tab:memory-store-trajectory}
 \end{table}

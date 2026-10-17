@@ -160,14 +160,41 @@ after the previous PR merges.
 - **Transfer benchmarks (2026-10-16): KEEP** TruthfulQA and StrategyQA (pre-registered in ch1; dropping them after seeing
   results would be selective reporting; TruthfulQA is the second RUC-ablation gate in ch6). Only TruthfulQA is negative:
   EM 0.433 (B1) → 0.380 (C0, before any training) → 0.300 (C5); StrategyQA is flat (0.650 → 0.640, CHM 0.120 → 0.099).
-- **Early stop at cycle five (APPROVED 2026-10-16, author: "thesis should be as transparent as it is supposed to be"):**
-  say the run stopped after C5 as planned after the C4 retention abort; the automatic early-stop check fired at the same
-  point, but two inputs were mis-wired (storage signal read the evaluation-fold storage rate, always 0, instead of the stream
-  admission rate ≈50%; retention signal compared raw MMLU accuracy ≈0.61 with the 0.93 ratio floor instead of the ratio,
-  0.94–1.00), so it was certain to fire at its first run and is not evidence of saturation. Canonical wording: ch3
-  sec:env-cycles. Never write "closed on / terminated by the equilibrium-saturation gate" as evidence of equilibrium.
+- **Early stop at cycle five (REVISED 2026-10-17, author):** the thesis says only that the run stopped after C5 as
+  planned after the C4 retention abort. The mis-wired early-stop check is NOT mentioned (author: it "doesn't add any value
+  but shows our carelessness. we would've stopped at cycle 5 anyways"). Removed from ch1/3/4/5; appendix C reports per-cycle
+  outcome (committed / rolled back), not the gate verdict. Hard rule that remains: never present the gate's firing or a
+  "STOP verdict" as evidence of saturation or equilibrium anywhere (ch6, abstract, appendices). The fault stays recorded
+  in the repo (tracker C1, code fix, replay script).
 - **Tier 1 in the run:** never fired because every per-cycle stream chunk is fresh (disjoint from earlier chunks) and the
   evaluation fold is disjoint from both; say this wherever Tier 1 shares or memory-direct savings are discussed.
+- **Chapter 5 decisions (author, 2026-10-16):**
+  - **Title:** "Progressive" dropped → "Confidence-Aware Episodic Memory with Self-Improvement for Hallucination Reduction in
+    Large Language Models" (titlepage, approval page).
+  - **Headline = three-step decomposition** on EM and CHM: B1→C0 (architecture: EM 0.507→0.541), C0→C5 (self-improvement:
+    EM 0.541→0.517; CHM 0.135→0.109), B1→C5 (whole system: CHM 0.120→0.109, lower than every baseline). Self-improvement
+    helps for one or two cycles (training-panel EM 0.571→0.584 at C1) then erodes; its CHM gain is mostly undoing the C0
+    over-refusal (eval abstain 34% / discard 32% at C0 → 14% / 10% at C1). Confident confabulation 0.268 (B1) → 0.087 (C0)
+    → 0.269 (C5) mirrors false refusal 0.060 → 0.305 → 0.064: both are defined by the verifier's own score (wrong with
+    u ≥ 0.50, which includes the deferral band; correct but abstained/discarded), so they trade off as the refitted gate becomes more permissive.
+  - **Selective-prediction view added** (operating-point independent): coverage / error among answered — B1 1.00 / 0.493;
+    C0 0.661 / 0.381; C1 0.856 / 0.421; C2 0.877 / 0.425; C5 0.830 / 0.451 (ABSTAIN = not answered).
+  - **Verdicts:** H1 supported (pooled gate balanced accuracy 0.753 C0 in-sample; 0.616, 0.668, 0.669, 0.661 at C1, C2,
+    C3, C5; weak: CommonsenseQA 0.52–0.56, TriviaQA C1 0.502); H2 unsupported as registered; H4 partially supported; H5
+    unsupported as registered (no repeat questions; latency falls only if Tier 1/2 shares rise, which did not happen).
+    Only the three registered verdict words.
+  - **Sweep (Q4):** only the final re-run numbers (`outputs/cycle_0/sweep_v2_1/`), a top-variants table, locked choice
+    justified by shrinkage, not by most correct stored (α = 1 stores more). Update stale scripts too.
+  - **Phantom context:** paragraph in ch5 (discussion/limitations, per-cycle numbers, preprocessing mistake), one sentence in
+    ch6 future work.
+  - **Purification theorem is about the pool, not the model:** say so wherever SIL results are interpreted.
+  - **Theory framing everywhere (author, 2026-10-16):** present the two proven results as simple but necessary (a testable
+    precondition and a design target), never as deep or load-bearing; heuristics and remarks keep their labels. Check ch1,
+    ch6 and the abstract for overselling in their sessions and in the final pass.
+  - **Accepted for ch5:** gate verdict = "registered pooled check passes; two per-benchmark checks cannot be computed at
+    C0; CommonsenseQA discrimination weak"; delete "Optional reference points" and "Tier-by-baseline cost" (one sentence on
+    why STaR/Self-RAG were not run); statistical procedures → appendix D pointer + Appendix D licensing rule; baseline
+    descriptions cut to realised-versus-expected.
 
 ## Carried items (apply when you reach the chapter)
 - **Q1 decision (ch4, ch5, ch6):** `p_ground^atomic` equalled `p_ground^mean` on all 14,951 run samples (length gate
@@ -189,3 +216,11 @@ after the previous PR merges.
   the sweep_top caption names "sklearn".
 - **ch4:** router thresholds θ₁ = 0.90 and θ_sim = 0.75 (ch4:142) are not in the List of Symbols.
 - **ch1:** spelled-out numbers like "zero point six three" in prose (style); check consistency with digits elsewhere.
+
+- **CHM and the question-match signal (2026-10-17, author):** CHM = mean of SEVEN failure types (off-topic and factual
+  contradiction recorded, excluded: neither can fire). TruthfulQA correctness in CHM = Haiku judge. Numbers come only from
+  `outputs/analysis/chm_judged.json` (`scripts/recompute_chm_judged.py`, `patch_chm_judged_tables.py`, builder, paired tests).
+  The fourth verifier signal is the **question-answer match** $q_{\text{match}}$ (renamed from "relevance"): reranker score of
+  the wrapped short answer string, double-sigmoided into [0.50, 0.73]; a learned correctness cue (C0 eval AUROC TriviaQA 0.80,
+  StrategyQA 0.60, CSQA/TQA ~0.5, FEVER 0.36), NOT an off-topic detector. Off-topic detection = future work (Haiku judge vs
+  200 labels kappa 0.35).

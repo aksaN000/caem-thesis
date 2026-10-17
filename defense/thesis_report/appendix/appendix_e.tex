@@ -183,8 +183,8 @@ A reproducer who has executed the full trajectory uses the ten-item checklist be
 \end{itemize}
 \item[Pooled composite hallucination metric at the same cycles.]
 \begin{itemize}
-\item Receipt: the same per-sample evaluation files plus the canonical composite-hallucination-metric implementation at \texttt{eval/metrics.py}.
-\item Expected: $0.107$ at C2, $0.109$ at C5.
+\item Receipt: the same per-sample evaluation files plus the canonical composite-hallucination-metric implementation at \texttt{eval/metrics.py}, with the \texttt{em\_llm\_judged} field as the correctness label on TruthfulQA (the re-scoring script \texttt{scripts/recompute\_chm\_judged.py} does this).
+\item Expected: $0.126$ at C2, $0.133$ at C5 (mean of the seven active failure flags).
 \item Tolerance: $\pm 1.0$ percentage point.
 \end{itemize}
 \item[Per-benchmark exact match at cycle five.]
@@ -226,13 +226,13 @@ A reproducer who has executed the full trajectory uses the ten-item checklist be
 \item[Architectural-contribution slice (training panel vs.\ B1 at C2 and C5).]
 \begin{itemize}
 \item Receipt: per-sample evaluation files at \codepath{outputs/full\_run/eval/} (cycle indices $2$ and $5$) against matched zero-shot baselines under \codepath{outputs/baselines\_phase1e/zero\_shot/}, restricted to the three training benchmarks of the realised panel.
-\item Expected: $+20.3\%$ relative exact-match gain at C2 and $+13.7\%$ at C5; $-29.4\%$ relative composite-hallucination reduction at C2 and $-20.3\%$ at C5 against the same zero-shot floor.
+\item Expected: $+20.3\%$ relative exact-match gain at C2 and $+13.7\%$ at C5; $-29.3\%$ relative composite-hallucination reduction at C2 and $-20.6\%$ at C5 against the same zero-shot floor.
 \item Tolerance: $\pm 1.0$ percentage point relative.
 \end{itemize}
 \item[Significance-panel win/loss tallies at C2 and C5 (post-Haiku).]
 \begin{itemize}
 \item Receipt: the significance-test CSV records under \codepath{outputs/full\_run/} (C5 anchor) and \codepath{outputs/} (C2 post-Haiku anchor), computed counts of licensed rows with positive exact-match delta (wins) versus negative delta (defeats), and analogous on the composite-hallucination axis.
-\item Expected: nine exact-match wins and three defeats at C5; twenty-one composite-hallucination wins and three defeats at C5; fourteen exact-match wins and three defeats at C2; twenty composite-hallucination wins and four defeats at C2.
+\item Expected: nine exact-match wins and three defeats at C5; nineteen composite-hallucination wins and one defeat at C5; fourteen exact-match wins and three defeats at C2; twenty-three composite-hallucination wins and one defeat at C2.
 \item Tolerance: exact match required.
 \end{itemize}
 \end{description}

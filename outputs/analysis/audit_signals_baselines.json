@@ -1,0 +1,2142 @@
+{
+ "signals": {
+  "caem_c0": {
+   "u_pre": {
+    "present": 1500,
+    "missing": 0,
+    "min": 0.47349767152975875,
+    "max": 0.8195778874715256,
+    "distinct": 1494,
+    "share_0": 0.0,
+    "share_0.5": 0.0,
+    "share_1": 0.0,
+    "top_value_share": 0.0013333333333333333,
+    "auroc_correct": 0.6335689064907594
+   },
+   "u_token": {
+    "present": 1500,
+    "missing": 0,
+    "min": 0.00033546262790251185,
+    "max": 0.3375851514160396,
+    "distinct": 271,
+    "share_0": 0.0,
+    "share_0.5": 0.0,
+    "share_1": 0.0,
+    "top_value_share": 0.011333333333333334,
+    "auroc_correct": 0.5513181418772001
+   },
+   "u_dropout": {
+    "present": 1500,
+    "missing": 0,
+    "min": 0.0,
+    "max": 0.8,
+    "distinct": 5,
+    "share_0": 0.2946666666666667,
+    "share_0.5": 0.0,
+    "share_1": 0.0,
+    "top_value_share": 0.5946666666666667,
+    "auroc_correct": 0.3851352681471566
+   },
+   "u_internal": {
+    "present": 1500,
+    "missing": 0,
+    "min": 0.10016773131395124,
+    "max": 0.6410314758469078,
+    "distinct": 577,
+    "share_0": 0.0,
+    "share_0.5": 0.0,
+    "share_1": 0.0,
+    "top_value_share": 0.008,
+    "auroc_correct": 0.6340896848306754
+   },
+   "s_avg": {
+    "present": 1500,
+    "missing": 0,
+    "min": 0.209628959496816,
+    "max": 1.0,
+    "distinct": 1046,
+    "share_0": 0.0,
+    "share_0.5": 0.0,
+    "share_1": 0.29533333333333334,
+    "top_value_share": 0.29533333333333334,
+    "auroc_correct": 0.6010497889147588
+   },
+   "p_entail": {
+    "present": 1500,
+    "missing": 0,
+    "min": 0.006113688151041667,
+    "max": 0.9830729166666666,
+    "distinct": 1075,
+    "share_0": 0.0,
+    "share_0.5": 0.0,
+    "share_1": 0.0,
+    "top_value_share": 0.059333333333333335,
+    "auroc_correct": 0.5290454723602712
+   },
+   "p_ground_max": {
+    "present": 1500,
+    "missing": 0,
+    "min": 0.0,
+    "max": 0.984375,
+    "distinct": 546,
+    "share_0": 0.11066666666666666,
+    "share_0.5": 0.0013333333333333333,
+    "share_1": 0.0,
+    "top_value_share": 0.11066666666666666,
+    "auroc_correct": 0.5826874309879219
+   },
+   "p_ground_mean": {
+    "present": 1500,
+    "missing": 0,
+    "min": 0.0,
+    "max": 0.9778645833333334,
+    "distinct": 1223,
+    "share_0": 0.11066666666666666,
+    "share_0.5": 0.0,
+    "share_1": 0.0,
+    "top_value_share": 0.11066666666666666,
+    "auroc_correct": 0.5826820621390567
+   },
+   "p_ground_atomic": {
+    "present": 1500,
+    "missing": 0,
+    "min": 0.0,
+    "max": 0.9778645833333334,
+    "distinct": 1223,
+    "share_0": 0.11066666666666666,
+    "share_0.5": 0.0,
+    "share_1": 0.0,
+    "top_value_share": 0.11066666666666666,
+    "auroc_correct": 0.5826820621390567
+   },
+   "q_a_relevance": {
+    "present": 1500,
+    "missing": 0,
+    "min": 0.5000039339065551,
+    "max": 0.7302898704283038,
+    "distinct": 555,
+    "share_0": 0.0,
+    "share_0.5": 0.0,
+    "share_1": 0.0,
+    "top_value_share": 0.014666666666666666,
+    "auroc_correct": 0.6150946975458992
+   },
+   "u_stored": {
+    "present": 1500,
+    "missing": 0,
+    "min": 0.02,
+    "max": 0.917914947499198,
+    "distinct": 1372,
+    "share_0": 0.0,
+    "share_0.5": 0.0,
+    "share_1": 0.0,
+    "top_value_share": 0.009333333333333334,
+    "auroc_correct": 0.6672816981311037
+   },
+   "h_norm": {
+    "present": 1500,
+    "missing": 0,
+    "min": 0.5,
+    "max": 0.5,
+    "distinct": 1,
+    "share_0": 0.0,
+    "share_0.5": 1.0,
+    "share_1": 0.0,
+    "top_value_share": 1.0,
+    "auroc_correct": 0.5
+   },
+   "alias_overlap": {
+    "present": 1500,
+    "missing": 0,
+    "min": 0.0,
+    "max": 1.0,
+    "distinct": 7,
+    "share_0": 0.35133333333333333,
+    "share_0.5": 0.634,
+    "share_1": 0.004666666666666667,
+    "top_value_share": 0.634,
+    "auroc_correct": 0.46345871981588427
+   },
+   "entity_head_consistency": {
+    "present": 1500,
+    "missing": 0,
+    "min": 0.0,
+    "max": 1.0,
+    "distinct": 4,
+    "share_0": 0.3253333333333333,
+    "share_0.5": 0.006,
+    "share_1": 0.37933333333333336,
+    "top_value_share": 0.37933333333333336,
+    "auroc_correct": 0.6164583851576384
+   },
+   "p_contra": {
+    "present": 1500,
+    "missing": 0,
+    "min": 0.0,
+    "max": 0.0,
+    "distinct": 1,
+    "share_0": 1.0,
+    "share_0.5": 0.0,
+    "share_1": 0.0,
+    "top_value_share": 1.0,
+    "auroc_correct": 0.5
+   }
+  },
+  "caem_c5": {
+   "u_pre": {
+    "present": 1500,
+    "missing": 0,
+    "min": 0.37644865712466147,
+    "max": 0.8439010575886203,
+    "distinct": 1492,
+    "share_0": 0.0,
+    "share_0.5": 0.0,
+    "share_1": 0.0,
+    "top_value_share": 0.0013333333333333333,
+    "auroc_correct": 0.5858080110497238
+   },
+   "u_token": {
+    "present": 1498,
+    "missing": 2,
+    "min": 0.008651695203120634,
+    "max": 0.673995900791531,
+    "distinct": 358,
+    "share_0": 0.0,
+    "share_0.5": 0.0,
+    "share_1": 0.0,
+    "top_value_share": 0.010013351134846462,
+    "auroc_correct": 0.5184777720673263
+   },
+   "u_dropout": {
+    "present": 1498,
+    "missing": 2,
+    "min": 0.0,
+    "max": 0.8,
+    "distinct": 5,
+    "share_0": 0.2116154873164219,
+    "share_0.5": 0.0,
+    "share_1": 0.0,
+    "top_value_share": 0.62283044058745,
+    "auroc_correct": 0.3514042357274402
+   },
+   "u_internal": {
+    "present": 1498,
+    "missing": 2,
+    "min": 0.10475101414002992,
+    "max": 0.7848914123654616,
+    "distinct": 701,
+    "share_0": 0.0,
+    "share_0.5": 0.0,
+    "share_1": 0.0,
+    "top_value_share": 0.007343124165554072,
+    "auroc_correct": 0.6479515539566291
+   },
+   "s_avg": {
+    "present": 1498,
+    "missing": 2,
+    "min": 0.26149467875560123,
+    "max": 1.0,
+    "distinct": 1127,
+    "share_0": 0.0,
+    "share_0.5": 0.0,
+    "share_1": 0.2363150867823765,
+    "top_value_share": 0.2363150867823765,
+    "auroc_correct": 0.6040230131197625
+   },
+   "p_entail": {
+    "present": 1498,
+    "missing": 2,
+    "min": 0.0050048828125,
+    "max": 0.9869791666666666,
+    "distinct": 1073,
+    "share_0": 0.0,
+    "share_0.5": 0.0006675567423230974,
+    "share_1": 0.0,
+    "top_value_share": 0.022029372496662217,
+    "auroc_correct": 0.5141619198538124
+   },
+   "p_ground_max": {
+    "present": 1498,
+    "missing": 2,
+    "min": 0.006103515625,
+    "max": 0.984375,
+    "distinct": 569,
+    "share_0": 0.0,
+    "share_0.5": 0.0006675567423230974,
+    "share_1": 0.0,
+    "top_value_share": 0.014686248331108143,
+    "auroc_correct": 0.5356510628577955
+   },
+   "p_ground_mean": {
+    "present": 1498,
+    "missing": 2,
+    "min": 0.0052490234375,
+    "max": 0.9713541666666666,
+    "distinct": 1361,
+    "share_0": 0.0,
+    "share_0.5": 0.0,
+    "share_1": 0.0,
+    "top_value_share": 0.0026702269692923898,
+    "auroc_correct": 0.5469220666124174
+   },
+   "p_ground_atomic": {
+    "present": 1498,
+    "missing": 2,
+    "min": 0.0052490234375,
+    "max": 0.9713541666666666,
+    "distinct": 1361,
+    "share_0": 0.0,
+    "share_0.5": 0.0,
+    "share_1": 0.0,
+    "top_value_share": 0.0026702269692923898,
+    "auroc_correct": 0.5469220666124174
+   },
+   "q_a_relevance": {
+    "present": 1498,
+    "missing": 2,
+    "min": 0.5000039339065551,
+    "max": 0.7310585786300049,
+    "distinct": 570,
+    "share_0": 0.0,
+    "share_0.5": 0.0,
+    "share_1": 0.0,
+    "top_value_share": 0.006675567423230975,
+    "auroc_correct": 0.5790647707967508
+   },
+   "u_stored": {
+    "present": 1500,
+    "missing": 0,
+    "min": 0.0,
+    "max": 0.928497422264384,
+    "distinct": 1441,
+    "share_0": 0.002,
+    "share_0.5": 0.0,
+    "share_1": 0.0,
+    "top_value_share": 0.004666666666666667,
+    "auroc_correct": 0.6514228655237227
+   },
+   "h_norm": {
+    "present": 1498,
+    "missing": 2,
+    "min": 0.5,
+    "max": 0.5,
+    "distinct": 1,
+    "share_0": 0.0,
+    "share_0.5": 1.0,
+    "share_1": 0.0,
+    "top_value_share": 1.0,
+    "auroc_correct": 0.5
+   },
+   "alias_overlap": {
+    "present": 1498,
+    "missing": 2,
+    "min": 0.0,
+    "max": 1.0,
+    "distinct": 5,
+    "share_0": 0.4459279038718291,
+    "share_0.5": 0.5340453938584779,
+    "share_1": 0.014018691588785047,
+    "top_value_share": 0.5340453938584779,
+    "auroc_correct": 0.5221092623524205
+   },
+   "entity_head_consistency": {
+    "present": 1498,
+    "missing": 2,
+    "min": 0.0,
+    "max": 1.0,
+    "distinct": 3,
+    "share_0": 0.2102803738317757,
+    "share_0.5": 0.0,
+    "share_1": 0.42990654205607476,
+    "top_value_share": 0.42990654205607476,
+    "auroc_correct": 0.6098449969306323
+   },
+   "p_contra": {
+    "present": 1498,
+    "missing": 2,
+    "min": 0.0,
+    "max": 0.0,
+    "distinct": 1,
+    "share_0": 1.0,
+    "share_0.5": 0.0,
+    "share_1": 0.0,
+    "top_value_share": 1.0,
+    "auroc_correct": 0.5
+   }
+  },
+  "zero_shot": {
+   "u_pre": {
+    "present": 0
+   },
+   "u_token": {
+    "present": 1500,
+    "missing": 0,
+    "min": 0.03316533748891029,
+    "max": 0.5653487396106142,
+    "distinct": 234,
+    "share_0": 0.0,
+    "share_0.5": 0.0,
+    "share_1": 0.0,
+    "top_value_share": 0.012,
+    "auroc_correct": 0.4224911095305832
+   },
+   "u_dropout": {
+    "present": 1500,
+    "missing": 0,
+    "min": 0.0,
+    "max": 0.8,
+    "distinct": 5,
+    "share_0": 0.396,
+    "share_0.5": 0.0,
+    "share_1": 0.0,
+    "top_value_share": 0.42866666666666664,
+    "auroc_correct": 0.35709192745376955
+   },
+   "u_internal": {
+    "present": 1500,
+    "missing": 0,
+    "min": 0.12568373978362535,
+    "max": 0.738967330094369,
+    "distinct": 579,
+    "share_0": 0.0,
+    "share_0.5": 0.0,
+    "share_1": 0.0,
+    "top_value_share": 0.007333333333333333,
+    "auroc_correct": 0.6310064011379801
+   },
+   "s_avg": {
+    "present": 1500,
+    "missing": 0,
+    "min": 0.27570230948428315,
+    "max": 1.0,
+    "distinct": 845,
+    "share_0": 0.0,
+    "share_0.5": 0.0,
+    "share_1": 0.42133333333333334,
+    "top_value_share": 0.42133333333333334,
+    "auroc_correct": 0.6369238975817924
+   },
+   "p_entail": {
+    "present": 1500,
+    "missing": 0,
+    "min": 0.006907145182291667,
+    "max": 0.9817708333333334,
+    "distinct": 920,
+    "share_0": 0.0,
+    "share_0.5": 0.0,
+    "share_1": 0.0,
+    "top_value_share": 0.12066666666666667,
+    "auroc_correct": 0.5509459459459459
+   },
+   "p_ground_max": {
+    "present": 1500,
+    "missing": 0,
+    "min": 0.0,
+    "max": 0.984375,
+    "distinct": 581,
+    "share_0": 0.102,
+    "share_0.5": 0.0,
+    "share_1": 0.0,
+    "top_value_share": 0.102,
+    "auroc_correct": 0.5553600640113798
+   },
+   "p_ground_mean": {
+    "present": 1500,
+    "missing": 0,
+    "min": 0.0,
+    "max": 0.9739583333333334,
+    "distinct": 1226,
+    "share_0": 0.09933333333333333,
+    "share_0.5": 0.0,
+    "share_1": 0.0,
+    "top_value_share": 0.09933333333333333,
+    "auroc_correct": 0.5472181721194879
+   },
+   "p_ground_atomic": {
+    "present": 1500,
+    "missing": 0,
+    "min": 0.0,
+    "max": 0.9739583333333334,
+    "distinct": 1226,
+    "share_0": 0.09933333333333333,
+    "share_0.5": 0.0,
+    "share_1": 0.0,
+    "top_value_share": 0.09933333333333333,
+    "auroc_correct": 0.5472181721194879
+   },
+   "q_a_relevance": {
+    "present": 1500,
+    "missing": 0,
+    "min": 0.5000041723251342,
+    "max": 0.7310585786300049,
+    "distinct": 502,
+    "share_0": 0.0,
+    "share_0.5": 0.0,
+    "share_1": 0.0,
+    "top_value_share": 0.154,
+    "auroc_correct": 0.3934806187766714
+   },
+   "u_stored": {
+    "present": 1500,
+    "missing": 0,
+    "min": 0.0,
+    "max": 0.9198879715490764,
+    "distinct": 1062,
+    "share_0": 0.002,
+    "share_0.5": 0.0,
+    "share_1": 0.0,
+    "top_value_share": 0.022,
+    "auroc_correct": 0.629222972972973
+   },
+   "h_norm": {
+    "present": 1500,
+    "missing": 0,
+    "min": 0.5,
+    "max": 0.5,
+    "distinct": 1,
+    "share_0": 0.0,
+    "share_0.5": 1.0,
+    "share_1": 0.0,
+    "top_value_share": 1.0,
+    "auroc_correct": 0.5
+   },
+   "alias_overlap": {
+    "present": 0
+   },
+   "entity_head_consistency": {
+    "present": 0
+   },
+   "p_contra": {
+    "present": 1500,
+    "missing": 0,
+    "min": 0.0,
+    "max": 0.0,
+    "distinct": 1,
+    "share_0": 1.0,
+    "share_0.5": 0.0,
+    "share_1": 0.0,
+    "top_value_share": 1.0,
+    "auroc_correct": 0.5
+   }
+  },
+  "cot": {
+   "u_pre": {
+    "present": 0
+   },
+   "u_token": {
+    "present": 1500,
+    "missing": 0,
+    "min": 0.02972921638615875,
+    "max": 0.5415709208598878,
+    "distinct": 237,
+    "share_0": 0.0,
+    "share_0.5": 0.0,
+    "share_1": 0.0,
+    "top_value_share": 0.014,
+    "auroc_correct": 0.4407662222222222
+   },
+   "u_dropout": {
+    "present": 1500,
+    "missing": 0,
+    "min": 0.0,
+    "max": 0.8,
+    "distinct": 5,
+    "share_0": 0.39466666666666667,
+    "share_0.5": 0.0,
+    "share_1": 0.0,
+    "top_value_share": 0.432,
+    "auroc_correct": 0.34314222222222224
+   },
+   "u_internal": {
+    "present": 1500,
+    "missing": 0,
+    "min": 0.11582329305551799,
+    "max": 0.7325215940670282,
+    "distinct": 579,
+    "share_0": 0.0,
+    "share_0.5": 0.0,
+    "share_1": 0.0,
+    "top_value_share": 0.009333333333333334,
+    "auroc_correct": 0.6554577777777778
+   },
+   "s_avg": {
+    "present": 1500,
+    "missing": 0,
+    "min": 0.23774909817924103,
+    "max": 1.0,
+    "distinct": 865,
+    "share_0": 0.0,
+    "share_0.5": 0.0,
+    "share_1": 0.412,
+    "top_value_share": 0.412,
+    "auroc_correct": 0.6298568888888889
+   },
+   "p_entail": {
+    "present": 1500,
+    "missing": 0,
+    "min": 0.007527669270833333,
+    "max": 0.9830729166666666,
+    "distinct": 938,
+    "share_0": 0.0,
+    "share_0.5": 0.0,
+    "share_1": 0.0,
+    "top_value_share": 0.118,
+    "auroc_correct": 0.5324017777777778
+   },
+   "p_ground_max": {
+    "present": 1500,
+    "missing": 0,
+    "min": 0.0,
+    "max": 0.98046875,
+    "distinct": 597,
+    "share_0": 0.10533333333333333,
+    "share_0.5": 0.0006666666666666666,
+    "share_1": 0.0,
+    "top_value_share": 0.10533333333333333,
+    "auroc_correct": 0.55644
+   },
+   "p_ground_mean": {
+    "present": 1500,
+    "missing": 0,
+    "min": 0.0,
+    "max": 0.9752604166666666,
+    "distinct": 1211,
+    "share_0": 0.10533333333333333,
+    "share_0.5": 0.0,
+    "share_1": 0.0,
+    "top_value_share": 0.10533333333333333,
+    "auroc_correct": 0.5501973333333333
+   },
+   "p_ground_atomic": {
+    "present": 1500,
+    "missing": 0,
+    "min": 0.0,
+    "max": 0.9752604166666666,
+    "distinct": 1211,
+    "share_0": 0.10533333333333333,
+    "share_0.5": 0.0,
+    "share_1": 0.0,
+    "top_value_share": 0.10533333333333333,
+    "auroc_correct": 0.5501973333333333
+   },
+   "q_a_relevance": {
+    "present": 1500,
+    "missing": 0,
+    "min": 0.5000041723251342,
+    "max": 0.7310585786300049,
+    "distinct": 475,
+    "share_0": 0.0,
+    "share_0.5": 0.0,
+    "share_1": 0.0,
+    "top_value_share": 0.17466666666666666,
+    "auroc_correct": 0.3533128888888889
+   },
+   "u_stored": {
+    "present": 1500,
+    "missing": 0,
+    "min": 0.0,
+    "max": 0.9198879715490764,
+    "distinct": 1021,
+    "share_0": 0.002,
+    "share_0.5": 0.0,
+    "share_1": 0.0,
+    "top_value_share": 0.025333333333333333,
+    "auroc_correct": 0.6335848888888889
+   },
+   "h_norm": {
+    "present": 1500,
+    "missing": 0,
+    "min": 0.5,
+    "max": 0.5,
+    "distinct": 1,
+    "share_0": 0.0,
+    "share_0.5": 1.0,
+    "share_1": 0.0,
+    "top_value_share": 1.0,
+    "auroc_correct": 0.5
+   },
+   "alias_overlap": {
+    "present": 0
+   },
+   "entity_head_consistency": {
+    "present": 0
+   },
+   "p_contra": {
+    "present": 1500,
+    "missing": 0,
+    "min": 0.0,
+    "max": 0.0,
+    "distinct": 1,
+    "share_0": 1.0,
+    "share_0.5": 0.0,
+    "share_1": 0.0,
+    "top_value_share": 1.0,
+    "auroc_correct": 0.5
+   }
+  },
+  "rag": {
+   "u_pre": {
+    "present": 0
+   },
+   "u_token": {
+    "present": 1468,
+    "missing": 32,
+    "min": 0.0016004026902445643,
+    "max": 0.34830125444308524,
+    "distinct": 263,
+    "share_0": 0.0,
+    "share_0.5": 0.0,
+    "share_1": 0.0,
+    "top_value_share": 0.013623978201634877,
+    "auroc_correct": 0.5786630774626342
+   },
+   "u_dropout": {
+    "present": 1468,
+    "missing": 32,
+    "min": 0.0,
+    "max": 0.8,
+    "distinct": 5,
+    "share_0": 0.4087193460490463,
+    "share_0.5": 0.0,
+    "share_1": 0.0,
+    "top_value_share": 0.4162125340599455,
+    "auroc_correct": 0.3799603396685396
+   },
+   "u_internal": {
+    "present": 1468,
+    "missing": 32,
+    "min": 0.10093553015323209,
+    "max": 0.6648824999031288,
+    "distinct": 629,
+    "share_0": 0.0,
+    "share_0.5": 0.0,
+    "share_1": 0.0,
+    "top_value_share": 0.006811989100817439,
+    "auroc_correct": 0.6438955549088521
+   },
+   "s_avg": {
+    "present": 1468,
+    "missing": 32,
+    "min": 0.2482165520389875,
+    "max": 1.0,
+    "distinct": 834,
+    "share_0": 0.0,
+    "share_0.5": 0.0,
+    "share_1": 0.4196185286103542,
+    "top_value_share": 0.4196185286103542,
+    "auroc_correct": 0.5884923477573071
+   },
+   "p_entail": {
+    "present": 1468,
+    "missing": 32,
+    "min": 0.0054779052734375,
+    "max": 0.9817708333333334,
+    "distinct": 957,
+    "share_0": 0.0,
+    "share_0.5": 0.0006811989100817438,
+    "share_1": 0.0,
+    "top_value_share": 0.13419618528610355,
+    "auroc_correct": 0.5897636796430197
+   },
+   "p_ground_max": {
+    "present": 1468,
+    "missing": 32,
+    "min": 0.0,
+    "max": 0.98828125,
+    "distinct": 528,
+    "share_0": 0.14918256130790192,
+    "share_0.5": 0.0013623978201634877,
+    "share_1": 0.0,
+    "top_value_share": 0.14918256130790192,
+    "auroc_correct": 0.5508252930685829
+   },
+   "p_ground_mean": {
+    "present": 1468,
+    "missing": 32,
+    "min": 0.0,
+    "max": 0.9765625,
+    "distinct": 1153,
+    "share_0": 0.14986376021798364,
+    "share_0.5": 0.0,
+    "share_1": 0.0,
+    "top_value_share": 0.14986376021798364,
+    "auroc_correct": 0.5592694365472006
+   },
+   "p_ground_atomic": {
+    "present": 1468,
+    "missing": 32,
+    "min": 0.0,
+    "max": 0.9765625,
+    "distinct": 1153,
+    "share_0": 0.14986376021798364,
+    "share_0.5": 0.0,
+    "share_1": 0.0,
+    "top_value_share": 0.14986376021798364,
+    "auroc_correct": 0.5592694365472006
+   },
+   "q_a_relevance": {
+    "present": 1468,
+    "missing": 32,
+    "min": 0.5000039339065551,
+    "max": 0.7287483034031065,
+    "distinct": 537,
+    "share_0": 0.0,
+    "share_0.5": 0.0,
+    "share_1": 0.0,
+    "top_value_share": 0.012942779291553134,
+    "auroc_correct": 0.6220376008297702
+   },
+   "u_stored": {
+    "present": 1468,
+    "missing": 32,
+    "min": 0.0423483797261962,
+    "max": 0.9186694430183601,
+    "distinct": 1120,
+    "share_0": 0.0,
+    "share_0.5": 0.0,
+    "share_1": 0.0,
+    "top_value_share": 0.013623978201634877,
+    "auroc_correct": 0.7015140322207547
+   },
+   "h_norm": {
+    "present": 1468,
+    "missing": 32,
+    "min": 0.5,
+    "max": 0.5,
+    "distinct": 1,
+    "share_0": 0.0,
+    "share_0.5": 1.0,
+    "share_1": 0.0,
+    "top_value_share": 1.0,
+    "auroc_correct": 0.5
+   },
+   "alias_overlap": {
+    "present": 0
+   },
+   "entity_head_consistency": {
+    "present": 0
+   },
+   "p_contra": {
+    "present": 1468,
+    "missing": 32,
+    "min": 0.0,
+    "max": 0.0,
+    "distinct": 1,
+    "share_0": 1.0,
+    "share_0.5": 0.0,
+    "share_1": 0.0,
+    "top_value_share": 1.0,
+    "auroc_correct": 0.5
+   }
+  },
+  "cot_rag": {
+   "u_pre": {
+    "present": 0
+   },
+   "u_token": {
+    "present": 1500,
+    "missing": 0,
+    "min": 2.430083125932946e-05,
+    "max": 0.356560980663947,
+    "distinct": 289,
+    "share_0": 0.0,
+    "share_0.5": 0.0,
+    "share_1": 0.0,
+    "top_value_share": 0.011333333333333334,
+    "auroc_correct": 0.582018507125279
+   },
+   "u_dropout": {
+    "present": 1500,
+    "missing": 0,
+    "min": 0.0,
+    "max": 0.8,
+    "distinct": 5,
+    "share_0": 0.396,
+    "share_0.5": 0.0,
+    "share_1": 0.0,
+    "top_value_share": 0.43,
+    "auroc_correct": 0.3600787643793281
+   },
+   "u_internal": {
+    "present": 1500,
+    "missing": 0,
+    "min": 0.10001215041562964,
+    "max": 0.6661756893775111,
+    "distinct": 649,
+    "share_0": 0.0,
+    "share_0.5": 0.0,
+    "share_1": 0.0,
+    "top_value_share": 0.007333333333333333,
+    "auroc_correct": 0.6685904681508613
+   },
+   "s_avg": {
+    "present": 1500,
+    "missing": 0,
+    "min": 0.13334951301415762,
+    "max": 1.0,
+    "distinct": 872,
+    "share_0": 0.0,
+    "share_0.5": 0.0,
+    "share_1": 0.406,
+    "top_value_share": 0.406,
+    "auroc_correct": 0.6032441123447605
+   },
+   "p_entail": {
+    "present": 1500,
+    "missing": 0,
+    "min": 0.005625406901041667,
+    "max": 0.98046875,
+    "distinct": 1002,
+    "share_0": 0.0,
+    "share_0.5": 0.0,
+    "share_1": 0.0,
+    "top_value_share": 0.13066666666666665,
+    "auroc_correct": 0.5397363074457735
+   },
+   "p_ground_max": {
+    "present": 1500,
+    "missing": 0,
+    "min": 0.0,
+    "max": 0.984375,
+    "distinct": 552,
+    "share_0": 0.15666666666666668,
+    "share_0.5": 0.0006666666666666666,
+    "share_1": 0.0,
+    "top_value_share": 0.15666666666666668,
+    "auroc_correct": 0.5457250114462313
+   },
+   "p_ground_mean": {
+    "present": 1500,
+    "missing": 0,
+    "min": 0.0,
+    "max": 0.9765625,
+    "distinct": 1149,
+    "share_0": 0.16066666666666668,
+    "share_0.5": 0.0006666666666666666,
+    "share_1": 0.0,
+    "top_value_share": 0.16066666666666668,
+    "auroc_correct": 0.5443541463972987
+   },
+   "p_ground_atomic": {
+    "present": 1500,
+    "missing": 0,
+    "min": 0.0,
+    "max": 0.9765625,
+    "distinct": 1149,
+    "share_0": 0.16066666666666668,
+    "share_0.5": 0.0006666666666666666,
+    "share_1": 0.0,
+    "top_value_share": 0.16066666666666668,
+    "auroc_correct": 0.5443541463972987
+   },
+   "q_a_relevance": {
+    "present": 1500,
+    "missing": 0,
+    "min": 0.5000039339065551,
+    "max": 0.7287483034031065,
+    "distinct": 542,
+    "share_0": 0.0,
+    "share_0.5": 0.0,
+    "share_1": 0.0,
+    "top_value_share": 0.018666666666666668,
+    "auroc_correct": 0.6291000758312826
+   },
+   "u_stored": {
+    "present": 1500,
+    "missing": 0,
+    "min": 0.06957957503705692,
+    "max": 0.9198879715490764,
+    "distinct": 1138,
+    "share_0": 0.0,
+    "share_0.5": 0.0,
+    "share_1": 0.0,
+    "top_value_share": 0.011333333333333334,
+    "auroc_correct": 0.716324829737309
+   },
+   "h_norm": {
+    "present": 1500,
+    "missing": 0,
+    "min": 0.5,
+    "max": 0.5,
+    "distinct": 1,
+    "share_0": 0.0,
+    "share_0.5": 1.0,
+    "share_1": 0.0,
+    "top_value_share": 1.0,
+    "auroc_correct": 0.5
+   },
+   "alias_overlap": {
+    "present": 0
+   },
+   "entity_head_consistency": {
+    "present": 0
+   },
+   "p_contra": {
+    "present": 1500,
+    "missing": 0,
+    "min": 0.0,
+    "max": 0.0,
+    "distinct": 1,
+    "share_0": 1.0,
+    "share_0.5": 0.0,
+    "share_1": 0.0,
+    "top_value_share": 1.0,
+    "auroc_correct": 0.5
+   }
+  },
+  "fiveshot_cot": {
+   "u_pre": {
+    "present": 0
+   },
+   "u_token": {
+    "present": 1500,
+    "missing": 0,
+    "min": 0.014264233908999256,
+    "max": 0.5249085353233612,
+    "distinct": 238,
+    "share_0": 0.0,
+    "share_0.5": 0.0,
+    "share_1": 0.0,
+    "top_value_share": 0.014666666666666666,
+    "auroc_correct": 0.6264944609983479
+   },
+   "u_dropout": {
+    "present": 1500,
+    "missing": 0,
+    "min": 0.0,
+    "max": 0.8,
+    "distinct": 5,
+    "share_0": 0.398,
+    "share_0.5": 0.0,
+    "share_1": 0.0,
+    "top_value_share": 0.426,
+    "auroc_correct": 0.27801123288883645
+   },
+   "u_internal": {
+    "present": 1500,
+    "missing": 0,
+    "min": 0.11684380777943235,
+    "max": 0.7371076715777899,
+    "distinct": 589,
+    "share_0": 0.0,
+    "share_0.5": 0.0,
+    "share_1": 0.0,
+    "top_value_share": 0.008666666666666666,
+    "auroc_correct": 0.7506001814373378
+   },
+   "s_avg": {
+    "present": 1500,
+    "missing": 0,
+    "min": 0.20581617578864098,
+    "max": 1.0,
+    "distinct": 867,
+    "share_0": 0.0,
+    "share_0.5": 0.0,
+    "share_1": 0.4086666666666667,
+    "top_value_share": 0.4086666666666667,
+    "auroc_correct": 0.672793249940996
+   },
+   "p_entail": {
+    "present": 1500,
+    "missing": 0,
+    "min": 0.009134928385416666,
+    "max": 0.9739583333333334,
+    "distinct": 975,
+    "share_0": 0.0,
+    "share_0.5": 0.0,
+    "share_1": 0.0,
+    "top_value_share": 0.09133333333333334,
+    "auroc_correct": 0.3825257773778617
+   },
+   "p_ground_max": {
+    "present": 1500,
+    "missing": 0,
+    "min": 0.0,
+    "max": 0.98046875,
+    "distinct": 590,
+    "share_0": 0.08866666666666667,
+    "share_0.5": 0.0006666666666666666,
+    "share_1": 0.0,
+    "top_value_share": 0.08866666666666667,
+    "auroc_correct": 0.4918048958579183
+   },
+   "p_ground_mean": {
+    "present": 1500,
+    "missing": 0,
+    "min": 0.0,
+    "max": 0.9622395833333334,
+    "distinct": 1215,
+    "share_0": 0.08866666666666667,
+    "share_0.5": 0.0,
+    "share_1": 0.0,
+    "top_value_share": 0.08866666666666667,
+    "auroc_correct": 0.4803516639131461
+   },
+   "p_ground_atomic": {
+    "present": 1500,
+    "missing": 0,
+    "min": 0.0,
+    "max": 0.9622395833333334,
+    "distinct": 1215,
+    "share_0": 0.08866666666666667,
+    "share_0.5": 0.0,
+    "share_1": 0.0,
+    "top_value_share": 0.08866666666666667,
+    "auroc_correct": 0.4803516639131461
+   },
+   "q_a_relevance": {
+    "present": 1500,
+    "missing": 0,
+    "min": 0.5000039339065551,
+    "max": 0.7310585786300049,
+    "distinct": 436,
+    "share_0": 0.0,
+    "share_0.5": 0.0,
+    "share_1": 0.0,
+    "top_value_share": 0.16933333333333334,
+    "auroc_correct": 0.7514105646683974
+   },
+   "u_stored": {
+    "present": 1500,
+    "missing": 0,
+    "min": 0.0,
+    "max": 0.8887852098738726,
+    "distinct": 1006,
+    "share_0": 0.0006666666666666666,
+    "share_0.5": 0.0,
+    "share_1": 0.0,
+    "top_value_share": 0.022,
+    "auroc_correct": 0.7855563709582252
+   },
+   "h_norm": {
+    "present": 1500,
+    "missing": 0,
+    "min": 0.5,
+    "max": 0.5,
+    "distinct": 1,
+    "share_0": 0.0,
+    "share_0.5": 1.0,
+    "share_1": 0.0,
+    "top_value_share": 1.0,
+    "auroc_correct": 0.5
+   },
+   "alias_overlap": {
+    "present": 0
+   },
+   "entity_head_consistency": {
+    "present": 0
+   },
+   "p_contra": {
+    "present": 1500,
+    "missing": 0,
+    "min": 0.0,
+    "max": 0.0,
+    "distinct": 1,
+    "share_0": 1.0,
+    "share_0.5": 0.0,
+    "share_1": 0.0,
+    "top_value_share": 1.0,
+    "auroc_correct": 0.5
+   }
+  },
+  "flare": {
+   "u_pre": {
+    "present": 0
+   },
+   "u_token": {
+    "present": 1500,
+    "missing": 0,
+    "min": 0.006329715427485747,
+    "max": 0.6393740519842027,
+    "distinct": 304,
+    "share_0": 0.0,
+    "share_0.5": 0.0,
+    "share_1": 0.0,
+    "top_value_share": 0.012,
+    "auroc_correct": 0.4296932926481492
+   },
+   "u_dropout": {
+    "present": 1500,
+    "missing": 0,
+    "min": 0.0,
+    "max": 0.8,
+    "distinct": 5,
+    "share_0": 0.392,
+    "share_0.5": 0.0,
+    "share_1": 0.0,
+    "top_value_share": 0.43,
+    "auroc_correct": 0.3718577111732162
+   },
+   "u_internal": {
+    "present": 1500,
+    "missing": 0,
+    "min": 0.10460484080198405,
+    "max": 0.7950852649841589,
+    "distinct": 686,
+    "share_0": 0.0,
+    "share_0.5": 0.0,
+    "share_1": 0.0,
+    "top_value_share": 0.008,
+    "auroc_correct": 0.6111279444476131
+   },
+   "s_avg": {
+    "present": 1500,
+    "missing": 0,
+    "min": 0.24859287279347578,
+    "max": 1.0,
+    "distinct": 857,
+    "share_0": 0.0,
+    "share_0.5": 0.0,
+    "share_1": 0.41533333333333333,
+    "top_value_share": 0.41533333333333333,
+    "auroc_correct": 0.603856834255404
+   },
+   "p_entail": {
+    "present": 1500,
+    "missing": 0,
+    "min": 0.006846110026041667,
+    "max": 0.9856770833333334,
+    "distinct": 937,
+    "share_0": 0.0,
+    "share_0.5": 0.0,
+    "share_1": 0.0,
+    "top_value_share": 0.13266666666666665,
+    "auroc_correct": 0.5384275366451834
+   },
+   "p_ground_max": {
+    "present": 1500,
+    "missing": 0,
+    "min": 0.0,
+    "max": 0.984375,
+    "distinct": 563,
+    "share_0": 0.14466666666666667,
+    "share_0.5": 0.002,
+    "share_1": 0.0,
+    "top_value_share": 0.14466666666666667,
+    "auroc_correct": 0.5738544815490789
+   },
+   "p_ground_mean": {
+    "present": 1500,
+    "missing": 0,
+    "min": 0.0,
+    "max": 0.97265625,
+    "distinct": 1187,
+    "share_0": 0.14666666666666667,
+    "share_0.5": 0.0,
+    "share_1": 0.0,
+    "top_value_share": 0.14666666666666667,
+    "auroc_correct": 0.5654907887982661
+   },
+   "p_ground_atomic": {
+    "present": 1500,
+    "missing": 0,
+    "min": 0.0,
+    "max": 0.97265625,
+    "distinct": 1187,
+    "share_0": 0.14666666666666667,
+    "share_0.5": 0.0,
+    "share_1": 0.0,
+    "top_value_share": 0.14666666666666667,
+    "auroc_correct": 0.5654907887982661
+   },
+   "q_a_relevance": {
+    "present": 1500,
+    "missing": 0,
+    "min": 0.5000041723251342,
+    "max": 0.7310585786300049,
+    "distinct": 497,
+    "share_0": 0.0,
+    "share_0.5": 0.0,
+    "share_1": 0.0,
+    "top_value_share": 0.07866666666666666,
+    "auroc_correct": 0.4170020461415616
+   },
+   "u_stored": {
+    "present": 1500,
+    "missing": 0,
+    "min": 0.0,
+    "max": 0.9138524746016773,
+    "distinct": 1080,
+    "share_0": 0.008,
+    "share_0.5": 0.0,
+    "share_1": 0.0,
+    "top_value_share": 0.016666666666666666,
+    "auroc_correct": 0.6270835709804369
+   },
+   "h_norm": {
+    "present": 1500,
+    "missing": 0,
+    "min": 0.5,
+    "max": 0.5,
+    "distinct": 1,
+    "share_0": 0.0,
+    "share_0.5": 1.0,
+    "share_1": 0.0,
+    "top_value_share": 1.0,
+    "auroc_correct": 0.5
+   },
+   "alias_overlap": {
+    "present": 0
+   },
+   "entity_head_consistency": {
+    "present": 0
+   },
+   "p_contra": {
+    "present": 1500,
+    "missing": 0,
+    "min": 0.0,
+    "max": 0.0,
+    "distinct": 1,
+    "share_0": 1.0,
+    "share_0.5": 0.0,
+    "share_1": 0.0,
+    "top_value_share": 1.0,
+    "auroc_correct": 0.5
+   }
+  },
+  "vanilla_ft": {
+   "u_pre": {
+    "present": 0
+   },
+   "u_token": {
+    "present": 1500,
+    "missing": 0,
+    "min": 4.139937718785167e-08,
+    "max": 0.9105103613800342,
+    "distinct": 323,
+    "share_0": 0.018,
+    "share_0.5": 0.0,
+    "share_1": 0.0,
+    "top_value_share": 0.02666666666666667,
+    "auroc_correct": 0.27987817349161886
+   },
+   "u_dropout": {
+    "present": 1500,
+    "missing": 0,
+    "min": 0.0,
+    "max": 0.8,
+    "distinct": 5,
+    "share_0": 0.4,
+    "share_0.5": 0.0,
+    "share_1": 0.0,
+    "top_value_share": 0.42866666666666664,
+    "auroc_correct": 0.3094099862167089
+   },
+   "u_internal": {
+    "present": 1500,
+    "missing": 0,
+    "min": 0.1000000927695681,
+    "max": 0.6124400958420821,
+    "distinct": 577,
+    "share_0": 0.0,
+    "share_0.5": 0.025333333333333333,
+    "share_1": 0.0,
+    "top_value_share": 0.043333333333333335,
+    "auroc_correct": 0.6546271842070162
+   },
+   "s_avg": {
+    "present": 1500,
+    "missing": 0,
+    "min": 0.11635542040069898,
+    "max": 1.0,
+    "distinct": 853,
+    "share_0": 0.0,
+    "share_0.5": 0.0,
+    "share_1": 0.4206666666666667,
+    "top_value_share": 0.4206666666666667,
+    "auroc_correct": 0.6661713574318616
+   },
+   "p_entail": {
+    "present": 1500,
+    "missing": 0,
+    "min": 0.006083170572916667,
+    "max": 0.98828125,
+    "distinct": 821,
+    "share_0": 0.0,
+    "share_0.5": 0.002,
+    "share_1": 0.0,
+    "top_value_share": 0.07533333333333334,
+    "auroc_correct": 0.6485714285714286
+   },
+   "p_ground_max": {
+    "present": 1500,
+    "missing": 0,
+    "min": 0.0081787109375,
+    "max": 0.98046875,
+    "distinct": 588,
+    "share_0": 0.0,
+    "share_0.5": 0.006,
+    "share_1": 0.0,
+    "top_value_share": 0.009333333333333334,
+    "auroc_correct": 0.6346511938108577
+   },
+   "p_ground_mean": {
+    "present": 1500,
+    "missing": 0,
+    "min": 0.007232666015625,
+    "max": 0.9739583333333334,
+    "distinct": 1301,
+    "share_0": 0.0,
+    "share_0.5": 0.0,
+    "share_1": 0.0,
+    "top_value_share": 0.0033333333333333335,
+    "auroc_correct": 0.6641554399537593
+   },
+   "p_ground_atomic": {
+    "present": 1500,
+    "missing": 0,
+    "min": 0.007232666015625,
+    "max": 0.9739583333333334,
+    "distinct": 1301,
+    "share_0": 0.0,
+    "share_0.5": 0.0,
+    "share_1": 0.0,
+    "top_value_share": 0.0033333333333333335,
+    "auroc_correct": 0.6641554399537593
+   },
+   "q_a_relevance": {
+    "present": 1500,
+    "missing": 0,
+    "min": 0.5000039339065551,
+    "max": 0.7310585786300049,
+    "distinct": 514,
+    "share_0": 0.0,
+    "share_0.5": 0.0,
+    "share_1": 0.0,
+    "top_value_share": 0.017333333333333333,
+    "auroc_correct": 0.47852207549686543
+   },
+   "u_stored": {
+    "present": 1500,
+    "missing": 0,
+    "min": 0.04009199700309701,
+    "max": 0.9438914415607869,
+    "distinct": 1090,
+    "share_0": 0.0,
+    "share_0.5": 0.0,
+    "share_1": 0.0,
+    "top_value_share": 0.011333333333333334,
+    "auroc_correct": 0.6759619403316882
+   },
+   "h_norm": {
+    "present": 1500,
+    "missing": 0,
+    "min": 0.5,
+    "max": 0.5,
+    "distinct": 1,
+    "share_0": 0.0,
+    "share_0.5": 1.0,
+    "share_1": 0.0,
+    "top_value_share": 1.0,
+    "auroc_correct": 0.5
+   },
+   "alias_overlap": {
+    "present": 0
+   },
+   "entity_head_consistency": {
+    "present": 0
+   },
+   "p_contra": {
+    "present": 1500,
+    "missing": 0,
+    "min": 0.0,
+    "max": 0.0,
+    "distinct": 1,
+    "share_0": 1.0,
+    "share_0.5": 0.0,
+    "share_1": 0.0,
+    "top_value_share": 1.0,
+    "auroc_correct": 0.5
+   }
+  },
+  "semantic_entropy": {
+   "u_pre": {
+    "present": 0
+   },
+   "u_token": {
+    "present": 0
+   },
+   "u_dropout": {
+    "present": 0
+   },
+   "u_internal": {
+    "present": 0
+   },
+   "s_avg": {
+    "present": 0
+   },
+   "p_entail": {
+    "present": 0
+   },
+   "p_ground_max": {
+    "present": 0
+   },
+   "p_ground_mean": {
+    "present": 0
+   },
+   "p_ground_atomic": {
+    "present": 0
+   },
+   "q_a_relevance": {
+    "present": 0
+   },
+   "u_stored": {
+    "present": 0
+   },
+   "h_norm": {
+    "present": 0
+   },
+   "alias_overlap": {
+    "present": 0
+   },
+   "entity_head_consistency": {
+    "present": 0
+   },
+   "p_contra": {
+    "present": 0
+   }
+  }
+ },
+ "outputs": {
+  "caem_c0": {
+   "fever": {
+    "n": 300,
+    "empty": 0,
+    "no_answer_line": 0,
+    "empty_answer_line": 0,
+    "refusal": 177,
+    "fever_label_on_other": null,
+    "letter_on_other": 0,
+    "likely_truncated": 0,
+    "identical_responses_top": 1,
+    "em_mean": 0.4866666666666667
+   },
+   "triviaqa": {
+    "n": 300,
+    "empty": 0,
+    "no_answer_line": 0,
+    "empty_answer_line": 0,
+    "refusal": 64,
+    "fever_label_on_other": 0,
+    "letter_on_other": 0,
+    "likely_truncated": 0,
+    "identical_responses_top": 1,
+    "em_mean": 0.4633333333333333,
+    "gold_in_answer_but_em0": 8
+   },
+   "commonsense_qa": {
+    "n": 300,
+    "empty": 0,
+    "no_answer_line": 0,
+    "empty_answer_line": 0,
+    "refusal": 0,
+    "fever_label_on_other": 0,
+    "letter_on_other": null,
+    "likely_truncated": 0,
+    "identical_responses_top": 1,
+    "em_mean": 0.7633333333333333
+   },
+   "truthfulqa": {
+    "n": 300,
+    "empty": 0,
+    "no_answer_line": 1,
+    "empty_answer_line": 0,
+    "refusal": 123,
+    "fever_label_on_other": 0,
+    "letter_on_other": 0,
+    "likely_truncated": 0,
+    "identical_responses_top": 1,
+    "em_mean": 0.4166666666666667,
+    "judged_missing": 0
+   },
+   "strategyqa": {
+    "n": 300,
+    "empty": 0,
+    "no_answer_line": 0,
+    "empty_answer_line": 0,
+    "refusal": 1,
+    "fever_label_on_other": 0,
+    "letter_on_other": 0,
+    "likely_truncated": 0,
+    "identical_responses_top": 1,
+    "em_mean": 0.61
+   }
+  },
+  "caem_c5": {
+   "fever": {
+    "n": 300,
+    "empty": 0,
+    "no_answer_line": 0,
+    "empty_answer_line": 0,
+    "refusal": 0,
+    "fever_label_on_other": null,
+    "letter_on_other": 0,
+    "likely_truncated": 0,
+    "identical_responses_top": 1,
+    "em_mean": 0.4766666666666667
+   },
+   "triviaqa": {
+    "n": 300,
+    "empty": 0,
+    "no_answer_line": 1,
+    "empty_answer_line": 0,
+    "refusal": 2,
+    "fever_label_on_other": 0,
+    "letter_on_other": 0,
+    "likely_truncated": 0,
+    "identical_responses_top": 1,
+    "em_mean": 0.4533333333333333,
+    "gold_in_answer_but_em0": 8
+   },
+   "commonsense_qa": {
+    "n": 300,
+    "empty": 0,
+    "no_answer_line": 0,
+    "empty_answer_line": 0,
+    "refusal": 0,
+    "fever_label_on_other": 0,
+    "letter_on_other": null,
+    "likely_truncated": 0,
+    "identical_responses_top": 1,
+    "em_mean": 0.7166666666666667
+   },
+   "truthfulqa": {
+    "n": 300,
+    "empty": 0,
+    "no_answer_line": 1,
+    "empty_answer_line": 0,
+    "refusal": 1,
+    "fever_label_on_other": 0,
+    "letter_on_other": 0,
+    "likely_truncated": 0,
+    "identical_responses_top": 1,
+    "em_mean": 0.49333333333333335,
+    "judged_missing": 0
+   },
+   "strategyqa": {
+    "n": 300,
+    "empty": 0,
+    "no_answer_line": 0,
+    "empty_answer_line": 0,
+    "refusal": 0,
+    "fever_label_on_other": 0,
+    "letter_on_other": 0,
+    "likely_truncated": 0,
+    "identical_responses_top": 1,
+    "em_mean": 0.64
+   }
+  },
+  "zero_shot": {
+   "fever": {
+    "n": 300,
+    "empty": 0,
+    "no_answer_line": 0,
+    "empty_answer_line": 0,
+    "refusal": 159,
+    "fever_label_on_other": null,
+    "letter_on_other": 0,
+    "likely_truncated": 0,
+    "identical_responses_top": 1,
+    "em_mean": 0.4533333333333333
+   },
+   "triviaqa": {
+    "n": 300,
+    "empty": 0,
+    "no_answer_line": 0,
+    "empty_answer_line": 0,
+    "refusal": 1,
+    "fever_label_on_other": 0,
+    "letter_on_other": 0,
+    "likely_truncated": 0,
+    "identical_responses_top": 1,
+    "em_mean": 0.29333333333333333,
+    "gold_in_answer_but_em0": 78
+   },
+   "commonsense_qa": {
+    "n": 300,
+    "empty": 0,
+    "no_answer_line": 0,
+    "empty_answer_line": 0,
+    "refusal": 0,
+    "fever_label_on_other": 0,
+    "letter_on_other": null,
+    "likely_truncated": 0,
+    "identical_responses_top": 1,
+    "em_mean": 0.7033333333333334
+   },
+   "truthfulqa": {
+    "n": 300,
+    "empty": 0,
+    "no_answer_line": 0,
+    "empty_answer_line": 0,
+    "refusal": 1,
+    "fever_label_on_other": 0,
+    "letter_on_other": 0,
+    "likely_truncated": 0,
+    "identical_responses_top": 1,
+    "em_mean": 0.8033333333333333,
+    "judged_missing": 0
+   },
+   "strategyqa": {
+    "n": 300,
+    "empty": 0,
+    "no_answer_line": 0,
+    "empty_answer_line": 0,
+    "refusal": 1,
+    "fever_label_on_other": 0,
+    "letter_on_other": 0,
+    "likely_truncated": 0,
+    "identical_responses_top": 1,
+    "em_mean": 0.65
+   }
+  },
+  "cot": {
+   "fever": {
+    "n": 300,
+    "empty": 0,
+    "no_answer_line": 0,
+    "empty_answer_line": 0,
+    "refusal": 167,
+    "fever_label_on_other": null,
+    "letter_on_other": 0,
+    "likely_truncated": 0,
+    "identical_responses_top": 1,
+    "em_mean": 0.42
+   },
+   "triviaqa": {
+    "n": 300,
+    "empty": 0,
+    "no_answer_line": 0,
+    "empty_answer_line": 0,
+    "refusal": 0,
+    "fever_label_on_other": 0,
+    "letter_on_other": 0,
+    "likely_truncated": 0,
+    "identical_responses_top": 1,
+    "em_mean": 0.27,
+    "gold_in_answer_but_em0": 84
+   },
+   "commonsense_qa": {
+    "n": 300,
+    "empty": 0,
+    "no_answer_line": 0,
+    "empty_answer_line": 0,
+    "refusal": 0,
+    "fever_label_on_other": 0,
+    "letter_on_other": null,
+    "likely_truncated": 0,
+    "identical_responses_top": 1,
+    "em_mean": 0.71
+   },
+   "truthfulqa": {
+    "n": 300,
+    "empty": 0,
+    "no_answer_line": 0,
+    "empty_answer_line": 0,
+    "refusal": 4,
+    "fever_label_on_other": 0,
+    "letter_on_other": 0,
+    "likely_truncated": 0,
+    "identical_responses_top": 1,
+    "em_mean": 0.8266666666666667,
+    "judged_missing": 0
+   },
+   "strategyqa": {
+    "n": 300,
+    "empty": 0,
+    "no_answer_line": 0,
+    "empty_answer_line": 0,
+    "refusal": 0,
+    "fever_label_on_other": 0,
+    "letter_on_other": 0,
+    "likely_truncated": 0,
+    "identical_responses_top": 1,
+    "em_mean": 0.6633333333333333
+   }
+  },
+  "rag": {
+   "fever": {
+    "n": 300,
+    "empty": 0,
+    "no_answer_line": 0,
+    "empty_answer_line": 0,
+    "refusal": 237,
+    "fever_label_on_other": null,
+    "letter_on_other": 0,
+    "likely_truncated": 0,
+    "identical_responses_top": 1,
+    "em_mean": 0.43666666666666665
+   },
+   "triviaqa": {
+    "n": 300,
+    "empty": 0,
+    "no_answer_line": 0,
+    "empty_answer_line": 0,
+    "refusal": 100,
+    "fever_label_on_other": 0,
+    "letter_on_other": 0,
+    "likely_truncated": 0,
+    "identical_responses_top": 1,
+    "em_mean": 0.4,
+    "gold_in_answer_but_em0": 11
+   },
+   "commonsense_qa": {
+    "n": 300,
+    "empty": 0,
+    "no_answer_line": 0,
+    "empty_answer_line": 0,
+    "refusal": 0,
+    "fever_label_on_other": 0,
+    "letter_on_other": null,
+    "likely_truncated": 0,
+    "identical_responses_top": 1,
+    "em_mean": 0.6
+   },
+   "truthfulqa": {
+    "n": 300,
+    "empty": 32,
+    "no_answer_line": 32,
+    "empty_answer_line": 0,
+    "refusal": 139,
+    "fever_label_on_other": 0,
+    "letter_on_other": 0,
+    "likely_truncated": 0,
+    "identical_responses_top": 32,
+    "em_mean": 0.31,
+    "judged_missing": 0
+   },
+   "strategyqa": {
+    "n": 300,
+    "empty": 0,
+    "no_answer_line": 0,
+    "empty_answer_line": 0,
+    "refusal": 1,
+    "fever_label_on_other": 0,
+    "letter_on_other": 0,
+    "likely_truncated": 0,
+    "identical_responses_top": 1,
+    "em_mean": 0.61
+   }
+  },
+  "cot_rag": {
+   "fever": {
+    "n": 300,
+    "empty": 0,
+    "no_answer_line": 0,
+    "empty_answer_line": 0,
+    "refusal": 250,
+    "fever_label_on_other": null,
+    "letter_on_other": 0,
+    "likely_truncated": 0,
+    "identical_responses_top": 1,
+    "em_mean": 0.43666666666666665
+   },
+   "triviaqa": {
+    "n": 300,
+    "empty": 0,
+    "no_answer_line": 0,
+    "empty_answer_line": 0,
+    "refusal": 113,
+    "fever_label_on_other": 0,
+    "letter_on_other": 0,
+    "likely_truncated": 0,
+    "identical_responses_top": 1,
+    "em_mean": 0.39666666666666667,
+    "gold_in_answer_but_em0": 10
+   },
+   "commonsense_qa": {
+    "n": 300,
+    "empty": 0,
+    "no_answer_line": 0,
+    "empty_answer_line": 0,
+    "refusal": 0,
+    "fever_label_on_other": 0,
+    "letter_on_other": null,
+    "likely_truncated": 0,
+    "identical_responses_top": 1,
+    "em_mean": 0.63
+   },
+   "truthfulqa": {
+    "n": 300,
+    "empty": 32,
+    "no_answer_line": 32,
+    "empty_answer_line": 0,
+    "refusal": 148,
+    "fever_label_on_other": 0,
+    "letter_on_other": 0,
+    "likely_truncated": 0,
+    "identical_responses_top": 32,
+    "em_mean": 0.33666666666666667,
+    "judged_missing": 16
+   },
+   "strategyqa": {
+    "n": 300,
+    "empty": 0,
+    "no_answer_line": 0,
+    "empty_answer_line": 0,
+    "refusal": 2,
+    "fever_label_on_other": 0,
+    "letter_on_other": 0,
+    "likely_truncated": 0,
+    "identical_responses_top": 1,
+    "em_mean": 0.6033333333333334
+   }
+  },
+  "fiveshot_cot": {
+   "fever": {
+    "n": 300,
+    "empty": 0,
+    "no_answer_line": 0,
+    "empty_answer_line": 0,
+    "refusal": 140,
+    "fever_label_on_other": null,
+    "letter_on_other": 0,
+    "likely_truncated": 0,
+    "identical_responses_top": 1,
+    "em_mean": 0.49
+   },
+   "triviaqa": {
+    "n": 300,
+    "empty": 0,
+    "no_answer_line": 0,
+    "empty_answer_line": 0,
+    "refusal": 56,
+    "fever_label_on_other": 235,
+    "letter_on_other": 0,
+    "likely_truncated": 0,
+    "identical_responses_top": 1,
+    "em_mean": 0.13666666666666666,
+    "gold_in_answer_but_em0": 8
+   },
+   "commonsense_qa": {
+    "n": 300,
+    "empty": 0,
+    "no_answer_line": 0,
+    "empty_answer_line": 0,
+    "refusal": 2,
+    "fever_label_on_other": 2,
+    "letter_on_other": null,
+    "likely_truncated": 0,
+    "identical_responses_top": 1,
+    "em_mean": 0.7466666666666667
+   },
+   "truthfulqa": {
+    "n": 300,
+    "empty": 0,
+    "no_answer_line": 0,
+    "empty_answer_line": 0,
+    "refusal": 142,
+    "fever_label_on_other": 289,
+    "letter_on_other": 0,
+    "likely_truncated": 0,
+    "identical_responses_top": 1,
+    "em_mean": 0.11666666666666667,
+    "judged_missing": 0
+   },
+   "strategyqa": {
+    "n": 300,
+    "empty": 0,
+    "no_answer_line": 0,
+    "empty_answer_line": 0,
+    "refusal": 54,
+    "fever_label_on_other": 74,
+    "letter_on_other": 0,
+    "likely_truncated": 0,
+    "identical_responses_top": 1,
+    "em_mean": 0.49666666666666665
+   }
+  },
+  "flare": {
+   "fever": {
+    "n": 300,
+    "empty": 0,
+    "no_answer_line": 0,
+    "empty_answer_line": 0,
+    "refusal": 233,
+    "fever_label_on_other": null,
+    "letter_on_other": 0,
+    "likely_truncated": 0,
+    "identical_responses_top": 1,
+    "em_mean": 0.43666666666666665
+   },
+   "triviaqa": {
+    "n": 300,
+    "empty": 0,
+    "no_answer_line": 0,
+    "empty_answer_line": 0,
+    "refusal": 2,
+    "fever_label_on_other": 0,
+    "letter_on_other": 0,
+    "likely_truncated": 0,
+    "identical_responses_top": 1,
+    "em_mean": 0.4166666666666667,
+    "gold_in_answer_but_em0": 46
+   },
+   "commonsense_qa": {
+    "n": 300,
+    "empty": 0,
+    "no_answer_line": 0,
+    "empty_answer_line": 0,
+    "refusal": 0,
+    "fever_label_on_other": 0,
+    "letter_on_other": null,
+    "likely_truncated": 0,
+    "identical_responses_top": 1,
+    "em_mean": 0.7233333333333334
+   },
+   "truthfulqa": {
+    "n": 300,
+    "empty": 0,
+    "no_answer_line": 0,
+    "empty_answer_line": 0,
+    "refusal": 1,
+    "fever_label_on_other": 0,
+    "letter_on_other": 0,
+    "likely_truncated": 0,
+    "identical_responses_top": 1,
+    "em_mean": 0.7666666666666667,
+    "judged_missing": 0
+   },
+   "strategyqa": {
+    "n": 300,
+    "empty": 0,
+    "no_answer_line": 0,
+    "empty_answer_line": 0,
+    "refusal": 39,
+    "fever_label_on_other": 0,
+    "letter_on_other": 0,
+    "likely_truncated": 0,
+    "identical_responses_top": 1,
+    "em_mean": 0.6
+   }
+  },
+  "vanilla_ft": {
+   "fever": {
+    "n": 300,
+    "empty": 0,
+    "no_answer_line": 300,
+    "empty_answer_line": 0,
+    "refusal": 42,
+    "fever_label_on_other": null,
+    "letter_on_other": 0,
+    "likely_truncated": 0,
+    "identical_responses_top": 152,
+    "em_mean": 0.5433333333333333
+   },
+   "triviaqa": {
+    "n": 300,
+    "empty": 0,
+    "no_answer_line": 128,
+    "empty_answer_line": 1,
+    "refusal": 0,
+    "fever_label_on_other": 0,
+    "letter_on_other": 0,
+    "likely_truncated": 2,
+    "identical_responses_top": 2,
+    "em_mean": 0.22666666666666666,
+    "gold_in_answer_but_em0": 11
+   },
+   "commonsense_qa": {
+    "n": 300,
+    "empty": 0,
+    "no_answer_line": 300,
+    "empty_answer_line": 0,
+    "refusal": 0,
+    "fever_label_on_other": 0,
+    "letter_on_other": null,
+    "likely_truncated": 0,
+    "identical_responses_top": 66,
+    "em_mean": 0.78
+   },
+   "truthfulqa": {
+    "n": 300,
+    "empty": 0,
+    "no_answer_line": 118,
+    "empty_answer_line": 2,
+    "refusal": 1,
+    "fever_label_on_other": 0,
+    "letter_on_other": 0,
+    "likely_truncated": 4,
+    "identical_responses_top": 6,
+    "em_mean": 0.023333333333333334,
+    "judged_missing": 0
+   },
+   "strategyqa": {
+    "n": 300,
+    "empty": 0,
+    "no_answer_line": 257,
+    "empty_answer_line": 1,
+    "refusal": 7,
+    "fever_label_on_other": 0,
+    "letter_on_other": 0,
+    "likely_truncated": 1,
+    "identical_responses_top": 122,
+    "em_mean": 0.6266666666666667
+   }
+  },
+  "semantic_entropy": {
+   "fever": {
+    "n": 300,
+    "empty": 0,
+    "no_answer_line": 0,
+    "empty_answer_line": 0,
+    "refusal": 158,
+    "fever_label_on_other": null,
+    "letter_on_other": 0,
+    "likely_truncated": 0,
+    "identical_responses_top": 1,
+    "em_mean": 0.4766666666666667
+   },
+   "triviaqa": {
+    "n": 300,
+    "empty": 0,
+    "no_answer_line": 156,
+    "empty_answer_line": 0,
+    "refusal": 0,
+    "fever_label_on_other": 0,
+    "letter_on_other": 0,
+    "likely_truncated": 0,
+    "identical_responses_top": 156,
+    "em_mean": 0.30333333333333334,
+    "gold_in_answer_but_em0": 30
+   },
+   "commonsense_qa": {
+    "n": 300,
+    "empty": 0,
+    "no_answer_line": 0,
+    "empty_answer_line": 0,
+    "refusal": 0,
+    "fever_label_on_other": 0,
+    "letter_on_other": null,
+    "likely_truncated": 0,
+    "identical_responses_top": 1,
+    "em_mean": 0.76
+   },
+   "truthfulqa": {
+    "n": 300,
+    "empty": 0,
+    "no_answer_line": 260,
+    "empty_answer_line": 0,
+    "refusal": 1,
+    "fever_label_on_other": 0,
+    "letter_on_other": 0,
+    "likely_truncated": 0,
+    "identical_responses_top": 260,
+    "em_mean": 0.10666666666666667,
+    "judged_missing": 0
+   },
+   "strategyqa": {
+    "n": 300,
+    "empty": 0,
+    "no_answer_line": 1,
+    "empty_answer_line": 0,
+    "refusal": 0,
+    "fever_label_on_other": 0,
+    "letter_on_other": 0,
+    "likely_truncated": 0,
+    "identical_responses_top": 1,
+    "em_mean": 0.6766666666666666
+   }
+  }
+ }
+}

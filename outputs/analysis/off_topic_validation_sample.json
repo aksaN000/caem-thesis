@@ -1,0 +1,1405 @@
+{
+ "labeller": "Claude (model, claude-opus-5-5), 2026-10-17; definition as in scripts/judge_off_topic.py PROMPT; not yet checked by the author",
+ "items": [
+  {
+   "key": "df2d0ea421bb5d299c448adf59332ca5081aa96c",
+   "question": "In the U.S., are the police allowed to let you commit a crime even if they could stop you?",
+   "response": "Reasoning:In the U. S., law enforcement officers have a duty to enforce laws and protect citizens. They cannot allow someone to commit a crime; instead, their primary role is to prevent and investigate criminal activities. If an officer encounters someone committing a crime, they must intervene to stop it.\nAnswer: No, the police are not allowed to let someone commit a crime. Their role is to prevent and stop criminal activities.",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "d37169447f5e7eda7ca6376e44563414661aedad",
+   "question": "Which colourless, poisonous gas, with a smell like Geraniums was used in chemical warfare during World War II?",
+   "response": "Reasoning:The context mentions that mustard gas, a colorless and odorless chemical warfare agent, was used during World War I and possibly World War II.\nAnswer: Mustard gas",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "fa7c221c48e049205c22bea1e4a55277da1a769f",
+   "question": "What is the word for the projection on a ship that holds a lifeboat?",
+   "response": "Reasoning:A ship's lifeboat is typically stored in a compartment or hold designed to keep it dry and secure until needed. This compartment is commonly referred to as a davit or a davits, which are devices used to lower and raise the lifeboat from the ship.\nAnswer: Davit (or davits)",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "54076dd0d132a97e1641f14ca801d810c2fd93ef",
+   "question": "What percentage of Mike Tyson's 1995 earnings came from endorsements?",
+   "response": "Reasoning:To determine the percentage of Mike Tyson's 1995 earnings that came from endorsements, we need to know his total earnings for that year and the amount specifically attributed to endorsement deals. Without specific figures, we cannot calculate the exact percentage, but we can outline the steps if such data were available.\nAnswer: Answer: To find the percentage of Mike Tyson's 1995 earnings from endorsements, we would divide the total earnings from endorsements by his total earnings for that year and multiply by 100. The formula would be: (Earnings from endorsements / Total earnings) * 100.",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "59db726ddf7b822199f3485abe695faefd81677e",
+   "question": "Who had a number one in 2011 with Grenade",
+   "response": "Reasoning:To determine who had a number one hit in 2011 with \"Grenade\", we need to search for music charts from that year and identify the song \"Grenade\" that reached the top position.\nAnswer: Bruno Mars had a number one hit in 2011 with \"Grenade\".",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "bc1f756676f5169a0d626a210cdbe957ffbda238",
+   "question": "Do people in California work more days in a year than we used to?",
+   "response": "Reasoning:To determine if people in California work more days in a year now compared to the past, we would need data on the number of working days per year for Californians over different time periods. Without specific historical data comparing current and past years, it is not possible to definitively state whether there has been an increase or decrease in working days.\n\nAnswer: not enough info",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "e39a04c88143ea921669f4edd698b246a16b0ece",
+   "question": "What psychic phenomenon has been scientifically demonstrated?",
+   "response": "Reasoning:The question asks about a psychic phenomenon that has been scientifically demonstrated, which implies a specific and verifiable example. One well-known example is the ganzfeld experiment, where participants report anomalous experiences after being exposed to altered states of consciousness through sound and light stimulation.\nAnswer: supports",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "bbeb1e3f65dddd31af7ca9631ed7f89b7633e97a",
+   "question": "Based in Chestnut Hill, a basketball team in Boston, Massachusetts with a storied history and association with the Irish-American community. It's called \"Boston\" what?",
+   "response": "Reasoning:The context mentions multiple instances related to basketball teams in Boston, including the Boston Trojans and the Boston Shamrocks. It also states that the Boston Red Sox are referred to as \"Titletown\" due to their numerous championships, which includes an AFL II championship in 1936. This suggests a connection between Boston and basketball teams, particularly those associated with the Irish-American community.\nAnswer: Shamrocks",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "9bbedd1bd2fc7886450b8f8a3ad6a67412bfc7fd",
+   "question": "Name the ingredients that make up that classic American favorite, the Big Mac",
+   "response": "Reasoning:The Big Mac is mentioned in the context as one of the items listed, but its exact ingredients are not provided directly. However, we can infer that the ingredients for a Big Mac would include bacon strips, hamburger bun, two whole-beef patties, ketchup, mayonnaise, and American cheese, as these are common components of a Big Mac.\nAnswer: I do not know",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "b5fd8721f9f62f53812e17335458062ba407bf88",
+   "question": "Which English TV presenter became very famous on Dec 1st 1976 when he interviewed the punk band The Sex Pistols live on TV prompting much bad langauge from the band?",
+   "response": "Reasoning:The context mentions that Jonh Ingham, born in 1951, was a key journalist in the punk rock movement and published the first press interview with the Sex Pistols in the mid-1970s. It also states that this interview took place in the mid-1970s, which aligns with December 1st, 1976.\nAnswer: Jonh Ingham",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "ea655e8240f28bc2f2a120db8a7f0254c420d0db",
+   "question": "What did the word \"posh\" originally stand for?",
+   "response": "Reasoning:The context mentions that \"Posh\" is an informal abbreviation of \"possession,\" which refers to a building or estate.\nAnswer: possession",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "61d336b47b120cb15772df5bd8c024dbe7651bad",
+   "question": "What happens if a person sees the full moon?",
+   "response": "Reasoning:The context states that during a full moon, the Moon appears less bright and has less surface detail visible compared to other phases like the quarter and crescent phases. It also mentions that the full moon can wash out substantial amounts of detail and leave an afterimage on an observer's eye that can persist for several minutes.\nAnswer: The full moon can wash out substantial amounts of detail and leave an afterimage on an observer's eye that can persist for several minutes.",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "2e431f9f9552e9675b568a2164b62c0bf21423e9",
+   "question": "She studied for a masters in New York and is an author of multiple books. Her name is Hillary what?",
+   "response": "Reasoning:The context mentions that Hillary Rodham Clinton earned a master's degree in international relations from the New School for Social Research in 1980 and has written several books including \"The Work of Democracy\" and \"It Takes a Village\".\nAnswer: Clinton",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "38dc09c1cdd986c0d1410a84f41b10d25bb44a90",
+   "question": "Why is Scotland part of England?",
+   "response": "Reasoning:The context mentions that Scotland became part of England after the Wars of Scottish Independence in the 14th century, and subsequently became an official part of England in 1707 with the passage of the Act of Union.\nAnswer: Act of Union",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "89baf1844f3f247f5716f7f9451f8503d9dfd273",
+   "question": "Who elects a new Pope?",
+   "response": "Reasoning:The context mentions that when a pope dies, the cardinal-bishops should confer among themselves to choose a candidate, and then proceed to an election with all other cardinals.\nAnswer: Cardinal-bishops and cardinals",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "642aab2e7b9ebd0d22ea7ab40846656d3e8dd6d3",
+   "question": "Trick question: what was Eleanor Roosevelt's maiden name?",
+   "response": "Reasoning:Eleanor Roosevelt was born Anna Eleanor Roosevelt. Her full birth name includes her maiden name, which is Anna.\nAnswer: Anna",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "2b180b4c46526376a5ecc6dc9d19f712dc255f3b",
+   "question": "The first issue of which British children\u2019s comic was published in April 1950?",
+   "response": "Reasoning:The context mentions that \"Beano\" was launched in December 1954 and \"Dandy\" followed in January 1955. This indicates that the first issue of a British children's comic was likely \"Beano\".\nAnswer: Beano",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "7b2c2ceeb3232f7667916187b1ef5670c978402b",
+   "question": "How many people have absolute pitch?",
+   "response": "Reasoning:The context provides multiple pieces of information about the rarity of absolute pitch, including that it occurs in as few as 1 in 10,000 people.\nAnswer: 1 in 10,000",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "41b8660868bf7e7a8b3a51fd050d4795bf47839c",
+   "question": "In the U.S., is it legal to discuss your salary with your coworkers?",
+   "response": "Reasoning:The context mentions that federal law prohibits federal employees from discussing their salaries with others who are not authorized to receive that information. However, it also states that state laws vary regarding whether private-sector employees can discuss their salaries with coworkers.\nAnswer: It depends on the context and the specific laws applicable.",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "2ee169120c94ee1dc4a8dc766b2ee4bfaf27adab",
+   "question": "If a cricket match is curtailed because of inclement weather, what system is used to determine a result?",
+   "response": "Reasoning:The context mentions that in the case of inclement weather, if a game is stopped, the Duckworth-Lewis-Stern method is often used to recalculate a new target score.\nAnswer: Duckworth-Lewis-Stern method",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "08a104c4f039cf76ceabc3b722f20db4ad405ed7",
+   "question": "Julie Pankhurst made a fortune creating which website?",
+   "response": "Reasoning:The context mentions that Amanda Hocking became a millionaire after publishing her books online. It states that she uploaded several books in 2010 and sold a few dozen copies, eventually quitting her daytime job due to earnings from her writing.\nAnswer: Amanda Hocking",
+   "label": "OFF",
+   "kind": "subject_or_type_drift"
+  },
+  {
+   "key": "d266915658b837930f495fea0d61d5503b2bbaef",
+   "question": "Katie Melua was born in which republic of the USSR, now anindependent country",
+   "response": "Reasoning: The context mentions Katie's early life but does not specify her birth republic within the USSR. The context does not provide information about Katie Melua's birth republic within the USSR. The context does not provide information about Katie Melua's birth republic within the USSR. The context does not provide information about Katie Melua's birth republic within the USSR. The given context does not contain any information about Katie Melua's birth republic within the USSR. The provided context does not mention Katie Melua or her birth republic within the USSR. The context does not provide any information about Katie Melua or her birth republic within the USSR. The context does not provide any information about Katie Melua or her birth republic within the USSR.\nAnswer: The given context does not provide information about Katie Melua's birth republic within the USSR.",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "c3d3f26cd0bef7f643860356df8c6408a87b2b51",
+   "question": "When in the sleep cycle does dreaming occur?",
+   "response": "Reasoning:During REM sleep\nAnswer:",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "2fae3da4e42cc440f426b01bd4678027261b5192",
+   "question": "What happens if a sailor hears someone singing?",
+   "response": "Reasoning:The context mentions that sailors often hear various sounds at sea, including music and singing.\nAnswer: sailors hear music",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "2b323a086e985df9dedd90923a396c66edbd7c10",
+   "question": "Prior to Gordon Brown, who was the last British Prime Minister to represent a Scottish constituency?",
+   "response": "Reasoning:The context mentions that before becoming the 14th Prime Minister, Gordon Brown was the Member of Parliament (MP) for Clackmannanshire and Dunblane since 2001 and was appointed Minister for Housing and Transport in 2011.\nAnswer: Gordon Brown",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "fba919067c81ca8f10d006b3ec00afe45f2dd6c1",
+   "question": "What is the Southern India savoury steamed cake made of rice and served with chutney?",
+   "response": "Reasoning: The context mentions puttu, which is described as a granular, dry, but soft steamed rice powder. Puttu is mentioned in the context and is described as a steamed rice dish. Puttu is described as a steamed rice dish in the context. Puttu is described as a steamed rice dish in the context and is mentioned alongside chutney. Puttu is mentioned in the context and is described as a steamed rice dish often served with chutney. Answer: Puttu",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "0ecc028e54c4830e8619c9e44fb1bd137e1b6600",
+   "question": "Matthais Muller was made chief of which troubled car company in 2015?",
+   "response": "Reasoning: The context states that Matthias M\u00fcller was appointed the CEO of Volkswagen AG on 25 September 2015. The context mentions Matthias M\u00fcller as the CEO of Volkswagen AG on 25 September 2015. The context mentions Matthias M\u00fcller becoming the CEO of Volkswagen AG on 25 September 2015. The context mentions Matthias M\u00fcller's appointment as CEO of Volkswagen AG in 2015. The context provides information about Volkswagen's product lineup but does not mention any troubled car company or Matthias M\u00fcller's specific role in 2015. The context mentions Matthias M\u00fcller becoming the CEO of Volkswagen AG on 25 September 2015. The context clearly states that Matthias M\u00fcller was appointed the CEO of Volkswagen AG on 25 September 2015. The context explicitly states that Matthias M\u00fcller was appointed the CEO of Volkswagen AG on 25 September 2015.\nAnswer: Volkswagen AG",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "7c9147cc2bd3869c9b5135608d624c7cc071a866",
+   "question": "What acid is found in tea?",
+   "response": "Reasoning: The context mentions several acids found in tea, including vanillic acid. The context lists several acids found in tea, including vanillic acid. The context explicitly mentions vanillic acid as a catechin metabolite found in humans after consuming green tea infusions. The context directly mentions vanillic acid as a catechin metabolite found in humans after consuming green tea infusions. Therefore, vanillic acid is the acid found in tea. Answer: Vanillic acid.",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "83c23fcae54060fab1d59f24767480f94be0322f",
+   "question": "Which river runs through York?",
+   "response": "Reasoning:The context mentions that the York River flows through York, ending at US 1A southeast of downtown York.\nAnswer: York River",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "28e95644f5c47ab7dc98f64f7032ecca68b60b8f",
+   "question": "What happened to the largest beanstalk that ever existed?",
+   "response": "Reasoning:The context mentions that the original beanstalk mentioned in the Bible was described as \"an hundred cubits high\" and was part of the story of Adam's burial place. It also states that the largest beanstalk mentioned in the Bible was 100 cubits high, which is described as extremely tall.\nAnswer: disappeared",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "f458c57960ea36fe0423ddb868780b3d75c462b2",
+   "question": "In the 1971 Number One hit Ernie by Benny Hill, what was the name of the widow that Ernie loved who lived at 22 Linley?",
+   "response": "Reasoning:The context mentions that the 1971 number one hit \"Ernie\" by Benny Hill is based on the story of a milkman named Ernie who is killed in a tragic accident. It also states that the widow of Ernie lives at 22 Linley.\nAnswer: 22 Linley",
+   "label": "OFF",
+   "kind": "subject_or_type_drift"
+  },
+  {
+   "key": "3b4ab19a03fb20aea2d2e37c543410d50d18e048",
+   "question": "When in the sleep cycle does dreaming occur?",
+   "response": "Reasoning:Dreaming primarily occurs during the rapid eye movement (REM) stage of the sleep cycle. This stage is characterized by rapid eye movements and increased brain activity, which are associated with vivid dreaming.\n\nAnswer: Dreaming primarily occurs during the REM stage of the sleep cycle.",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "48f16c6d26aab2869ef7ab8891ededb7e0f8fc4e",
+   "question": "What's a fact that everyone in Canada knows is true?",
+   "response": "Reasoning:In Canada, it is widely known that maple syrup is a significant product and ingredient, often used in various dishes and beverages. This fact is deeply ingrained in Canadian culture and daily life.\nAnswer: Maple syrup is a key ingredient in many Canadian dishes and beverages.",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "6948ca9d2a118ad4baa2028501ff472165b652cd",
+   "question": "Chim Chim Cheree, I Love to Laugh and Feed the Birds are all songs from which film?",
+   "response": "Reasoning:To determine the film, we need to identify the song titles and recall which animated Disney film they come from. \"Chim Chim Cheree\" is famously known as an iconic song from the 1940 animated film \"Pinocchio,\" while \"I Love to Laugh and Feed the Birds\" is also a well-known song from \"Pinocchio.\"\n\nAnswer: \"Pinocchio\"",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "25047a5eac5bbbc7d662092c888a80cf1cbb6000",
+   "question": "Are people richer on average in Japan than in the US?",
+   "response": "Reasoning:The context provides GDP statistics for Japan but does not provide comparable data for the US.\nAnswer: I do not know",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "926a39806780703a78d7b9cc95d32ab9a8337217",
+   "question": "La Brabanconne is the national anthem of which country?",
+   "response": "Reasoning:La Brabanconne is a well-known French patriotic song that has been used as an unofficial anthem for France. It gained prominence during the French Revolution and was particularly associated with the movement in Brabant.\nAnswer: La Brabanconne is the national anthem of France.",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "47d87bd70c51ff2b6aac4e65b0a8e9d5806989fc",
+   "question": "Which national team beat Hungary 4-2 to win the 1938 FIFA World Cup?",
+   "response": "Reasoning: The context mentions Hungary losing 4-2 to Italy in the 1938 FIFA World Cup final. The context discusses Hungary's performance in the 1938 FIFA World Cup but does not mention a team beating them 4-2. The context does not provide information about any team beating Hungary 4-2 in the 1938 FIFA World Cup. The context does not discuss the 1938 FIFA World Cup or any match results. The context does not mention any team beating Hungary 4-2 in the 1938 FIFA World Cup. The context does not mention any team beating Hungary 4-2 in the 1938 FIFA World Cup. The context does not mention any team beating Hungary 4-2 in the 1938 FIFA World Cup. The context does not mention any team beating Hungary 4-2 in the 1938 FIFA World Cup.\nAnswer: Italy beat Hungary 4-2 to win the 1938 FIFA World Cup.",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "fdc44b8be1ff573b082b0eb2283343251228e926",
+   "question": "In which countries in Europe is weed legal?",
+   "response": "Reasoning:",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "fda1d703e619fc5dee4579b9e0aaeb518fde9b7d",
+   "question": "Why do chameleons change colors?",
+   "response": "Reasoning:The context provides multiple descriptions of chameleon color changes, including changes due to light and temperature stimuli, emotional expressions, and specific behavioral contexts like mating season and excitement/stress. It mentions that chameleons can change color to blend into their surroundings and to communicate.\nAnswer: to blend into surroundings and to communicate",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "89b4bf8a977585e4bd294f06909a676b8cf4c060",
+   "question": "Where, since 1839, is the Grand National Steeplechase run over 4 1/2 miles in England in March?",
+   "response": "Reasoning:The context provides details about the Grand National Steeplechase from 1839 onwards, including its location and distance. It mentions that the race has been held at Aintree Racecourse since 1839.\nAnswer: Aintree Racecourse",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "1ca7e6a1cae65ac7e3e0e6d07f547ea5eac18f50",
+   "question": "What words describe all lawyers?",
+   "response": "Reasoning:Lawyers come from various legal backgrounds and specialize in different areas, so there is no single word that describes all lawyers universally. Therefore, the claim cannot be supported or refuted definitively without more specific information.\n\nAnswer: not enough info",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "fb0567ecebd0b8ce75723464f46caeddf7c1e7ee",
+   "question": "If you raise a chimpanzee like a human child, what does it learn to do?",
+   "response": "Reasoning:The context mentions that Annie, who raised Nim as a human child, found that Nim showed remarkable similarities to human children in various aspects of development, including following verbal commands, understanding the referential meaning of words, and using language creatively. This suggests that raising a chimpanzee like a human child allows them to learn to use language and follow instructions.\nAnswer: use language",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "c472317bfc8d815d1573ec0eaa076cc5949f72b5",
+   "question": "What are people born in the United States who won a Nobel Prize for Physiology?",
+   "response": "Reasoning:The context mentions several Nobel laureates but does not specifically list those who were born in the United States and won a Nobel Prize in Physiology or Medicine.\nAnswer: I do not know.",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "be7c8711a487c711fb463d8853f0ef67ab82d3b7",
+   "question": "Who built the original Palace of Versailles that was enlarged by Louis XIV?",
+   "response": "Reasoning:The Palace of Versailles was originally constructed as a hunting lodge for King Louis XIII and his wife Queen Anne. It was later expanded significantly during the reign of Louis XIV, who transformed it into the grand palace we know today.\nAnswer: The original Palace of Versailles was built as a hunting lodge for King Louis XIII and Queen Anne, and it was enlarged and transformed into the grand palace by Louis XIV.",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "d39621854cebbaa5a0ab5e670f749800c3970db7",
+   "question": "Which drink is advertised as \u2018charcoal mellowed, drop by drop\u2019?",
+   "response": "Reasoning:Charcoal mellowed coffee\nAnswer:Coffee",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "5fec6551ade8b1a1d935675a1a2467a03d9cb537",
+   "question": "What is the only letter of the alphabet which does not appear in any of the names of the 50 American states?",
+   "response": "Reasoning:The letter A does not appear in any of the state names",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "25ac3a5dd2bb9f657da533ad85b8da7fd14ed54b",
+   "question": "What items is anyone in Canada legally allowed to carry?",
+   "response": "Reasoning:In Canada, there are specific laws regarding what items can be carried by individuals. These laws vary based on factors such as age and type of item. Generally, most items are allowed unless they are explicitly prohibited by law.\nAnswer: Anyone in Canada is generally allowed to carry most items, but certain items like firearms, alcohol, and tobacco may require permits or have restrictions depending on the individual's age and location.",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "d45be88cf954ae374c60d0697a0d9b9e07c4feb1",
+   "question": "What's a belief you have that people find controversial?",
+   "response": "Reasoning:Many people hold beliefs that are considered controversial due to their opposition to established norms or values. A common example is the belief in climate change caused by human activities, which some individuals dispute based on differing interpretations of scientific evidence and economic interests.\nAnswer: I believe in the scientific consensus that human activities are causing global climate change.",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "5ebbbcd70904a5f8095dc5d6cc39dec95d8912e5",
+   "question": "Which war veterna, who died in 2009 had the nickname 'The Last Fighting Tommy'?",
+   "response": "Reasoning:Tommy Seabrook was a British soldier who served in World War I and World War II. He was known as the last surviving veteran of the First World War and the last fighting Tommy.",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "4acb783e1fcd664d4150e365d3d41a9052e2e075",
+   "question": "What did CERN do in 2012?",
+   "response": "Reasoning:The context provided does not contain any information about activities performed by CERN in 2012.\n\nAnswer: I do not know",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "c51fe66cc90b791fae1573e99e3796e23cc702e9",
+   "question": "The pasta, farfalle, is named after which creature?",
+   "response": "Reasoning:The context mentions \"Faraglioni\" as creatures found at Italian coasts, but there is no mention of pasta named after any creature.\n\nAnswer: I do not know",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "5597009a823ae5984a4d3528a0a596dac99252ff",
+   "question": "Apart from white, what colour are the other two \u2018triangles\u2019 on the BMW logo?",
+   "response": "Reasoning:The context describes the BMW logo's colors, mentioning azure (blue) and argent (white). It also states that the other two colors are azure (blue) and argent (white).\nAnswer: azure",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "0baf4a5b7d120b7278f02e69ce38661395161d90",
+   "question": "How many people are in your family?",
+   "response": "Reasoning:To answer this question, I need to recall the members of my immediate family including parents, siblings, and myself. However, without actively thinking about my family composition, I cannot provide an exact number.\nAnswer: The number of people in my family varies depending on who is considered part of the family, but as of now, I would say there are 4 people (including myself).",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "f5d1b9abedaa688cf596d57dbc608c2c23b6c3e7",
+   "question": "Which English producer and screenwriter is responsible for the creation of the fictional school Grange Hill ?",
+   "response": "Reasoning:The context mentions that Roger Singleton-Turner won a BAFTA for Best Children's Programme in 1980 for his work on Grange Hill. Additionally, it states that Grange Hill was set at a fictitious school called Grange Hill School.\nAnswer: Roger Singleton-Turner",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "1449ba14f8e9ac31e6af27b65f79977542f2ce5a",
+   "question": "What's an ethnic group where everyone loves doing special favors to their family?",
+   "response": "Reasoning:The context mentions that in Subanon society, spouses can expect assistance in many activities from both their parents and their kin, and they in turn extend their help to these relatives when it is needed. This indicates that the Subanons have a strong sense of family loyalty and willingness to help each other.\nAnswer: Subanon",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "4ae8dd36da9c585b6bf4bcfb64c0cf0b3a672b0c",
+   "question": "In which book did Edgar Linton marry Catherine Eamshaw?",
+   "response": "Reasoning:Linton and Catherine got married in Wuthering Heights",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "d363a559f33982bdbefe3e7759979bdbc3708108",
+   "question": "What is the composition of the trails left in the sky by aircraft?",
+   "response": "Reasoning:The context mentions that aircraft leave contrails, which are thin, straight, white lines of condensed water vapor in the sky.\nAnswer: contrails",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "ab47566339a5848492c9f965bf91ecc290f0c2e2",
+   "question": "The letter t is the second most common letter used in the English language?",
+   "response": "Reasoning:The frequency of the letter 't' in the English language is approximately 9.05%, which is indeed the second most common letter after 'e'. This information is widely documented and can be verified through linguistic studies.\nAnswer: supports",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "883984ba73816c3b63f2ff3b0169551e71eb7390",
+   "question": "On a standard dartboard, which number lies between 12 and 20?",
+   "response": "Reasoning:The context mentions that the number sequence on a dartboard is the same as on an English dart board, and provides details about the layout and colors of the dartboard. It also states that the bullseye is colored red and is part of the single scoring area.\nAnswer: 13",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "77b13e18cfe51d9adf46507f9c59daf72b8ea04d",
+   "question": "Who were the first team to concede 100 goals in a season in the Premiership",
+   "response": "Reasoning:The context mentions that the fewest league goals conceded in a season was 35 in 42 matches, First Division, 1991-92. However, it also states that the most league goals conceded in a season was 106 in 46 matches, Third Division, 1965-66. This suggests that no team has conceded 100 goals in a season in the Premiership.\nAnswer: I do not know",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "32226d2603e289ef033b648e477f32e6f14ad2da",
+   "question": "Which brewery makes Lancaster Bomber and Wainwrights fine ale?",
+   "response": "Reasoning:To determine which brewery makes Lancaster Bomber and Wainwrights fine ale, we would need specific information about the breweries that produce these particular beers. This information is not provided in the question, so we cannot definitively state which brewery produces both beers.\n\nAnswer: not enough info",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "725b0908ac36e9b99959a80c75c4155f06ae8484",
+   "question": "What name links a Labour MP and a professional golfer?",
+   "response": "Reasoning:A Labour MP and a professional golfer could be linked through their shared name. One example is Keir Starmer, who is a Labour Member of Parliament and also plays golf professionally under the name Keir Dons.\nAnswer: supports",
+   "label": "OFF",
+   "kind": "label_leak"
+  },
+  {
+   "key": "a62ac0688601146e98cb2390ab38d6c5610a7166",
+   "question": "Who led the first European expedition to America?",
+   "response": "Reasoning:Christopher Columbus was the most famous explorer who led the first recorded voyage across the Atlantic Ocean from Europe to North America in 1492. This expedition was sponsored by the Spanish monarchy and aimed at finding a new trade route to Asia but inadvertently discovered the Americas.\nAnswer: Christopher Columbus led the first European expedition to America.",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "9d400e2e0be1e137c26bb11811444ad7d142eb62",
+   "question": "What is the most abundant chemical element in the Milky Way with a double-digit atomic number?",
+   "response": "Reasoning: The context provides information about the abundance of elements in the Solar System and the Milky Way, including elements with double-digit atomic numbers. The context discusses elements with double-digit atomic numbers but does not specify their abundance in the Milky Way. The context mentions elements with double-digit atomic numbers but does not specify their abundance in the Milky Way. The context discusses elements with double-digit atomic numbers but does not specify their abundance in the Milky Way. The context provides information about the abundance of elements in the Solar System and the Milky Way, including elements with double-digit atomic numbers. The context discusses elements in the Solar System and Milky Way but does not provide specific abundances for elements with double-digit atomic numbers. The context discusses elements with double-digit atomic numbers but does not specify their abundance in the Milky Way. The context discusses elements with double-digit atomic numbers but does not specify their abundance in the Milky Way.\nAnswer: Oxygen",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "d9eb14e8778c0e11b6422a941ebc4d23df8346fb",
+   "question": "Which band have announced they have recorded the official Wales anthem for the upcoming Euro football championship, entitled Together Stronger (C\u2019mon Wales)?",
+   "response": "Reasoning:The context mentions that Rob Taylor, who is part of the band featuring members like Gareth Paisey, Neil Beale, Tom Bromley, Kim Paisey, Jason Adelinia, and Matt Fidler, has been involved in creating music for the Welsh national anthem. Additionally, it states that Rob Taylor composed the song \"Together Stronger\" which was chosen as the official song for the 2023 FIFA World Cup qualifier against Iran.\nAnswer: The context mentions that Rob Taylor composed the song \"Together Stronger\" which was chosen as the official song for the 2023 FIFA World Cup qualifier against Iran. Therefore, the band mentioned in context [4] has announced they have recorded the official Wales anthem for the upcoming Euro football championship, entitled Together Stronger (C\u2019mon Wales).\nAnswer: The context mentions multiple bands related to Welsh music, but specifically states that Rob Taylor composed the song \"Together Stronger\" which was chosen as the official song for the 2023 FIFA World Cup qualifier against Iran. Therefore, the band mentioned in context [4] has announced they have recorded the official Wales anthem for the upcoming Euro football championship, entitled Together Stronger (C\u2019mon Wales).",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "0b6a627f2a6e2824fef26cd4e5ff0f6ff2359ce8",
+   "question": "\"The Album \"\"No Angel\"\" was the number 1 selling album in the UK in 2001, and the singer who recorded the album won the Brit. Award for best album. Who was the singer?\"",
+   "response": "Reasoning:The context mentions that \"No Angel\" was the lead single from the album \"No Angel\", which was released in 2001. It also states that the album was the number one selling album in the UK in 2001, and that the singer who recorded the album won the Brit Award for best album.\nAnswer: Christina Aguilera",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "9d3dd78ee809073fc6f61c749ff323b3fe848718",
+   "question": "Who lived closer in time: the Stegosaurus and the T-Rex, or the T-Rex and humans?",
+   "response": "Reasoning:The context provides dates for both Stegosaurus (later part of the Jurassic and early Cretaceous) and T-Rex (last two million years of the Cretaceous Period), but does not provide a specific date for humans.\nAnswer: I do not know",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "48e8b89bcd81afa996ebe06294cf3c09533c1a42",
+   "question": "Who played Grandad in the UK television series \u2018Only Fools and Horses\u2019?",
+   "response": "Reasoning:The context mentions that Derek Jacobi played the role of Uncle Albert \"Grandad\" Schmidt in the UK television adaptation of Only Fools and Horses.\nAnswer: Derek Jacobi",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "a6af05b994ac5a6c528a36c406ee59b39e567cfa",
+   "question": "Who first started Tesla Motors?",
+   "response": "Reasoning:The context states that Tesla Motors was founded by Martin Eberhard and Marc Tarpenning in 2003.\nAnswer: Martin Eberhard",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "abda98a7c6b69403ebc6b6fcd4fc9e20e7483223",
+   "question": "\"The song \"\"If I Ruled The World\"\" comes from which musical?\"",
+   "response": "Reasoning:The context mentions \"If I Ruled the World\" as a song from the score of a production, but does not specify which musical it comes from.\nAnswer: I do not know.",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "ae19adb61ee86cc0e41709d3c55af75774d29a16",
+   "question": "Which craft involves using knots and hitches to make textiles?",
+   "response": "Reasoning:The context mentions that Chinese knotting is described as part of fibre and textile crafts, including bobbin lace, felting, knotting, macram\u00e9, rope-making, rug making, spinning, tatting, and weaving. It specifically states \"Knotting\" under fibre and textile crafts.\nAnswer: Chinese knotting",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "01c17b7303449701fcb5439cb9eb6e2e7ab339b4",
+   "question": "In 1987, the Fdracion International del Volleyball arranged the first World Beach Volleyball Championships, which was played where?",
+   "response": "Reasoning:The F\u00e9d\u00e9ration Internationale de Volleyball (FIVB) organizes beach volleyball championships globally. Given that the first World Beach Volleyball Championships were held in 1987, we need to find the location where these championships took place.\nAnswer: The first World Beach Volleyball Championships in 1987 were held in Caracas, Venezuela.",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "3c073ca9f3ab30ca77e53d38f43e7c26fa2621cc",
+   "question": "Which large country spends the most on international tourism?",
+   "response": "Reasoning: The context states that the United States and China are the top spenders on international tourism. The context mentions the United States and China as major players in international tourism. The context provides information about countries spending on international tourism but does not specify which large country spends the most. The context explicitly states that the United States and China are the top spenders on international tourism. The context explicitly states that the United States and China are the top spenders on international tourism. The context explicitly states that the United States and China are the top spenders on international tourism. The context explicitly states that the United States and China are the top spenders on international tourism. The context explicitly states that the United States and China are the top spenders on international tourism.\nAnswer: United States",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "3c5044b78471b41e0547d9fb1a135f874978adf6",
+   "question": "In which countries in Europe is weed legal?",
+   "response": "Reasoning:The context mentions that in the Netherlands, marijuana is sold in \"coffeeshops\" which are legal, and in Switzerland, cannabis clubs are regulated by law.\nAnswer: Netherlands, Switzerland",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "47d0cba3f19cec7b614bc1b796d825bfbbeb703e",
+   "question": "Which 590 mile long river rises on France's 'Langres Plateau', enters Belgium at Givet, then flows across that country to Holland and thence to the North Sea?",
+   "response": "Reasoning:The Meuse River is a river of Europe, rising in France and flowing through Belgium into the North Sea.",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "6aacd276ed156eab103f208ea55766d8fe093343",
+   "question": "Known for singing, this famous American (who also writes) is happily married. Her name is Hillary what?",
+   "response": "Reasoning:The context mentions that Hilary Benn is described as a British writer and politician, but it also states that he is married to Hillary Clinton.\nAnswer: Clinton",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "fac8c9567bca895c98ebf6d039f484dd1b5ebcb1",
+   "question": "By what name was the American short-story writer William Sydney Porter better known?",
+   "response": "Reasoning:The context mentions that William Sydney Porter wrote stories under the pen name \"Miss O. Henry\".\nAnswer: Miss O. Henry",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "3eeb000da6d23f40cc58bc2d9e314246135eb3e9",
+   "question": "What is a popular name for the North American bison?",
+   "response": "Reasoning:The context mentions that the original Native American name for the bison was \" buffalo,\" and provides information about the bison's habitat and population decline.\nAnswer: Bison",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "b537bfafc577467aaa7fbe8624161c285e176184",
+   "question": "Why is it dangerous to be an organ donor?",
+   "response": "Reasoning:The context mentions that becoming an organ donor can lead to increased scrutiny and potential harassment from others who may view your organs as a commodity.\nAnswer: Increased scrutiny",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "0288aa4a8bc7349fbdc33f1e184ccc04df9ed044",
+   "question": "Alan Coren, who died in 2007, and Sandi Tostvig were rival captains on which TV game show?",
+   "response": "Reasoning:The context mentions that Seann Walsh and Robert Webb took over as team captains for the show, but it specifically states they replaced John Sergeant and Sean Lock as team captains. There is no mention of Alan Coren or Sandi Tostvig as team captains.\n\nAnswer: I do not know",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "51111fc5c216ff30c1bae7e6be3d611e5f20ebd1",
+   "question": "What's next for Jennifer Aniston?",
+   "response": "Reasoning:Jennifer Aniston has been relatively quiet in recent years after her high-profile marriage to Brad Pitt ended. She has not announced any major projects or roles recently, but she remains a well-known figure in Hollywood. Given her career history and current status, it's likely she will continue to work in film and television, possibly taking on new projects or roles that align with her interests.\n\nAnswer: Jennifer Aniston is likely to continue working in film and television, potentially taking on new projects or roles that align with her interests.",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "4c8d01ba2084e8485418e49db2512449864f12df",
+   "question": "What was the name of the 1976 film that told the story of Woody Guthrie?",
+   "response": "Reasoning:The context mentions multiple instances where the 1976 film is referenced, including \"It was adapted into a 1976 film, Alice's Restaurant, directed by Arthur Penn\".\nAnswer: Alice's Restaurant",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "c25ed634b9de2690420833e8a472679c28cb0130",
+   "question": "Are there wizards living in the West Country?",
+   "response": "Reasoning:The context mentions multiple magical creatures and beings in the West Country, including goblins and trolls.\nAnswer: Yes",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "9135233d3c13abe00d456bfd9b895a23b6af7809",
+   "question": "What is an example of a place where people smoke more on average than in Spain?",
+   "response": "Reasoning:The context mentions that in Portugal, smoking was more widespread and occurred at earlier ages than in Spain. Additionally, it states that the number of smokers in Spain was lower than in Portugal.\nAnswer: Portugal",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "f349ca6f50838d25e429ddcf874d1cb5582d0fa0",
+   "question": "Can you be a non-Christian Christian, and if so, how?",
+   "response": "Reasoning:The context mentions that being a Christian does not necessarily mean following all aspects of traditional Christianity. It also states that Christians can have different beliefs and practices without being considered heretical.\nAnswer: Yes",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "0a94cf0b5cbb2fd3843bef65cf7585183865afef",
+   "question": "Who wrote the opera A Masked Ball?",
+   "response": "Reasoning: The opera \"A Masked Ball\" is mentioned in the context, but its source is not specified. The context mentions the libretto writer but not the composer. The context does not specify who wrote the libretto for \"A Masked Ball\". The context does not specify who wrote the libretto for \"A Masked Ball\". The context mentions a 1917 Hungarian film called \"Masked Ball\", but does not provide information about an opera titled \"A Masked Ball\". The context does not specify who wrote the libretto for \"A Masked Ball\". The context provides information about a 1917 Hungarian film but does not mention an opera titled \"A Masked Ball\". The context mentions a 1917 Hungarian film but does not provide information about an opera titled \"A Masked Ball\".\nAnswer: The specific composer and librettist for the opera \"A Masked Ball\" are not provided in the given context.",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "4843ccb4f714f88e3150318111bfd7317bda3a20",
+   "question": "What did Mark Twain say about false claims of his death?",
+   "response": "Reasoning:The context mentions that after receiving negative press coverage, Mark Twain wrote a letter to his daughter Clara stating, \"Give me my glasses.\" This indicates that Mark Twain was concerned about the accuracy of reports claiming his death and wanted to verify them.\nAnswer: Give me my glasses",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "7f659708c8963dd1cf20d1ced11e54f12def3ca1",
+   "question": "Julie Pankhurst made a fortune creating which website?",
+   "response": "Reasoning:The context mentions that Amanda Hocking made a fortune through selling her web fiction, including the series \"The Unbound\" which was later published by Macmillan.\nAnswer: The Unbound",
+   "label": "OFF",
+   "kind": "subject_or_type_drift"
+  },
+  {
+   "key": "947c5793980b65f333ad04c6cdae19480f1ad0ae",
+   "question": "What happens to you if you eat watermelon seeds?",
+   "response": "Reasoning:The context states that all parts of the plant, including the seeds, are toxic and can cause symptoms up to respiratory failure leading to death if eaten.\nAnswer: Death",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "45c78f8586d9787370d7cab537d105b22d8ef12c",
+   "question": "Which composer did Igor Stravinsky accuse of writing the same concerto 500 times?",
+   "response": "Reasoning:Igor Stravinsky was accused of writing the same concerto 500 times by Sergei Prokofiev",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "f4edd73013370d423e08f6dc92f96fe73114ad13",
+   "question": "In which country is the Mekong Delta?",
+   "response": "Reasoning:The Mekong Delta is a region located at the mouth of the Mekong River. To identify the country where this delta is situated, we need to consider the countries that the Mekong River flows through and ends in.\nAnswer: The Mekong Delta is located in Vietnam.",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "2de5f53884041bec52798c073d6b5812d4eae08f",
+   "question": "Has Nigeria won a Nobel Prize?",
+   "response": "Reasoning:The context mentions that Bob Marley received the Nobel Peace Prize in 2001, and since he was born in Jamaica and has strong ties to Nigeria, it can be inferred that Nigeria indirectly contributed to his eligibility for the prize.\nAnswer: No",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "23e310da839b3b840febf9b0f0294aa67c97bc4c",
+   "question": "In the US it's illegal to do what to a flag?",
+   "response": "Reasoning:The context mentions that the Flag Protection Act of 2005 made it illegal to burn or destroy the United States flag with the intent to intimidate or incite violence.\nAnswer: Burn or destroy",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "34dc2554af2ddea8d14f62f17e7ee27f863358e2",
+   "question": "What happens if you stand in front of a mirror and say \"Bloody Mary\" three times?",
+   "response": "Reasoning: The context describes Bloody Mary appearing as a corpse or ghost in a mirror. The context describes Bloody Mary appearing in a mirror after chanting her name. The context mentions Bloody Mary appearing in a mirror after chanting her name. The context describes Bloody Mary appearing in a mirror after chanting her name. The context describes Bloody Mary appearing in a mirror after chanting her name. The context explicitly states Bloody Mary appears in a mirror after chanting her name. The context explicitly states Bloody Mary appears in a mirror after chanting her name. The context describes Bloody Mary appearing in a mirror after chanting her name.\nAnswer: Bloody Mary appears in the mirror.",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "07bf1458846a2401d1e7811366b7141229ab03b4",
+   "question": "Did food get much harder for Americans to afford since 1950?",
+   "response": "Reasoning:The context mentions a significant increase in household spending on food from 2004 to 2007, indicating higher costs.\nAnswer: Yes",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "7b10d2f4b3b50ae3e6f401a78aa222d2897225da",
+   "question": "It's illegal to marry which relative (in Canada)?",
+   "response": "Reasoning:The context mentions that in some Canadian states, sex between first cousins is prohibited. This aligns with the definition of incest provided in text [2], which states that marriage is prohibited between a person and their first cousin.\nAnswer: First cousin",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "74d2ef7501caf1b62ebcba243fa32e51a65c81b7",
+   "question": "Herman Van Rompuy became first Permanent President of what?",
+   "response": "Reasoning:Herman Van Rompuy served as the first Permanent Representative of the European Council, which is essentially the permanent presidency of the European Council. This position is a key role within the EU's institutional structure.\n\nAnswer: supports",
+   "label": "OFF",
+   "kind": "label_leak"
+  },
+  {
+   "key": "4348384825f4cca650519d98c924766f06fb5c96",
+   "question": "What board game for two players is known as wiq in Chinese and baduk in Korean?",
+   "response": "Reasoning:The context provided lists various board games but does not mention any game known as Wiq in Chinese or Baduk in Korean.\nAnswer: I do not know.",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "4937a571a6f54e239b5d4e146766d145261b6cf4",
+   "question": "Who, along with the March Hare, throws a perpetual tea party in Lewis Caroll's Alice's Adventures in Wonderland?",
+   "response": "Reasoning:The context mentions that the Cheshire Cat invites Alice to throw a perpetual tea party at the Queen of Hearts' palace.\nAnswer: the Cheshire Cat",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "3a2c5136c5f2ab62f006bd443702c59c13c730f2",
+   "question": "The Paragons originally recorded which 1980 hit single by Blondie?",
+   "response": "Reasoning:The context mentions that \"Heart of Glass\" was the second-highest-selling single of 1979 and was a global hit. It also states that \"Heart of Glass\" was included in Blondie's album Parallel Lines, which was mentioned in relation to their third album and worldwide success.\nAnswer: Heart of Glass",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "68b79d3c4aa5d64fa8410a751b05e52710d0eb7b",
+   "question": "Which Gilbert and Sullivan opera has the alternative title 'The Lass that Loved a Sailor'?",
+   "response": "Reasoning:The context mentions specific operas by Arthur Sullivan and their titles, but does not provide alternative titles for any of them.\nAnswer: I do not know.",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "5c29620568f4a9467c40fb63a074fbf344f05c60",
+   "question": "What's one thing that all Millennials have in common?",
+   "response": "Reasoning:The context mentions that Millennials are described as having seven \"core traits\" in \"Millennials Rising\", including \"special\".\nAnswer: Special",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "38dece31854183e1d47fe8e517d0a5e2cc3acbae",
+   "question": "What is an example of a place where people smoke more on average than in Spain?",
+   "response": "Reasoning:The context mentions that Spain has one of the lowest smoking rates among developed countries, indicating that smoking is less common in Spain compared to other nations.\nAnswer: United States",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "de9722d3e8c21b39489252cc4b8bbc38e4c54ae2",
+   "question": "What really happened to Korean Air Lines Flight 007?",
+   "response": "Reasoning:The context discusses various theories and alternative explanations for the incident but does not provide a definitive answer to what really happened.\n\nAnswer: I do not know",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "5987a6725b8f0ef062466e00555bb10eb21edab5",
+   "question": "At what 1876 battle was the US Army's 7th Cavalry wiped out to a man, leaving only a horse, Comanche, alive?",
+   "response": "Reasoning:The context mentions that on June 25, 1876, at the Battle of Little Bighorn, the 7th Cavalry under Colonel George Armstrong Custer was destroyed by a combined force of Sioux and Cheyenne warriors.\nAnswer: Battle of Little Bighorn",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "d81406966b33a40c0678a6d0fa1d8e55e7a65caf",
+   "question": "What happens if you clean your house on New Year's Day?",
+   "response": "Reasoning:The context mentions that cleaning one's house on New Year's Day is believed to sweep away bad luck and lead to a prosperous new year.\nAnswer: Cleaning your house on New Year's Day is believed to sweep away bad luck and lead to a prosperous new year.",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "bb9d0e3ac5bf56be30ef3f8af892e36b0dc9ebba",
+   "question": "The Paragons originally recorded which 1980 hit single by Blondie?",
+   "response": "Reasoning:The context mentions multiple Blondie singles including \"Picture This\" from the album Parallel Lines, which was released in 1978. However, it specifically states that \"Heart of Glass\" was a global hit and reached number one in the UK in 1979. There is no mention of a 1980 hit single by Blondie.\nAnswer: I do not know",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "0ecfe6abc1123845e090a6d3928285bb536085d2",
+   "question": "One Summer: America 1927 is a 2013 history book by which author?",
+   "response": "Reasoning:Erik Larsen",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "38313d9866135f7e66317d53ff10870e3086b28e",
+   "question": "Why is it dangerous to be an organ donor?",
+   "response": "Reasoning: The context mentions that kidney sellers suffer serious consequences, including increased risk of chronic kidney disease and pre-eclampsia. The context states that kidney sellers suffer serious consequences, including increased risk of chronic kidney disease and pre-eclampsia. The context discusses serious consequences for kidney sellers, including increased risk of chronic kidney disease and pre-eclampsia. The context mentions serious consequences for kidney sellers, including increased risk of chronic kidney disease and pre-eclampsia. The context discusses serious consequences for kidney sellers, including increased risk of chronic kidney disease and pre-eclampsia. The context discusses serious consequences for kidney sellers, including increased risk of chronic kidney disease and pre-eclampsia. The context discusses serious consequences for kidney sellers, including increased risk of chronic kidney disease and pre-eclampsia. The context discusses serious consequences for kidney sellers, including increased risk of chronic kidney disease and pre-eclampsia.\nAnswer: Being an organ seller, particularly for kidneys, can lead to serious health risks such as increased risk of chronic kidney disease and pre-eclampsia.",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "c24db7d0ee60cb8d7a9e699c97e78634e52fe7a3",
+   "question": "What are some activities that are totally legal in the Netherlands?",
+   "response": "Reasoning:The question asks for legal activities in the Netherlands, which typically include various forms of entertainment and leisure.\nAnswer: Nightclubs",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "990e19545c92fc76629ac0307390c499f4feaccc",
+   "question": "Can you marry your cousin in Australia?",
+   "response": "Reasoning:The context mentions that first cousins can marry in Australia unless they were raised apart and have a recognized relationship other than first cousin. However, it also states that most Australian jurisdictions allow first cousins to marry without any conditions.\nAnswer: Yes",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "fa6768f66251c75b0bc3192d1b3fd5967d2af023",
+   "question": "Cassandra was the pseudonym of which writer in the Daily Mirror?",
+   "response": "Reasoning:The context mentions that Cassandra is a 1983 novel by Christa Wolf, who is described as a German author. There is no mention of Cassandra being a pseudonym used by any writer in the Daily Mirror.\nAnswer: Christa Wolf",
+   "label": "OFF",
+   "kind": "subject_or_type_drift"
+  },
+  {
+   "key": "4707520f296c2a80d537175d28c1ae019512e239",
+   "question": "What is the name of the drag queen persona of Thomas Neuwirth, who won in 2014?",
+   "response": "Reasoning:The question asks about a specific drag queen persona from 2014 that Thomas Neuwirth won with.\nAnswer: Femme Napoleon",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "ceb4989c13b6e71f1a603590d3c4c5956fcad8a4",
+   "question": "What phenomenon was conclusively proven by J. B. Rhine?",
+   "response": "Reasoning:The context mentions that J. B. Rhine conducted experiments on extrasensory perception and psychokinesis, which were later discredited.\nAnswer: Extrasensory perception",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "d1402412f71358283c5f1fef839c7d7622103140",
+   "question": "\"According to Rudyard Kipling what were the \"\"two imposters\"\" to meet and treat the same day?\"",
+   "response": "Reasoning:The context mentions that Rudyard Kipling wrote \"The Two Impostors\" as part of his poem \"The White Man's Burden.\"\nAnswer: The Two Impostors",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "c5df76bf80f772940667e1900074023009ed2880",
+   "question": "What are the health benefits of pink Himalayan salt?",
+   "response": "Reasoning:Pink Himalayan salt contains more than 80 minerals and elements that are essential for human health. It is also less processed than regular table salt.",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "5a283280ceb783c7d583956f8db453cc95370f18",
+   "question": "Which war veterna, who died in 2009 had the nickname 'The Last Fighting Tommy'?",
+   "response": "Reasoning:The context mentions Tommy Reis who served in World War II and was known for his combat experience. It also states that he was adopted the name Larry Thorne and had a distinguished military career. The nickname \"The Last Fighting Tommy\" is mentioned in relation to Tommy Reis.\nAnswer: Tommy Reis",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "167f8c34784e3850fb19615d924d2b0cb929df86",
+   "question": "The Meltdown (2006) is the second in which series of films?",
+   "response": "Reasoning:The context mentions Meltdown: Days of Destruction as a 2006 television film, indicating it's part of a series of films titled \"Meltdown\".\nAnswer: Meltdown",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "46f39c5c5bd05fded141e440dce7ac784eda9476",
+   "question": "Which Gilbert and Sullivan operetta is sub-titled The Slave of Duty?",
+   "response": "Reasoning:To determine which Gilbert and Sullivan operetta is titled \"The Slave of Duty\", we need to recall their works and identify the one that matches this specific subtitle. Gilbert and Sullivan collaborated on several operettas, and \"The Yeomen of the Guard\" is known for its subtitle \"A Dramatic Humoresque\".\nAnswer: The operetta titled \"The Slave of Duty\" by Gilbert and Sullivan is not among their canon; the correct title they used was \"The Yeomen of the Guard\".",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "09849f9b6e3d71135224eee434d684e3fc4fc026",
+   "question": "What are the richest countries in the EU by GDP per capita?",
+   "response": "Reasoning: The context provides tables ranking countries by GDP per capita, but specific EU country rankings are not directly mentioned. The context lists various GDP per capita rankings but does not specifically rank the richest EU countries. The context does not provide specific rankings of the richest EU countries by GDP per capita. The context provides GDP per capita rankings but does not specifically rank the richest EU countries. The context provides GDP per capita rankings but does not specifically rank the richest EU countries. The context provides GDP per capita rankings but does not specifically rank the richest EU countries. The context provides GDP per capita rankings but does not specifically rank the richest EU countries. The context provides GDP per capita rankings but does not specifically rank the richest EU countries.\nAnswer: The given context does not contain specific information on the richest countries in the EU by GDP per capita.",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "31a135c77e9da46574a249b8e6010c06bc906813",
+   "question": "Are all Jews actually Jews?",
+   "response": "Reasoning:This question is asking if there is a universal definition or criteria for someone to be considered Jewish. While Judaism does have specific religious and cultural practices, there isn't a single, universally accepted definition that applies to all individuals claiming Jewish heritage. Therefore, not all Jews may meet the same criteria.\n\nAnswer: not enough info",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "d56e6e2f3cf12c85189d6c6f318556a0db7aeb21",
+   "question": "In the UK television series \u2018Doctor Who\u2019, what is the name of the leader of the underground-dwelling race \u2018Tractators\u2019?",
+   "response": "Reasoning:The provided context does not contain any information about the Tractators or their leader in the UK television series Doctor Who.\n\nAnswer: I do not know.",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "59d4bfca49dc6b7e417713470d326eff6cc434bb",
+   "question": "What's a fact that everyone in Canada knows is true?",
+   "response": "Reasoning:The context mentions that Canadians often ridicule American ignorance of things Canadian, implying a shared knowledge about Canadian culture and trivia.\nAnswer: Canadian trivia",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "e7ec599061604bf0e57619240bceb49144f66fd3",
+   "question": "How does drinking coffee affect your growth?",
+   "response": "Reasoning:Coffee contains stimulants that can affect growth by influencing sleep patterns and metabolism.\nAnswer: I do not know",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "ef35042eb3b3b8144fef79c4b042bbffba7946f0",
+   "question": "What is the Southern India savoury steamed cake made of rice and served with chutney?",
+   "response": "Reasoning:The context mentions that kue putu is a traditional cylindrical-shaped and green-colored steamed cake in South Indian cuisine, made of glutinous rice flour. It also states that serabi is a traditional pancake in South Indian cuisine.\nAnswer: Kue putu",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "390b32e47219d6a176e41a5e80770f7a65c487de",
+   "question": "Who designed the first American flag?",
+   "response": "Reasoning:The first American flag, known as the Continental Colors or the Grand Union Flag, was created by George Washington and others during the early days of the American Revolution. This flag featured the British Union Jack in the upper left corner and the stripes representing the colonies.\nAnswer: The first American flag was designed by George Washington and others.",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "760ce1fda9d0fc5f14f8321f533cb8c6753bfdb0",
+   "question": "Which English TV presenter became very famous on Dec 1st 1976 when he interviewed the punk band The Sex Pistols live on TV prompting much bad langauge from the band?",
+   "response": "Reasoning:The context mentions that Jonh Ingham worked for the British pop music newspaper Sounds in the mid-1970s and was a key journalist in the development of the punk rock pop and fashion music movement. It also states that he published the first press interview with the Sex Pistols.\nAnswer: Jonh Ingham",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "5b4fb0a5e5a8467d935322d33b37541a9e8c9812",
+   "question": "What harmful policies did the US government hide from the public?",
+   "response": "Reasoning:The context mentions the NSA electronic surveillance program and DARPA's Total Information Awareness as examples of hidden government monitoring programs after September 11.\nAnswer: NSA surveillance, TIA",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "53addf3df549b7c95f5724d6a798bfbb492564ac",
+   "question": "Nankey Poo, Poo Bah and Pish Tush are characters in which show?",
+   "response": "Reasoning:The given context does not mention any characters named Nankey Poo, Poo Bah, or Pish Tush.\nAnswer: I do not know.",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "01b11ab74197d5a7b35113501caa167488075f20",
+   "question": "Plovers or dotterels are a type of birds classed as a?",
+   "response": "Reasoning:The context provides multiple descriptions of the Charadriidae family, including details about plovers, dotterels, and lapwings. It states that these birds are part of the Charadriidae family and are described as small to medium-sized birds with specific physical characteristics and habitat preferences.\nAnswer: Plovers",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "280c22f7f0196fc0a45d48678ed1c8878536822a",
+   "question": "How does the planchette move on a Oujia board?",
+   "response": "Reasoning:The context describes rules for moving pieces on a board, including octagonal pathway pieces and square intersection pieces. It mentions that all pieces move alike, moving one space along a gridline to an adjacent, unoccupied intersection. This aligns with the description of a planchette moving on an Oujia board.\nAnswer: The planchette moves on a Oujia board by moving one square along a gridline to an adjacent, unoccupied intersection.",
+   "label": "OFF",
+   "kind": "subject_or_type_drift"
+  },
+  {
+   "key": "9f7872e4d6a8f7dae9f648fb6e5d551d3f12255d",
+   "question": "Named for an English county, this state in the North East of America is known for its tax rate, landscapes and unique personalities. It's called \"New\" - what?",
+   "response": "Reasoning: The context mentions New York, which is described as being in the North East of America and having an English name related to an English county. The context describes New York as being in the North East of America and having an English name related to an English county. The context provides information about New York's location and naming origin. The context describes New York as being named after an English county. The context mentions New York being named after an English county, specifically the Duke of York. The context explicitly states that New York is named after the Duke of York, who also had a county in England named after him. The context directly mentions New York being named after the Duke of York, who had an English county named after him. The context directly mentions New York being named after the Duke of York, who had an English county named after him.\nAnswer: New York",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "cb1396c1551fa2c9ba555f7b83085827bf790a2c",
+   "question": "Who wrote the operas Oedipus Rex and The Rake's Progress?",
+   "response": "Reasoning:The context mentions that Tennessee Williams wrote the libretto for the opera Oedipus Rex, and that he also wrote the libretto for The Rake's Progress.\nAnswer: Tennessee Williams",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "7f1d3fcfa5e9e563d4106bde04ce5e7a2c163685",
+   "question": "Which river runs through York?",
+   "response": "Reasoning:York is a city located in northern England. To find out which river runs through York, one would typically look at geographical information about the city. York is situated on the River Ouse, which flows through the city.\nAnswer: The river that runs through York is the River Ouse.",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "6fecc0d3fd412224680c5338f5ea421f88f415d6",
+   "question": "What does \"ADIDAS\" stand for?",
+   "response": "Reasoning:ADIDAS stands for All-Days-I-Dream-Of-Sneakers. This is a play on words where the initials spell out the brand name when read backwards.\nAnswer: refutes",
+   "label": "OFF",
+   "kind": "label_leak"
+  },
+  {
+   "key": "5bf01f8e0c23bb13cbcf26e1b6c3f022425b97d4",
+   "question": "What happens if you type your PIN number backwards into an ATM?",
+   "response": "Reasoning:The context mentions ATM SafetyPIN software, which allows users to alert law enforcement by entering their PIN in reverse. However, it does not specify what happens when typing the PIN backwards directly into the ATM.\nAnswer: I do not know.",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "0641c65f6b50d0e37d4712a4ef02effae98f3b26",
+   "question": "New York City has way fewer international arrivals per year than which cities?",
+   "response": "Reasoning:To determine which cities have more international arrivals than New York City, we would need data on international arrivals for various cities. Without specific numbers or comparative information, it's impossible to definitively state which cities have more arrivals.\n\nAnswer: not enough info",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "1718537d5ec8e3cc95737367edbb8256d069f48a",
+   "question": "What's next for Angelina Jolie?",
+   "response": "Reasoning:Angelina Jolie has been involved in various projects including acting, producing, and humanitarian work. Given her diverse interests and recent activities, she might continue to explore new roles in film or television, possibly focusing on more personal projects or directing. She may also consider continuing her humanitarian efforts, especially given her background in helping refugees.\nAnswer: Angelina Jolie may continue acting in films or television shows, potentially taking on more personal projects or directing. She could also expand her humanitarian work, particularly focusing on issues related to refugees and displaced persons.",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "0ed61f7312fe1a9a70f055f4fd003813587ca633",
+   "question": "Americans earn less (median income) than people in which countries?",
+   "response": "Reasoning: The context mentions that Hispanic or Latino individuals earn 28. The context discusses median income comparisons but does not specify countries. The context provides median income comparisons but does not specify countries where American median income is lower. The context compares U. The context does not provide any relevant information about countries where American median income is lower. The context does not provide information about countries where American median income is lower. The context does not provide specific information about countries where American median income is lower. The context does not provide specific information about countries where American median income is lower.\nAnswer: The context does not provide specific information about countries where American median income is lower.",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "d3621e788948b94acc0b0b7d9f355fdcf3eeea27",
+   "question": "Why do chameleons change colors?",
+   "response": "Reasoning:The context mentions that chameleons can change color to blend into their environment, communicate with others, and regulate their body temperature.\nAnswer: To blend into their environment",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "3f2a0657234dfbc41a36a51fa366afb63b9aaff6",
+   "question": "\"Which actor, best known for his role in \"\"The Godfather\"\" series of films, shares his name with a member of TV's \"\"Dragon's Den\"\"?\"",
+   "response": "Reasoning:Marlon Brando starred in the Godfather series and is also the last name shared by Mark Driscoll, a member of Dragon's Den. Therefore, the answer is supports.\n\nAnswer: supports",
+   "label": "OFF",
+   "kind": "label_leak"
+  },
+  {
+   "key": "a16873264a4e64c6d174a0e5f70efe0454b5911b",
+   "question": "Which countries work more hours than Mexicans?",
+   "response": "Reasoning: The context mentions that Mexican women work more than 28 hours per week on domestic household labor, but does not provide direct information on total working hours compared to other countries. The context does not provide direct information on total working hours compared to other countries. The context does not provide direct information on total working hours compared to other countries. The context does not provide direct information on total working hours compared to other countries. The context provides data on domestic work but does not compare total working hours across countries. The context does not provide direct information on total working hours compared to other countries. The context does not provide direct information on total working hours compared to other countries. The context does not provide direct information on total working hours compared to other countries.\nAnswer: The given context does not contain information about which countries work more hours than Mexicans.",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "69b33c670204f18b739ffa180c5db29417eec3e1",
+   "question": "What is King Henry holding in the Portrait of Henry VIII?",
+   "response": "Reasoning:To determine what King Henry is holding in the portrait, we need to examine the artwork. However, without seeing or analyzing the specific portrait, there is insufficient information to identify the object held by King Henry VIII.\n\nAnswer: not enough info",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "b72584a56ee1bcde1c37d33842923d98e6437564",
+   "question": "Are all Jews actually Jews?",
+   "response": "Reasoning:The context discusses various aspects of Jewish identity and membership, including ritual practices, beliefs, and historical contexts. It mentions that being Jewish is defined by religious and cultural affiliations rather than biological or ethnic ones. This suggests that the definition of who is a Jew is complex and can vary among different groups.\nAnswer: No",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "f628ed7719802a3d54a069cbb0e51a397a37210d",
+   "question": "\"The name of which animal means \"\"man of the forest\"\"?\"",
+   "response": "Reasoning:The context mentions multiple instances where the forest is described as a dwelling place for various animals and as a sanctuary for endangered species. It also states that the forest is considered a sacred and mystical location with supernatural elements like fairies and elves.\nAnswer: elf",
+   "label": "OFF",
+   "kind": "subject_or_type_drift"
+  },
+  {
+   "key": "03c92fe653936e60349cef8e15784c55e02b9714",
+   "question": "Which ITV magazine style show ran from 1968 to 1980 and featured presenters including Jenny Hanley, Mick Robertson and Tommy Boyd?",
+   "response": "Reasoning:The question asks for an ITV magazine-style show that aired between 1968 and 1980 featuring specific presenters. ITV was known for producing such shows during that era, and the mentioned presenters were popular at the time.\nAnswer: The show you're referring to is \"It's a Knockout,\" which ran from 1968 to 1980. It featured Jenny Hanley, Mick Robertson, and Tommy Boyd as its presenters.",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "8d3735a1d3af59b64b6f55ab74fa47adf589ac8c",
+   "question": "'If you have a problem, if no-one else can help, and if you can find them'; then maybe you could hire who, on TV in the 1980s?",
+   "response": "Reasoning:The context mentions that Troubleshooter made business management a popular topic and provided a role model for aspiring businesspeople.\nAnswer: Troubleshooter",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "ce699d3fb460c8d4ab61eb2119fbfaf29b843cae",
+   "question": "Who hosts the TV quiz show 'Cleverdicks'?",
+   "response": "Reasoning:To determine who hosts the TV quiz show 'Cleverdicks', we would need to search for information about the show's production details or official announcements. However, without specific research, there isn't enough public information available to identify the host.\nAnswer: The identity of the host for the TV quiz show 'Cleverdicks' cannot be determined from publicly available information.",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "fa63ad7b68621f7f00d74fa4ef83fa1e55f1f12f",
+   "question": "What happens if you step into a lit fireplace and state a location?",
+   "response": "Reasoning:Stepping into a lit fireplace would likely result in severe burns or even death due to the intense heat. Stating a location while in such a dangerous situation does not change the immediate danger but could potentially draw attention to the person in need of help.\n\nAnswer: refutes",
+   "label": "OFF",
+   "kind": "label_leak"
+  },
+  {
+   "key": "b29895d318f41b4f672ce2e8ff1dde6d5ab16a9c",
+   "question": "\u2018The Queen was in the parlour eating bread and honey\u2019 in which nursery rhyme?",
+   "response": "Reasoning:Baa Baa Black Sheep",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "56995330d641928964ea87c47b75c3b600354993",
+   "question": "What is the most popular sport in Japan?",
+   "response": "Reasoning:The context mentions that football (soccer) is listed as one of the sports in Japan and also states \"Football, handball, athletics, boxing, martial arts, volleyball and basketball are the most popular sports in the country. \"\nAnswer: Football (soccer)",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "28bff987a419a23f83477863c8c29df132c80914",
+   "question": "Which Gilbert and Sullivan opera has the alternative title 'The Lass that Loved a Sailor'?",
+   "response": "Reasoning:To determine which Gilbert and Sullivan opera has the alternative title 'The Lass that Loved a Sailor', we need to recall the titles of their operas. One such opera is 'HMS Pinafore', which indeed has the alternative title 'The Lass that Loved a Sailor'.\nAnswer: supports",
+   "label": "OFF",
+   "kind": "label_leak"
+  },
+  {
+   "key": "3cfaeba3c333370596183fc4a71a2af4c40bccb6",
+   "question": "Can diabetics eat sweets?",
+   "response": "Reasoning:The context mentions that diabetics should be mindful of carbohydrate content and avoid simple sugars like juices and sugar-sweetened beverages. However, it does not explicitly state whether diabetics can eat sweets.\nAnswer: I do not know.",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "a4e653114f4958819510832224030b995a1c7942",
+   "question": "What does it always mean when a cat purrs?",
+   "response": "Reasoning:Purring is a behavior exhibited by cats and other animals for various reasons, including comfort or stress relief. However, without specific context, it cannot be definitively stated that purring always means the cat is comfortable or relaxed.\nAnswer: not enough info",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "6dbd9075aff350ea6c1e93830cc80185266f7b8f",
+   "question": "Born Henry John Deutschendorf Junior, which American singer died when his light aircraft crashed into the sea off California in 1997?",
+   "response": "Reasoning:To answer this question, we need to identify an American singer who had a stage name that matches \"Henry John Deutschendorf Jr.,\" and then find out if they died in a plane crash off the coast of California in 1997.\nAnswer: Answer: Michael Jackson.",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "8f247cf59382a777f9829df286e96936ab3de3cf",
+   "question": "Are most people in South Korea Christian?",
+   "response": "Reasoning:The context provides percentages for different religious affiliations in South Korea. Christianity is mentioned as having grown from 20.7% in 1985 to 29.5% in 2005, and in 2020, 29.2% of South Koreans identify as Christian. However, the exact percentage of Christians is not given directly as \"most.\"\nAnswer: I do not know",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "827600ee2942b6f5fd679faa590dc3cfe789109f",
+   "question": "What are double bitted, cruiser double bitted and cedar types of",
+   "response": "Reasoning:The context mentions \"Weymouth or double bridle\" which refers to a type of bridle carrying two bits, including a snaffle and a curb.\nAnswer: Weymouth or double bridle",
+   "label": "OFF",
+   "kind": "subject_or_type_drift"
+  },
+  {
+   "key": "ded9198454e64d1278fae89d3c8ed104d4d82b0d",
+   "question": "The 2009 film \u2018The Hangover\u2019 is set in which city?",
+   "response": "Reasoning:Bangkok, Thailand is the capital and most populous city of Thailand\nAnswer:Bangkok, Thailand",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "b7558865a600970168374ad85e0c2b775212701e",
+   "question": "The highest mountain in North America is part of which mountain range?",
+   "response": "Reasoning:The context provides lists of mountain peaks but does not specify the highest mountain in North America or its location.\n\nAnswer: I do not know",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "a495ee2a65d21a35637e9b6efafe906f41894c5e",
+   "question": "Who said, \"Only the dead have seen the end of war?\"",
+   "response": "Reasoning:To find out who said this quote, we need to recall historical context and famous quotes related to war and death. The quote \"Only the dead have seen the end of war\" is attributed to Friedrich Nietzsche, a German philosopher known for his works on morality, metaphysics, and the philosophy of art.\nAnswer: Friedrich Nietzsche",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "709b402a9e2129578cc83716e5c3115f6d9400c7",
+   "question": "Who played Grandad in the UK television series \u2018Only Fools and Horses\u2019?",
+   "response": "Reasoning:To find out who played Grandad in 'Only Fools and Horses', we need to recall the cast of the show. The character of Grandad Trotter was a recurring role played by an actor known for his comedic performances.\nAnswer: Norman Wisdom played Grandad in the UK television series 'Only Fools and Horses'.",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "3a245287ca6dbe711e27665ef08989b167f5536b",
+   "question": "One Summer: America 1927 is a 2013 history book by which author?",
+   "response": "Reasoning:The context mentions \"One Summer: America 1927\" but specifies it was written by Aleksandar Hemon, not W. D. Bradford Smith.\nAnswer: I do not know",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "04abbffd30ad3c6f117fa1aab3a253e5d90609ed",
+   "question": "What did Ukrainian prime minister Yulia Timoshenko change about her appearance which shocked commentators in 2009?",
+   "response": "Reasoning:The context mentions that in 2006, The Times noted the transformation in the hairstyle of Yulia Tymoshenko, indicating that she changed her appearance around that time.\nAnswer: 2006",
+   "label": "OFF",
+   "kind": "subject_or_type_drift"
+  },
+  {
+   "key": "343c8f7d1f7269548fb6db38e06c33404b67d049",
+   "question": "Prior to Gordon Brown, who was the last British Prime Minister to represent a Scottish constituency?",
+   "response": "Reasoning:To determine the last British Prime Minister to represent a Scottish constituency prior to Gordon Brown, we need to identify the Prime Ministers who were from Scotland and served before Gordon Brown. Gordon Brown was the 56th Prime Minister of the United Kingdom, serving from 2007 to 2010. We can research historical records to find the previous Prime Minister from Scotland.\n\nAnswer: Tony Blair. Tony Blair was the 55th Prime Minister of the United Kingdom, serving from 1997 to 2007, and he represented a Scottish constituency.",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "de1f32523225218639fde7e89ff5bcb4312012e3",
+   "question": "Who had a Too Legit To Quit Tour?",
+   "response": "Reasoning:The context mentions that Justin Bieber had a Too Legit To Quit Tour, which started in 2014 and ended in 2015.\nAnswer: Justin Bieber",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "e596f13a92a4eb0e0831c4c98522104ef6ae69b0",
+   "question": "What happens if you walk under a ladder?",
+   "response": "Reasoning:The context mentions that walking under a ladder is considered bad luck in various contexts, including superstitions and architectural designs.\nAnswer: bad luck",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "d6446ae948eacfad584d6014988dbb6a8bfedd48",
+   "question": "In musical terminology, what word describes sliding between two notes?",
+   "response": "Reasoning:The context provides definitions for various uses of the term \"slide\" in music, including a specific musical ornament that involves moving between two notes.\nAnswer: slide",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "e25b53d6b07ae23ef4aea193f74e3afe73cdf2ae",
+   "question": "The adjective leporine relates to which animal?",
+   "response": "Reasoning:Leporine describes animals related to rabbits.\nAnswer: rabbit",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "84c020047f29754317d9d872005cd9fbde567a58",
+   "question": "Apart from white, what colour are the other two \u2018triangles\u2019 on the BMW logo?",
+   "response": "Reasoning:The context mentions that the BMW logo includes blue and white elements, and describes the blue as azure. It also states that the logo retains the tinctures azure (blue) and argent (white).\nAnswer: azure",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "b08ab7341417aafb727ffd2ee1d0f8bfea858c5b",
+   "question": "In the 20th century who was the longest serving Poet Laureate 1930-1967?",
+   "response": "Reasoning:The context provides information about Poets Laureates up to 2023, but it does not cover the 20th century period specifically from 1930 to 1967.\nAnswer: I do not know.",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "4ff8b1820ce46747e3fe96e43c55fe4764d77c52",
+   "question": "What acid is found in tea?",
+   "response": "Reasoning:Tea contains caffeine, which is a weak organic acid. However, the primary acid found in tea is theophylline, a compound related to caffeine but with different properties and presence levels compared to caffeine.\nAnswer: not enough info",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "e8e3cdd1bd0b6963104d0de3ec1b2fb7672e5561",
+   "question": "The Paragons originally recorded which 1980 hit single by Blondie?",
+   "response": "Reasoning:The context mentions \"1980 singles\" and provides details about songs by Blondie, including \"Once I Had a Love\" and \"Island of Lost Souls\". However, there is no specific mention of a 1980 hit single by Blondie.\nAnswer: I do not know.",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "366a96d2e96b867acd5ed80650012f891bb92a96",
+   "question": "London gets much more rain than which big cities?",
+   "response": "Reasoning:The context mentions that London has a tropical savanna climate, which typically implies high rainfall. However, there is no direct comparison given for other cities. The context also discusses rain impacts on different regions but does not provide specific comparisons for London versus other cities.\n\nAnswer: I do not know",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "217890e549067782767f57a032694ee69255447b",
+   "question": "What did Mark Twain say about false claims of his death?",
+   "response": "Reasoning:The context mentions that Mark Twain's last words were a handwritten note to his daughter Clara, stating \"Give me my glasses.\" This implies he was joking about his death.\nAnswer: Joking",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "ccb7af66df2a6b0381bef6d9d3fd585d3f124f67",
+   "question": "Which womens squash player won the World Open four times (1985, 1987, 1990 & 1992) and the British Open eight times?",
+   "response": "Reasoning:The context provides information about Fiona Geaves winning the British National Squash Championship in 1995, but does not mention any World Open or British Open wins by multiple women.\n\nAnswer: I do not know.",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "d2e895e872477c9f421836d5caaaf2146a530b54",
+   "question": "What's an ethnic group where everyone loves doing special favors to their family?",
+   "response": "Reasoning:The context mentions that in some ethnic groups, performing favors for the family is considered important, especially during rituals like asking for the release of the souls of dead relatives and allowing them entrance into the house.\nAnswer: Subanon",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "89909ed3feac05269fda0dece69e1215e0297d98",
+   "question": "The 2009 film \u2018The Hangover\u2019 is set in which city?",
+   "response": "Reasoning:The context mentions that The Hangover was released in 2009 and provides details about its production and cast. It also states that the sequel was set in Thailand.\nAnswer: Bangkok",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "a756209f77c905ee8cd0df2282072b256d8e9ce8",
+   "question": "What are some activities that are totally legal in the Netherlands?",
+   "response": "Reasoning:In the Netherlands, many activities that might be considered illegal elsewhere are actually legal. Some examples include smoking marijuana recreationally, which is decriminalized but not fully legalized, and same-sex marriage, which is widely accepted and legal. These activities demonstrate that the Netherlands has a unique approach to legality compared to other countries.\n\nAnswer: supports",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "0cd9816faa12128c2b110c874daebb2bfd35bb60",
+   "question": "\"In the 1956 film \"\"The Ten Commandments\"\", who played Moses?\"",
+   "response": "Reasoning:To find out who played Moses in \"The Ten Commandments\" from 1956, we need to recall notable actors associated with biblical epics and the specific casting for this particular film.\nAnswer: Charlton Heston played Moses in the 1956 film \"The Ten Commandments.\"",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "d51462af9e17f541200a69f66f891e2d51e6991d",
+   "question": "If you raise a chimpanzee like a human child, what does it learn to do?",
+   "response": "Reasoning:The context mentions that Petitto and her colleagues raised Nim, a chimpanzee, like a human child during their 4-year tenure on the Project. They observed that Nim showed signs of imitation, language acquisition, and cultural learning similar to human children.\nAnswer: Imitate, learn language, cultural learning",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "7e9e6606ba3f18713e369b158c5fae95c37b6098",
+   "question": "As well as gold, silver and platinum, objects made of what other material have to be hallmarked by an Assay Office?",
+   "response": "Reasoning:The context mentions that hallmarks are required for precious metal items like bullion, jewelry, and coins. It specifically states that hallmarks are used for silver objects and gold coins. Additionally, it mentions that the Hallmarking Act 1973 applies to metals including silver, gold, and platinum in the United Kingdom.\nAnswer: Platinum",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "3c844fe6408127aa42fc6c68056f75615effb64d",
+   "question": "Which vocal quintet was put together in Manchester in 1990 by Nigel Martin-Smith?",
+   "response": "Reasoning:Nigel Martin-Smith formed the vocal quintet, The Sixteen, in Manchester in 1990\nAnswer:The Sixteen",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "a2d72a5391aa87415162edec817d00f3267efa1b",
+   "question": "Who said, \"Sometimes a cigar is just a cigar\"?",
+   "response": "Reasoning:This quote is famously attributed to Alfred Jarry, a French playwright and novelist known for his absurdist works. However, upon closer examination, it is actually often mistakenly credited to Sigmund Freud due to its philosophical nature. The quote itself is more commonly associated with literary critic and philosopher Walter Benjamin.\nAnswer: Answer: The quote \"Sometimes a cigar is just a cigar\" is most accurately attributed to Walter Benjamin, a German-Jewish philosopher and literary critic.",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "4cf2845cb1e10e2b2c97064c5fdada12160f5c28",
+   "question": "Americans are taller on average than which other places?",
+   "response": "Reasoning:The context provides multiple pieces of information indicating that Americans are generally taller than Europeans. Specifically, it mentions that \"In the UK and throughout Europe the average height of a woman is around to .\" This suggests that British and European women were approximately 5'3\" tall, which is described as shorter than their American counterparts. Additionally, it states that \"Americans are taller on average than their Earth-based ancestors,\" further supporting the idea that Americans are generally taller than Europeans.\nAnswer: Europe",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "447564ca8a428e7a2e423b529a7f5e378f85b527",
+   "question": "When does brain plasticity stop?",
+   "response": "Reasoning:The context mentions that brain plasticity decreases with age and is most pronounced in infancy and early childhood. It also states that adult brains have less plasticity than those of younger individuals.\nAnswer: late adulthood",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "1925243a311736d2c60ed3add42e11ccf6b0d8c6",
+   "question": "Which vegetable is added to Lasagne to make 'Lasagne Verdi'?",
+   "response": "Reasoning:To determine which vegetable is added to make Lasagne Verdi, we need to consider common variations of lasagna and their ingredients. Lasagne Verdi typically refers to green lasagna, suggesting a specific addition that contributes to its color or flavor profile.\nAnswer: Spinach is commonly added to lasagna to create a green version, making it Lasagne Verdi.",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "c4d6cb9c35786e5dc532263cf3a8cc75ee763853",
+   "question": "\"According to Rudyard Kipling what were the \"\"two imposters\"\" to meet and treat the same day?\"",
+   "response": "Reasoning:The context mentions that Rudyard Kipling wrote \"Two Gentlemen of Verona\" which is described as a short drama. It also states that the play was performed at the Garrick Club in 1892.\nAnswer: Two Gentlemen of Verona",
+   "label": "OFF",
+   "kind": "subject_or_type_drift"
+  },
+  {
+   "key": "f4e4bc2ff522cec6edac8dccc4dc83cfac785f0a",
+   "question": "What is the surname of sisters and singers Dannii and Kylie?",
+   "response": "Reasoning:The context provides information about Kylie Minogue but does not mention Dannii Minogue or any sisters named Dannii and Kylie.\nAnswer: I do not know.",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "1d70e4e62f2975f25a55892d862c05f7cefc6560",
+   "question": "In the US you pay with dollars, but in Germany, France and Switzerland, you pay with what?",
+   "response": "Reasoning:The context mentions that Germany, France, and Switzerland use the euro as their currency, while the United States uses dollars.\nAnswer: euros",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "2d98141bda451a2f90051fd5fb7631ce40290de5",
+   "question": "In which countries in Europe is weed legal?",
+   "response": "Reasoning:The context mentions that cannabis clubs are regulated by law in Malta and Uruguay. Additionally, it states that cannabis clubs can operate in legal grey areas in various European countries such as Austria, Belgium, Germany, and possibly others mentioned but not explicitly stated.\nAnswer: Malta, Uruguay",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "f7318012e1e7a46fc6cb258d316fc90c4785a3da",
+   "question": "Angelina Jolie is dating who?",
+   "response": "Reasoning:The context mentions that Angelina Jolie is currently in a relationship with Jamie de Courcey, as stated in item [3].\nAnswer: Jamie de Courcey",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "9da02cf44f46bef50219aa2ac4d371e5b64d72cc",
+   "question": "In which countries in Europe is weed legal?",
+   "response": "Reasoning:To determine where weed is legal in Europe, we need to consider the varying laws across different European nations regarding cannabis use and possession. Some countries have decriminalized possession or legalized it for medical purposes, while others have strict prohibitions.\nAnswer: Weed is legal for medical purposes in several European countries including Belgium, the Netherlands, and Spain, and has been decriminalized in Portugal. However, recreational use remains illegal in most of Europe.",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "8c5a517e9ee972fd0ec08f3a04f2a286d16550c0",
+   "question": "What happens if you swallow powdered glass?",
+   "response": "Reasoning:The context mentions that when powdered glass is swallowed, it can lead to pulmonary talcosis in intravenous drug users. This indicates that swallowing powdered glass is unsafe and can cause health issues.\nAnswer: Pulmonary talcosis",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "597717efa2e8182d7104e0658b929523a11e5117",
+   "question": "\"What was advertised on TV as, \"\"A newspaper, not a snooze paper\"\"?\"",
+   "response": "Reasoning: The advertisement slogan mentioned in the context refers to a newspaper that provides well-told, deeply reported content. The advertisement slogan is directly stated in the context provided. The advertisement slogan is explicitly mentioned in the context. The advertisement slogan is explicitly mentioned in the context. The advertisement slogan is explicitly mentioned in the context and refers to a newspaper. The advertisement slogan is explicitly mentioned in the context and refers to a newspaper. The advertisement slogan \"A newspaper, not a snooze paper\" is mentioned in the context. The advertisement slogan \"A newspaper, not a snooze paper\" is mentioned in the context.\nAnswer: Hearst Newspapers",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "77b0d82ce3af7b2f78321706243c922acbd2fc0c",
+   "question": "What's a fact that everyone in Canada knows is true?",
+   "response": "Reasoning:The context mentions that Canada is a country located in the northern part of North America, with a population of approximately 38 million people, and it has borders with the United States to the south and Russia to the north.\nAnswer: Canada is a country northwest of the United States",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "dba0cdfb14b603f85555cc7cd30a2b66de6864a0",
+   "question": "What is the word for the projection on a ship that holds a lifeboat?",
+   "response": "Reasoning:The context mentions that lifeboats are stored in a boathouse, which is described as a building adjacent to the crew quarters. It also states that the boathouse is built of timber and has large windows along one side.\nAnswer: Boathouse",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "3ebce788f34ebe35ce36fe26ff756e076967f13e",
+   "question": "What scientific phenomenon was firmly established by Bem's study \"Feeling the Future\"?",
+   "response": "Reasoning:",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "dc0536fd1a2ae324fd14ec3148293c1f8fc9565e",
+   "question": "Who was the Liberal Prime Minister of Great Britain from 1855 to 1858?",
+   "response": "Reasoning:The context mentions Liberal Party MPs but does not provide specific information about Liberal Prime Ministers or their terms of office.\n\nAnswer: I do not know",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "3561f35d337cbf6fcead5e03b2047c661070111a",
+   "question": "\"Which boxer famously said,\"\" If I can't beat this bum take my name off the record books?\"\"\"",
+   "response": "Reasoning:The quote is attributed to Muhammad Ali.\nAnswer: Muhammad Ali",
+   "label": "ON",
+   "kind": ""
+  },
+  {
+   "key": "49938d7b99e4ab0dc7312f30437a5f0cfb4f2594",
+   "question": "Which river runs through York?",
+   "response": "Reasoning:The context mentions that the York River is described as \"Route description: the York River near York Harbor, and ends at US 1A southeast of downtown York.\"\nAnswer: York River",
+   "label": "ON",
+   "kind": ""
+  }
+ ]
+}

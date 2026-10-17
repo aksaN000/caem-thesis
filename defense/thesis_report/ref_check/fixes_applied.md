@@ -1456,3 +1456,88 @@ appendix F pre-routing entry fixed ("encoder-layer"); ch3 calibration-fold phras
   citation-as-noun, full-stop lead-ins, spelled percentages, stale phrases from the standing decisions):
   ch2 positioning table "---" empty cells → "--"; ch2 summary "multi-scoring of \cite{..}" → "of Valentin et al."; spelled
   percentages to digits (ch1 ×2, ch2 ×6). Remaining hit: abstract "0.796 over 289" (Q4, abstract session).
+
+## Chapter 5 (branch `review/ch5`, from `branch/ruc-classifier` @ a0ea1e1) — in progress, PR pending B8 decision
+
+Author decisions applied (SESSION_START "Chapter 5 decisions"): title drops "Progressive"; three-step headline; verdicts H1
+supported / H2 unsupported / H3 supported / H4 partially supported / H5 unsupported; sweep re-run numbers only; validation
+gate wording; "Optional reference points" and "Tier-by-baseline cost" deleted; statistics procedures to appendix D;
+baseline descriptions cut to realised-versus-expected; phantom-context paragraph.
+
+**New evidence (scripts, reproducible):** `scripts/build_ch5_evidence_tables.py` → tab_headline_steps, tab_gate_quality,
+tab_sweep_variants, tab_tier1_probe, figures/ch5/{fig_trajectory, fig_tradeoff, fig_selective, fig_baselines};
+`scripts/recompute_validation_gate.py` → tab_validation_gate_locked, tab_cross_bench_locked (replace the legacy-composite
+tab_validation_gate and cross_benchmark_summary, no longer input).
+
+**Corrections against code and data**
+- Gate balanced accuracy (H1's registered statistic) now reported per cycle: 0.615, 0.663, 0.664, 0.658 (C1–C5; C0 0.753
+  in-sample); old text used one C0 Cohen's d on a different fold.
+- H2 trace made consistent: C0 0.780 (locked composite, cal fold, in-sample) instead of 0.746 (weight_validation reading,
+  validation fold, five benchmarks, legacy composite).
+- Validation gate under the locked composite: pooled d 0.717; per-benchmark FEVER 0.555, TriviaQA 1.396, CSQA 0.142;
+  TriviaQA stored 0, CSQA discarded 0 → two per-benchmark checks not computable (old table: every check passed).
+- Sweep: 560 @ 0.780 (τ 0.60) vs 281 @ 0.865 (τ 0.65) on the cal fold; 558 @ 0.751 on the validation fold; α = 1 stores
+  more correct answers (476 vs 437); C sensitivity (validation stored 558 vs ≤ 313 for C ≥ 0.025) replaces the false "spread
+  bounded by one point". Removed 289 @ 0.796, 306/478, 70/105, 4.4×, 0.64 floor, 0.36 ceiling.
+- CHM significance described as run (`scripts/baseline_sig_tests_v2.py`: approximate bootstrap, CAEM fixed, no Holm, floor
+  0.01), not paired Wilcoxon + Holm. EM: McNemar + Holm + |ΔEM| ≥ 0.02 (appendix D rule).
+- B5 demonstrations come from FEVER (first benchmark of the final run, `fiveshot_cot.gen.log`), not TriviaQA.
+- B6 described as run: full fine-tune on raw question–answer pairs (700 per benchmark per cycle, 5 cycles), no verifier.
+- "Parity with the strongest fine-tuned baselines" → only FLARE edges CAEM on EM at C5; B6 at 0.490.
+- "Every defeat against RAG-free baselines" → FLARE retrieves; defeats are against B1, B2, B8 (and FLARE at C2).
+- StrategyQA "clean −17.5% CHM win" removed (not significant).
+- TruthfulQA "decline tracks rising abstention" removed (abstention fell 33% → 23%); loss split −5.3 (C0, architecture)
+  / −8.0 (C0→C5).
+- Tier 1: rarity explained by fresh streams; router probe table added (`outputs/tier1_routing_probe/`); probe field
+  top1_is_source_rate not used (id-space bug, tracker C2).
+- Latency: B1 is about 100× faster (142 ms vs 13.6–14.7 s); units fixed (hours per cycle).
+- Safety override: 63/9,000, explained by the temperature cap.
+- Early-stop disclosure; "equilibrium-saturation gate terminated the run" removed throughout.
+- Judge ablation: appendix holds only ρ and the floor; "rank correlation of Pearson" fixed.
+- Failed iteration: unsupported "audit summary auto-generated" claim removed.
+- Stale tables hand-corrected (comment in each file): tab_theorem_receipts_summary (rewritten), tab_pi_store_trajectory (C0
+  cal cell), cohen_d (u_stored row, ARC caption), sweep_top (rationale, "sklearn"); 24 long captions shortened to one or
+  two sentences (comment in each file).
+- Duplicate tables no longer input: tab_continual_retention, tab_stochastic_equilibrium, tab_deferred_buffer_ttl.
+- Metrics: TruthfulQA judge defined; F1, label accuracy and the "reported separately" contradiction rate removed; subtypes
+  listed with the two verifier-defined ones flagged; selective-prediction view (Kamath et al., Geifman and El-Yaniv) added.
+- New threat: measuring hallucination with the system's own verifier. New discussion: phantom context (3% → 93–99%).
+- Citations: all claim-bearing citations named; "Fu et al." → "Yi et al." (ch4 ×3, ch5 ×2; bib first author Yi).
+  Re-checked against PDFs (Drive CAEM_references): Mohri "78% → 93% on NaturalQuestions" ✓; Yi "linear regression
+  setting" ✓; Ho "answer-based filtering does not ensure the correctness of the rationales" ✓; Biderman recommends
+  "targeting 'All' transformer modules" and α = 2r ✓; others matched reference_check_2 quotes.
+
+**Outside ch5:** titlepage and approval page (title); ch2 "progressively improves" → "is meant to improve"; ch2 and ch4
+TruthfulQA 52.2% (legacy table) → 31–38% stored precision on the evaluation fold (C1–C5); ch1/ch3/ch4 probe pointers →
+tab:tier1-probe; abstract "0.796 over 289" → "558 answers at precision 0.751".
+
+**Open before the PR:** B8 CHM (old-run values; author's group to decide), paired CHM test, appendix D correction.
+Build: 216 pages, 0 errors, 0 undefined, 0 multiply-defined, 0 biber warnings, 76 overfull boxes.
+- **B8 CHM (author's group, 2026-10-16):** reported as unavailable. Drive searched (CAEM_thesis, vast backup, author folder
+  1NDl20m8…): only the old-run `semantic_entropy/*_with_chm.json` (2026-05-29) exist; the corrected run (2026-06-06) was never
+  rescored (`phase2_rerun_logs/PHASE2_SUMMARY.txt`: phase 2 rescored B6 and B7 only). Edits: tab_sig_test and _c2 B8 CHM cells
+  → n/a; tab_baseline_pooled B8 CHM → n/a; fig_baselines omits B8; ch5 counts without B8 (C5 19 / 2 of 30; C2 18 / 3); defeat
+  lists corrected (EM: B1, B2, FLARE; CHM: B1, B2, FLARE at C2); B8 bullet discloses; limitation added; "every baseline" →
+  "every baseline whose CHM was measured".
+
+## Chapter 5 read-through fixes (2026-10-17, author notes)
+- Tables 5.3 and 5.33 cut on the right: two-line headers (`\twoline` macro in main.tex); validation gate and per-benchmark diagnostics merged into one table (benchmarks as rows); tab_cross_bench_locked removed.
+- Table 5.7 zero rows explained: template leakage is a real zero; off-topic is zero because q_a_relevance is double-sigmoided into [0.50, 0.73] (tracker C14).
+- Early-stop mis-wiring disclosure removed from ch1/3/4/5 and appendix C (author decision); appendix C reports per-cycle outcome.
+- H5 removed (ch1 list, table, counts; ch5 verdict table, signpost); Tier 1 framing (built for repeated questions in deployment; fresh questions in the study; EM and CHM expected to improve with repeats) added to ch1 and ch5 sec:tier-hit; limitation reworded.
+- Tables reduced from 39 to 21 in the ch5 body: dropped pooled_trajectory, latency, safety_override, evidence_mapping; merged memory/survival/consolidation (tab_memory_dynamics); 11 moved to appendix C (new sec app:extra-tables) and appendix B (sweep_top, composite_weights); significance tables replaced by tab_sig_summary with full tables in appendix D.
+- All ch5 body tables: \small, no scaling.
+- CHM significance: paired Wilcoxon + Holm (scripts/paired_baseline_tests.py); counts C5 21/3 of 35, C2 24/4 of 35 (B6 now included); EM unchanged 9/3, 14/3; appendix D rewritten accordingly; Wilcoxon 1945 added to bib.
+- Threats paragraph on verifier dependence: verifier-free CHM check added (C5 0.067 vs B1 0.079; 26/4 of 35).
+
+## CHM re-scored with the Haiku label on TruthfulQA (2026-10-17, author decision)
+- All CHM numbers now use em_llm_judged on TruthfulQA (was ROUGE-L > 0.15). Pooled CHM: B1 0.137, C0 0.134, C1 0.114, C2 0.110, C3/C4 0.118, C5 0.117; baselines B2 0.141, B3 0.151, B4 0.144, B5 0.136, B6 0.122, B7 0.198. RUC ablation pooled CHM 0.125 → 0.118; TruthfulQA 0.138 both arms.
+- Tables: halluc_subtypes, per_bench (TQA CHM row), baseline_pooled, tier_chm, ruc_ablation patched by script; headline_steps and the three ch5 figures regenerated from chm_judged.json.
+- Paired tests (judged default): CHM C5 19/1, C2 23/1 of 35 (only defeat B6 on CommonsenseQA); verifier-free C5 0.070 vs B6 0.083 (27/2).
+- Text: C0 CHM now level with B1 (was above); the refusal–confabulation trade nearly cancels, so the net C0→C5 CHM gain is from fewer fabricated/evasive wrong answers (headline paragraph reworded accordingly). Abstract full-panel CHM change −11.0% → −19.2%. Appendix D counts and appendix E expected values updated. B4 EM 0.464 → 0.461 (D12). H4 R² clause removed (D13).
+
+## Question-match reframe and seven-type CHM (2026-10-17, author)
+- Signal renamed question-answer match ($q_{\text{match}}$) in ch1, ch2, ch4 (reranker para, family intro, signal table, algorithm, new subsection with Rudolph/Eiffel examples and AUROCs, boost-weight note), appendix A/F/G, symbols list, both architecture figures, three auto tables. Appendix G also corrected: early exit discards (does not regenerate).
+- CHM is the mean of seven types (×8/7 on every CHM value): B1 0.156, C0 0.153, C1 0.130, C2 0.126, C3/C4 0.135, C5 0.133; B2 0.161, B3 0.172, B4 0.165, B5 0.155, B6 0.140, B7 0.226; training panel B1 0.164, C2 0.116, C5 0.130; RUC 0.143→0.135. Off-topic row removed from the subtype table; definitions and all "eight" mentions updated; significance counts unchanged.
+- Rounding corrections: training-panel CHM change −29.3% / −20.6% (was −29.4 / −20.3), StrategyQA −17.4% (was −17.5).
+- Evidence: outputs/analysis/off_topic_judge_validation.json (kappa 0.35 held-out), off_topic_validation_sample.json, response_relevance.json.
