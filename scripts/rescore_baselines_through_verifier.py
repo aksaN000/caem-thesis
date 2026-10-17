@@ -128,6 +128,8 @@ def _build_verifier(
     checkpoint: Optional[Path],
     passage_index: Path,
     device: str,
+    passage_cache: Optional[Path] = None,
+    passage_cache_name: str = "eval_fold",
 ) -> Tuple[Any, Any]:
     """Construct a UnifiedVerifier with cycle-10 locked calibration.
 
@@ -211,6 +213,10 @@ def _build_verifier(
         )
 
     passage_store = PassageStore.load(str(passage_index))
+    if passage_cache and (Path(passage_cache) / f"{passage_cache_name}_ids.npy").exists():
+        passage_store.load_query_cache(str(passage_cache), passage_cache_name)
+    elif passage_cache:
+        logger.warning("No exact-search cache at %s; every search runs live.", passage_cache)
 
     def _retrieve(q: str, k: int) -> List[str]:
         # 2026-05-16 fix: the passage store's search() expects an L2-normalised
@@ -226,8 +232,10 @@ def _build_verifier(
         norm = np.linalg.norm(emb)
         if norm > 0:
             emb = emb / norm
-        results = passage_store.search(emb, k=k)
+        results = passage_store.search_query(q, emb, k=k)
         return [p for p, _ in results]
+
+    _retrieve.store = passage_store  # exposes cache_stats for the end-of-run log
 
     verifier = UnifiedVerifier(
         model=gen_model,
@@ -584,6 +592,9 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--passage_index", type=Path,
                    default=Path("data/passage_index"),
                    help="Pre-built dense passage index for verifier retrieval.")
+    p.add_argument("--passage_cache", type=Path, default=Path("outputs/rerun_v2/retrieval"),
+                   help="Exact-search cache (scripts/precompute_passages.py output dir); empty = live search.")
+    p.add_argument("--passage_cache_name", default="eval_fold")
     p.add_argument("--device", default="cuda")
     p.add_argument("--force", action="store_true",
                    help=("Override the default skip-if-exists behaviour and "
@@ -635,6 +646,8 @@ def main() -> int:
         checkpoint=ns.checkpoint,
         passage_index=ns.passage_index,
         device=ns.device,
+        passage_cache=ns.passage_cache,
+        passage_cache_name=ns.passage_cache_name,
     )
 
     # comparison key for training baselines is "<name>@c<cycle>" so the
@@ -712,6 +725,8 @@ def main() -> int:
             row += f"{(v.get('chm') if v.get('chm') is not None else float('nan')):>11.4f}"
         print(row)
     print()
+    store = getattr(verifier.passage_retriever, "store", None)
+    logger.info("Exact-search cache use: %s", getattr(store, "cache_stats", "no cache attached"))
     return 0
 
 

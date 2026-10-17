@@ -1,7 +1,7 @@
 """Exact passage search for a fixed set of questions, done once (final-version, 2026-10-17).
 
 The verifier and Tier 3 search the Wikipedia index with the question text alone
-(`caem/pipeline.py::_verifier_passage_retriever`: all-mpnet-base-v2 embedding, L2-normalised, exact inner-product
+(`caem/pipeline.py::_verifier_passage_retriever`: all-mpnet-base-v2 embedding in bf16, L2-normalised, exact inner-product
 search over the flat index). The index never changes, so every question always gets the same passages; this
 script runs that same exact search for many questions in one pass and saves the result. It changes when the
 search runs, not what it returns (MASTER_ISSUES.md, P1). Deployment searches live.
@@ -59,16 +59,35 @@ def eval_fold_questions():
     return list(dict.fromkeys(qs))  # unique, order kept
 
 
-def cmd_search(name, k):
-    from sentence_transformers import SentenceTransformer
+def cmd_search(name, k, engine="faiss"):
+    import sys
+    sys.path.insert(0, str(ROOT))
+    from caem.memory.encoder import QueryEncoder
     t0 = time.time()
     qs = eval_fold_questions() if name == "eval_fold" else json.load(open(OUT / f"{name}_questions.json"))
     log(t0, f"{len(qs)} questions")
-    enc = SentenceTransformer("sentence-transformers/all-mpnet-base-v2", device="cuda")
-    # Same as the pipeline: encode, float32, L2-normalise (one question at a time, as deployment would).
+    # The pipeline's own encoder (all-mpnet-base-v2 in bf16 on GPU, L2-normalised), one question at a time as in
+    # the run, then float32 + normalise exactly as caem/pipeline.py::_verifier_passage_retriever does.
+    enc = QueryEncoder(device="cuda")
     emb = np.stack([enc.encode(q).astype(np.float32) for q in qs])
     emb /= np.maximum(np.linalg.norm(emb, axis=1, keepdims=True), 1e-12)
     log(t0, f"encoded, shape {emb.shape}")
+    OUT.mkdir(parents=True, exist_ok=True)
+    if engine == "faiss":
+        # Needs RAM for the whole flat index (61 GB): FAISS's own exact inner-product search, as in the run.
+        import faiss
+        index = faiss.read_index(str(INDEX / "passages.faiss"))
+        log(t0, f"FAISS index in RAM: {index.ntotal} vectors ({type(index).__name__})")
+        scores = np.zeros((len(qs), k), dtype=np.float32)
+        ids = np.zeros((len(qs), k), dtype=np.int64)
+        for i in range(0, len(qs), 64):
+            scores[i:i + 64], ids[i:i + 64] = index.search(emb[i:i + 64], k)
+        log(t0, "search done")
+        np.save(OUT / f"{name}_ids.npy", ids)
+        np.save(OUT / f"{name}_scores.npy", scores)
+        json.dump(qs, open(OUT / f"{name}_questions.json", "w"))
+        log(t0, f"saved to {OUT}")
+        return
     # The installed FAISS cannot memory-map a flat index (it loads all 61 GB into RAM), so the same exact
     # inner-product search is done here by streaming the stored vectors from disk in chunks and scoring them
     # on the GPU in full fp32 (TF32 off), keeping a running exact top-k per question.
@@ -95,7 +114,6 @@ def cmd_search(name, k):
         del block, sc
     scores, ids = best_s.cpu().numpy(), best_i.cpu().numpy()
     log(t0, "search done")
-    OUT.mkdir(parents=True, exist_ok=True)
     np.save(OUT / f"{name}_ids.npy", ids)
     np.save(OUT / f"{name}_scores.npy", scores)
     json.dump(qs, open(OUT / f"{name}_questions.json", "w"))
@@ -117,10 +135,12 @@ def cmd_texts(name):
 
 def cmd_check(name):
     """Re-rank the cached top 20 exactly as the verifier does and compare with the first run's stored top 3."""
+    import torch
     from sentence_transformers import CrossEncoder
     t0 = time.time()
     cached = json.load(open(OUT / f"{name}_passages.json"))
-    rr = CrossEncoder("BAAI/bge-reranker-v2-m3", device="cuda")
+    # Loaded as the run loaded it (scripts/run_experiment.py: bf16 on GPU).
+    rr = CrossEncoder("BAAI/bge-reranker-v2-m3", device="cuda", automodel_args={"torch_dtype": torch.bfloat16})
     n = same = 0
     mismatches = []
     for b in BENCHES:
@@ -131,13 +151,15 @@ def cmd_check(name):
                 continue
             cands = cached[s["question"]][:20]
             scores = rr.predict([(f"{s['question']} {ans}", p) for p in cands], show_progress_bar=False)
-            top3 = [cands[i] for i in np.argsort(-np.asarray(scores), kind="stable")[:3]]
+            top3 = [cands[int(i)] for i in np.argsort(scores)[::-1][:3]]  # same ordering call as the verifier
             n += 1
             if top3 == stored[:3]:
                 same += 1
             elif len(mismatches) < 20:
                 mismatches.append({"benchmark": b, "id": s["id"], "same_set": set(top3) == set(stored[:3])})
-    res = {"checked": n, "identical_top3": same, "share": same / max(n, 1), "first_mismatches": mismatches}
+    same_set = sum(1 for m in mismatches if m["same_set"])
+    res = {"checked": n, "identical_top3": same, "share": same / max(n, 1),
+           "mismatch_same_set_in_first_20": same_set, "first_mismatches": mismatches}
     json.dump(res, open(OUT / f"{name}_check_vs_run1.json", "w"), indent=1)
     log(t0, json.dumps({k: v for k, v in res.items() if k != "first_mismatches"}))
 
@@ -147,6 +169,8 @@ if __name__ == "__main__":
     ap.add_argument("step", choices=("search", "texts", "check"))
     ap.add_argument("--name", default="eval_fold")
     ap.add_argument("--k", type=int, default=100)
+    ap.add_argument("--engine", choices=("faiss", "stream"), default="faiss",
+                    help="faiss: index in RAM (rental); stream: chunked disk read + GPU fp32 (low-RAM machines)")
     a = ap.parse_args()
-    {"search": lambda: cmd_search(a.name, a.k), "texts": lambda: cmd_texts(a.name),
+    {"search": lambda: cmd_search(a.name, a.k, a.engine), "texts": lambda: cmd_texts(a.name),
      "check": lambda: cmd_check(a.name)}[a.step]()

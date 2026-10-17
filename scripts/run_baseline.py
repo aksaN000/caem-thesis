@@ -198,6 +198,9 @@ def _parse_args() -> argparse.Namespace:
         default="data/passage_index",
         help="Path to PassageStore.save() output; required for rag/cot_rag/flare.",
     )
+    p.add_argument("--passage_cache", default="outputs/rerun_v2/retrieval",
+                   help="Exact-search cache (scripts/precompute_passages.py output dir); empty = live search.")
+    p.add_argument("--passage_cache_name", default="eval_fold")
     p.add_argument(
         "--flare_theta",
         type=float,
@@ -310,6 +313,10 @@ def _build_baseline(ns: argparse.Namespace):
         sys.exit(2)
     logger.info("Loading passage index from %s ...", index_path)
     passage_store = PassageStore.load(str(index_path))
+    if ns.passage_cache and (Path(ns.passage_cache) / f"{ns.passage_cache_name}_ids.npy").exists():
+        passage_store.load_query_cache(ns.passage_cache, ns.passage_cache_name)
+    elif ns.passage_cache:
+        logger.warning("No exact-search cache at %s; every search runs live.", ns.passage_cache)
     logger.info("Passage store loaded: %d passages.", len(passage_store.passages))
 
     if name == "rag":
@@ -518,6 +525,9 @@ def main() -> None:
             "f1": agg.get("f1"),
             "n":  agg.get("n"),
         }
+        rag = getattr(baseline, "rag", None)
+        if rag is not None and hasattr(rag.passage_store, "cache_stats"):
+            logger.info("Exact-search cache use after %s: %s", bench, rag.passage_store.cache_stats)
 
     logger.info("=" * 72)
     logger.info("BASELINE=%s summary:", ns.baseline)

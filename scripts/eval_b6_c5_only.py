@@ -87,9 +87,12 @@ class B6EvalBaseline(ZeroShotBaseline):
     """ZeroShotBaseline + harness-compatible answer signature."""
 
     def answer(self, query, store_to_memory=False, source_benchmark=None, **kwargs):
-        return super().answer(query, store_to_memory=store_to_memory)
+        # The benchmark name selects the matched Tier 2 task prompt (final-version, 2026-10-17).
+        return super().answer(query, store_to_memory=store_to_memory, source_benchmark=source_benchmark)
 
     def answer_batch(self, queries, store_to_memory=False, source_benchmark=None, **kwargs):
+        if source_benchmark is not None:
+            self.set_benchmark(source_benchmark)
         return super().answer_batch(queries, store_to_memory=store_to_memory)
 
 
@@ -98,7 +101,10 @@ class B6EvalBaseline(ZeroShotBaseline):
 # --------------------------------------------------------------------------- #
 
 CKPT_DIR = _ROOT / "outputs" / "baselines_phase1e" / "vanilla_ft" / "cycle_5"
-OUTPUT_DIR = _ROOT / "outputs" / "baselines_phase1e" / "vanilla_ft" / "eval_fixed"
+# Final-version re-run (matched Tier 2 prompt) writes elsewhere so the run-1 outputs stay intact:
+#   CAEM_B6_OUTPUT_DIR=outputs/rerun_v2/baselines/vanilla_ft/eval python scripts/eval_b6_c5_only.py
+OUTPUT_DIR = Path(os.environ.get("CAEM_B6_OUTPUT_DIR")
+                  or _ROOT / "outputs" / "baselines_phase1e" / "vanilla_ft" / "eval_fixed")
 
 # Canonical training-run parameters (must match the 2026-05-28 run for
 # fold determinism).

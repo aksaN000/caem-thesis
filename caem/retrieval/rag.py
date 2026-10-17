@@ -51,6 +51,7 @@ that verify well are stored so future similar queries hit Tier 1 or 2.
 
 from __future__ import annotations
 
+import json
 import logging
 import pickle
 from pathlib import Path
@@ -306,6 +307,39 @@ class PassageStore:
         return results
 
     # ------------------------------------------------------------------ #
+    # Exact-search cache (final-version, 2026-10-17)                       #
+    # ------------------------------------------------------------------ #
+
+    def load_query_cache(self, cache_dir: str, name: str) -> int:
+        """Attach exact top-K results computed in one batched pass by scripts/precompute_passages.py.
+
+        The index is static, so a question's exact top-k is always the first k of its exact top-K; a cached
+        question therefore gets the same passages a live search would return. Research use only (the evaluation
+        fold is searched once); deployment searches live. Returns the number of cached questions.
+        """
+        d = Path(cache_dir)
+        ids = np.load(d / f"{name}_ids.npy")
+        scores = np.load(d / f"{name}_scores.npy")
+        with open(d / f"{name}_questions.json") as f:
+            questions = json.load(f)
+        self._query_cache = {q: (row_i, row_s) for q, row_i, row_s in zip(questions, ids, scores)}
+        self.cache_stats = {"hit": 0, "live": 0}
+        logger.info("PassageStore: exact-search cache %s/%s attached (%d questions, top-%d).",
+                    cache_dir, name, len(questions), ids.shape[1])
+        return len(questions)
+
+    def search_query(self, query: str, query_embedding: np.ndarray, k: int = 5,
+                     *, nprobe: Optional[int] = None) -> List[Tuple[str, float]]:
+        """``search`` with the exact-search cache consulted first (by question text)."""
+        hit = getattr(self, "_query_cache", {}).get(query)
+        if hit is not None and k <= len(hit[0]):
+            self.cache_stats["hit"] = self.cache_stats.get("hit", 0) + 1
+            return [(self.passages[int(i)], float(sc)) for i, sc in zip(hit[0][:k], hit[1][:k]) if i >= 0]
+        if getattr(self, "_query_cache", None):
+            self.cache_stats["live"] = self.cache_stats.get("live", 0) + 1
+        return self.search(query_embedding, k=k, nprobe=nprobe)
+
+    # ------------------------------------------------------------------ #
     # Persistence                                                          #
     # ------------------------------------------------------------------ #
 
@@ -508,7 +542,7 @@ class TierThreeRAG:
             if norm > 0:
                 emb = emb / norm
             tier3_nprobe = getattr(self.config, "rag_faiss_nprobe_tier3", None)
-            return self.passage_store.search(emb, k=k, nprobe=tier3_nprobe)
+            return self.passage_store.search_query(query, emb, k=k, nprobe=tier3_nprobe)
         except Exception as exc:
             logger.warning("RAG retrieval failed: %s", exc)
             return []

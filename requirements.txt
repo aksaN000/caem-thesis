@@ -1,0 +1,18 @@
+# CAEM environment (final-version, 2026-10-17). Versions follow the thesis appendix (framework version table).
+# torch is installed first from the CUDA wheel index:
+#   uv pip install torch==2.10.0 --index-url https://download.pytorch.org/whl/cu130
+#   uv pip install -r requirements.txt
+transformers==4.57.6
+sentence-transformers==4.1.0
+peft>=0.19
+accelerate>=0.34
+datasets>=3.0
+faiss-cpu>=1.8
+scipy>=1.11
+scikit-learn>=1.4
+bitsandbytes>=0.43
+anthropic>=0.108
+huggingface_hub[cli]>=0.30
+numpy
+pandas
+tqdm
