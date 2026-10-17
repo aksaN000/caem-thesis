@@ -1,3 +1,7 @@
+> **2026-10-17 — READ FIRST:** the active work is the *minimum defensible thesis* plan on branch `final-version`
+> (fair baselines, scoring fixes, accurate descriptions, optional self-improvement trial, one rented GPU).
+> Plan and status: `MASTER_ISSUES.md` (top section). Run 1 is frozen at tag `run1-final-2026-10-17`.
+
 # Final drafting pass: read this first (every new chapter session)
 
 The author runs one Claude conversation per chapter to keep context fresh. This file is the complete handoff.

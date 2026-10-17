@@ -5,6 +5,15 @@ Rule: a thesis may contain a flawed component if it is described honestly; it ma
 comparison or a description that does not match the code. So: fix comparisons and descriptions, disclose the
 rest, skip the main re-run. The full re-run plan below (PART 1) is kept for the case that budget appears.
 
+### Execution (author, 2026-10-17): one rented GPU
+Preparation (local, before the rental): matched baseline prompts (B1, B2, B5 with per-benchmark demonstrations,
+B8, B6, FLARE first draft); TruthfulQA final-answer judge protocol; probe bug; S1 + S2 code for the trial;
+one rental runbook script (setup → exact search → baselines → FLARE → verifier pass → trial E → upload).
+Rental spec: RTX 5090 32 GB (or larger), ≥ 96 GB RAM preferred (61 GB index + 7 GB passages + models), ≥ 200 GB
+disk, driver supporting CUDA 13 (torch 2.10+cu130). Estimated 8–12 h, about $10–15 with trial E.
+After the rental (local): recompute results, chapter 5/6/1–4/appendix/abstract text, repository clean-up.
+Local exact search of the evaluation fold also runs as an independent cross-check of the rental's search.
+
 ### M-A. Unfair comparisons (must fix)
 - [ ] Exact passage search for the 1,500 evaluation questions (one batched pass), checked against the first
       run (re-ranking the cached top 20 must reproduce each answer's stored top 3). `scripts/precompute_passages.py`

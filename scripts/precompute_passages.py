@@ -35,6 +35,21 @@ def log(t0, msg):
     print(f"[{time.time() - t0:7.1f}s] {msg}", flush=True)
 
 
+def read_flat_header(path):
+    """FAISS IndexFlatIP file: 'IxFI', d (int32), ntotal (int64), 2 x int64, is_trained (1 byte), metric (int32),
+    then the code vector: its length (uint64, number of floats) followed by ntotal x d float32 values."""
+    import struct
+    with open(path, "rb") as f:
+        h = f.read(45)
+    assert h[:4] == b"IxFI", h[:4]
+    d = struct.unpack("<i", h[4:8])[0]
+    ntotal = struct.unpack("<q", h[8:16])[0]
+    metric = struct.unpack("<i", h[33:37])[0]
+    nfloat = struct.unpack("<Q", h[37:45])[0]
+    assert metric == 0 and nfloat == ntotal * d, (metric, nfloat)
+    return ntotal, d, 45
+
+
 def eval_fold_questions():
     """The 1,500 evaluation-fold questions (identical across cycles and baselines)."""
     qs = []
@@ -45,7 +60,6 @@ def eval_fold_questions():
 
 
 def cmd_search(name, k):
-    import faiss
     from sentence_transformers import SentenceTransformer
     t0 = time.time()
     qs = eval_fold_questions() if name == "eval_fold" else json.load(open(OUT / f"{name}_questions.json"))
@@ -55,9 +69,31 @@ def cmd_search(name, k):
     emb = np.stack([enc.encode(q).astype(np.float32) for q in qs])
     emb /= np.maximum(np.linalg.norm(emb, axis=1, keepdims=True), 1e-12)
     log(t0, f"encoded, shape {emb.shape}")
-    index = faiss.read_index(str(INDEX / "passages.faiss"), faiss.IO_FLAG_MMAP | faiss.IO_FLAG_READ_ONLY)
-    log(t0, f"index opened: {type(index).__name__}, ntotal {index.ntotal}, d {index.d}")
-    scores, ids = index.search(emb, k)
+    # The installed FAISS cannot memory-map a flat index (it loads all 61 GB into RAM), so the same exact
+    # inner-product search is done here by streaming the stored vectors from disk in chunks and scoring them
+    # on the GPU in full fp32 (TF32 off), keeping a running exact top-k per question.
+    import torch
+    torch.backends.cuda.matmul.allow_tf32 = False
+    torch.backends.cudnn.allow_tf32 = False
+    ntotal, d, offset = read_flat_header(INDEX / "passages.faiss")
+    vecs = np.memmap(INDEX / "passages.faiss", dtype=np.float32, mode="r", offset=offset, shape=(ntotal, d))
+    log(t0, f"flat index: {ntotal} vectors, d {d}")
+    q = torch.from_numpy(emb).cuda()
+    best_s = torch.full((len(qs), k), -float("inf"), device="cuda")
+    best_i = torch.full((len(qs), k), -1, dtype=torch.long, device="cuda")
+    chunk = 250_000
+    for start in range(0, ntotal, chunk):
+        block = torch.from_numpy(np.ascontiguousarray(vecs[start:start + chunk])).cuda()
+        sc = q @ block.T
+        s_top, i_top = torch.topk(sc, min(k, sc.shape[1]), dim=1)
+        cat_s = torch.cat([best_s, s_top], 1)
+        cat_i = torch.cat([best_i, i_top + start], 1)
+        keep = torch.topk(cat_s, k, dim=1)
+        best_s, best_i = keep.values, torch.gather(cat_i, 1, keep.indices)
+        if (start // chunk) % 10 == 0:
+            log(t0, f"  {start + block.shape[0]:,} / {ntotal:,}")
+        del block, sc
+    scores, ids = best_s.cpu().numpy(), best_i.cpu().numpy()
     log(t0, "search done")
     OUT.mkdir(parents=True, exist_ok=True)
     np.save(OUT / f"{name}_ids.npy", ids)
