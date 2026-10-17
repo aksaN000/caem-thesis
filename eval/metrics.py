@@ -1523,3 +1523,63 @@ def ungrounded_assertion_rate(p_ground_max_values, u_values,
     hits = sum(1 for g, u in zip(p_ground_max_values, u_values)
                if g <= g_thresh and u >= u_thresh)
     return hits / n
+
+
+# =============================================================================
+# Uniform final-answer scoring (final-version, 2026-10-17, MASTER_ISSUES M-B)
+# =============================================================================
+# One rule for every system on the closed benchmarks, applied to the final answer line of the model's own
+# prediction. Used by the harness for new runs and by scripts/rescore_uniform.py for saved outputs.
+#   FEVER          the answer starts with a valid label (supports / refutes / not enough info)
+#   CommonsenseQA  exactly one letter A-E, optionally bracketed and followed by the option text; two different
+#                  letters are wrong
+#   StrategyQA     the answer starts with yes / no
+#   TriviaQA       strict: the answer line matches a gold alias (any_match_em); lenient (upper bound, reported
+#                  separately): a gold alias occurs inside the answer line
+#   TruthfulQA     not scored here: the Haiku judge (scripts/rescore_truthfulqa.py)
+
+def _norm_words(x: Any) -> str:
+    return " ".join(re.sub(r"[^a-z0-9 ]", " ", str(x).lower()).split())
+
+
+def final_answer_line(prediction: str) -> str:
+    """The final answer line: text after the last "Answer:" (first line), else the response's last line."""
+    m = re.findall(r"answer\s*:\s*(.*)", prediction or "", re.I)
+    if m:
+        a = m[-1].strip().split("\n")[0]
+        return re.sub(r"^(?:answer\s*:\s*)+", "", a, flags=re.I)  # "Answer:Answer:Yes"
+    t = re.sub(r"^\s*reasoning\s*:\s*", "", prediction or "", flags=re.I).strip()
+    return t.split("\n")[-1] if t else ""
+
+
+def csqa_letter(answer: str) -> Optional[str]:
+    """The single chosen letter, or None if there is none or more than one."""
+    a = (answer or "").strip()
+    m = re.match(r"^\(?\[?([A-Ea-e])\)?\]?(?:[\s.:)\-].*)?$", a)
+    if not m:
+        return None
+    letters = {x.upper() for x in re.findall(r"(?:^|[\s(\[|,/])([A-E])(?=$|[\s)\].:,|/])", a)}
+    return m.group(1).upper() if len(letters | {m.group(1).upper()}) == 1 else None
+
+
+def score_uniform(benchmark: str, prediction: str, gold_answers: Sequence[str],
+                  gold_label: Optional[str]) -> Tuple[float, Optional[float]]:
+    """Return (em, lenient_em); lenient_em is set for TriviaQA only. TruthfulQA raises (use the judge)."""
+    a = final_answer_line(prediction)
+    na = _norm_words(a)
+    lab = (gold_label or (gold_answers[0] if gold_answers else "") or "").strip().lower()
+    if benchmark == "fever":
+        for label in ("not enough info", "supports", "refutes"):
+            if na.startswith(label):
+                return float(label == lab), None
+        return 0.0, None
+    if benchmark == "strategyqa":
+        w = na.split(" ")[0] if na else ""
+        return float(w in ("yes", "no") and w == lab), None
+    if benchmark == "commonsense_qa":
+        return float(csqa_letter(a) == lab.upper()), None
+    if benchmark in ("triviaqa", "natural_questions"):
+        strict = any_match_em(a, list(gold_answers))
+        lenient = float(strict >= 1 or any(_norm_words(g) and f" {_norm_words(g)} " in f" {na} " for g in gold_answers))
+        return strict, lenient
+    raise ValueError(f"score_uniform: no uniform rule for {benchmark}")

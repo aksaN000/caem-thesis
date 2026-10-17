@@ -64,6 +64,7 @@ from eval.benchmarks import BenchmarkSample, make_synthetic_samples
 from eval.metrics import (
     aggregate,
     any_match_em,
+    score_uniform,
     best_token_f1,
     rouge_l,
     exact_match,
@@ -562,7 +563,17 @@ class EvalHarness:
         Natural Questions -- same as TriviaQA (multiple valid answer strings)
         Generic fallback -- single gold answer EM + token F1
         """
+        raw_prediction = prediction
         prediction = extract_cot_answer(prediction)
+
+        # Final-version uniform rule (eval.metrics.score_uniform) for the closed benchmarks and TriviaQA strict EM;
+        # the same function re-scores saved outputs (scripts/rescore_uniform.py).
+        if benchmark in ("fever", "strategyqa", "commonsense_qa"):
+            em, _ = score_uniform(benchmark, raw_prediction, gold_answers, gold_label)
+            return em, em
+        if benchmark in ("triviaqa", "natural_questions"):
+            em, _ = score_uniform(benchmark, raw_prediction, gold_answers, gold_label)
+            return em, best_token_f1(prediction, gold_answers)
 
         if benchmark == "fever":
             pred_label = extract_fever_label(prediction)
