@@ -22,26 +22,26 @@ This file is the single checklist for the re-run. It replaces the scattered limi
       3B model (target about 10 GB of 12 GB GPU memory).
 - Already on disk: Qwen2.5-3B-Instruct, bge-reranker-v2-m3, passage index (61 GB) and passages (7 GB).
 
-## Phase 1 — Speed work (no change to results)
+## Phase 1 — Speed work (no change to results; decided 2026-10-17)
 Evidence (main run log, 66,336 verified answers): the verifier took 108.6 h of about 193 h, 5.9 s per answer;
 passage search + rerank 69 % (4.05 s), token score + dropout samples 16 %, chains 13 %, per-answer checks 2 %.
 The search loops over questions one at a time on the CPU over the 61 GB flat index.
-- [ ] **P1 Retrieval cache.** The search uses only the question, and every question of the run is known in
-      advance (stream chunks, folds, cold start, probes; about 30,000). Search them all in one batched exact
-      search; save question → top 20 passages. The verifier (top 20) and Tier 3 (top 5) read from it.
-      Check: compare with one-by-one search on 500 questions (expect identical lists apart from exact ties).
-      Deployment still searches live; the cache is an experiment shortcut only.
-- [ ] **P2 Larger batches** only for the random sampling stages (3 chains, 5 dropout samples) and pure scoring
-      passes (reranker, MiniCheck, token score with right padding). Greedy answer generation and atomic
-      decomposition keep their validated settings (the code documents that batched atomic decomposition
-      changed the facts). Check with `scripts/diff_verify_serial_vs_batch.py` on about 200 answers: accept a
-      stage only if every signal moves less than 0.01 and in no consistent direction.
-- [ ] **P3 Parallel workers only in steps that do not write memory:** calibration-fold re-score, evaluation,
-      the checking part of memory re-verification and deferred reconsideration (changes applied afterwards in
-      one serial pass), retention probes. Two workers fit on a 32 GB GPU (about 11–12 GB each).
-- The stream step stays sequential in batches of 32, as in the last run, so routing and Tier 1 see memory as
-  a deployed system would. Fine-tuning stays a single job.
-- [ ] **P4 Stage profile:** time 20 questions stage by stage on the 3060 to replace estimates with numbers.
+- [ ] **P1 Exact search only (author: no approximate index; "I don't want to miss any passage").** The
+      Wikipedia index is static, so a question always gets the same passages: in research every question is
+      searched once in advance (batched exact search); in deployment the same exact search runs when the
+      question arrives. Pre-computation changes only when the search runs, not what it returns.
+      Check: a sample of live single searches must equal the pre-computed results exactly.
+- [ ] **P1b One search per question (search memo).** Tier 3 (reads top 5) and the verifier (reranks top 20)
+      get the same question and the same exact index, so one search for the largest depth serves both.
+      Check: memo results identical to today's two separate searches on a sample.
+- [ ] **P2 Larger batches** only for the random sampling stages and pure scoring passes, and only if they pass
+      the gate: every signal within ±0.01 of batch-1 scoring and no consistent shift
+      (`scripts/diff_verify_serial_vs_batch.py`, about 200 answers). Batch 1 is how deployment scores a question.
+- [ ] **P3 Parallel workers only in steps that do not write memory** (calibration re-score, evaluation, the
+      checking part of re-verification and deferred reconsideration, probes); these are offline jobs in
+      deployment too. The stream step stays sequential in batches of 32 (the one disclosed approximation).
+- [ ] **P4 Stage profile** on 20 questions; **live latency** = complete path for one question at a time,
+      including the live search (what a user waits for), reported separately from research throughput.
 
 ## Phase 1a — Clean results pipeline BEFORE the re-run (author, 2026-10-17)
 Inventory (2026-10-17): 47 table/figure files in the thesis: 15 generated, 15 generated then hand-edited,
@@ -67,8 +67,10 @@ write files on import (aggregate_section_5_2/4/5/6/7, replay_early_stop_gate); c
 ## Phase 2 — System fixes
 - [ ] A1 Token score: answer tokens only, scored under the prompt that produced them.
 - [ ] A2 Confabulation early exit: re-check that it can fire after A1; thresholds stay as specified.
-- [ ] A3 Question-match signal: remove the second logistic; build the claim from question + answer.
-      Decision needed: keep (fixed) or drop.
+- [ ] A3 Question-match signal: cycle-zero test with a rule fixed in advance: composite fitted (i) with the
+      signal as is, (ii) with a rebuilt question+answer version, (iii) without it; compared on the validation
+      fold (separation, balanced accuracy, stored precision); keep only if it improves the gate by the stated
+      margin. (Removing the second logistic alone changes nothing for the composite.)
 - [ ] A4 Drop the atomic-fact signal (identical to mean grounding on short answers).
 - [ ] A5 Pre-routing temperature cap / safety floor: fix so the override can work.
 - [ ] A11 Strip the benchmark prefix (FEVER boilerplate) before Tier-1 embedding.
@@ -84,11 +86,20 @@ write files on import (aggregate_section_5_2/4/5/6/7, replay_early_stop_gate); c
 - [ ] S5 Purity gain from A1/A2 (confident, unsupported answers discarded before storage).
 - Decisions needed: training threshold value; weighting scheme; which probes and floors.
 
+## Phase 3b — Retrieval choices (cycle-zero tests on calibration/validation folds, locked before the run)
+- [ ] R-a Retrieval-trained search model vs all-mpnet-base-v2 (re-encode 21M passages, about 4–8 h on the
+      3060); Tier 1 memory keeps its encoder unless the test says otherwise. Candidates from the author's
+      Claude Research run.
+- [ ] R-b Candidate depth before reranking: 20 / 50 / 100 (exact search).
+- [ ] R-c Tier 3 reading: 3 / 5 / 8 passages, with and without reranking by the question first; guided by
+      the measured rank of the first answer-bearing passage (TriviaQA, FEVER gold answers).
+- [ ] R-d Verifier checks the best 3 or 5 passages.
+
 ## Phase 4 — New design elements (decided before the run)
-- [ ] B3 **Repeated questions.** From cycle 2 on, a stated share of each stream chunk re-asks questions from
-      earlier chunks (exact repeats and paraphrases). A separate repeated-question test set is scored for CAEM
-      and all baselines. The fresh evaluation fold stays the headline. Decision needed: repeat share
-      (suggested 20 %).
+- [ ] B3 **Repeated questions (20 %, author 2026-10-17).** From cycle 2 on, 20 % of each stream chunk re-asks
+      questions from earlier chunks (exact repeats and paraphrases), inside the learning loop. A separate
+      repeated-question test set is scored for CAEM and all baselines, reported next to the fresh headline.
+      The old router probe becomes an optional diagnostic.
 - [ ] B6 Live-search latency at batch size 1, per tier (the cache would otherwise understate deployment cost).
 - [ ] A9 (optional) One frozen-composite control cycle, if time allows.
 
@@ -197,10 +208,11 @@ G6 low-rank adaptation forgets with training; G7 conformal guarantees dropped un
 judge input.
 
 ## Open decisions for the author
-1. Repeat share for B3 (suggested 20 %).
-2. A3 question-match signal: keep (fixed) or drop.
+1. ~~Repeat share~~: 20 %, both in stream chunks and a separate test set (decided 2026-10-17).
+2. ~~A3~~: decided by the cycle-zero test (decided 2026-10-17).
 3. S2 training threshold and weighting.
 4. Budget for Phase 7 (estimate $60–100; firm after Phases 1 and 5).
+5. Retrieval-trained model candidates for R-a (from the author's Claude Research run).
 
 ## Evidence files
 `outputs/analysis/`: audit_signals_baselines.json, chm_judged.json, paired_baseline_tests_judged.json,
