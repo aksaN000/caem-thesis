@@ -76,11 +76,6 @@ Local runs stopped and local environments/caches removed at the author's request
       StrategyQA, TruthfulQA 0.51–0.62 (near chance: Wikipedia passages cannot confirm commonsense, multi-step yes/no
       or misconception answers). At C0 no TriviaQA answer reached the store threshold, so 124 correct TriviaQA answers
       fell to DISCARD (thresholds, not ranking; after the C1 refit DISCARD is mostly wrong answers: C2 6 right / 31 wrong).
-- [ ] DISCLOSE (Ch5): storage purity must be read against base accuracy. Eval-fold STORE precision C0 0.75 /
-      C2 0.66 / C5 0.67 vs accuracy of all answers 0.52 / 0.53 / 0.51. At C0, 75 % of stored answers are CommonsenseQA,
-      where the model is 76 % right anyway (stored CSQA 78 %): purity there is base rate, not verification. Real
-      per-answer lift (stored minus all): FEVER +0.17 / +0.10 / +0.17, TriviaQA nothing stored / +0.24 / +0.25,
-      StrategyQA +0.06 / +0.09 / +0.18, TruthfulQA small, CSQA +0.02 / -0.01 / +0.01. Report purity with per-benchmark lift.
 ### M-C. Text that does not match the code (must fix)
 - [ ] Describe as it behaved, briefly (author 2026-10-17: no fault sections): token score = generator's average
       token probability for its full response given the question (+1 limitation sentence); atomic signal reduces
