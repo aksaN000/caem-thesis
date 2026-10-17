@@ -43,6 +43,25 @@ The search loops over questions one at a time on the CPU over the 61 GB flat ind
   a deployed system would. Fine-tuning stays a single job.
 - [ ] **P4 Stage profile:** time 20 questions stage by stage on the 3060 to replace estimates with numbers.
 
+## Phase 1a — Clean results pipeline BEFORE the re-run (author, 2026-10-17)
+Inventory (2026-10-17): 47 table/figure files in the thesis: 15 generated, 15 generated then hand-edited,
+11 with no generator (hand-made or hand-merged), 6 hand-drawn diagrams; 97 scripts, 6 of which do work and
+write files on import (aggregate_section_5_2/4/5/6/7, replay_early_stop_gate); chapter 5 prose alone holds
+466 typed numbers.
+- [ ] R1 Script manifest: classify all 97 scripts as pipeline / current analysis / superseded. Move superseded
+      ones to `archive/` (cannot be run by the runbook); guard the six import-time scripts with a main block.
+- [ ] R2 Data vs words: every data table is produced by a script as a bare tabular from the run's JSON; the
+      caption, label and float placement live in the chapter file (hand-written words are legitimate there).
+      The hand edits made so far (merges, layouts, dropped columns, notes below tables) are re-implemented as
+      generator code, so nothing is lost and nothing is edited by hand again.
+- [ ] R3 One command, `make_results`, regenerates every data table and figure from the outputs; a check mode
+      regenerates into a temporary folder and diffs against the committed files (must be identical).
+- [ ] R4 Numbers in prose: the same command writes a macro file (e.g. `\NumBoneEM`) from the JSONs; the
+      Phase 8 rewrite cites macros instead of typed numbers, so no number can go stale.
+- [ ] R5 Hand-drawn diagrams (chapter 4, architecture) stay hand-made but are reviewed against the Phase 2
+      design (e.g. the dropped atomic signal) and listed in the manifest.
+- [ ] R6 Runbook: exact commands for every stage of the re-run; only those commands are used.
+
 ## Phase 2 — System fixes
 - [ ] A1 Token score: answer tokens only, scored under the prompt that produced them.
 - [ ] A2 Confabulation early exit: re-check that it can fire after A1; thresholds stay as specified.
@@ -96,7 +115,7 @@ Run after Phase 2 freezes CAEM's Tier 2 question message.
   $60–100 (baselines run locally). Firm number after Phase 1 profiling and the Phase 5 mini-run.
 
 ## Phase 8 — Results and write-up
-- [ ] Re-generate every table and figure from scripts (no hand edits; fixes F1).
+- [ ] Run `make_results` (Phase 1a) on the new outputs; check mode must pass.
 - [ ] One rewrite of chapters 1–6, appendices and abstract (category E), then the chapter 6 future-work list.
 - [ ] Repository clean-up (category F).
 
@@ -164,7 +183,7 @@ E1 token score and early-exit descriptions; E2 matched-protocol claim; E3 chapte
 `fu2025collapse`. Done already: question-match reframe, CHM as seven types, Haiku TruthfulQA, paired test,
 H5 removal, early-stop wording, chapter 5 table restructure.
 
-## F. Repository (Phase 8)
+## F. Repository (Phase 1a for F1, F2, F5; the rest in Phase 8)
 F1 hand-edited tables (T1–T11); F2 scripts that overwrite on import (S1); F3 requirements file (S2);
 F4 evidence in an ignored folder (S5); F5 superseded scripts and tables (S3, S6, T6, T8); F6 stale comments
 and dead config (C4, C5, C6, C10, C13); F7 cold-start as one stage (D9); F8 Drive-only receipts, tags (D8, S4).
