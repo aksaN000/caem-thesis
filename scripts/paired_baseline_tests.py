@@ -8,19 +8,18 @@ the helpers of scripts/baseline_sig_tests.py), so its counts reproduce the commi
 Per (CAEM cycle, benchmark, baseline), on the shared evaluation-fold ids:
   EM   McNemar test; paired bootstrap 95% CI on the mean difference.
   CHM  Wilcoxon signed-rank test on the per-question CHM differences (zero differences dropped);
-       paired bootstrap 95% CI on the mean difference. B8 (semantic entropy) is excluded: its
-       corrected run was never re-scored through the verifier (tracker D1).
+       paired bootstrap 95% CI on the mean difference (B8 included since the final-version re-run has
+       verifier scores).
   Holm-Bonferroni within each benchmark, separately per axis. Practical floors |dEM| >= 0.02,
   |dCHM| >= 0.01. Marker: '*' CAEM significantly better, '(B)' baseline significantly better.
   A verifier-free CHM (the five active subtypes that use neither CAEM's composite score nor its decision,
   divided by seven) is tested the same way as a robustness check.
 
-CHM correctness label: --tqa_label judged (default; the thesis setting) uses the Haiku-judged field for TruthfulQA; rouge reproduces the committed CHM (the harness
-`em` field, which for TruthfulQA is the ROUGE-L > 0.15 match); --tqa_label judged uses the
-Haiku-judged field for TruthfulQA, the same label as the EM axis.
+Sources and correctness label: scripts/final_sources.py (`em_final` for every system and benchmark: uniform scorer,
+TruthfulQA Haiku judge under the final-answer protocol), the same label on both axes.
 
-Writes outputs/analysis/paired_baseline_tests_<label>.json and, for the label passed with
---write_tex, figures/auto/tab_sig_summary.tex and tab_sig_full_c5.tex / tab_sig_full_c2.tex.
+Writes outputs/analysis/paired_baseline_tests_final.json and, with --write_tex, figures/auto/tab_sig_summary.tex
+and tab_sig_full_c5.tex / tab_sig_full_c2.tex.
 Read-only on its inputs.
 """
 import argparse
@@ -35,34 +34,15 @@ from scipy.stats import wilcoxon
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from eval.metrics import per_sample_chm, _EVASIVE_RX, _TEMPLATE_LEAK_RX  # noqa: E402
-from scripts.baseline_sig_tests import (  # noqa: E402
-    _load_id_to_em, _load_eval_ids, _holm_correct, mcnemar_test,
-)
+from scripts.baseline_sig_tests import _load_eval_ids, _holm_correct, mcnemar_test  # noqa: E402
+from scripts import final_sources as FS  # noqa: E402
 
-BENCHES = ("fever", "triviaqa", "commonsense_qa", "truthfulqa", "strategyqa")
-BASELINES = ("zero_shot", "cot", "rag", "cot_rag", "fiveshot_cot", "vanilla_ft", "flare", "semantic_entropy")
-LABEL = {"zero_shot": "B1 zero-shot", "cot": "B2 chain-of-thought", "rag": "B3 RAG", "cot_rag": "B4 CoT + RAG",
-         "fiveshot_cot": "B5 five-shot CoT", "vanilla_ft": "B6 vanilla fine-tune", "flare": "B7 FLARE",
-         "semantic_entropy": "B8 semantic entropy"}
+BENCHES, BASELINES, LABEL = FS.BENCHES, FS.BASELINES, FS.LABEL
 BNAME = {"fever": "FEVER", "triviaqa": "TriviaQA", "commonsense_qa": "CommonsenseQA",
          "truthfulqa": "TruthfulQA", "strategyqa": "StrategyQA"}
-NO_CHM = {"semantic_entropy"}
+NO_CHM: set = set()
 EM_FLOOR, CHM_FLOOR, ALPHA, NBOOT = 0.02, 0.01, 0.05, 2000
-BL = ROOT / "outputs/baselines_phase1e"
-CAEM = ROOT / "outputs/full_run/eval"
 OUT = ROOT / "defense/thesis_report/figures/auto"
-
-
-def baseline_em_path(b, bench):
-    if b == "vanilla_ft":
-        return BL / "vanilla_ft/eval" / f"{bench}_cycle5.json"
-    return BL / b / f"{bench}_cycle0.json"
-
-
-def baseline_chm_path(b, bench):
-    if b == "vanilla_ft":
-        return BL / "vanilla_ft/eval" / f"{bench}_cycle5_with_chm.json"
-    return BL / b / f"{bench}_cycle0_with_chm.json"
 
 
 def free_chm(s):
@@ -77,8 +57,8 @@ def free_chm(s):
     return sum(flags) / 7.0
 
 
-def chm_maps(samples, judged_em):
-    """{id: (chm, verifier-free chm)}; judged_em overrides the correctness label when given.
+def chm_maps(samples):
+    """{id: (chm, verifier-free chm)} for rows that already carry the final label in `em`.
 
     CHM is the mean of the seven flags that can fire: per_sample_chm averages eight, one of which
     (off-topic) can never fire, so the seven-type value is per_sample_chm * 8 / 7.
@@ -86,15 +66,8 @@ def chm_maps(samples, judged_em):
     out = {}
     for s in samples:
         sid = str(s.get("id"))
-        if judged_em is not None and sid in judged_em:
-            s = dict(s, em=judged_em[sid])
         out[sid] = (per_sample_chm(s) * 8 / 7, free_chm(s))
     return out
-
-
-def judged_map(path):
-    rows = json.load(open(path))["samples"]
-    return {str(s["id"]): float(s["em_llm_judged"]) for s in rows if s.get("em_llm_judged") is not None}
 
 
 def boot_ci(d, rng):
@@ -118,18 +91,15 @@ def marker(diff, p, floor, lower_is_better):
     return "*" if good else "(B)"
 
 
-def run(cycle, tqa_label, rng):
+def run(cycle, rng):
     eval_ids = _load_eval_ids(ROOT / "outputs/full_run") or {}
     rows = []
     for bench in BENCHES:
-        cpath = CAEM / f"{bench}_cycle{cycle}.json"
-        c_em = _load_id_to_em(cpath)
-        c_samples = json.load(open(cpath))["samples"]
-        judged = tqa_label == "judged" and bench == "truthfulqa"
-        c_chm = chm_maps(c_samples, judged_map(cpath) if judged else None)
+        c_em = FS.id_to_em(f"caem_c{cycle}", bench)
+        c_chm = chm_maps(FS.load(f"caem_c{cycle}", bench))
         fam = []
         for b in BASELINES:
-            b_em = _load_id_to_em(baseline_em_path(b, bench))
+            b_em = FS.id_to_em(b, bench)
             allowed = eval_ids.get(bench)
             ids = sorted(set(c_em) & set(b_em) & (allowed if allowed else set(c_em)))
             ce = np.array([c_em[i] for i in ids]); be = np.array([b_em[i] for i in ids])
@@ -138,8 +108,7 @@ def run(cycle, tqa_label, rng):
                  "em_caem": float(ce.mean()), "em_base": float(be.mean()), "d_em": float((ce - be).mean()),
                  "ci_em": boot_ci(ce - be, rng), "p_em": float(p_em)}
             if b not in NO_CHM:
-                b_samples = json.load(open(baseline_chm_path(b, bench)))["samples"]
-                b_chm = chm_maps(b_samples, judged_map(baseline_em_path(b, bench)) if judged else None)
+                b_chm = chm_maps(FS.load(b, bench))
                 cids = [i for i in ids if i in c_chm and i in b_chm]
                 cc = np.array([c_chm[i][0] for i in cids]); bc = np.array([b_chm[i][0] for i in cids])
                 cf = np.array([c_chm[i][1] for i in cids]); bf = np.array([b_chm[i][1] for i in cids])
@@ -189,7 +158,7 @@ def write_tex(res):
     L += ["\\midrule",
           f"Total & {tot(res[2], 'sig_em')} & {tot(res[2], 'sig_chm')} & {tot(res[5], 'sig_em')} & {tot(res[5], 'sig_chm')} \\\\",
           "\\bottomrule", "\\end{tabular}",
-          "\\caption[Significant wins and defeats against each baseline.]{Significant wins / defeats of CAEM against each baseline over the five benchmarks (paired tests, Holm-corrected within each benchmark; \\Cref{app:significance}). B8 has no valid CHM.}",
+          "\\caption[Significant wins and defeats against each baseline.]{Significant wins / defeats of CAEM against each baseline over the five benchmarks (paired tests, Holm-corrected within each benchmark; \\Cref{app:significance}).}",
           "\\label{tab:sig-summary}", "\\end{table}"]
     (OUT / "tab_sig_summary.tex").write_text("\n".join(L) + "\n")
 
@@ -221,15 +190,14 @@ def write_tex(res):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--tqa_label", choices=("rouge", "judged"), default="judged")
     ap.add_argument("--write_tex", action="store_true")
     a = ap.parse_args()
     rng = np.random.default_rng(42)
-    res = {c: run(c, a.tqa_label, rng) for c in (5, 2)}
+    res = {c: run(c, rng) for c in (5, 2, 0)}
     (ROOT / "outputs/analysis").mkdir(parents=True, exist_ok=True)
-    json.dump({"tqa_label": a.tqa_label, "rows": res[5] + res[2]},
-              open(ROOT / f"outputs/analysis/paired_baseline_tests_{a.tqa_label}.json", "w"), indent=1)
-    for c in (5, 2):
+    json.dump({"label": "em_final", "rows": res[5] + res[2] + res[0]},
+              open(ROOT / "outputs/analysis/paired_baseline_tests_final.json", "w"), indent=1)
+    for c in (5, 2, 0):
         print(f"C{c}", {k: counts(res[c], k) for k in ("sig_em", "sig_chm", "sig_free")})
     if a.write_tex:
         write_tex(res)
