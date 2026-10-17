@@ -58,6 +58,19 @@ Local runs stopped and local environments/caches removed at the author's request
 - [ ] patch_chm_judged_tables.py rewrites CHM cells only; EM cells also change (CSQA rule, judge v2): regenerate
       or extend when the numbers are in.
 - [x] Router-probe id-space bug (tracker C2): fixed, re-summarised without GPU (1.0 / 1.0; not used in thesis).
+- [x] CAEM scoring audit (scripts/audit_caem_scoring.py, outputs/analysis/audit_caem_scoring.json, 2026-10-17):
+      closed benchmarks: no scorer damage (misses are different answers; 7 two-letter CSQA answers at C0 copy the
+      "A | B | C | D | E" format line). TruthfulQA judge v2 (CAEM written, em_final): C0 0.380 -> 0.270,
+      C2 0.323 -> 0.277, C5 0.300 -> 0.253; the losses are mostly refusals ("I do not know"), which TruthfulQA's own
+      convention counts as truthful but not informative; v2 measures truthful and informative.
+- [ ] DECISION (author): withheld answers. EM and CHM read CAEM's raw answer even when it was withheld (ABSTAIN shows
+      "I do not know.", DISCARD shows nothing). C0 withholds 335 correct answers; 517 withheld wrong answers are
+      counted as hallucinations; CHM with withheld answers counted only as refusals: C0 0.155 -> 0.075,
+      C2 0.127 -> 0.094, C5 0.134 -> 0.105. The current selective table counts DISCARD as answered (C0 66 % answered;
+      34 % if DISCARD is withheld, wrong among answered 0.405 -> 0.294). B8 also withholds ("<abstain>": 156
+      TriviaQA, 260 TruthfulQA in run 1) and is penalised the same way. Proposal: keep EM/CHM on the raw answer
+      (generator view) and add a delivered view for every system (answered, wrong among answered, CHM among
+      answered, refusal rate), with ABSTAIN, DISCARD and "<abstain>" as withheld.
 ### M-C. Text that does not match the code (must fix)
 - [ ] Describe as it behaved, briefly (author 2026-10-17: no fault sections): token score = generator's average
       token probability for its full response given the question (+1 limitation sentence); atomic signal reduces
