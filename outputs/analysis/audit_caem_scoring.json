@@ -1,0 +1,173 @@
+{
+ "C0": {
+  "wrong_causes": {
+   "fever": {
+    "different_answer": 154,
+    "right": 146
+   },
+   "triviaqa": {
+    "different_answer": 153,
+    "right": 139,
+    "lenient_only": 8
+   },
+   "commonsense_qa": {
+    "right": 227,
+    "different_answer": 66,
+    "invalid_label": 7
+   },
+   "strategyqa": {
+    "different_answer": 117,
+    "right": 183
+   }
+  },
+  "truthfulqa_judge": {
+   "v1": 0.38,
+   "v2": 0.27,
+   "lost": 45,
+   "gained": 12,
+   "lost_on_withheld_rows": 45,
+   "lost_where_v1_graded_the_refusal_string": 21
+  },
+  "withheld": {
+   "n": 1500,
+   "em": 0.5173333333333333,
+   "decision_x_correct": {
+    "ABSTAIN:0": 323,
+    "ABSTAIN:1": 186,
+    "DEFERRED:0": 56,
+    "DEFERRED:1": 83,
+    "DISCARD:0": 250,
+    "DISCARD:1": 228,
+    "STORE:0": 95,
+    "STORE:1": 279
+   },
+   "selective_abstain_only": {
+    "answered": 0.6606666666666666,
+    "wrong_among_answered": 0.4046417759838547,
+    "correct_and_shown": 0.3933333333333333
+   },
+   "selective_abstain_and_discard": {
+    "answered": 0.342,
+    "wrong_among_answered": 0.29434697855750486,
+    "correct_and_shown": 0.24133333333333334
+   },
+   "chm_as_scored": 0.15542857142857142,
+   "chm_withheld_as_refusal": 0.07457142857142857,
+   "withheld_wrong_flagged": 517
+  }
+ },
+ "C2": {
+  "wrong_causes": {
+   "fever": {
+    "right": 160,
+    "different_answer": 140
+   },
+   "triviaqa": {
+    "different_answer": 143,
+    "right": 148,
+    "lenient_only": 9
+   },
+   "commonsense_qa": {
+    "right": 215,
+    "different_answer": 85
+   },
+   "strategyqa": {
+    "right": 196,
+    "different_answer": 104
+   }
+  },
+  "truthfulqa_judge": {
+   "v1": 0.3233333333333333,
+   "v2": 0.27666666666666667,
+   "lost": 30,
+   "gained": 16,
+   "lost_on_withheld_rows": 28,
+   "lost_where_v1_graded_the_refusal_string": 25
+  },
+  "withheld": {
+   "n": 1500,
+   "em": 0.5346666666666666,
+   "decision_x_correct": {
+    "ABSTAIN:0": 135,
+    "ABSTAIN:1": 49,
+    "DEFERRED:0": 236,
+    "DEFERRED:1": 268,
+    "DISCARD:0": 85,
+    "DISCARD:1": 24,
+    "STORE:0": 242,
+    "STORE:1": 460,
+    "None:1": 1
+   },
+   "selective_abstain_only": {
+    "answered": 0.8773333333333333,
+    "wrong_among_answered": 0.4278115501519757,
+    "correct_and_shown": 0.502
+   },
+   "selective_abstain_and_discard": {
+    "answered": 0.8046666666666666,
+    "wrong_among_answered": 0.396023198011599,
+    "correct_and_shown": 0.486
+   },
+   "chm_as_scored": 0.12714285714285714,
+   "chm_withheld_as_refusal": 0.09390476190476191,
+   "withheld_wrong_flagged": 215
+  }
+ },
+ "C5": {
+  "wrong_causes": {
+   "fever": {
+    "right": 143,
+    "different_answer": 157
+   },
+   "triviaqa": {
+    "different_answer": 156,
+    "right": 136,
+    "lenient_only": 8
+   },
+   "commonsense_qa": {
+    "right": 215,
+    "different_answer": 85
+   },
+   "strategyqa": {
+    "right": 192,
+    "different_answer": 108
+   }
+  },
+  "truthfulqa_judge": {
+   "v1": 0.3,
+   "v2": 0.25333333333333335,
+   "lost": 28,
+   "gained": 14,
+   "lost_on_withheld_rows": 25,
+   "lost_where_v1_graded_the_refusal_string": 25
+  },
+  "withheld": {
+   "n": 1500,
+   "em": 0.508,
+   "decision_x_correct": {
+    "ABSTAIN:0": 177,
+    "ABSTAIN:1": 78,
+    "DEFERRED:0": 332,
+    "DEFERRED:1": 254,
+    "DISCARD:0": 18,
+    "DISCARD:1": 5,
+    "STORE:0": 211,
+    "STORE:1": 423,
+    "None:1": 2
+   },
+   "selective_abstain_only": {
+    "answered": 0.83,
+    "wrong_among_answered": 0.4506024096385542,
+    "correct_and_shown": 0.456
+   },
+   "selective_abstain_and_discard": {
+    "answered": 0.8146666666666667,
+    "wrong_among_answered": 0.44435351882160395,
+    "correct_and_shown": 0.45266666666666666
+   },
+   "chm_as_scored": 0.1341904761904762,
+   "chm_withheld_as_refusal": 0.10533333333333333,
+   "withheld_wrong_flagged": 194
+  }
+ }
+}
