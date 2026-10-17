@@ -17,12 +17,20 @@ Local runs stopped and local environments/caches removed at the author's request
 ### M-A. Unfair comparisons (must fix)
 - [ ] Exact passage search for the 1,500 evaluation questions (one batched pass), checked against the first
       run (re-ranking the cached top 20 must reproduce each answer's stored top 3). `scripts/precompute_passages.py`
-- [ ] Re-run B1, B2, B5 (demonstrations from each benchmark's own training split), B8 and B6 (saved cycle-5
-      weights, outputs/baselines_phase1e/vanilla_ft/cycle_5/) with CAEM's exact question message on all five
-      benchmarks (local RTX 3060).
-- [ ] FLARE: its later searches use model-written text, so they cannot be pre-computed and live exact search
-      does not fit locally; re-run on a short rental with ≥ 64 GB RAM (about $3–8).
-- [ ] B3/B4: re-generate the 32 empty TruthfulQA answers.
+- [x] Matched-prompt code (commit 7326a35): B1, B2, B5, B6 eval, B8 and FLARE's first draft and conclusion get
+      CAEM's exact Tier 2 messages (system prompt, one worked example, task line, answer format, "Reasoning:");
+      B2/B5 append "Let's think step by step."; B5 takes 5 demonstrations per benchmark (seed 42) from that
+      benchmark's training split (TruthfulQA: validation), with every evaluated question and CAEM's evaluation
+      fold removed by question text; demos saved to fiveshot_demos.json. Legacy prompts: matched_prompt=False.
+- [ ] Re-run B1, B2, B5, B8 and B6 (saved cycle-5 weights, outputs/baselines_phase1e/vanilla_ft/cycle_5/) on all
+      five benchmarks (rental).
+- [ ] FLARE: its later searches use model-written text, so they cannot be pre-computed; re-run on the rental
+      with live exact search.
+- [x] B3/B4 empty TruthfulQA answers, cause: the first TruthfulQA batch (32 questions) hit a CUDA out-of-memory
+      error (rag.gen.log, 2026-05-28 00:37) and the batch handlers stored empty (B3) or bare "Reasoning:" (B4)
+      answers. Fixed (commit 397ff10): failed batch items are regenerated one at a time. All CAEM outputs and the
+      other baselines have no such rows.
+- [ ] B3/B4: re-run TruthfulQA on the rental (prompts unchanged; the 268 good answers must reproduce).
 - [ ] Verifier pass on every re-run baseline (CHM; B8 gets its first valid CHM).
 ### M-B. Scoring (must fix)
 - [ ] TruthfulQA judge reads the final answer only; a refusal is correct only if the references include one.
