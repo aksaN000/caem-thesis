@@ -367,6 +367,26 @@ class BaselineBase:
     # Pipeline-shaped public API                                           #
     # ------------------------------------------------------------------ #
 
+    def _retry_failed(self, queries: List[str], answers: List[str], failed: List[bool]) -> List[str]:
+        """Regenerate, one query at a time, every answer whose batch failed (final-version, 2026-10-17).
+
+        Run 1 lost the first TruthfulQA batch of B3 and B4 (32 answers each) to a CUDA out-of-memory error that
+        the batch handlers turned into empty answers. The single-query path is the reference behaviour.
+        """
+        if not any(failed):
+            return answers
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        out = list(answers)
+        for i, (q, bad) in enumerate(zip(queries, failed)):
+            if bad:
+                try:
+                    out[i] = self._generate(q)[0]
+                except Exception as exc:
+                    logger.error("[%s] single-query retry failed: %s", self.name, exc)
+        logger.warning("[%s] retried %d failed batch answers one at a time", self.name, sum(failed))
+        return out
+
     def answer_batch(self, queries: List[str], store_to_memory: bool = False) -> List[PipelineResult]:
         """Goal 5 Level B batched API. Default implementation: build N prompts via
         ``self._build_prompt`` and run one batched ``_run_generation_batch``.
@@ -383,7 +403,7 @@ class BaselineBase:
         except Exception as exc:
             logger.error("[%s] batched generation failed (%d queries): %s",
                          self.name, len(queries), exc)
-            answers = [""] * len(queries)
+            answers = self._retry_failed(queries, [""] * len(queries), [True] * len(queries))
         batch_ms = (time.perf_counter() - t0) * 1000.0
         per_sample_ms = batch_ms / max(len(queries), 1)
         return [
@@ -702,6 +722,8 @@ class RAGBaseline(BaselineBase):
             logger.error("[%s] batched RAG generation failed (%d queries): %s",
                          self.name, len(queries), exc)
             answers = [""] * len(queries)
+        # TierThreeRAG.generate_batch returns "" for a failed generation (its caller is expected to retry).
+        answers = self._retry_failed(queries, answers, [not (a or "").strip() for a in answers])
         batch_ms = (time.perf_counter() - t0) * 1000.0
         per_sample_ms = batch_ms / max(len(queries), 1)
         return [
@@ -787,6 +809,12 @@ class CoTRAGBaseline(RAGBaseline):
             logger.error("[%s] batched CoT-RAG generation failed (%d queries): %s",
                          self.name, len(queries), exc)
             continuations = [""] * len(queries)
+        failed = [not (c or "").strip() for c in continuations]
+        if any(failed):
+            # _generate returns the full answer (forced prefix included); strip it back to a continuation.
+            retried = self._retry_failed(queries, [""] * len(queries), failed)
+            continuations = [r[len(fp):] if f and r.startswith(fp) else (r if f else c)
+                             for c, r, f, fp in zip(continuations, retried, failed, forced_prefixes)]
 
         batch_ms = (time.perf_counter() - t0) * 1000.0
         per_sample_ms = batch_ms / max(len(queries), 1)
