@@ -11,7 +11,7 @@ faiss-cpu>=1.8
 scipy>=1.11
 scikit-learn>=1.4
 bitsandbytes>=0.43
-anthropic>=0.108
+anthropic>=0.108,<1  # 1.x rejects the temperature argument the judge uses (temperature 0)
 huggingface_hub[cli]>=0.30
 numpy
 pandas
