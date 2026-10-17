@@ -1,4 +1,45 @@
-# Master plan and issue list (rewritten 2026-10-17)
+# Master plan and issue list (updated 2026-10-17)
+
+## ACTIVE PLAN: minimum defensible thesis, no main re-run (author decision, 2026-10-17)
+Rule: a thesis may contain a flawed component if it is described honestly; it may not contain an unfair
+comparison or a description that does not match the code. So: fix comparisons and descriptions, disclose the
+rest, skip the main re-run. The full re-run plan below (PART 1) is kept for the case that budget appears.
+
+### M-A. Unfair comparisons (must fix)
+- [ ] Exact passage search for the 1,500 evaluation questions (one batched pass), checked against the first
+      run (re-ranking the cached top 20 must reproduce each answer's stored top 3). `scripts/precompute_passages.py`
+- [ ] Re-run B1, B2, B5 (demonstrations from each benchmark's own training split), B8 and B6 (saved cycle-5
+      weights, outputs/baselines_phase1e/vanilla_ft/cycle_5/) with CAEM's exact question message on all five
+      benchmarks (local RTX 3060).
+- [ ] FLARE: its later searches use model-written text, so they cannot be pre-computed and live exact search
+      does not fit locally; re-run on a short rental with ≥ 64 GB RAM (about $3–8).
+- [ ] B3/B4: re-generate the 32 empty TruthfulQA answers.
+- [ ] Verifier pass on every re-run baseline (CHM; B8 gets its first valid CHM).
+### M-B. Scoring (must fix)
+- [ ] TruthfulQA judge reads the final answer only; a refusal is correct only if the references include one.
+      Re-judge CAEM (all cycles) and every baseline.
+- [ ] TriviaQA strict-vs-lenient re-check for every system after the prompt fix; one rule for all.
+- [ ] Router-probe id-space bug.
+### M-C. Text that does not match the code (must fix)
+- [ ] Describe as it behaved, briefly (author 2026-10-17: no fault sections): token score = generator's average
+      token probability for its full response given the question (+1 limitation sentence); atomic signal reduces
+      to mean grounding on short answers (existing sentence); early exit: rule + "fired on no evaluation answers
+      at C0 and 3–23 per cycle afterwards"; temperature cap / safety override: honest reporting (already in ch5).
+      These signals were active (cycle-zero weights: token 0.126 and half of internal 0.334; atomic 0.184), so
+      they are not removed from the thesis. (Pending author confirmation of this wording.)
+- [ ] Matched-protocol claim (true after M-A), chapter 6, appendices, abstract; tables regenerated.
+### M-D. Disclosed as limitations + future work
+System faults (token score scope, early exit reachability, question-match signal, atomic duplicate,
+temperature cap, FEVER prefix); self-improvement erosion after C1 with its diagnosis (phantom context
+3 % → 93–99 %, about a fifth of the training pool wrong) and fixes S1–S4 as future work; repeated-question
+evaluation (router probe stands in); live latency (first-run batched logs 13.6–14.7 s per question, caveated).
+### M-E. Optional, agreed: local trial of the self-improvement fixes
+- [ ] After M-A to M-C: S1 (clean chains) + S2 (purer pool) on a subset, cycle zero + 1–2 cycles, on the RTX
+      3060; reported as clearly labelled supporting evidence for the future-work section, not a main result.
+
+---
+
+# APPENDIX: full re-run plan and issue list (kept for reference)
 
 This file is the single checklist for the re-run. It replaces the scattered limitation lists. Tracker ids
 (C/D/T/S, in REPO_CLEANUP_TRACKER.md) are cross-referenced. Add every new finding here.
