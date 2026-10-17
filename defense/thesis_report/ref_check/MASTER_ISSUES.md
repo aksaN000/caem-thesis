@@ -48,7 +48,8 @@ Inventory (2026-10-17): 47 table/figure files in the thesis: 15 generated, 15 ge
 11 with no generator (hand-made or hand-merged), 6 hand-drawn diagrams; 97 scripts, 6 of which do work and
 write files on import (aggregate_section_5_2/4/5/6/7, replay_early_stop_gate); chapter 5 prose alone holds
 466 typed numbers.
-- [ ] R1 Script manifest: classify all 97 scripts as pipeline / current analysis / superseded. Move superseded
+- [~] R1 Script manifest (2026-10-17, branch cleanup/repo-layout: 16 one-off scripts, old runners and the approximate
+      significance script moved to archive/scripts_superseded/; full pipeline/analysis manifest still to do): classify all 97 scripts as pipeline / current analysis / superseded. Move superseded
       ones to `archive/` (cannot be run by the runbook); guard the six import-time scripts with a main block.
 - [ ] R2 Data vs words: every data table is produced by a script as a bare tabular from the run's JSON; the
       caption, label and float placement live in the chapter file (hand-written words are legitimate there).
