@@ -183,8 +183,8 @@ A reproducer who has executed the full trajectory uses the ten-item checklist be
 \end{itemize}
 \item[Pooled composite hallucination metric at the same cycles.]
 \begin{itemize}
-\item Receipt: the same per-sample evaluation files plus the canonical composite-hallucination-metric implementation at \texttt{eval/metrics.py}.
-\item Expected: $0.107$ at C2, $0.109$ at C5.
+\item Receipt: the same per-sample evaluation files plus the canonical composite-hallucination-metric implementation at \texttt{eval/metrics.py}, with the \texttt{em\_llm\_judged} field as the correctness label on TruthfulQA (the re-scoring script \texttt{scripts/recompute\_chm\_judged.py} does this).
+\item Expected: $0.110$ at C2, $0.117$ at C5.
 \item Tolerance: $\pm 1.0$ percentage point.
 \end{itemize}
 \item[Per-benchmark exact match at cycle five.]

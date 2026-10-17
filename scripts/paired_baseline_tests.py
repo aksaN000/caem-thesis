@@ -15,7 +15,7 @@ Per (CAEM cycle, benchmark, baseline), on the shared evaluation-fold ids:
   A verifier-free CHM (the six subtypes that use neither CAEM's composite score nor its decision,
   still divided by eight) is tested the same way as a robustness check.
 
-CHM correctness label: --tqa_label rouge (default) reproduces the committed CHM (the harness
+CHM correctness label: --tqa_label judged (default; the thesis setting) uses the Haiku-judged field for TruthfulQA; rouge reproduces the committed CHM (the harness
 `em` field, which for TruthfulQA is the ROUGE-L > 0.15 match); --tqa_label judged uses the
 Haiku-judged field for TruthfulQA, the same label as the EM axis.
 
@@ -217,7 +217,7 @@ def write_tex(res):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--tqa_label", choices=("rouge", "judged"), default="rouge")
+    ap.add_argument("--tqa_label", choices=("rouge", "judged"), default="judged")
     ap.add_argument("--write_tex", action="store_true")
     a = ap.parse_args()
     rng = np.random.default_rng(42)

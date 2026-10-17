@@ -14,12 +14,12 @@
   ylabel={pooled CHM (lower is better)}, xtick={0,...,5}, ymin=0.10, ymax=0.14, font=\small,
   tick label style={font=\scriptsize}, grid=major, grid style={black!8},
   legend style={font=\scriptsize, at={(0.98,0.97)}, anchor=north east}]
-  \addplot[red!65!black, mark=square*, thick] coordinates {(0,0.135) (1,0.112) (2,0.107) (3,0.115) (4,0.115) (5,0.109)};
+  \addplot[red!65!black, mark=square*, thick] coordinates {(0,0.134) (1,0.114) (2,0.11) (3,0.118) (4,0.118) (5,0.117)};
   \addlegendentry{CAEM}
-  \addplot[black!60, dashed, thick, domain=0:5] {0.120};
+  \addplot[black!60, dashed, thick, domain=0:5] {0.137};
   \addlegendentry{B1}
 \end{axis}
 \end{tikzpicture}
-\caption[EM and CHM by cycle against B1.]{Pooled EM (left) and CHM (right) by cycle on the evaluation fold, against B1. EM is gained before any fine-tuning (C0) and slowly lost afterwards; CHM is above B1 at C0 and below it from C1.}
+\caption[EM and CHM by cycle against B1.]{Pooled EM (left) and CHM (right) by cycle on the evaluation fold, against B1. EM is gained before any fine-tuning (C0) and slowly lost afterwards; CHM is at B1's level at C0 and below it from C1.}
 \label{fig:trajectory}
 \end{figure}

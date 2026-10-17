@@ -1529,3 +1529,9 @@ Build: 216 pages, 0 errors, 0 undefined, 0 multiply-defined, 0 biber warnings, 7
 - All ch5 body tables: \small, no scaling.
 - CHM significance: paired Wilcoxon + Holm (scripts/paired_baseline_tests.py); counts C5 21/3 of 35, C2 24/4 of 35 (B6 now included); EM unchanged 9/3, 14/3; appendix D rewritten accordingly; Wilcoxon 1945 added to bib.
 - Threats paragraph on verifier dependence: verifier-free CHM check added (C5 0.067 vs B1 0.079; 26/4 of 35).
+
+## CHM re-scored with the Haiku label on TruthfulQA (2026-10-17, author decision)
+- All CHM numbers now use em_llm_judged on TruthfulQA (was ROUGE-L > 0.15). Pooled CHM: B1 0.137, C0 0.134, C1 0.114, C2 0.110, C3/C4 0.118, C5 0.117; baselines B2 0.141, B3 0.151, B4 0.144, B5 0.136, B6 0.122, B7 0.198. RUC ablation pooled CHM 0.125 → 0.118; TruthfulQA 0.138 both arms.
+- Tables: halluc_subtypes, per_bench (TQA CHM row), baseline_pooled, tier_chm, ruc_ablation patched by script; headline_steps and the three ch5 figures regenerated from chm_judged.json.
+- Paired tests (judged default): CHM C5 19/1, C2 23/1 of 35 (only defeat B6 on CommonsenseQA); verifier-free C5 0.070 vs B6 0.083 (27/2).
+- Text: C0 CHM now level with B1 (was above); the refusal–confabulation trade nearly cancels, so the net C0→C5 CHM gain is from fewer fabricated/evasive wrong answers (headline paragraph reworded accordingly). Abstract full-panel CHM change −11.0% → −19.2%. Appendix D counts and appendix E expected values updated. B4 EM 0.464 → 0.461 (D12). H4 R² clause removed (D13).
