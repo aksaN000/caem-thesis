@@ -6,13 +6,23 @@ comparison or a description that does not match the code. So: fix comparisons an
 rest, skip the main re-run. The full re-run plan below (PART 1) is kept for the case that budget appears.
 
 ### Execution (author, 2026-10-17): one rented GPU
-Preparation (local, before the rental): matched baseline prompts (B1, B2, B5 with per-benchmark demonstrations,
-B8, B6, FLARE first draft); TruthfulQA final-answer judge protocol; probe bug; S1 + S2 code for the trial;
-one rental runbook script (setup → exact search → baselines → FLARE → verifier pass → trial E → upload).
-Rental spec: RTX 5090 32 GB (or larger), ≥ 96 GB RAM preferred (61 GB index + 7 GB passages + models), ≥ 200 GB
-disk, driver supporting CUDA 13 (torch 2.10+cu130). Estimated 8–12 h, about $10–15 with trial E.
-After the rental (local): recompute results, chapter 5/6/1–4/appendix/abstract text, repository clean-up.
-Local runs stopped and local environments/caches removed at the author's request (2026-10-17); all compute on the rental.
+Runbook ready (commit 12204f2+): `scripts/rental/final_version.sh <stage>` with stages preflight, env, data, search
+(+ check against run 1, gate share >= 0.95), baselines, flare, b6, gate (questions identical to CAEM's, no empty
+answers), verify (C3 adapter + C3 composite as in run 1, pooled token-score path as in CAEM's main run), pack.
+Upload: `scripts/rental/make_bundle.sh` (repository at HEAD + run-1 eval fold, C3 adapter/composite, splits, about
+300 MB); B6 weights (5.8 GB) from Drive `CAEM_thesis/2_results_phase1e/phase1e_baselines/vanilla_ft/cycle_5` via
+rclone, or uploaded. Needs `HF_TOKEN` on the rental (private index repo).
+Rental spec: RTX 5090 32 GB (or larger), >= 96 GB RAM (61 GB index + 7 GB passages + models), >= 200 GB disk,
+driver supporting CUDA 13 (torch 2.10+cu130).
+Time estimate from run-1 logs: download 0.5–1 h; search 0.3 h; B1/B2/B5 0.3 h; B8 up to 3 h; B3/B4 TruthfulQA
+0.3 h; FLARE about 2 h; B6 0.5 h; verifier pass on about 9,600 answers 4–5 h (run 1: 8.7 s/answer, of which
+4.2 s search + rerank, removed by the cache except the rerank, and 3.4 s per-sample token score, pooled now).
+Total about 10–12 h, about $8–12. TruthfulQA judging and all re-scoring run locally (API / CPU).
+Found while preparing (2026-10-17): run 1's baseline verifier pass used the per-sample token-score path while CAEM's
+main run used the pooled one (batching gate: within ±0.01); the re-run uses the pooled path.
+After the rental (local): rescore_truthfulqa.py on the new baseline files, rescore_uniform.py, recompute CHM,
+paired tests, tables; then chapter 5/6/1–4/appendix/abstract text, repository clean-up.
+Local runs stopped and local environments/caches removed at the author's request (2026-10-17); all GPU work on the rental.
 
 ### M-A. Unfair comparisons (must fix)
 - [ ] Exact passage search for the 1,500 evaluation questions (one batched pass), checked against the first
