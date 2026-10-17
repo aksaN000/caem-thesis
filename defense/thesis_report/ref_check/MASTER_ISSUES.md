@@ -52,7 +52,11 @@ Local runs stopped and local environments/caches removed at the author's request
       scripts/rescore_uniform.py (writes em_final / em_lenient). CommonsenseQA: one letter, option text allowed,
       two letters wrong (the harness had no CSQA branch). TriviaQA strict = stored EM for every system (checked);
       lenient reported as an upper bound. Identical to the audit preview on 13,200 rows.
-- [ ] Run scripts/rescore_uniform.py after the judge and the baseline re-runs; downstream scripts read em_final.
+- [ ] Run scripts/rescore_uniform.py after the judge and the baseline re-runs. Downstream analysis now reads
+      scripts/final_sources.py (one file per system x benchmark, label em_final; stops on anything missing):
+      recompute_chm_judged.py, paired_baseline_tests.py (C0, C2, C5; B8 included), build_ch5_evidence_tables.py.
+- [ ] patch_chm_judged_tables.py rewrites CHM cells only; EM cells also change (CSQA rule, judge v2): regenerate
+      or extend when the numbers are in.
 - [x] Router-probe id-space bug (tracker C2): fixed, re-summarised without GPU (1.0 / 1.0; not used in thesis).
 ### M-C. Text that does not match the code (must fix)
 - [ ] Describe as it behaved, briefly (author 2026-10-17: no fault sections): token score = generator's average
