@@ -19,12 +19,12 @@
   \node[sig, draw=blue!60!black, fill=blue!6]   (udro) at (9.6,1.6) {$u_{\text{dropout}}$, then $u_{\text{internal}}$};
   \node[sig, draw=violet!60!black, fill=violet!6] (sa)  at (9.6,0.0) {$s_{\text{avg}}$,\ $p_{\text{entail}}$};
   \node[sig, draw=green!50!black, fill=green!7] (pg)   at (9.6,-1.6) {$p_{\text{ground,max}}$, $p_{\text{ground,mean}}$, $p_{\text{ground,atomic}}$};
-  \node[sig, draw=orange!70!black, fill=orange!8] (qar) at (9.6,-3.2) {$q_{\text{a,rel}}$};
+  \node[sig, draw=orange!70!black, fill=orange!8] (qar) at (9.6,-3.2) {$q_{\text{match}}$};
   \node[inp, text width=2.3cm] (out) at (13.4,0) {nine signals\\to the calibrated composite};
   \foreach \g in {tf,drop,ch,ret,ce} \draw[flow] (qa.east) -- (\g.west);
   \draw[flow] (tf) -- (utok); \draw[flow] (drop) -- (udro); \draw[flow] (ch) -- (sa); \draw[flow] (ret) -- (pg); \draw[flow] (ce) -- (qar);
   \foreach \s in {utok,udro,sa,pg,qar} \draw[flow] (\s.east) -- (out.west);
-  \node[font=\scriptsize, text=black!60, align=left, anchor=north west] at (6.6,-3.9) {colours: internal calibration (blue), sample-set agreement (violet),\\external grounding (green), question--answer relevance (orange)};
+  \node[font=\scriptsize, text=black!60, align=left, anchor=north west] at (6.6,-3.9) {colours: internal calibration (blue), sample-set agreement (violet),\\external grounding (green), question--answer match (orange)};
 \end{tikzpicture}}
 \caption[Where the nine verifier signals come from.]{Where the nine verifier signals come from. Five shared computations produce all nine signals; the grounding scores check the answer rewritten as a statement against the reranked passages.}
 \label{fig:verifier-flow}

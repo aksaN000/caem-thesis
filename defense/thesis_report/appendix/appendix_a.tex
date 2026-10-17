@@ -162,7 +162,7 @@ Every constant that governs runtime behaviour lives in the \verb|CAEMConfig| dat
 \multicolumn{4}{@{}l}{\textit{Verifier ensemble (\Cref{sec:verifier})}} \\
 \texttt{verifier\_backend}           & \texttt{"minicheck"} & literature & Short-hypothesis backend; Tang et al.\ 2024. \\
 \texttt{minicheck\_model}            & \texttt{lytang/\allowbreak MiniCheck-\allowbreak Flan-T5-\allowbreak Large} & literature & Verifier checkpoint. \\
-\texttt{cross\_encoder\_model}        & \texttt{BAAI/\allowbreak bge-reranker-\allowbreak v2-m3} & design & Shared reranker; consumed by grounding and question-answer relevance. \\
+\texttt{cross\_encoder\_model}        & \texttt{BAAI/\allowbreak bge-reranker-\allowbreak v2-m3} & design & Shared reranker; consumed by grounding and question-answer match. \\
 \texttt{verifier\_retrieve\_k}        & $20$  & design & Top-$k$ passages retrieved before reranking. \\
 \texttt{verifier\_rerank\_k}          & $3$   & design & Top-$N$ retained after reranking. \\
 \texttt{atomic\_min\_tokens}          & $12$  & calibrated & Length gate below which atomic decomposition is bypassed. \\

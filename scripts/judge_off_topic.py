@@ -29,14 +29,19 @@ MIN_INTERVAL = 1.35  # ~45 requests per minute, under the 50/min tier limit
 BL = ROOT / "outputs/baselines_phase1e"
 OPEN = ("triviaqa", "truthfulqa")
 
-PROMPT = """You are checking whether a model's response addresses the question it was asked. Ignore whether the answer is correct.
+PROMPT = """You are checking whether a model's response is ON_TOPIC or OFF_TOPIC for the question it was asked. You are NOT checking whether it is correct. Do not use your own knowledge of the right answer: a wrong answer is still ON_TOPIC if it is the right kind of answer about the right subject.
 
 Question: {question}
 
 Response: {response}
 
-Reply OFF_TOPIC if the response answers a different question, or its answer is about a different subject than the question asks for (for example, the question asks for a person's middle name and the response gives a place, or discusses unrelated events and never answers what was asked).
-Reply ON_TOPIC if the response attempts to answer the question that was asked, even if the answer is wrong, incomplete, or says it does not know.
+Rules, applied to the response's final answer:
+- OFF_TOPIC if the answer is a different kind of thing than the question asks for: a place or year when a name is asked, a person when a website is asked, or a label such as "supports", "refutes" or "not enough info" when the question is not a true/false claim.
+- OFF_TOPIC if the response is about a different subject than the question names (a different person, event, object or concept) and never answers about the subject actually asked.
+- ON_TOPIC if the answer is the right kind of thing about the right subject, even if it is wrong, unlikely, partly wrong or contradicts facts you know.
+- ON_TOPIC if the response says it does not know, or gives no answer.
+
+Examples: "Gerald Ford's middle name?" -> "Lincoln" is ON_TOPIC (a wrong name). "Gerald Ford's middle name?" -> "He was born in Omaha. Answer: Ford" is OFF_TOPIC (birthplace reasoning, surname not middle name). "Which country's anthem is La Brabanconne?" -> "France" is ON_TOPIC (a wrong country). "What does ADIDAS stand for?" -> "Answer: refutes" is OFF_TOPIC (a label, not an expansion).
 
 First line: ON_TOPIC or OFF_TOPIC. Second line: a reason in under 15 words."""
 

@@ -12,8 +12,8 @@ Per (CAEM cycle, benchmark, baseline), on the shared evaluation-fold ids:
        corrected run was never re-scored through the verifier (tracker D1).
   Holm-Bonferroni within each benchmark, separately per axis. Practical floors |dEM| >= 0.02,
   |dCHM| >= 0.01. Marker: '*' CAEM significantly better, '(B)' baseline significantly better.
-  A verifier-free CHM (the six subtypes that use neither CAEM's composite score nor its decision,
-  still divided by eight) is tested the same way as a robustness check.
+  A verifier-free CHM (the five active subtypes that use neither CAEM's composite score nor its decision,
+  divided by seven) is tested the same way as a robustness check.
 
 CHM correctness label: --tqa_label judged (default; the thesis setting) uses the Haiku-judged field for TruthfulQA; rouge reproduces the committed CHM (the harness
 `em` field, which for TruthfulQA is the ROUGE-L > 0.15 match); --tqa_label judged uses the
@@ -66,25 +66,29 @@ def baseline_chm_path(b, bench):
 
 
 def free_chm(s):
-    """Per-question CHM restricted to the six subtypes that do not use CAEM's composite or decision."""
+    """Per-question CHM restricted to the five active subtypes that do not use CAEM's composite or decision
+    (still divided by seven, the number of active subtypes)."""
     wrong = (s.get("em") or 0.0) == 0.0
     pred = s.get("prediction") or ""
     pga, pe = s.get("p_ground_atomic"), s.get("p_entail")
     flags = [wrong and pga is not None and pga < 0.30, wrong and pe is not None and pe < 0.30,
-             wrong and (s.get("q_a_relevance") is not None and s["q_a_relevance"] < 0.50),
              wrong and bool(_EVASIVE_RX.search(pred)), bool(_TEMPLATE_LEAK_RX.search(pred)),
              wrong and len(pred) > 600]
-    return sum(flags) / 8.0
+    return sum(flags) / 7.0
 
 
 def chm_maps(samples, judged_em):
-    """{id: (chm, verifier-free chm)}; judged_em overrides the correctness label when given."""
+    """{id: (chm, verifier-free chm)}; judged_em overrides the correctness label when given.
+
+    CHM is the mean of the seven flags that can fire: per_sample_chm averages eight, one of which
+    (off-topic) can never fire, so the seven-type value is per_sample_chm * 8 / 7.
+    """
     out = {}
     for s in samples:
         sid = str(s.get("id"))
         if judged_em is not None and sid in judged_em:
             s = dict(s, em=judged_em[sid])
-        out[sid] = (per_sample_chm(s), free_chm(s))
+        out[sid] = (per_sample_chm(s) * 8 / 7, free_chm(s))
     return out
 
 

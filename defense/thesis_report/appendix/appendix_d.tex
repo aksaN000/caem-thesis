@@ -60,7 +60,7 @@ B8 semantic-entropy $\cdot$ TruthfulQA & $300$ & $0.300$ & $0.307$ & $-0.007$ & 
 \label{tab:app-sig-tables}
 \end{table}
 
-The composite-hallucination-metric axis runs the paired Wilcoxon signed-rank test on the same matched-identifier set. The signed-difference vector is the per-question CAEM-minus-baseline value of the metric, where each question's value is the share of the eight failure flags it raises; questions with a zero difference are dropped, and the two-sided $p$-value comes from the scipy implementation without continuity correction. B8 is excluded from this axis because its corrected run has no verifier scores. The same matched-identifier set feeds the bootstrap interval below.
+The composite-hallucination-metric axis runs the paired Wilcoxon signed-rank test on the same matched-identifier set. The signed-difference vector is the per-question CAEM-minus-baseline value of the metric, where each question's value is the share of the seven active failure flags it raises; questions with a zero difference are dropped, and the two-sided $p$-value comes from the scipy implementation without continuity correction. B8 is excluded from this axis because its corrected run has no verifier scores. The same matched-identifier set feeds the bootstrap interval below.
 
 \section{Bootstrap protocol}
 \label{app:sig-bootstrap}

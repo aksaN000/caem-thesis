@@ -49,18 +49,21 @@ StrategyQA        & transfer & $0$    & $0$   & $0$   & $0$             & $300$ 
 
 \textbf{Exact match (EM):} the main accuracy measure. FEVER, CommonsenseQA and StrategyQA are scored by exact label match, TriviaQA by match against any gold alias, and TruthfulQA by a language-model judge (Claude Haiku) that compares the answer with the benchmark's reference answers, following the judge-based evaluation introduced with the benchmark \cite{lin-etal-2022-truthfulqa}; the same judge scores every system.
 
-\textbf{Composite hallucination metric (CHM):} the equal-weighted mean of eight failure rates, each computed over all evaluation questions.
+\textbf{Composite hallucination metric (CHM):} the equal-weighted mean of seven failure rates, each computed over all evaluation questions.
 \begin{itemize}
     \item \textbf{Confident confabulation:} the answer is wrong but its stored score $\ustored$ is at least $0.50$.
     \item \textbf{Factual fabrication:} the answer is wrong and its weakest atomic fact has passage support below $0.30$.
     \item \textbf{Logical fabrication:} the answer is wrong and the model's own chains support it below $0.30$.
-    \item \textbf{Off-topic:} the answer is wrong and its relevance to the question is below $0.50$.
     \item \textbf{Defensive evasion:} the answer is wrong and uses an evasive phrase such as \emph{the context does not mention}.
     \item \textbf{Template leakage:} the output contains a leaked prompt placeholder.
     \item \textbf{False refusal:} the answer is correct but the system abstained or discarded it.
     \item \textbf{Over-long output:} the answer is wrong and longer than $600$ characters.
 \end{itemize}
-Two of these, confident confabulation and false refusal, are defined through the system's own verifier, so they move with the gate's operating point: a more permissive gate refuses fewer correct answers and lets more wrong answers keep a high score. A ninth rate, factual contradiction, is always zero under the entailment judge used and is left out of the mean.
+Two of these, confident confabulation and false refusal, are defined through the system's own verifier, so they move with the gate's operating point: a more permissive gate refuses fewer correct answers and lets more wrong answers keep a high score. Two further rates are recorded but left out of the mean, because neither can fire in this run:
+\begin{itemize}
+    \item \textbf{Factual contradiction:} the entailment judge returns only a support probability, with no contradiction output.
+    \item \textbf{Off-topic:} planned as a wrong answer whose question-match score is below $0.50$. That score cannot detect off-topic answers on this panel, and its stored values never fall below $0.50$ (\Cref{sec:verifier-qa-rel}). An attempt after the run to measure off-topic answers directly, with a language-model judge, was checked against $200$ hand-labelled answers and agreed too weakly to give a reliable rate (Cohen's kappa about $0.35$), so measuring them is left to future work.
+\end{itemize}
 
 \textbf{Selective-prediction view:} because CAEM can abstain, it is also scored as a selective predictor, following Kamath et al.~\cite{kamath2020selective} and Geifman and El-Yaniv~\cite{geifman2017selective}: the share of questions it answers (every decision except abstain) and the share of those answers that are wrong. Unlike the two verifier-defined rates, this view does not depend on the verifier's scores.
 
@@ -80,7 +83,7 @@ Two of these, confident confabulation and false refusal, are defined through the
 \textbf{Metric} & \textbf{Reported on} & \textbf{Definition} \\
 \midrule
 Exact match (EM) & all five benchmarks & label or alias match; TruthfulQA judged by Claude Haiku against the reference answers \\
-Composite hallucination metric (CHM) & all five benchmarks & mean of eight failure rates \\
+Composite hallucination metric (CHM) & all five benchmarks & mean of seven failure rates \\
 Answered, wrong among answered & pooled & share not abstained; share of those that are wrong \\
 Storage precision $\pi_{\text{store}}$ & per cycle & share of stored answers that are correct \\
 Gate balanced accuracy, Cohen's $d$ & calibration fold & $(\mathrm{TPR} + 1 - \mathrm{FPR})/2$ at $\tau_{\text{store}}$; separation of correct and incorrect scores \\
@@ -113,15 +116,15 @@ All results in this section use the locked configuration chosen at cycle zero; \
 
 \textbf{The architecture adds accuracy:} as \Cref{fig:trajectory} shows, memory, routing, the retrieval-utility classifier and the verifier together raise pooled EM from $0.507$ to $0.541$ before any fine-tuning.
 
-\textbf{The architecture alone is over-cautious:} at C0 the system abstains on $34$ percent of evaluation questions and discards another $32$ percent. False refusal reaches $0.298$, which holds CHM at $0.134$, level with B1's $0.137$, even though confident confabulation falls from $0.327$ to $0.088$.
+\textbf{The architecture alone is over-cautious:} at C0 the system abstains on $34$ percent of evaluation questions and discards another $32$ percent. False refusal reaches $0.298$, which holds CHM at $0.153$, level with B1's $0.156$, even though confident confabulation falls from $0.327$ to $0.088$.
 
-\textbf{Self-improvement helps briefly, then erodes:} after the first cycle the system abstains on only $14$ percent and discards $10$ percent, false refusal falls to $0.069$ and CHM to $0.114$; CHM reaches its minimum of $0.110$ at C2. Pooled EM barely moves ($0.541$ to $0.544$ at C2) and ends at $0.517$, below C0. On the training panel EM peaks at C1 ($0.584$, \Cref{tab:per-bench-trajectory}) and ends at $0.549$.
+\textbf{Self-improvement helps briefly, then erodes:} after the first cycle the system abstains on only $14$ percent and discards $10$ percent, false refusal falls to $0.069$ and CHM to $0.130$; CHM reaches its minimum of $0.126$ at C2. Pooled EM barely moves ($0.541$ to $0.544$ at C2) and ends at $0.517$, below C0. On the training panel EM peaks at C1 ($0.584$, \Cref{tab:per-bench-trajectory}) and ends at $0.549$.
 
-\textbf{Confident confabulation returns:} as the refitted gate becomes more permissive, confident confabulation rises back to $0.307$ by C5, close to B1's $0.327$. Because this rate and false refusal are both defined through the verifier's own score, they trade off: their sum is $0.39$ at C0 and between $0.31$ and $0.37$ afterwards, so the over-refusal undone after C0 is largely spent on confident wrong answers (\Cref{fig:tradeoff}). The net CHM gain from C0 to C5 ($0.134$ to $0.117$) comes mostly from the other subtypes: fewer wrong answers with unsupported facts ($0.361$ to $0.316$), unsupported reasoning ($0.281$ to $0.238$) or evasive phrasing ($0.044$ to $0.003$).
+\textbf{Confident confabulation returns:} as the refitted gate becomes more permissive, confident confabulation rises back to $0.307$ by C5, close to B1's $0.327$. Because this rate and false refusal are both defined through the verifier's own score, they trade off: their sum is $0.39$ at C0 and between $0.31$ and $0.37$ afterwards, so the over-refusal undone after C0 is largely spent on confident wrong answers (\Cref{fig:tradeoff}). The net CHM gain from C0 to C5 ($0.153$ to $0.133$) comes mostly from the other subtypes: fewer wrong answers with unsupported facts ($0.361$ to $0.316$), unsupported reasoning ($0.281$ to $0.238$) or evasive phrasing ($0.044$ to $0.003$).
 
 \input{figures/ch5/fig_tradeoff.tex}
 
-\textbf{The whole system ends ahead of B1, but less careful over time:} at C5, CHM is $0.117$ against $0.137$ for B1, and lower than every external baseline whose CHM could be measured (\Cref{sec:comp-baselines}). In the selective view, which does not depend on the verifier, CAEM is wrong on $38.1$ percent of the questions it answers at C0 and $45.1$ percent at C5, against $49.3$ percent for B1, which answers everything; the error among answered rises from cycle to cycle as the share answered grows from $66$ percent at C0 to $86$ to $88$ percent at C1 to C4 and $83$ percent at C5 (\Cref{fig:selective}).
+\textbf{The whole system ends ahead of B1, but less careful over time:} at C5, CHM is $0.133$ against $0.156$ for B1, and lower than every external baseline whose CHM could be measured (\Cref{sec:comp-baselines}). In the selective view, which does not depend on the verifier, CAEM is wrong on $38.1$ percent of the questions it answers at C0 and $45.1$ percent at C5, against $49.3$ percent for B1, which answers everything; the error among answered rises from cycle to cycle as the share answered grows from $66$ percent at C0 to $86$ to $88$ percent at C1 to C4 and $83$ percent at C5 (\Cref{fig:selective}).
 
 \input{figures/ch5/fig_selective.tex}
 
@@ -130,11 +133,7 @@ The retention ratios of every cycle are in \Cref{tab:sil-training-trajectory}: M
 \subsubsection{Per-benchmark trajectory}
 \label{sec:headline-per-bench}
 
-\Cref{tab:per-bench-trajectory} and \Cref{tab:halluc-subtypes} break the pooled numbers down. On the training panel, FEVER and TriviaQA end about one point away from where they started, with a peak at C1 or C2 (FEVER $0.533$, TriviaQA $0.493$), while CommonsenseQA falls from $0.763$ to $0.717$. On the transfer panel, TruthfulQA falls from $0.380$ to $0.300$ and StrategyQA settles at $0.640$. Across subtypes, factual and logical fabrication fall gently ($0.361$ to $0.316$, $0.281$ to $0.238$); defensive evasion and over-long output are near zero. Two subtypes are zero for every cycle and every baseline, for different reasons:
-\begin{itemize}
-    \item \textbf{Template leakage:} a real zero. The answer prompt shows the reasoning line as a bracketed placeholder, and no system ever copied a placeholder into its output.
-    \item \textbf{Off-topic:} zero by construction. The reranker already returns a probability, and the verifier passes it through a second logistic function, so the stored relevance score can only lie between $0.50$ and $0.73$ and never falls below the $0.50$ threshold. Every system was scored by the same verifier, so the comparisons in this chapter are not affected, and neither is the composite, whose per-signal calibration curves are unchanged by an order-preserving rescaling. In practice the composite hallucination metric is therefore the sum of seven active failure rates divided by eight.
-\end{itemize}
+\Cref{tab:per-bench-trajectory} and \Cref{tab:halluc-subtypes} break the pooled numbers down. On the training panel, FEVER and TriviaQA end about one point away from where they started, with a peak at C1 or C2 (FEVER $0.533$, TriviaQA $0.493$), while CommonsenseQA falls from $0.763$ to $0.717$. On the transfer panel, TruthfulQA falls from $0.380$ to $0.300$ and StrategyQA settles at $0.640$. Across subtypes, factual and logical fabrication fall gently ($0.361$ to $0.316$, $0.281$ to $0.238$); defensive evasion and over-long output are near zero. Template leakage is zero for every cycle and every baseline, and this is a real zero: the answer prompt shows the reasoning line as a bracketed placeholder, and no system ever copied a placeholder into its output.
 
 \input{figures/auto/tab_per_bench_trajectory.tex}
 
@@ -145,7 +144,7 @@ The retention ratios of every cycle are in \Cref{tab:sil-training-trajectory}: M
 \subsubsection{Training versus transfer contrast}
 \label{sec:headline-id-vs-transfer}
 
-Against B1, the training panel gains clearly: pooled EM $0.483$ (B1) against $0.581$ at C2 and $0.549$ at C5, and CHM $0.143$ against $0.101$ and $0.114$. The transfer panel is reported per benchmark because its two benchmarks move in opposite directions. \textbf{StrategyQA} is roughly flat on EM ($0.650$ for B1, $0.640$ at C5) and lower on CHM ($0.120$ against $0.099$). \textbf{TruthfulQA} loses $13.3$ points of EM ($0.433$ to $0.300$). Of these, $5.3$ points are already lost at C0, before any fine-tuning, so they come from the architecture: retrieved passages can support a question's misconception rather than refute it (\Cref{sec:disc-prior}). The remaining $8.0$ points are lost during self-improvement, consistent with the training panel pulling the generator away from what TruthfulQA rewards, though this mechanism was not measured directly.
+Against B1, the training panel gains clearly: pooled EM $0.483$ (B1) against $0.581$ at C2 and $0.549$ at C5, and CHM $0.164$ against $0.116$ and $0.130$. The transfer panel is reported per benchmark because its two benchmarks move in opposite directions. \textbf{StrategyQA} is roughly flat on EM ($0.650$ for B1, $0.640$ at C5) and lower on CHM ($0.137$ against $0.113$). \textbf{TruthfulQA} loses $13.3$ points of EM ($0.433$ to $0.300$). Of these, $5.3$ points are already lost at C0, before any fine-tuning, so they come from the architecture: retrieved passages can support a question's misconception rather than refute it (\Cref{sec:disc-prior}). The remaining $8.0$ points are lost during self-improvement, consistent with the training panel pulling the generator away from what TruthfulQA rewards, though this mechanism was not measured directly.
 
 \subsection{Four-outcome decision distribution}
 \label{sec:decision-distribution}
@@ -245,7 +244,7 @@ This subsection reads the statements of \Cref{sec:theory} against the run. The t
 \subsubsection{Asymptotic hallucination floor}
 \label{sec:check-asymptotic}
 
-\Cref{cor:tier1-floor} bounds the error rate of Tier 1 answers by the impurity of the pool. On the evaluation fold Tier 1 gave $7$ answers, all correct, which is consistent but too few to estimate a rate; the router probe gives the testable case (\Cref{sec:tier-hit}). Per tier, CHM is $0.104$ to $0.111$ for zero-shot answers and $0.115$ to $0.158$ for retrieval-augmented ones (\Cref{tab:tier-chm-trajectory} in \Cref{app:extra-tables}). The decomposition of \Cref{thm:asymptotic-elim} cannot be tested here, because Tier 1 answered at most $0.1$ percent of evaluation queries.
+\Cref{cor:tier1-floor} bounds the error rate of Tier 1 answers by the impurity of the pool. On the evaluation fold Tier 1 gave $7$ answers, all correct, which is consistent but too few to estimate a rate; the router probe gives the testable case (\Cref{sec:tier-hit}). Per tier, CHM is $0.119$ to $0.127$ for zero-shot answers and $0.132$ to $0.180$ for retrieval-augmented ones (\Cref{tab:tier-chm-trajectory} in \Cref{app:extra-tables}). The decomposition of \Cref{thm:asymptotic-elim} cannot be tested here, because Tier 1 answered at most $0.1$ percent of evaluation queries.
 
 \subsubsection{Heuristic checks: equilibrium structure and self-correction}
 \label{sec:check-corollaries}
@@ -292,7 +291,7 @@ The locked configuration ($\tau_{\text{store}} = 0.60$, $C = 0.01$, $\alpha_{\te
 \subsection{Per-cycle composite-refit trajectory}
 \label{sec:adj-trajectory}
 
-The cut-points stay fixed, but the mapping from signals to probability is refitted at every kept cycle (\Cref{tab:calibration-trajectory} in \Cref{app:extra-tables}). The pooled pre-routing temperature starts at its upper bound ($T = 20.086 \approx e^{3}$), drops to $1.089$ at cycle one and stays between $0.74$ and $0.87$ afterwards; the FEVER and TriviaQA temperatures remain $4.8$ to $10.7$ times that of CommonsenseQA, and CommonsenseQA's safety floor is the only one refitted (to $0.491$ and $0.569$). The expected calibration error after each refit stays between $0.041$ and $0.049$. Of the nine boost weights, two move: the chain-entailment weight rises from $0.067$ to $0.285$ and the relevance weight falls from $0.491$ to about $0.26$; the other seven move by at most $0.07$.
+The cut-points stay fixed, but the mapping from signals to probability is refitted at every kept cycle (\Cref{tab:calibration-trajectory} in \Cref{app:extra-tables}). The pooled pre-routing temperature starts at its upper bound ($T = 20.086 \approx e^{3}$), drops to $1.089$ at cycle one and stays between $0.74$ and $0.87$ afterwards; the FEVER and TriviaQA temperatures remain $4.8$ to $10.7$ times that of CommonsenseQA, and CommonsenseQA's safety floor is the only one refitted (to $0.491$ and $0.569$). The expected calibration error after each refit stays between $0.041$ and $0.049$. Of the nine boost weights, two move: the chain-entailment weight rises from $0.067$ to $0.285$ and the question-match weight falls from $0.491$ to about $0.26$; the other seven move by at most $0.07$.
 
 \FloatBarrier
 
@@ -347,7 +346,7 @@ Every baseline was run on the same evaluation questions, with the same prompt fa
 
 \textbf{Exact match:} for each benchmark and baseline, a paired McNemar test with continuity correction (Edwards~\cite{edwards1948note}) gives a $p$-value; the $p$-values of the baselines within a benchmark are corrected with the Holm--Bonferroni procedure \cite{holm1979simple}; and a paired bootstrap gives a $95$ percent interval on the EM difference ($2{,}000$ replicates). A contrast is starred when the Holm-corrected $p$-value is below $0.05$ \emph{and} the absolute EM difference is at least $0.02$.
 
-\textbf{Composite hallucination metric:} every question has its own CHM value, the share of the eight failure flags it raises, so this axis is paired in the same way. A Wilcoxon signed-rank test (Wilcoxon~\cite{wilcoxon1945individual}) on the per-question differences gives a $p$-value, with questions that show no difference dropped; the $p$-values are Holm-corrected within each benchmark; and a paired bootstrap gives the interval. A contrast is starred when the corrected $p$-value is below $0.05$ \emph{and} the absolute CHM difference is at least $0.01$. B8 has no valid CHM and is left out of this axis.
+\textbf{Composite hallucination metric:} every question has its own CHM value, the share of the seven failure flags it raises, so this axis is paired in the same way. A Wilcoxon signed-rank test (Wilcoxon~\cite{wilcoxon1945individual}) on the per-question differences gives a $p$-value, with questions that show no difference dropped; the $p$-values are Holm-corrected within each benchmark; and a paired bootstrap gives the interval. A contrast is starred when the corrected $p$-value is below $0.05$ \emph{and} the absolute CHM difference is at least $0.01$. B8 has no valid CHM and is left out of this axis.
 
 The full contingency counts, the Holm sequences and the procedural detail are in \Cref{app:significance}.
 
@@ -359,7 +358,7 @@ The full contingency counts, the Holm sequences and the procedural detail are in
 
 The eight baselines are zero-shot (B1), chain of thought (B2), retrieval-augmented generation (B3), chain of thought with retrieval (B4), five-shot chain of thought (B5), vanilla fine-tuning (B6), FLARE active retrieval (B7) and semantic-entropy abstention (B8); \Cref{sec:external-baselines} describes them. All use the same backbone. Their CHM is computed by passing their answers through the same verifier with the composite fixed at cycle three, so the hallucination comparison holds the scoring instrument fixed.
 
-\textbf{Pooled comparison} (\Cref{tab:baseline-pooled}, \Cref{fig:baselines}): CAEM's CHM is lower than every baseline whose CHM could be measured, at both C2 ($0.110$) and C5 ($0.117$); the nearest are vanilla fine-tuning ($0.122$) and five-shot chain of thought ($0.136$), the furthest FLARE ($0.198$). B8's CHM is not available (see B8 below). On EM, CAEM leads every baseline at C2 ($0.544$); at C5 ($0.517$) FLARE is slightly ahead ($0.525$) and every other baseline behind, including vanilla fine-tuning ($0.490$).
+\textbf{Pooled comparison} (\Cref{tab:baseline-pooled}, \Cref{fig:baselines}): CAEM's CHM is lower than every baseline whose CHM could be measured, at both C2 ($0.126$) and C5 ($0.133$); the nearest are vanilla fine-tuning ($0.140$) and five-shot chain of thought ($0.155$), the furthest FLARE ($0.226$). B8's CHM is not available (see B8 below). On EM, CAEM leads every baseline at C2 ($0.544$); at C5 ($0.517$) FLARE is slightly ahead ($0.525$) and every other baseline behind, including vanilla fine-tuning ($0.490$).
 
 \textbf{Per-benchmark tests} (\Cref{tab:sig-summary}; every contrast with its interval is in \Cref{tab:sig-full-c5,tab:sig-full-c2}): at C5, $9$ of $40$ EM contrasts are significant wins and $3$ significant defeats; at C2, $14$ wins and $3$ defeats. On CHM, $19$ of $35$ contrasts are significant wins and $1$ a defeat at C5, and $23$ wins and $1$ defeat at C2. The EM defeats are all on TruthfulQA, against the baselines most accurate there: B1, B2 and FLARE. The only CHM defeat, at both cycles, is on CommonsenseQA against vanilla fine-tuning. Against vanilla fine-tuning, CAEM's EM is also lower on FEVER and CommonsenseQA at C5, with bootstrap intervals below zero ($[-0.123, -0.010]$ and $[-0.120, -0.007]$), although these contrasts do not survive the Holm correction.
 
@@ -373,10 +372,10 @@ The eight baselines are zero-shot (B1), chain of thought (B2), retrieval-augment
 \begin{itemize}
     \item \textbf{Zero-shot (B1)} \label{sec:comp-zero-shot}: the floor; the three-step comparison of \Cref{sec:headline-pooled} is built on it.
     \item \textbf{Chain of thought (B2)} \label{sec:comp-cot}: expected to help on multi-step questions; instead it scored below B1 (pooled EM $0.500$ against $0.507$), as Wei et al.~\cite{wei2022chain} report for models below roughly $100$ billion parameters and Chung et al.~\cite{JMLR:v25:23-0870} for small instruction-tuned models.
-    \item \textbf{Retrieval (B3) and retrieval with chain of thought (B4)} \label{sec:comp-rag} \label{sec:comp-cot-rag}: plain retrieval lowered pooled EM ($0.458$ and $0.461$) and raised CHM ($0.151$ and $0.144$), the strongest evidence in the panel that retrieving for every question hurts on this backbone.
+    \item \textbf{Retrieval (B3) and retrieval with chain of thought (B4)} \label{sec:comp-rag} \label{sec:comp-cot-rag}: plain retrieval lowered pooled EM ($0.458$ and $0.461$) and raised CHM ($0.172$ and $0.165$), the strongest evidence in the panel that retrieving for every question hurts on this backbone.
     \item \textbf{Five-shot chain of thought (B5)} \label{sec:comp-fewshot}: its five demonstrations come from the FEVER training split, the first benchmark of the run; it scored lowest on EM ($0.405$).
     \item \textbf{Vanilla fine-tuning (B6)} \label{sec:comp-vanilla-ft}: a full fine-tune of the backbone on raw question--answer pairs from the training benchmarks ($700$ per benchmark per cycle, five cycles), with no verifier filter, memory or retention guard. It ends below CAEM on pooled EM ($0.490$) but ahead of it on FEVER and CommonsenseQA; its retention was not measured, so the expected retention contrast cannot be checked.
-    \item \textbf{FLARE (B7)} \label{sec:comp-flare}: the strongest baseline on EM ($0.525$), with the highest CHM ($0.198$).
+    \item \textbf{FLARE (B7)} \label{sec:comp-flare}: the strongest baseline on EM ($0.525$), with the highest CHM ($0.226$).
     \item \textbf{Semantic-entropy abstention (B8)} \label{sec:comp-semantic-entropy}: expected to abstain heavily on TruthfulQA; instead it was among the most accurate systems there, as Farquhar et al.~\cite{farquhar2024semantic} predict, since semantic entropy does not detect a misconception the model holds consistently. An early B8 run skipped its sampling step through a batching shortcut and was replaced by a corrected run, which supplies B8's EM. The corrected run was not passed through CAEM's verifier, so B8's CHM could not be computed; the CHM values from the faulty run describe a different system and are not reported. Re-scoring the corrected run is left as future work (\Cref{ch:conclusion}).
 \end{itemize}
 STaR and Self-RAG were not run: STaR's rationalisation step and binary filter differ too much from CAEM's verifier for a clean comparison, and Self-RAG's critic tokens are tied to a different model family.
@@ -389,9 +388,9 @@ The classifier is evaluated by comparing the main run with an earlier trajectory
 
 \input{figures/auto/tab_ruc_ablation.tex}
 
-\textbf{Gate 1 passes:} pooled EM rises from $0.474$ to $0.532$ ($+5.8$ points) with no benchmark losing EM; CommonsenseQA gains $14.0$ points, TruthfulQA $10.0$, TriviaQA $2.7$ and StrategyQA $2.3$, and FEVER is unchanged at $0.503$ (\Cref{tab:ruc-ablation}). Pooled CHM falls from $0.125$ to $0.118$, mostly on CommonsenseQA ($-34.4$ percent); on FEVER and StrategyQA CHM rises slightly ($+2.5$ and $+8.1$ percent), and on TruthfulQA it is unchanged ($0.138$).
+\textbf{Gate 1 passes:} pooled EM rises from $0.474$ to $0.532$ ($+5.8$ points) with no benchmark losing EM; CommonsenseQA gains $14.0$ points, TruthfulQA $10.0$, TriviaQA $2.7$ and StrategyQA $2.3$, and FEVER is unchanged at $0.503$ (\Cref{tab:ruc-ablation}). Pooled CHM falls from $0.143$ to $0.135$, mostly on CommonsenseQA ($-34.4$ percent); on FEVER and StrategyQA CHM rises slightly ($+2.5$ and $+8.1$ percent), and on TruthfulQA it barely moves ($0.157$ to $0.158$).
 
-\textbf{Gate 2 fails:} TruthfulQA EM rises from $0.210$ to $0.310$ but stays below $0.433$, and its CHM does not move ($0.138$ in both arms, against $0.133$ for B1).
+\textbf{Gate 2 fails:} TruthfulQA EM rises from $0.210$ to $0.310$ but stays below $0.433$, and its CHM barely moves ($0.157$ to $0.158$, against $0.152$ for B1).
 
 \textbf{Mechanism:} the retrieval share falls from $88.9$ to $55.1$ percent pooled, and on every benchmark, by $21.7$ points on FEVER, where retrieval genuinely helps, up to $59.0$ points on TruthfulQA ($99.0$ to $40.0$ percent), where it amplified misconceptions. Separating the classifier from the accompanying corrections would need a run with the corrections but without the classifier (\Cref{ch:conclusion}).
 
@@ -401,7 +400,7 @@ The classifier is evaluated by comparing the main run with an earlier trajectory
 \subsection{Headline outcome in one paragraph}
 \label{sec:summary-headline}
 
-The architecture adds accuracy, and the full system ends with a lower hallucination metric than every baseline for which it was measured, but self-improvement does not add accuracy: it removes the over-refusal of the cold start, spends most of that gain on confident wrong answers, and lowers the hallucination metric mainly through fewer fabricated and evasive answers. Pooled EM rises from $0.507$ (B1) to $0.541$ at C0, before any fine-tuning, and ends at $0.517$ at C5; CHM goes from $0.137$ (B1) to $0.134$ at C0 and $0.117$ at C5, lower than every baseline whose CHM was measured. Self-improvement raises training-panel EM for one or two cycles ($0.571$ to $0.584$ at C1) and then erodes it ($0.549$ at C5), and TruthfulQA falls in every cycle. Confident confabulation falls sharply at C0 and returns almost to the B1 level by C5, mirroring false refusal. In the selective view, CAEM is wrong on fewer of the questions it answers than B1 at every cycle ($0.381$ at C0 and $0.451$ at C5, against $0.493$), but grows less careful as it answers more. On EM it leads every baseline at C2 and all but FLARE at C5. The retrieval-utility classifier, with accompanying corrections, adds $5.8$ points of pooled EM and recovers TruthfulQA from $0.210$ to $0.310$, short of the B1 level.
+The architecture adds accuracy, and the full system ends with a lower hallucination metric than every baseline for which it was measured, but self-improvement does not add accuracy: it removes the over-refusal of the cold start, spends most of that gain on confident wrong answers, and lowers the hallucination metric mainly through fewer fabricated and evasive answers. Pooled EM rises from $0.507$ (B1) to $0.541$ at C0, before any fine-tuning, and ends at $0.517$ at C5; CHM goes from $0.156$ (B1) to $0.153$ at C0 and $0.133$ at C5, lower than every baseline whose CHM was measured. Self-improvement raises training-panel EM for one or two cycles ($0.571$ to $0.584$ at C1) and then erodes it ($0.549$ at C5), and TruthfulQA falls in every cycle. Confident confabulation falls sharply at C0 and returns almost to the B1 level by C5, mirroring false refusal. In the selective view, CAEM is wrong on fewer of the questions it answers than B1 at every cycle ($0.381$ at C0 and $0.451$ at C5, against $0.493$), but grows less careful as it answers more. On EM it leads every baseline at C2 and all but FLARE at C5. The retrieval-utility classifier, with accompanying corrections, adds $5.8$ points of pooled EM and recovers TruthfulQA from $0.210$ to $0.310$, short of the B1 level.
 
 \subsection{Hypothesis verdicts}
 \label{sec:summary-hypotheses}
@@ -418,7 +417,7 @@ Each pre-specified hypothesis of \Cref{sec:hypotheses} is judged by its register
 H1 & Verifier balanced accuracy exceeds one half on the calibration-matched distribution at every cycle (\Cref{thm:bayes-purity} precondition). & \textbf{supported} & Pooled gate balanced accuracy on the calibration fold: $0.615$, $0.663$, $0.664$, $0.658$ at C1, C2, C3, C5 (C0 $0.753$, in-sample; \Cref{tab:gate-quality}). Weakest: CommonsenseQA $0.52$ to $0.55$; TriviaQA $0.500$ at C1, when no TriviaQA answer was stored. \\
 H2 & Pool purity is non-decreasing across cycles whenever the precondition is satisfied (\Cref{thm:bayes-convergence}). & \textbf{unsupported} & Calibration-fold precision $0.780$ (C0, in-sample), $0.740$, $0.736$, $0.746$, $0.732$: it falls at C1, C2 and C5. The changes are within sampling noise and purity stays above the floor of \Cref{thm:purity} (\Cref{tab:pi-store-trajectory}). \\
 H3 & Late-cycle pool-purity increments enter a bounded stationary band on the committed-cycle subsequence (\Cref{thm:convergence}). & \textbf{supported} & Precision within $0.732$ to $0.746$ at C1 to C5, a band of width $0.014$, about one standard error of a single reading; a convergence rate cannot be estimated in six cycles. \\
-H4 & The composite hallucination metric at the realised cycle horizon approaches a parameter-bounded asymptote (\Cref{thm:asymptotic-elim}). & \textbf{partially supported} & CHM falls from $0.134$ to $0.114$ at C1 and stays between $0.110$ and $0.118$ afterwards ($0.117$ at C5), consistent with flattening; six cycles are too few to estimate the limit itself. \\
+H4 & The composite hallucination metric at the realised cycle horizon approaches a parameter-bounded asymptote (\Cref{thm:asymptotic-elim}). & \textbf{partially supported} & CHM falls from $0.153$ to $0.130$ at C1 and stays between $0.126$ and $0.135$ afterwards ($0.133$ at C5), consistent with flattening; six cycles are too few to estimate the limit itself. \\
 \bottomrule
 \end{tabularx}
 \caption[Hypothesis verdicts.]{Verdicts on the four pre-specified hypotheses.}
@@ -480,9 +479,9 @@ The classifier's accuracy differs widely across benchmarks (AUROC $0.718$ on FEV
 \subsubsection{Measuring hallucination with the system's own verifier}
 \label{sec:disc-threat-verifier}
 
-Two of the eight CHM subtypes depend on CAEM's own verifier: confident confabulation uses its stored score and false refusal uses its decision. The baselines have no verifier of their own, so their answers were scored with CAEM's verifier and the composite fixed at cycle three. CHM differences are therefore partly measured with the instrument CAEM was built around. Two checks limit this concern:
+Two of the seven CHM subtypes depend on CAEM's own verifier: confident confabulation uses its stored score and false refusal uses its decision. The baselines have no verifier of their own, so their answers were scored with CAEM's verifier and the composite fixed at cycle three. CHM differences are therefore partly measured with the instrument CAEM was built around. Two checks limit this concern:
 \begin{itemize}
-    \item \textbf{Without the two verifier-defined subtypes:} the other six use neither CAEM's composite score nor its decisions. Restricted to them, CAEM at C5 is still lower than every measured baseline (pooled $0.070$ against $0.083$ for vanilla fine-tuning, the nearest), and the paired test gives $27$ significant wins and $2$ defeats out of $35$ contrasts.
+    \item \textbf{Without the two verifier-defined subtypes:} the other five use neither CAEM's composite score nor its decisions. Restricted to them, CAEM at C5 is still lower than every measured baseline (pooled $0.080$ against $0.095$ for vanilla fine-tuning, the nearest), and the paired test gives $27$ significant wins and $2$ defeats out of $35$ contrasts.
     \item \textbf{Exact match and the selective view:} both are scored against gold labels and do not depend on the verifier at all.
 \end{itemize}
 
@@ -511,6 +510,7 @@ From the re-run sweep (\Cref{tab:sweep-variants}): moving the cut-point from $0.
     \item \textbf{Memory scale:} the memory reached $12{,}175$ entries, so its behaviour at the millions of entries of a deployment was not tested.
     \item \textbf{Pre-routing calibration:} the pre-routing temperature reached its upper bound at cycle zero ($T = 20.086$) on FEVER and TriviaQA, which flattened $\upre$ and left the safety override almost inactive (\Cref{sec:tier-safety}); the storage decision does not depend on this temperature.
     \item \textbf{Deferred-pool horizon:} only three reconsideration passes ran, so the long-run behaviour of the deferred buffer is not known.
+    \item \textbf{Question-match signal:} the fourth signal family was meant to catch off-topic answers, but it scores the short answer string, which the cross-encoder cannot relate to the question; it acted as a correctness cue instead, and off-topic answers were not detected (\Cref{sec:verifier-qa-rel}).
     \item \textbf{Phantom context:} fine-tuning on retrieval-written chains taught the generator to cite a non-existent context (\Cref{sec:disc-phantom}).
     \item \textbf{B8 hallucination metric:} the corrected semantic-entropy run was not re-scored through the verifier, so B8 has no CHM; the comparison on CHM covers seven of the eight baselines.
     \item \textbf{No repeated questions:} the evaluation uses fresh questions to measure learning, so the memory-direct path, built for repeated questions in deployment, and its cost saving were exercised only by the router probe; the gain in deployment depends on the share of repeats, which this study does not measure.

@@ -11,12 +11,12 @@
   \addlegendentry{B1}
 \end{axis}
 \begin{axis}[at={(em.east)}, anchor=west, xshift=1.4cm, width=0.47\textwidth, height=5.2cm, xlabel={cycle},
-  ylabel={pooled CHM (lower is better)}, xtick={0,...,5}, ymin=0.10, ymax=0.14, font=\small,
+  ylabel={pooled CHM (lower is better)}, xtick={0,...,5}, ymin=0.12, ymax=0.16, font=\small,
   tick label style={font=\scriptsize}, grid=major, grid style={black!8},
   legend style={font=\scriptsize, at={(0.98,0.97)}, anchor=north east}]
-  \addplot[red!65!black, mark=square*, thick] coordinates {(0,0.134) (1,0.114) (2,0.11) (3,0.118) (4,0.118) (5,0.117)};
+  \addplot[red!65!black, mark=square*, thick] coordinates {(0,0.153) (1,0.13) (2,0.126) (3,0.135) (4,0.135) (5,0.133)};
   \addlegendentry{CAEM}
-  \addplot[black!60, dashed, thick, domain=0:5] {0.137};
+  \addplot[black!60, dashed, thick, domain=0:5] {0.156};
   \addlegendentry{B1}
 \end{axis}
 \end{tikzpicture}

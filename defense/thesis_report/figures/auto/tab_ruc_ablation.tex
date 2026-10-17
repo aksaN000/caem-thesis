@@ -1,3 +1,4 @@
+% CHM cells re-scored (Haiku-judged TruthfulQA; mean of the seven active types) by scripts/patch_chm_judged_tables.py (2026-10-17).
 % CHM cells re-scored with the Haiku-judged TruthfulQA label by scripts/patch_chm_judged_tables.py (2026-10-17).
 % Table sizing standardised 2026-10-17 (final drafting pass): \small, no \resizebox.
 % Caption shortened by hand in the final drafting pass (2026-10); detail moved to chapter 5 text.
@@ -17,15 +18,15 @@
 \textbf{Benchmark} & \textbf{Off} & \textbf{On} & $\boldsymbol{\Delta}$\,(pp) & \textbf{Off} & \textbf{On} & $\boldsymbol{\Delta}$\,(\% rel) & \textbf{Off} & \textbf{On} & $\boldsymbol{\Delta}$\,(pp) \\
 \midrule
 \multicolumn{10}{@{}l}{\textit{Training panel}} \\
-FEVER          & $0.503$ & $0.503$ & $\phantom{+}0.0$  & $0.117$ & $0.120$ & $+2.5\%$  & $92.3\%$ & $70.7\%$ & $-21.7$ \\
-TriviaQA       & $0.437$ & $0.463$ & $+2.7$            & $0.123$ & $0.121$ & $-2.0\%$  & $95.7\%$ & $68.0\%$ & $-27.7$ \\
-CommonsenseQA  & $0.603$ & $\mathbf{0.743}$ & $\mathbf{+14.0}$ & $0.131$ & $\mathbf{0.086}$ & $\mathbf{-34.4\%}$ & $57.7\%$ & $20.3\%$ & $-37.3$ \\
+FEVER          & $0.503$ & $0.503$ & $\phantom{+}0.0$  & $0.133$ & $0.137$ & $+2.5\%$  & $92.3\%$ & $70.7\%$ & $-21.7$ \\
+TriviaQA       & $0.437$ & $0.463$ & $+2.7$            & $0.141$ & $0.138$ & $-2.0\%$  & $95.7\%$ & $68.0\%$ & $-27.7$ \\
+CommonsenseQA  & $0.603$ & $\mathbf{0.743}$ & $\mathbf{+14.0}$ & $0.150$ & $\mathbf{0.098}$ & $\mathbf{-34.4\%}$ & $57.7\%$ & $20.3\%$ & $-37.3$ \\
 \midrule
 \multicolumn{10}{@{}l}{\textit{Transfer panel}} \\
-StrategyQA     & $0.617$ & $0.640$ & $+2.3$            & $0.119$ & $0.128$ & $+8.1\%$  & $100.0\%$ & $76.7\%$ & $-23.3$ \\
-TruthfulQA     & $0.210$ & $\mathbf{0.310}$ & $\mathbf{+10.0}$ & $0.138$ & $0.138$ & $+0.3\%$  & $99.0\%$ & $40.0\%$ & $\mathbf{-59.0}$ \\
+StrategyQA     & $0.617$ & $0.640$ & $+2.3$            & $0.136$ & $0.147$ & $+8.1\%$  & $100.0\%$ & $76.7\%$ & $-23.3$ \\
+TruthfulQA     & $0.210$ & $\mathbf{0.310}$ & $\mathbf{+10.0}$ & $0.157$ & $0.158$ & $+0.3\%$  & $99.0\%$ & $40.0\%$ & $\mathbf{-59.0}$ \\
 \midrule
-\textbf{Pooled (all five)} & $\mathbf{0.474}$ & $\mathbf{0.532}$ & $\mathbf{+5.8}$ & $\mathbf{0.125}$ & $\mathbf{0.118}$ & $\mathbf{-5.5\%}$ & $\mathbf{88.9\%}$ & $\mathbf{55.1\%}$ & $\mathbf{-33.8}$ \\
+\textbf{Pooled (all five)} & $\mathbf{0.474}$ & $\mathbf{0.532}$ & $\mathbf{+5.8}$ & $\mathbf{0.143}$ & $\mathbf{0.135}$ & $\mathbf{-5.5\%}$ & $\mathbf{88.9\%}$ & $\mathbf{55.1\%}$ & $\mathbf{-33.8}$ \\
 \bottomrule
 \end{tabular}
 \caption[Retrieval-utility classifier ablation at cycle three.]{CAEM without (Off) and with (On) the retrieval-utility classifier at cycle three, with the composite fixed at the cycle-three calibration: EM, CHM and retrieval share per benchmark.}

@@ -18,7 +18,7 @@ ROOT = Path(__file__).resolve().parents[1]
 AUTO = ROOT / "defense/thesis_report/figures/auto"
 J = json.load(open(ROOT / "outputs/analysis/chm_judged.json"))
 CYC = [f"caem_c{c}" for c in range(6)]
-TAG = "% CHM cells re-scored with the Haiku-judged TruthfulQA label by scripts/patch_chm_judged_tables.py (2026-10-17).\n"
+TAG = "% CHM cells re-scored (Haiku-judged TruthfulQA; mean of the seven active types) by scripts/patch_chm_judged_tables.py (2026-10-17).\n"
 
 
 def f3(x):
@@ -37,16 +37,18 @@ def subtypes():
     p = AUTO / "tab_halluc_subtypes.tex"
     s = p.read_text()
     rows = {"Conf.\\ confab.": "confident_confabulation", "Fact.\\ fabric.": "factual_fabrication",
-            "Logic.\\ fabric.": "logical_fabrication", "Off-topic": "off_topic", "Def.\\ evasion": "defensive_evasion",
+            "Logic.\\ fabric.": "logical_fabrication", "Def.\\ evasion": "defensive_evasion",
             "Templ.\\ leak": "template_leak", "False refusal": "false_refusal", "Over-long": "over_long"}
     for label, key in rows.items():
         vals = [J["zero_shot"]["pooled"]["subtypes"][key]] + [J[c]["pooled"]["subtypes"][key] for c in CYC]
         new = label + " & " + " & ".join(f3(v) for v in vals) + " \\\\"
         s, n = re.subn(re.escape(label) + r" &[^\n]*\\\\", lambda m: new, s)
         assert n == 1, label
+    s = re.sub(r"Off-topic &[^\n]*\\\\\n", "", s)  # off-topic is not part of the seven-type mean
+    s = s.replace("\\textbf{CHM (mean of 8)}", "\\textbf{CHM (mean of 7)}")
     chm = [J[c]["pooled"]["chm"] for c in CYC]
-    new = "\\textbf{CHM (mean of 8)} & \\textbf{" + f3(J["zero_shot"]["pooled"]["chm"]) + "} & " + " & ".join(f3(v) for v in chm) + " \\\\"
-    s, n = re.subn(r"\\textbf\{CHM \(mean of 8\)\} &[^\n]*\\\\", lambda m: new, s)
+    new = "\\textbf{CHM (mean of 7)} & \\textbf{" + f3(J["zero_shot"]["pooled"]["chm"]) + "} & " + " & ".join(f3(v) for v in chm) + " \\\\"
+    s, n = re.subn(r"\\textbf\{CHM \(mean of 7\)\} &[^\n]*\\\\", lambda m: new, s)
     assert n == 1
     p.write_text(tag(s))
 
@@ -54,11 +56,22 @@ def subtypes():
 def per_bench():
     p = AUTO / "tab_per_bench_trajectory.tex"
     s = p.read_text()
-    b1 = J["zero_shot"]["truthfulqa"]["chm"]
-    v = [J[c]["truthfulqa"]["chm"] for c in CYC]
-    new = ("TruthfulQA (CHM) & " + f3(b1) + " & " + " & ".join(f3(x) for x in v)
-           + f" & {sd(v[2] - b1)} & {sd(v[5] - b1)} \\\\")
-    s, n = re.subn(r"TruthfulQA \(CHM\) &[^\n]*\\\\", lambda m: new, s)
+    rows = {"FEVER (CHM)": "fever", "TriviaQA (CHM)": "triviaqa", "CSQA (CHM)": "commonsense_qa",
+            "TruthfulQA (CHM)": "truthfulqa", "StrategyQA (CHM)": "strategyqa"}
+    for label, b in rows.items():
+        b1 = J["zero_shot"][b]["chm"]
+        v = [J[c][b]["chm"] for c in CYC]
+        new = (label + " & " + f3(b1) + " & " + " & ".join(f3(x) for x in v)
+               + f" & {sd(v[2] - b1)} & {sd(v[5] - b1)} \\\\")
+        s, n = re.subn(re.escape(label) + r" &[^\n]*\\\\", lambda m: new, s)
+        assert n == 1, label
+    b1 = J["zero_shot"]["train"]["chm"]
+    v = [J[c]["train"]["chm"] for c in CYC]
+    cells = [f"${f3(x)}$" for x in v]
+    cells[2] = f"$\\mathbf{{{f3(v[2])}}}$"
+    new = ("\\textbf{Pooled (CHM)} & $\\mathbf{" + f3(b1) + "}$ & " + " & ".join(cells)
+           + f" & $\\mathbf{{{v[2] - b1:+.3f}}}$ & $\\mathbf{{{v[5] - b1:+.3f}}}$ \\\\")
+    s, n = re.subn(r"\\textbf\{Pooled \(CHM\)\} &[^\n]*\\\\", lambda m: new, s)
     assert n == 1
     p.write_text(tag(s))
 
@@ -110,13 +123,18 @@ def ruc():
     p = AUTO / "tab_ruc_ablation.tex"
     s = p.read_text()
     off, on = J["phase1d_c3"], J["caem_c3"]
-
-    def rel(a, b):
-        return f"${100 * (b - a) / a:+.1f}\\%$"
-    t_off, t_on = off["truthfulqa"]["chm"], on["truthfulqa"]["chm"]
-    s, n = re.subn(r"(TruthfulQA\s*& \$0\.210\$ & \$\\mathbf\{0\.310\}\$ & \$\\mathbf\{\+10\.0\}\$ & )\$[0-9.]+\$ & \$[0-9.]+\$ & \$[+\-][0-9.]+\\%\$",
-                   lambda m: m.group(1) + f"${f3(t_off)}$ & ${f3(t_on)}$ & {rel(t_off, t_on)}", s)
-    assert n == 1
+    names = {"FEVER": "fever", "TriviaQA": "triviaqa", "CommonsenseQA": "commonsense_qa",
+             "StrategyQA": "strategyqa", "TruthfulQA": "truthfulqa"}
+    for label, b in names.items():
+        a_, b_ = off[b]["chm"], on[b]["chm"]
+        # columns: name & EMoff & EMon & dEM & CHMoff & CHMon & dCHM% & ...
+        pat = re.compile(r"^(" + label + r"\s*&[^&]*&[^&]*&[^&]*& )([^&]*)&([^&]*)&([^&]*)&", re.M)
+        bold = "\\mathbf" in pat.search(s).group(3)
+        on_cell = f"$\\mathbf{{{f3(b_)}}}$ " if bold else f"${f3(b_)}$ "
+        rel = 100 * (b_ - a_) / a_
+        rel_cell = f"$\\mathbf{{{rel:+.1f}\\%}}$ " if bold else f"${rel:+.1f}\\%$  "
+        s, n = pat.subn(lambda m: m.group(1) + f"${f3(a_)}$ & " + on_cell + "& " + rel_cell + "&", s)
+        assert n == 1, label
     p_off, p_on = off["pooled"]["chm"], on["pooled"]["chm"]
     s, n = re.subn(r"(\\textbf\{Pooled \(all five\)\} & \$\\mathbf\{0\.474\}\$ & \$\\mathbf\{0\.532\}\$ & \$\\mathbf\{\+5\.8\}\$ & )\$\\mathbf\{[0-9.]+\}\$ & \$\\mathbf\{[0-9.]+\}\$ & \$\\mathbf\{[+\-][0-9.]+\\%\}\$",
                    lambda m: m.group(1) + f"$\\mathbf{{{f3(p_off)}}}$ & $\\mathbf{{{f3(p_on)}}}$ & $\\mathbf{{{100 * (p_on - p_off) / p_off:+.1f}\\%}}$", s)

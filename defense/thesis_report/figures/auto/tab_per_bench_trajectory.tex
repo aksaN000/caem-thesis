@@ -1,3 +1,4 @@
+% CHM cells re-scored (Haiku-judged TruthfulQA; mean of the seven active types) by scripts/patch_chm_judged_tables.py (2026-10-17).
 % CHM cells re-scored with the Haiku-judged TruthfulQA label by scripts/patch_chm_judged_tables.py (2026-10-17).
 % Table sizing standardised 2026-10-17 (final drafting pass): \small, no \resizebox.
 % Caption shortened by hand in the final drafting pass (2026-10); detail moved to chapter 5 text.
@@ -18,21 +19,21 @@
 \midrule
 \multicolumn{10}{@{}l}{\textit{Training panel}} \\
 FEVER (EM) & 0.453 & 0.487 & 0.533 & 0.533 & 0.503 & 0.507 & 0.477 & $+0.080$ & $+0.024$ \\
-FEVER (CHM) & 0.159 & 0.139 & 0.113 & 0.102 & 0.120 & 0.119 & 0.126 & $-0.057$ & $-0.033$ \\
+FEVER (CHM) & 0.181 & 0.159 & 0.129 & 0.116 & 0.137 & 0.136 & 0.144 & $-0.065$ & $-0.038$ \\
 TriviaQA (EM) & 0.293 & 0.463 & 0.480 & 0.493 & 0.463 & 0.463 & 0.453 & $+0.200$ & $+0.160$ \\
-TriviaQA (CHM) & 0.175 & 0.156 & 0.113 & 0.109 & 0.121 & 0.120 & 0.125 & $-0.066$ & $-0.050$ \\
+TriviaQA (CHM) & 0.200 & 0.179 & 0.129 & 0.125 & 0.138 & 0.137 & 0.142 & $-0.075$ & $-0.058$ \\
 CSQA (EM) & 0.703 & 0.763 & 0.740 & 0.717 & 0.743 & 0.743 & 0.717 & $+0.014$ & $+0.014$ \\
-CSQA (CHM) & 0.096 & 0.077 & 0.086 & 0.093 & 0.086 & 0.085 & 0.091 & $-0.003$ & $-0.005$ \\
+CSQA (CHM) & 0.110 & 0.089 & 0.098 & 0.106 & 0.098 & 0.097 & 0.104 & $-0.003$ & $-0.006$ \\
 \rowcolor{gray!18}
 \textbf{Pooled (EM)} & $\mathbf{0.483}$ & $0.571$ & $0.584$ & $\mathbf{0.581}$ & $0.570$ & $0.571$ & $0.549$ & $\mathbf{+0.098}$ & $\mathbf{+0.066}$ \\
 \rowcolor{gray!18}
-\textbf{Pooled (CHM)} & $\mathbf{0.143}$ & $0.124$ & $0.104$ & $\mathbf{0.101}$ & $0.109$ & $0.108$ & $0.114$ & $\mathbf{-0.042}$ & $\mathbf{-0.029}$ \\
+\textbf{Pooled (CHM)} & $\mathbf{0.164}$ & $0.142$ & $0.119$ & $\mathbf{0.116}$ & $0.124$ & $0.123$ & $0.130$ & $\mathbf{-0.048}$ & $\mathbf{-0.034}$ \\
 \midrule
 \multicolumn{10}{@{}l}{\textit{Transfer panel}} \\
 TruthfulQA (EM) & 0.433 & 0.380 & 0.317 & 0.323 & 0.310 & 0.307 & 0.300 & $-0.110$ & $-0.133$ \\
-TruthfulQA (CHM) & 0.133 & 0.143 & 0.144 & 0.134 & 0.138 & 0.139 & 0.142 & $+0.000$ & $+0.009$ \\
+TruthfulQA (CHM) & 0.152 & 0.164 & 0.164 & 0.153 & 0.158 & 0.159 & 0.162 & $+0.000$ & $+0.010$ \\
 StrategyQA (EM) & 0.650 & 0.610 & 0.647 & 0.653 & 0.640 & 0.640 & 0.640 & $+0.003$ & $-0.010$ \\
-StrategyQA (CHM) & 0.120 & 0.154 & 0.113 & 0.115 & 0.128 & 0.127 & 0.099 & $-0.005$ & $-0.021$ \\
+StrategyQA (CHM) & 0.137 & 0.176 & 0.129 & 0.131 & 0.147 & 0.145 & 0.113 & $-0.006$ & $-0.024$ \\
 \bottomrule
 \end{tabular}
 \caption[EM and CHM by benchmark and cycle.]{EM (upper row) and CHM (lower row) by benchmark and cycle on the evaluation fold, with B1 and the change from B1 to C2 and C5. Shaded rows pool the training panel; the transfer panel is not pooled because its two benchmarks move in opposite directions.}

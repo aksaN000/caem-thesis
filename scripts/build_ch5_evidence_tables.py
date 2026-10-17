@@ -271,7 +271,7 @@ def figures():
   \addlegendentry{B1}
 \end{axis}
 \begin{axis}[at={(em.east)}, anchor=west, xshift=1.4cm, width=0.47\textwidth, height=5.2cm, xlabel={cycle},
-  ylabel={pooled CHM (lower is better)}, xtick={0,...,5}, ymin=0.10, ymax=0.14, font=\small,
+  ylabel={pooled CHM (lower is better)}, xtick={0,...,5}, ymin=0.12, ymax=0.16, font=\small,
   tick label style={font=\scriptsize}, grid=major, grid style={black!8},
   legend style={font=\scriptsize, at={(0.98,0.97)}, anchor=north east}]
   \addplot[red!65!black, mark=square*, thick] coordinates {""" + chm + r"""};
@@ -339,7 +339,7 @@ def figures():
 \centering
 \begin{tikzpicture}
 \begin{axis}[width=0.72\textwidth, height=6.0cm, xlabel={pooled EM (higher is better)}, ylabel={pooled CHM (lower is better)},
-  xmin=0.39, xmax=0.575, ymin=0.10, ymax=0.21, font=\small, tick label style={font=\scriptsize}, grid=major, grid style={black!8}]
+  xmin=0.39, xmax=0.575, ymin=0.12, ymax=0.24, font=\small, tick label style={font=\scriptsize}, grid=major, grid style={black!8}]
 """ + bl + r"""
   \addplot[blue!65!black, only marks, mark=*, mark size=2.8pt] coordinates {(""" + f"{CAEM[2]['em']},{CAEM[2]['chm']}) ({CAEM[5]['em']},{CAEM[5]['chm']}" + r""")};
   \node[font=\scriptsize, anchor=north, text=blue!65!black] at (axis cs:""" + f"{CAEM[2]['em']},{CAEM[2]['chm']}" + r""") {CAEM C2};

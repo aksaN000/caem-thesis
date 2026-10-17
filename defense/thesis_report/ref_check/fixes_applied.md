@@ -1535,3 +1535,9 @@ Build: 216 pages, 0 errors, 0 undefined, 0 multiply-defined, 0 biber warnings, 7
 - Tables: halluc_subtypes, per_bench (TQA CHM row), baseline_pooled, tier_chm, ruc_ablation patched by script; headline_steps and the three ch5 figures regenerated from chm_judged.json.
 - Paired tests (judged default): CHM C5 19/1, C2 23/1 of 35 (only defeat B6 on CommonsenseQA); verifier-free C5 0.070 vs B6 0.083 (27/2).
 - Text: C0 CHM now level with B1 (was above); the refusal–confabulation trade nearly cancels, so the net C0→C5 CHM gain is from fewer fabricated/evasive wrong answers (headline paragraph reworded accordingly). Abstract full-panel CHM change −11.0% → −19.2%. Appendix D counts and appendix E expected values updated. B4 EM 0.464 → 0.461 (D12). H4 R² clause removed (D13).
+
+## Question-match reframe and seven-type CHM (2026-10-17, author)
+- Signal renamed question-answer match ($q_{\text{match}}$) in ch1, ch2, ch4 (reranker para, family intro, signal table, algorithm, new subsection with Rudolph/Eiffel examples and AUROCs, boost-weight note), appendix A/F/G, symbols list, both architecture figures, three auto tables. Appendix G also corrected: early exit discards (does not regenerate).
+- CHM is the mean of seven types (×8/7 on every CHM value): B1 0.156, C0 0.153, C1 0.130, C2 0.126, C3/C4 0.135, C5 0.133; B2 0.161, B3 0.172, B4 0.165, B5 0.155, B6 0.140, B7 0.226; training panel B1 0.164, C2 0.116, C5 0.130; RUC 0.143→0.135. Off-topic row removed from the subtype table; definitions and all "eight" mentions updated; significance counts unchanged.
+- Rounding corrections: training-panel CHM change −29.3% / −20.6% (was −29.4 / −20.3), StrategyQA −17.4% (was −17.5).
+- Evidence: outputs/analysis/off_topic_judge_validation.json (kappa 0.35 held-out), off_topic_validation_sample.json, response_relevance.json.

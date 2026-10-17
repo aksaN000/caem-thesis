@@ -216,3 +216,11 @@ after the previous PR merges.
   the sweep_top caption names "sklearn".
 - **ch4:** router thresholds θ₁ = 0.90 and θ_sim = 0.75 (ch4:142) are not in the List of Symbols.
 - **ch1:** spelled-out numbers like "zero point six three" in prose (style); check consistency with digits elsewhere.
+
+- **CHM and the question-match signal (2026-10-17, author):** CHM = mean of SEVEN failure types (off-topic and factual
+  contradiction recorded, excluded: neither can fire). TruthfulQA correctness in CHM = Haiku judge. Numbers come only from
+  `outputs/analysis/chm_judged.json` (`scripts/recompute_chm_judged.py`, `patch_chm_judged_tables.py`, builder, paired tests).
+  The fourth verifier signal is the **question-answer match** $q_{\text{match}}$ (renamed from "relevance"): reranker score of
+  the wrapped short answer string, double-sigmoided into [0.50, 0.73]; a learned correctness cue (C0 eval AUROC TriviaQA 0.80,
+  StrategyQA 0.60, CSQA/TQA ~0.5, FEVER 0.36), NOT an off-topic detector. Off-topic detection = future work (Haiku judge vs
+  200 labels kappa 0.35).

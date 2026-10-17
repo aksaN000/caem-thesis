@@ -2,7 +2,8 @@
 
 The committed CHM tables read the harness `em` field, which for TruthfulQA is the stale ROUGE-L > 0.15
 match; EM everywhere uses the Haiku-judged field `em_llm_judged`. This script re-scores the eight CHM
-flags of eval/metrics.py::per_sample_chm per question, with `em` replaced by `em_llm_judged` on
+flags of eval/metrics.py::per_sample_chm per question and averages the seven that can fire (the off-topic flag reads
+the question-answer match score, which cannot detect off-topic answers; it is recorded but left out of the mean, tracker C14/C15), with `em` replaced by `em_llm_judged` on
 TruthfulQA (other benchmarks unchanged), for:
   CAEM C0..C5 (outputs/full_run/eval), Phase 1d C3 (outputs/phase1d_eval, classifier-off arm),
   baselines B1..B7 (outputs/baselines_phase1e; B6 at its cycle five). B8 has no valid verifier scores.
@@ -63,7 +64,8 @@ def summarise(samples):
     n = len(samples)
     F = [flags(s) for s in samples]
     rates = {k: sum(f[i] for f in F) / n for i, k in enumerate(SUBTYPES)}
-    return {"n": n, "chm": sum(sum(f) for f in F) / (8 * n), "em": sum((s.get("em") or 0) for s in samples) / n,
+    active = [i for i, k in enumerate(SUBTYPES) if k != "off_topic"]
+    return {"n": n, "chm": sum(sum(f[i] for i in active) for f in F) / (len(active) * n), "em": sum((s.get("em") or 0) for s in samples) / n,
             "subtypes": rates}
 
 

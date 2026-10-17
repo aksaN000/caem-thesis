@@ -264,6 +264,7 @@ ch5 decision is made (locked configuration is not the criterion-3 maximum; justi
 - **Repo clean-up phase (author request 2026-10-16):** after the chapter pass, make the repository plug-and-play (one
   environment file, one command per stage, generators that reproduce every committed table without hand edits, superseded
   scripts archived with a README).
+- **ch6 must contain (added 2026-10-17):** off-topic detection as future work (question-match signal cannot detect off-topic on short answers; a post-hoc Haiku judge agreed with 200 hand labels at kappa 0.35, outputs/analysis/off_topic_judge_validation.json); CHM is the mean of SEVEN types (off-topic and factual contradiction recorded but excluded); all ch6 CHM numbers must come from outputs/analysis/chm_judged.json (B1 0.156, C0 0.153, C2 0.126, C5 0.133; FLARE 0.226; B6 0.140); signal renamed question-answer match $q_{\text{match}}$.
 - **ch6 must contain (promised by ch5, 2026-10-16):** a frozen-composite ablation cycle (monotonicity); an arm-isolating
   classifier run (corrections without the classifier); the phantom-context preprocessing fix (one sentence, author request);
   multi-seed and second-backbone replication; flexible-match re-scoring (format learning); retraining on a cleaned pool
