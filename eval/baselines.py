@@ -87,7 +87,8 @@ from caem.config import CAEMConfig
 from caem.memory.encoder import QueryEncoder
 from caem.model_loader import load_base_generator
 from caem.pipeline import PipelineResult
-from caem.prompts import FORCED_PREFIX, SYSTEM_PROMPT, build_tier3_prompt
+from caem.prompts import (FORCED_PREFIX, SYSTEM_PROMPT, _build_chatml, build_tier2_demo_messages,
+                          build_tier2_messages, build_tier3_prompt)
 from caem.retrieval.rag import PassageStore, TierThreeRAG
 from eval.metrics import extract_cot_answer
 
@@ -167,6 +168,23 @@ class BaselineBase:
     # Subclass hook                                                        #
     # ------------------------------------------------------------------ #
 
+    # Final-version matched protocol (2026-10-17, MASTER_ISSUES M-A): baselines receive CAEM's exact Tier 2
+    # question message (system prompt, one worked example, task instruction and answer format), built by
+    # caem.prompts.build_tier2_messages. Set to False only to reproduce run-1 baseline prompts.
+    matched_prompt: bool = True
+    benchmark: Optional[str] = None
+
+    def set_benchmark(self, benchmark: Optional[str]) -> None:
+        """Called by the runner before each benchmark; used for the task hint and per-benchmark demos."""
+        self.benchmark = benchmark
+
+    def _matched_messages(self, query: str) -> List[dict]:
+        """CAEM's Tier 2 messages for ``query``; subclasses adjust them (B2 trigger, B5 demonstrations)."""
+        return build_tier2_messages(query, source_benchmark=self.benchmark)
+
+    def _matched_chat(self, query: str) -> str:
+        return _build_chatml(self._matched_messages(query), self.tokenizer)
+
     def _build_user_content(self, query: str) -> str:
         """Return the bare user-message text for ``query``. Subclasses override
         to inject CoT triggers or few-shot demos. The wrapping with ChatML +
@@ -185,6 +203,9 @@ class BaselineBase:
         returned answer is re-prepended with the prefix by
         ``_finalize_answer`` so the EM extractor finds the mandated marker.
         """
+        if self.matched_prompt:
+            chat = self._matched_chat(query)
+            return chat + self.forced_prefix if self.forced_prefix else chat
         user = self._build_user_content(query)
         if self.system_prompt:
             chat = self._wrap_chatml_system_user(self.system_prompt, user)
@@ -389,11 +410,14 @@ class BaselineBase:
             for q, ans in zip(queries, answers)
         ]
 
-    def answer(self, query: str, store_to_memory: bool = False) -> PipelineResult:
+    def answer(self, query: str, store_to_memory: bool = False,
+               source_benchmark: Optional[str] = None, **_: Any) -> PipelineResult:
         """Drop-in replacement for ``CAEMPipeline.answer``.
 
         ``store_to_memory`` is ignored -- baselines have no memory.
         """
+        if source_benchmark is not None:
+            self.set_benchmark(source_benchmark)
         t0 = time.perf_counter()
         try:
             answer_str, tier, escalated = self._generate(query)
@@ -490,6 +514,11 @@ class CoTBaseline(BaselineBase):
     def _build_user_content(self, query: str) -> str:
         return f"{self.prefix}\n\n{query}"
 
+    def _matched_messages(self, query: str) -> List[dict]:
+        msgs = build_tier2_messages(query, source_benchmark=self.benchmark)
+        msgs[-1] = dict(msgs[-1], content=f"{msgs[-1]['content']}\n\n{self.prefix}")
+        return msgs
+
 
 # =============================================================================
 # B5 -- Few-shot CoT (Wei et al. NeurIPS 2022)
@@ -536,6 +565,25 @@ class FiveShotCoTBaseline(BaselineBase):
         super().__init__(*args, max_new_tokens=max_new_tokens, **kwargs)
         self.demo_seed = demo_seed
         self._demo_block = self._build_demo_block(demo_samples or [])
+        self.demos: List[Tuple[str, str]] = []
+
+    def set_demos(self, samples: List[dict]) -> List[Tuple[str, str]]:
+        """Matched protocol: pick ``n_shots`` (question, gold) demonstrations for the current benchmark.
+
+        The runner passes a pool from the benchmark's own training split with every evaluated question removed,
+        so demonstrations always share the task format of the live question and never overlap it.
+        """
+        import random
+        pool = [(str(s.get("question", "")).strip(), str((s.get("answers") or [""])[0]).strip()) for s in samples]
+        pool = [(q, g) for q, g in pool if q and g]
+        self.demos = random.Random(self.demo_seed).sample(pool, min(self.n_shots, len(pool)))
+        return self.demos
+
+    def _matched_messages(self, query: str) -> List[dict]:
+        msgs = build_tier2_demo_messages(query, self.demos, source_benchmark=self.benchmark) if self.demos \
+            else build_tier2_messages(query, source_benchmark=self.benchmark)
+        msgs[-1] = dict(msgs[-1], content=f"{msgs[-1]['content']}\n\n{self.prefix}")
+        return msgs
 
     def _build_demo_block(self, samples: List[dict]) -> str:
         """Select n_shots demos and format as Q -> Reasoning -> A triples.
@@ -851,7 +899,9 @@ class FLAREBaseline(RAGBaseline):
         see. The forced_prefix is threaded into ``committed`` at the start of
         ``_generate`` so we do not re-append it here.
         """
-        if self.system_prompt:
+        if self.matched_prompt:
+            prompt_text = self._matched_chat(query)
+        elif self.system_prompt:
             prompt_text = self._wrap_chatml_system_user(self.system_prompt, query)
         else:
             prompt_text = self._wrap_chatml_user(query)
@@ -987,9 +1037,12 @@ class FLAREBaseline(RAGBaseline):
         # original FLARE (which produces a complete answer) and the matched
         # protocol (every baseline concludes).
         if "Answer:" not in committed:
-            conclusion_prompt = self._wrap_chatml_system_user(
-                self.system_prompt, query
-            ) if self.system_prompt else self._wrap_chatml_user(query)
+            if self.matched_prompt:
+                conclusion_prompt = self._matched_chat(query)
+            else:
+                conclusion_prompt = self._wrap_chatml_system_user(
+                    self.system_prompt, query
+                ) if self.system_prompt else self._wrap_chatml_user(query)
             # Prefill the model with the reasoning so far plus the Answer: cue.
             conclusion_prompt = f"{conclusion_prompt}{committed}\nAnswer:"
             final = self._run_generation(

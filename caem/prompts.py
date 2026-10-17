@@ -533,11 +533,21 @@ def build_tier2_prompt(
     forced_prefix : str
         ``"Reasoning:"`` — caller appends as prefill.
     """
+    messages = build_tier2_messages(query, source_benchmark=source_benchmark)
+    return _build_chatml(messages, tokenizer), FORCED_PREFIX
+
+
+def build_tier2_messages(query: str, *, source_benchmark: Optional[str] = None) -> List[dict]:
+    """The chat messages of the Tier 2 prompt: system prompt, one worked example, the task instruction.
+
+    Split out of ``build_tier2_prompt`` (final-version, 2026-10-17) so the matched-protocol baselines in
+    ``eval/baselines.py`` reuse CAEM's exact Tier 2 message list instead of a copy. ``build_tier2_prompt``
+    renders the same list, so CAEM's own prompt is unchanged.
+    """
     task = detect_query_task(query, task_hint=source_benchmark)
     task_line, answer_format = _task_spec(task, query, with_passages=False)
     _, ex_user, ex_asst = _few_shot_parts(task, with_passages=False)
-
-    messages: List[dict] = [
+    return [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": ex_user},
         {"role": "assistant", "content": ex_asst},
@@ -549,7 +559,25 @@ def build_tier2_prompt(
             ),
         },
     ]
-    return _build_chatml(messages, tokenizer), FORCED_PREFIX
+
+
+def build_tier2_demo_messages(
+    query: str, demos: List[Tuple[str, str]], *, source_benchmark: Optional[str] = None,
+) -> List[dict]:
+    """Tier 2 messages with the single worked example replaced by ``demos`` [(question, gold answer), ...].
+
+    Used by the five-shot baseline (B5): each demonstration is rendered with the same task instruction
+    and answer format the live question gets, and answered in CAEM's Reasoning/Answer format.
+    """
+    task = detect_query_task(query, task_hint=source_benchmark)
+    _, answer_format = _task_spec(task, query, with_passages=False)
+    messages: List[dict] = [{"role": "system", "content": SYSTEM_PROMPT}]
+    for dq, gold in demos:
+        d_line, _ = _task_spec(task, dq, with_passages=False)
+        messages.append({"role": "user", "content": f"{d_line}\n\nAnswer format: {answer_format}"})
+        messages.append({"role": "assistant", "content": f"Reasoning: The answer is {gold}.\nAnswer: {gold}"})
+    messages.append(build_tier2_messages(query, source_benchmark=source_benchmark)[-1])
+    return messages
 
 
 def build_tier3_prompt(

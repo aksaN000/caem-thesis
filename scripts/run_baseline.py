@@ -294,28 +294,9 @@ def _build_baseline(ns: argparse.Namespace):
             model_name=ns.model_name, device=ns.device, dtype=dtype,
         )
     if name == "fiveshot_cot":
-        # Demos drawn from the FIRST benchmark's training split (ns.benchmarks[0]).
-        # The same 5 demos are reused across all eval benchmarks in this run so the
-        # in-context examples are constant — matching Wei et al. 2022's convention
-        # of a fixed demo block for the whole eval panel.
-        from eval.benchmarks import load_benchmark
-        demo_bench = ns.benchmarks[0] if ns.benchmarks else "fever"
-        try:
-            demo_pool = load_benchmark(
-                demo_bench,
-                n=50,  # small pool; demos sampled from first 50 with seed 42
-                split="train" if demo_bench == "fever" else None,
-            )
-        except Exception as exc:
-            logger.warning(
-                "FiveShotCoTBaseline: failed to load demos from %s (%s); "
-                "falling back to zero-shot-CoT behaviour.", demo_bench, exc,
-            )
-            demo_pool = []
-        return FiveShotCoTBaseline(
-            model_name=ns.model_name, device=ns.device, dtype=dtype,
-            demo_samples=demo_pool, demo_seed=42,
-        )
+        # Matched protocol (final-version, 2026-10-17): demonstrations are chosen per benchmark in main() from
+        # that benchmark's training split, with every evaluated question removed (see _demo_pool).
+        return FiveShotCoTBaseline(model_name=ns.model_name, device=ns.device, dtype=dtype, demo_seed=42)
 
     # Retrieval-augmented baselines: need a loaded passage store.
     from caem.retrieval.rag import PassageStore
@@ -378,6 +359,32 @@ def _seed_everything(seed: int) -> None:
             torch.cuda.manual_seed_all(seed)
     except ImportError:
         pass
+
+
+def _norm_question(q: str) -> str:
+    import re
+    return " ".join(re.sub(r"[^a-z0-9 ]", " ", str(q or "").lower()).split())
+
+
+def _demo_pool(bench: str, eval_samples: List[dict], pool_size: int = 200) -> List[dict]:
+    """B5 demonstration pool for one benchmark (final-version matched protocol, 2026-10-17).
+
+    Drawn from the benchmark's training split (TruthfulQA has only a validation split), then every question that
+    is evaluated, by this baseline or in CAEM's evaluation fold, is removed by normalised question text.
+    """
+    import json as _json
+    from eval.benchmarks import load_benchmark
+    split = "validation" if bench == "truthfulqa" else "train"
+    kwargs = {} if bench == "truthfulqa" else {"split": split}
+    pool = load_benchmark(bench, n=None if bench == "truthfulqa" else pool_size, seed=42, **kwargs)
+    held_out = {_norm_question(s.get("question")) for s in eval_samples}
+    caem_eval = Path(__file__).resolve().parents[1] / f"outputs/full_run/eval/{bench}_cycle0.json"
+    if caem_eval.exists():
+        held_out |= {_norm_question(s["question"]) for s in _json.load(open(caem_eval))["samples"]}
+    kept = [s for s in pool if _norm_question(s.get("question")) not in held_out]
+    logger.info("B5 demo pool %s [%s]: %d loaded, %d after removing evaluated questions",
+                bench, split, len(pool), len(kept))
+    return kept
 
 
 def main() -> None:
@@ -456,6 +463,8 @@ def main() -> None:
         use_prefetch=getattr(ns, "eval_prefetch", False),
     )
 
+    from eval.baselines import FiveShotCoTBaseline
+    demo_log: Dict[str, List[Dict[str, str]]] = {}
     summaries: Dict[str, Dict] = {}
     for bench in ns.benchmarks:
         logger.info("=" * 72)
@@ -495,6 +504,13 @@ def main() -> None:
                 samples = load_benchmark(bench, n=ns.n_questions, split=ns.split)
             else:
                 samples = load_benchmark(bench, n=ns.n_questions)
+        if hasattr(baseline, "set_benchmark"):
+            baseline.set_benchmark(bench)
+        if isinstance(baseline, FiveShotCoTBaseline):
+            demos = baseline.set_demos(_demo_pool(bench, samples))
+            demo_log[bench] = [{"question": q, "answer": a} for q, a in demos]
+            (output_dir / "fiveshot_demos.json").write_text(_json.dumps(demo_log, indent=1))
+            logger.info("B5 demos for %s: %d from the training split", bench, len(demos))
         agg = harness.run(benchmark=bench, samples=samples, cycle=0,
                           store_to_memory=False)
         summaries[bench] = {

@@ -135,11 +135,13 @@ class _NativeAnswerBatchAdapter:
     def answer_batch(self, batch_samples):
         if not batch_samples:
             return []
-        # source_benchmark is ignored by baselines (no memory / routing).
-        # store_to_memory defaults to True in BatchSample; pass False here
+        # Baselines have no memory or routing; the benchmark name only selects the matched task prompt
+        # (final-version, 2026-10-17). store_to_memory defaults to True in BatchSample; pass False here
         # since baselines never store and the harness's store_to_memory flag
         # already routes this from the call site.
         queries = [s.query for s in batch_samples]
+        if hasattr(self.p, "set_benchmark"):
+            self.p.set_benchmark(batch_samples[0].source_benchmark)
         store_flag = bool(batch_samples[0].store_to_memory) if batch_samples else False
         return self.p.answer_batch(queries, store_to_memory=store_flag)
 
