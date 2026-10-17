@@ -18,6 +18,11 @@ Source files:
 """
 from __future__ import annotations
 
+# Guard (2026-10-17): this script builds tables at module level, so importing it would overwrite files.
+# Run it directly instead; it is replaced by the single results command (MASTER_ISSUES.md, Phase 1a).
+if __name__ != "__main__":
+    raise ImportError(f"{__file__} does its work when loaded; run it directly, do not import it.")
+
 import json
 import math
 from collections import defaultdict

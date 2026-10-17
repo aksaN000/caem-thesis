@@ -50,7 +50,8 @@ write files on import (aggregate_section_5_2/4/5/6/7, replay_early_stop_gate); c
 466 typed numbers.
 - [~] R1 Script manifest (2026-10-17, branch cleanup/repo-layout: 16 one-off scripts, old runners and the approximate
       significance script moved to archive/scripts_superseded/; full pipeline/analysis manifest still to do): classify all 97 scripts as pipeline / current analysis / superseded. Move superseded
-      ones to `archive/` (cannot be run by the runbook); guard the six import-time scripts with a main block.
+      ones to `archive/` (cannot be run by the runbook). DONE 2026-10-17 on `final-version`: the five
+      aggregate_section_5_* scripts refuse to be imported; replay_early_stop_gate.py wrapped in main() (output identical).
 - [ ] R2 Data vs words: every data table is produced by a script as a bare tabular from the run's JSON; the
       caption, label and float placement live in the chapter file (hand-written words are legitimate there).
       The hand edits made so far (merges, layouts, dropped columns, notes below tables) are re-implemented as

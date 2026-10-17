@@ -40,9 +40,9 @@ No result numbers are quoted in this README; they live in the thesis and will ch
   `recompute_validation_gate.py`, `recompute_chm_judged.py`, `patch_chm_judged_tables.py`,
   `paired_baseline_tests.py`, `audit_signals_baselines.py`, `replay_early_stop_gate.py`, `rerun_cycle0_sweep.py`,
   `score_response_relevance.py`, `judge_off_topic.py`.
-- **Caution:** the older `aggregate_*` scripts write to the old `thesis_report/` path (not the live thesis), and five
-  `aggregate_section_5_*` scripts (plus `replay_early_stop_gate.py`) do their work as soon as they are imported.
-  Do not import or run them; they are replaced by one results command in Phase 1a of the master plan.
+- **Caution:** the older `aggregate_*` scripts write to the old `thesis_report/` path (not the live thesis), and the five
+  `aggregate_section_5_*` scripts build tables when loaded (they now refuse to be imported).
+  Do not run them; they are replaced by one results command in Phase 1a of the master plan.
 
 ## Data and artefacts outside the repository
 - Run artefacts: Google Drive folder `CAEM_thesis/` (numbered layout `1_thesis` … `9_archive`).
