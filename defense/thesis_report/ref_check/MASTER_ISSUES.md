@@ -63,7 +63,7 @@ Local runs stopped and local environments/caches removed at the author's request
       "A | B | C | D | E" format line). TruthfulQA judge v2 (CAEM written, em_final): C0 0.380 -> 0.270,
       C2 0.323 -> 0.277, C5 0.300 -> 0.253; the losses are mostly refusals ("I do not know"), which TruthfulQA's own
       convention counts as truthful but not informative; v2 measures truthful and informative.
-- [ ] DECISION (author): withheld answers. EM and CHM read CAEM's raw answer even when it was withheld (ABSTAIN shows
+- [x] DECIDED (author, 2026-10-17: "do what is ideal" -> both views, implemented in recompute_chm_judged.summarise and the selective table): withheld answers. EM and CHM read CAEM's raw answer even when it was withheld (ABSTAIN shows
       "I do not know.", DISCARD shows nothing). C0 withholds 335 correct answers; 517 withheld wrong answers are
       counted as hallucinations; CHM with withheld answers counted only as refusals: C0 0.155 -> 0.075,
       C2 0.127 -> 0.094, C5 0.134 -> 0.105. The current selective table counts DISCARD as answered (C0 66 % answered;

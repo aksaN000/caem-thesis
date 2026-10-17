@@ -39,13 +39,29 @@ def flags(s):
             wrong and len(pred) > 600]
 
 
+def withheld(s):
+    """The user is shown no answer: CAEM ABSTAIN ("I do not know.") or DISCARD (empty), B8 "<abstain>"."""
+    return s.get("decision") in ("ABSTAIN", "DISCARD") or "<abstain>" in (s.get("prediction") or "")
+
+
 def summarise(samples):
+    """Model view (EM, CHM on every raw answer) and delivered view (what the user sees; author decision 2026-10-17).
+
+    Delivered: answered share, wrong among answered, CHM among answered (the seven active flags over answered
+    questions), refusal rate, and correct answers withheld (known only where the raw answer exists, i.e. CAEM).
+    """
     n = len(samples)
     F = [flags(s) for s in samples]
     rates = {k: sum(f[i] for f in F) / n for i, k in enumerate(SUBTYPES)}
     active = [i for i, k in enumerate(SUBTYPES) if k != "off_topic"]
+    shown = [(s, f) for s, f in zip(samples, F) if not withheld(s)]
+    na = len(shown)
+    delivered = {"answered": na / n, "refusal_rate": 1 - na / n,
+                 "wrong_among_answered": sum(1 - (s.get("em") or 0) for s, _ in shown) / na if na else None,
+                 "chm_among_answered": sum(sum(f[i] for i in active) for _, f in shown) / (len(active) * na) if na else None,
+                 "correct_withheld": sum((s.get("em") or 0) == 1.0 for s in samples if withheld(s)) / n}
     return {"n": n, "chm": sum(sum(f[i] for i in active) for f in F) / (len(active) * n), "em": sum((s.get("em") or 0) for s in samples) / n,
-            "subtypes": rates}
+            "subtypes": rates, "delivered": delivered}
 
 
 def system(get):
