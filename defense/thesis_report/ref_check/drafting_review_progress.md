@@ -15,7 +15,7 @@ Baseline build (latexmk, 2026-10-16): 324 pages, 0 errors, 0 undefined refs/cita
 | Chapter 2 | done; merged (PR #6 into review/ch1, then PR #7 into main) | branch `review/ch2`; 16 152 → 11 740 words |
 | Chapter 3 | done; author read-through closed 2026-10-16; merged (PR #8) | branch `review/ch3`; 6 437 → 4 861 words |
 | Chapter 4 | Claude pass done (full rewrite + 6 figures); PR open; awaiting author's read | branch `review/ch4`; ~21 000 → ~9 700 words |
-| Chapter 5 | pending | pre-found issues: `review_ch5_part1.md` |
+| Chapter 5 | pending | pre-found issues: `archive/audits/thesis_audit_2026-10-15/review_ch5_part1.md` |
 | Chapter 6 | pending | pre-found issues: `review_ch5_part2_ch6.md` |
 | Appendices A–G | pending | |
 | Bibliography | pending | |
@@ -257,7 +257,7 @@ ch5 decision is made (locked configuration is not the criterion-3 maximum; justi
   `u_stored = None` on every sample: it was never rescored through the verifier. B8 EM uses the corrected run. Rescoring needs
   a GPU (verifier resampling + MiniCheck + 64 GB passage index). AUTHOR DECISION PENDING: rescore on GPU, or report B8 CHM as
   unavailable.
-- **CHM significance is approximate in the code** (`scripts/baseline_sig_tests_v2.py::_approx_chm_ci`: CAEM fixed, baseline
+- **CHM significance is approximate in the code** (`archive/scripts_superseded/baseline_sig_tests_v2.py::_approx_chm_ci`: CAEM fixed, baseline
   subtype rates binomially resampled, no Holm, floor 0.01); ch5 and appendix D claimed paired Wilcoxon + Holm. Per-sample
   CHM (`eval/metrics.py::per_sample_chm`) reproduces the committed CHM for CAEM (C2, C5) and B1–B7, so a true paired test is
   possible without GPU for every baseline except B8 (no per-sample verifier fields in the corrected run).

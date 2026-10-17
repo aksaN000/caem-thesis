@@ -113,3 +113,8 @@ htmlcov/
 
 # ── Claude project anchor (private, not for public repo) ─────────────────────
 CLAUDE.md
+
+# ── Local only ──────────────────────────────────────────────────────────────
+# Local build of the teaching book (sources on branch book/caem-teaching-book).
+caem book/
+.pytest_cache/

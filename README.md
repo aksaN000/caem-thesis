@@ -1,490 +1,58 @@
 # CAEM: Confidence-Aware Episodic Memory with Self-Improvement
 
-*Confidence-Aware Episodic Memory with Self-Improvement for Progressive Hallucination Reduction in Large Language Models*
+*Confidence-Aware Episodic Memory with Self-Improvement for Hallucination Reduction in Large Language Models*
 
 **CSE400 Final Year Thesis · BRAC University**
-
 **Authors:** Md. Aksan Gony Alif, Maliha Binte Shamim, Md. Mahmudur Rahman
-
-**Supervisor:** Dr. Md. Golam Rabiul Alam, Professor, Department of Computer Science & Engineering, BRAC University
-
-**Co-supervisor:** Md. Tanzim Reza, Senior Lecturer, Department of Computer Science & Engineering, BRAC University
-
-A three-tier hallucination-reduction architecture for open-domain question answering, built on Qwen-2.5-3B-Instruct. CAEM combines a verified episodic memory, confidence-aware routing with a retrieval-utility classifier, a nine-signal calibrated-probability verifier ensemble with a fixed-threshold storage gate, and a constrained per-cycle self-improvement loop under a multi-modal retention guard with asymmetric rollback.
-
-All numbers in this README are anchored against the thesis report; the source location is cited in parentheses (chapter/appendix/table) so a reader can audit each claim against the canonical text in `thesis_report/main.pdf`.
-
-| Resource | Link |
-|---|---|
-| Thesis report (324 pages, PDF) | [`thesis_report/main.pdf`](thesis_report/main.pdf) |
-| Realised empirical artefacts (Google Drive) | <https://drive.google.com/drive/folders/1xErhsRDYe_qO0ZgUBn0WXK81eHc5jZCa> |
-| Wikipedia passage FAISS index + pre-main snapshots (Hugging Face, private) | `aksaN000/caem-passage-index-21m` |
-| Production runbook | [`docs/PRODUCTION_RUNBOOK.md`](docs/PRODUCTION_RUNBOOK.md) |
-| Reproducibility recipe | [`thesis_report/appendix/appendix_e.tex`](thesis_report/appendix/appendix_e.tex) |
-| Code-and-data availability | [`thesis_report/appendix/appendix_a.tex`](thesis_report/appendix/appendix_a.tex) §A.1 |
-| Demo quickstart | [`docs/DEMO_QUICKSTART.md`](docs/DEMO_QUICKSTART.md) |
-
----
-
-## In plain terms
-
-Language models often answer confidently and wrongly. CAEM wraps a small open model (Qwen-2.5-3B) with three habits a careful person would have:
-- **It remembers answers it has already verified**, so a question it has seen before is answered from memory.
-- **It checks its own confidence** before and after answering. It uses that to decide whether to answer directly, look things up first, or hold back instead of guessing.
-- **It keeps learning without forgetting.** Periodically it fine-tunes on its own verified answers, then rolls the update back if general knowledge slips.
-
-On the training benchmarks, this raised exact-match accuracy by **20.3%** and cut hallucination by **29.4%** (relative) against the same model without CAEM.
-
-<p align="center"><img src="docs/figures/architecture.png" width="100%" alt="The eight-stage CAEM pipeline: pre-route confidence, episodic memory retrieval, three-tier router with retrieval-utility classifier, tier execution, nine-signal verifier, four-outcome storage decision, memory write, and the between-cycle self-improvement loop" /></p>
-
-<sub>The eight-stage CAEM pipeline, as in the thesis. TikZ source: <code>docs/figures/architecture.tex</code>.</sub>
-
-## TL;DR
-
-Large language models hallucinate at deployment-relevant rates and the problem persists with scale. CAEM closes the gap with three architectural commitments: a **verified episodic memory** with a four-outcome decision (store, defer, abstain, discard) under a fixed-threshold rule on a calibrated probability composite; **confidence-aware routing** that combines memory similarity with stored quality, with an independent safety override and a **retrieval-utility classifier** (Stage 3b) that decides per query whether retrieval is expected to help; and a **constrained self-improvement loop** that fine-tunes a bounded low-rank adapter on a strict training pool under a multi-modal retention guard with asymmetric rollback.
-
-Against the matched Qwen-2.5-3B-Instruct zero-shot baseline `B1` over the same backbone, the headline finding the thesis intends to license is the joint reading of three axes (training-panel architectural-contribution slice, full-panel registered contrast, and external eight-baseline panel) at the within-trajectory best cycle (C2) and the trajectory-end cycle (C5). The architectural-contribution slice is read on the **training panel** (FEVER + TriviaQA + CommonsenseQA), the three benchmarks on which CAEM's self-improvement loop and verifier composite are calibrated. The registered full-panel contrast is read on the five-benchmark evaluation panel (the training three plus the transfer pair TruthfulQA + StrategyQA).
-
-- **Headline architectural-contribution slice (training panel, CAEM C2 vs B1 zero-shot reference):** **ΔEM = +20.3% relative**, **ΔCHM = −29.4% relative** (pooled training-panel EM 0.483 → 0.581; pooled training-panel CHM 0.143 → 0.101; `tab:per-bench-trajectory`, Ch5 §5.1.2). The trajectory-end cycle holds at **+13.7% EM, −20.3% CHM** relative against the same B1 floor.
-- **Full 5-panel registered contrast (CAEM C2 vs B1) for comparison:** ΔEM = +7.4%, ΔCHM = −11.0% relative; the smaller full-panel margin is driven by a TruthfulQA regression on misconception-bait probes where the dense passage substrate amplifies the question's misconception framing rather than refuting it. The retrieval-utility classifier (next bullet) narrows this regression but does not close it.
-- **Retrieval-utility-classifier ablation** at cycle three: **+14.0 percentage-point lift** on CommonsenseQA exact match and **+10.0 percentage-point lift** on TruthfulQA exact match by re-routing misconception-bait queries away from the retrieval-augmented tier, with the retrieval tier share collapsing by **−33.8 percentage points** pooled (`tab:ruc-ablation`, Ch5 §5.4.2). The classifier-on reading lifts TruthfulQA exact match from 0.210 to 0.310, still below the B1 zero-shot reference of 0.433, while preserving the training-panel pooled reading. The contrast bundles the classifier with pipeline corrections shipped in the same iteration, so the lift is their joint effect.
-- **Pool purity** remains in the band **[0.732, 0.746]** on the pooled training-panel calibration fold across every committed cycle, clearing the registered floor of 0.64 by 9–11 percentage points (`tab:pi-store-trajectory`, Ch5 §5.1.6).
-- **First in-flight retention rollback** at cycle four (TriviaQA-test probe ratio 0.886 < ρ_min = 0.93) with the memory store growing across the abort boundary under the asymmetric-rollback contract; cycle-five recovers to a worst-probe ratio of 0.958 (Ch5 §5.1.5; `cor:stochastic-equilibrium`).
-- **External eight-baseline panel:** in the pooled comparison, CAEM C2 beats all eight baselines jointly on the exact-match and composite-hallucination axes, and CAEM C5 beats seven of eight; FLARE leads CAEM C5 on pooled exact match by 0.008 (`tab:baseline-pooled`).
-
-The receipt panel for the two proven results (one theorem and one proposition) and the five design heuristics is reported in Chapter 5 §5.1.6; the pre-specified five-hypothesis verdicts are in Chapter 5 §5.5.2.
-
----
-
-## The problem
-
-Modern neural models state confidence that exceeds their actual accuracy: classifiers show expected calibration errors above ten percentage points on standard image benchmarks (`pmlr-v70-guo17a`), and language models fine-tuned with reinforcement learning from human feedback appear badly miscalibrated until their outputs are rescaled (`kadavath2022language`). The confidence a model states in words discriminates correct from incorrect answers only weakly (for GPT-4 an average AUROC of about 0.63, close to the 0.5 of chance), and no single elicitation method is consistently best (`xiong2023can`). The TruthfulQA benchmark documents an inverse-scaling pattern under which larger models are *more* prone to echo human falsehoods (`lin-etal-2022-truthfulqa`). Asked for supporting literature, chatbots return references that do not exist (`alkaissi2023artificial`): in systematic-review searches, 39.6%, 28.6% and 91.4% of the references produced by GPT-3.5, GPT-4 and Bard were hallucinated (`info:doi/10.2196/53164`). Hallucination is not a residual that scale alone removes; the survey literature describes it as persisting in large, instruction-tuned and preference-tuned models (`ji2023survey`, `huang2025survey`).
-
-CAEM treats this as a deployment-safety problem rather than a benchmark-accuracy problem. The architecture targets three structural shortcomings of the current inference paradigm: statelessness (no representation of past verified answers persists across sessions); overconfidence (the confidence a model verbalises discriminates correct from incorrect answers only weakly); and immutability of trained capability (naive fine-tuning incurs catastrophic forgetting). The remainder of this document walks the architecture, the realised six-cycle trajectory, the pre-specified hypothesis adjudication, and the threats-to-validity disclosure.
-
-The full motivation, the literature positioning across six areas (hallucination measurement, verification, confidence estimation, memory-augmented architectures, continual learning, evaluation benchmarks), and the architectural-opportunity argument are in Chapter 1 of the thesis.
-
----
-
-## The architecture
-
-CAEM organises every query into an **eight-stage per-query pipeline** wrapped in a **per-cycle update loop**.
-
-```
-Stage 1  Pre-routing confidence       u_pre  = w_tok · u_token + w_conv · 1/(1+c_conv), per-bench temperature scaled
-Stage 2  Encode + episodic lookup     SBERT 768-d cosine over the memory store; returns (similarity, u_stored[e*])
-Stage 3  Three-tier router            S(q) = 0.70 · sim + 0.30 · u_stored ; safety override: if u_pre < phi_pg force fallback
-Stage 3b Retrieval-utility classifier intercepts safety-override + score-formula fall-through; 36-feature LR head
-Stage 4  Execute tier                 Tier 1 = stored answer; Tier 2 = zero-shot generation; Tier 3 = retrieval-augmented
-Stage 5  Verify                       Nine-signal verifier ensemble; per-benchmark calibrated probability composite
-Stage 6  Decide                       Four-outcome decision tree with confabulation early-exit (precedes composite)
-Stage 7  Output                       Calibrated probability + four-class decision tag rendered to user
-Stage 8  Cycle-boundary update        Retroverify + deferred reconsider + consolidate + SIL + retention guard
-```
-
-### Stage 3b: the retrieval-utility classifier
-
-At the heart of the post-baseline architectural intervention is the retrieval-utility classifier of Chapter 4 §4.2.5. It is a **36-feature L2-regularised logistic regression head** fitted under nested five-fold cross-validation on a content-hash-disjoint fresh pool of 3208 disagreement rows (1846 retrieval-helpful, 1362 retrieval-hurt). The classifier intercepts the dispatches that the three-tier router would have sent to the retrieval-augmented fallback and decides per query whether retrieval is expected to help, routing retrieval-hurt queries to the zero-shot tier instead. The deployed threshold is τ_RUC = 0.375. Pooled out-of-fold AUROC is 0.850 (std 0.008); per-benchmark AUROC ranges from 0.686 (OpenBookQA) to 0.936 (TriviaQA) with FEVER 0.718, CommonsenseQA 0.728, TruthfulQA 0.732, StrategyQA 0.852. The full feature ontology, the training-distribution composition, the calibration receipt, and the threshold-sweep diagnostic are in Chapter 4 §4.2.5.
-
-### The nine-signal verifier ensemble
-
-The verifier consumes nine signals organised in four families: **internal calibration** (`u_token`, `u_dropout`, `u_internal`); **sample-set agreement** (`s_avg`, `p_entail`); **external grounding** (`p_ground_max`, `p_ground_mean`, length-gated `p_ground_atomic`); and **question-answer relevance** (`q_a_rel`). The ensemble is **locked across cycles** by design: MiniCheck-Flan-T5-Large is the deployed entailment backend (the registered long-hypothesis Qwen judge was ablated under the pre-specified Pearson correlation floor failing at the v5 calibration overlap fold), the signal-extraction layer is frozen, and only the cycle-boundary composite refit (per-signal isotonic curves, per-benchmark shrinkage child fits, boost-layer weights and intercept) is cycle-indexed. **Two registered signals are retired** from the deployed composite: `h_norm` (normalised semantic entropy, registered then retired at the cycle-zero audit; its boost-layer weight was within 5e-4 of zero on every fit) and `p_contra` (structurally zero under the MiniCheck-only deployment).
-
-### The calibrated probability composite + fixed-threshold storage gate
-
-The verifier's nine signals enter a **per-benchmark calibrated probability composite**: per-signal isotonic regression maps each raw signal to a calibrated probability, per-benchmark child curves are shrunk toward the pooled fit through a James-Stein-style prior at α = 0.6, and an L2-regularised logistic boost layer (C = 0.01, following the logistic multi-scoring of Valentin et al.) aggregates the per-signal calibrated log-odds into `u_stored ∈ [0, 1]`. The storage gate is a **fixed-threshold rule** on `u_stored`: store if ≥ 0.60, defer if ≥ 0.45, abstain if below 0.45 and `p_ground_max` < 0.20, discard otherwise. The thresholds are registered before the main run and held constant across cycles; only the composite refits. The fixed-threshold formulation replaced an earlier split-conformal gate that failed the marginal-coverage premise on the panel; the rejection evidence is recorded in Chapter 4 §4.2.8 and Chapter 5 §5.2.5.
-
-### The constrained self-improvement loop
-
-At every committed cycle boundary the runner executes five passes: **retroverify** every stored episode under the locked verifier ensemble against the updated generator's outputs and the cycle-boundary-refit composite, pruning entries whose re-scored composite falls below τ_retro = 0.50; **reconsider** every entry in the deferred buffer with a three-way branch (promote, drop, keep) under TTL = 2 cycles; **consolidate** near-duplicate-meaning clusters under a cosine-similarity floor of 0.92, an answer-equality guard, and a `u_stored`-spread guard at 0.15; **fine-tune** under LoRA (r = 32, α = 64, dropout = 0.05, all seven linear projections, lr = 2e-4, three epochs, effective batch 16) on the strict training pool that admits only entries clearing τ_train = 0.70 (strictly above τ_store = 0.60 so borderline entries do not contaminate the gradient); and **probe** the registered multi-modal retention panel (MMLU general-knowledge multiple-choice, TriviaQA-test held-out open-text factoid, CommonsenseQA-test held-out commonsense multiple-choice). The retention guard aborts the cycle and rolls the adapter back to the previous committed checkpoint when the worst per-probe ratio falls below ρ_min = 0.93, **while the memory store is preserved across the rollback** under the asymmetric-rollback contract.
-
-The full per-stage specification, the algorithmic pseudocode, the cycle-boundary sequencing, and the theoretical scaffolding are in Chapter 4 of the thesis.
-
----
-
-## Headline result
-
-The realised programme closed at the **six-cycle horizon** (cycles C0 through C5) under the equilibrium-saturation gate, with cycle four aborted by the retention guard and weights rolled back to the cycle-three checkpoint while the memory store grew across the boundary under the asymmetric-rollback contract. The headline contrast frames CAEM against the matched-protocol zero-shot baseline (`B1`) over the same Qwen-2.5-3B-Instruct backbone.
-
-### Per-cycle pooled trajectory (canonical reading from `tab:pooled-trajectory`, Ch5 §5.1.2)
-
-| Configuration | Cycle | Pooled EM | Pooled CHM | MMLU ratio | TQA-test ratio | CSQA-test ratio | Outcome |
-|---|---|---:|---:|---:|---:|---:|---|
-| **B1 zero-shot (reference)** | n/a | **0.507** | **0.120** | n/a  | n/a | n/a | reference floor |
-| CAEM | C0 | 0.541 | 0.135 | n/a  | n/a | n/a | baseline |
-| CAEM | C1 | 0.543 | 0.112 | 1.041 | 1.013 | **1.006** | COMMIT |
-| **CAEM** | **C2 ⭐** | **0.544** | **0.107** | 0.975 | **0.949** | 0.982 | **COMMIT (headline cycle)** |
-| CAEM | C3 | 0.532 | 0.115 | 0.992 | 0.987 | **0.976** | COMMIT |
-| CAEM | C4 | 0.532 | 0.115 | 1.018 | **0.886** | 0.982 | **ABORT** (worst probe < ρ_min) |
-| CAEM | C5 | 0.517 | 0.109 | 0.999 | 1.013 | **0.958** | COMMIT (post-rollback recovery) |
-
-Headline contrast vs B1 zero-shot at the trajectory's within-best cycle (C2): **ΔEM = +0.037 (+7.4% relative)**, **ΔCHM = −0.013 (−11.0% relative)**.
-
-The trajectory carries three findings. First, **the composite hallucination metric reduces monotonically into a deep minimum at cycle two (0.107) and recovers a near-minimum at cycle five (0.109)**, a −19% relative reduction from the cycle-zero baseline (Ch5 §5.1.2). Second, **cycle four exhibits the first in-flight retention rollback** on the realised trajectory: the TriviaQA-test probe ratio falls to 0.886, crossing below the registered floor of 0.93, the cycle aborts, and the adapter is restored to the cycle-three checkpoint while the memory store grows across the boundary (Ch5 §5.1.5; the architectural contract is `cor:stochastic-equilibrium` sub-claim iii). Third, **cycle five recovers to a worst-probe ratio of 0.958**, well clear of the floor, and the realised commit fraction closes at π_commit = 4/5 = 0.80, strictly in the open interval (0, 1) that the heuristic's sub-claim (i) predicts.
-
-### Per-benchmark trajectory: training panel (canonical reading from `tab:per-bench-trajectory`, Ch5 §5.1.2)
-
-The **architectural-contribution slice** is read off the shaded pooled rows: training-panel pooled EM lifts from **0.483 at B1** to **0.581 at C2** (the architectural-contribution headline of +20.3% relative), and training-panel pooled CHM falls from **0.143 at B1** to **0.101 at C2** (the architectural-contribution headline of −29.4% relative).
-
-| Benchmark | Axis | B1 ref | C0 | C1 | C2 ⭐ | C3 | C4 | C5 | ΔB1→C2 | ΔB1→C5 |
-|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| FEVER | EM | 0.453 | 0.487 | 0.533 | 0.533 | 0.503 | 0.507 | 0.477 | +0.080 (+17.7%) | +0.024 (+5.3%) |
-| FEVER | CHM | 0.159 | 0.139 | 0.113 | 0.102 | 0.120 | 0.119 | 0.126 | −0.057 (−35.8%) | −0.033 (−20.8%) |
-| TriviaQA | EM | 0.293 | 0.463 | 0.480 | 0.493 | 0.463 | 0.463 | 0.453 | +0.200 (+68.3%) | +0.160 (+54.6%) |
-| TriviaQA | CHM | 0.175 | 0.156 | 0.113 | 0.109 | 0.121 | 0.120 | 0.125 | −0.066 (−37.7%) | −0.050 (−28.6%) |
-| CommonsenseQA | EM | 0.703 | 0.763 | 0.740 | 0.717 | 0.743 | 0.743 | 0.717 | +0.014 (+2.0%) | +0.014 (+2.0%) |
-| CommonsenseQA | CHM | 0.096 | 0.077 | 0.086 | 0.093 | 0.086 | 0.085 | 0.091 | −0.003 (−3.1%) | −0.005 (−5.2%) |
-| **train pooled** | **EM** | **0.483** | 0.571 | 0.584 | **0.581** | 0.570 | 0.571 | 0.549 | **+0.098 (+20.3%)** | **+0.066 (+13.7%)** |
-| **train pooled** | **CHM** | **0.143** | 0.124 | 0.104 | **0.101** | 0.109 | 0.108 | 0.114 | **−0.042 (−29.4%)** | **−0.029 (−20.3%)** |
-
-### Per-benchmark trajectory: transfer panel (held-out, no pooled row by design)
-
-The transfer panel has no pooled row in the thesis because TruthfulQA and StrategyQA move in opposite directions across the trajectory and pooling would mask both signals.
-
-| Benchmark | Axis | B1 ref | C0 | C1 | C2 | C3 | C4 | C5 | ΔB1→C2 | ΔB1→C5 |
-|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| TruthfulQA | EM | 0.433 | 0.380 | 0.317 | 0.323 | 0.310 | 0.307 | 0.300 | −0.110 (−25.4%) | −0.133 (−30.7%) |
-| TruthfulQA | CHM | 0.051 | 0.150 | 0.133 | 0.116 | 0.119 | 0.122 | 0.104 | +0.065 (+127.5%) | +0.053 (+103.9%) |
-| StrategyQA | EM | 0.650 | 0.610 | 0.647 | 0.653 | 0.640 | 0.640 | 0.640 | +0.003 (+0.5%) | −0.010 (−1.5%) |
-| StrategyQA | CHM | 0.120 | 0.154 | 0.113 | 0.115 | 0.128 | 0.127 | 0.099 | −0.005 (−4.2%) | **−0.021 (−17.5%)** ✓ clean transfer-CHM win |
-
-The TruthfulQA EM regression on misconception-bait probes is the within-horizon weakness of the architecture in the absence of the retrieval-utility classifier; the classifier-on ablation reported in §5.4.2 lifts TruthfulQA EM from 0.210 to 0.310 (still below the B1 reference of 0.433) by re-routing misconception-bait queries away from the retrieval-augmented tier.
-
-### Eight-baseline panel (canonical reading from `tab:baseline-pooled`, Ch5 §5.4.1)
-
-All baselines evaluated under the matched-protocol contract on the five-benchmark evaluation panel, with CHM post-hoc rescored through the locked CAEM verifier so the CHM column is apples-to-apples across the panel. TruthfulQA EM uses the Haiku-judged correctness rule for every row in the panel, including the B8 semantic-entropy abstention row whose TruthfulQA predictions were rescored by the Haiku judge over the post-rerun abstain outputs.
-
-| # | System | EM | CHM | ΔEM vs CAEM C2 (best) | ΔCHM vs CAEM C2 (best) | ΔEM vs CAEM C5 (final) | ΔCHM vs CAEM C5 (final) |
-|---|---|---:|---:|---:|---:|---:|---:|
-|   | **CAEM C2 (best)** ⭐ | **0.544** | **0.107** | n/a  | n/a | +0.027 | −0.002 |
-|   | CAEM C5 (final) | 0.517 | 0.109 | −0.027 | +0.002 | n/a  | n/a |
-| B1 | zero-shot | 0.507 | 0.120 | +0.037 (+7.4%) | −0.013 (−11.0%) | +0.011 (+2.1%) | −0.011 (−9.3%) |
-| B2 | chain-of-thought | 0.500 | 0.123 | +0.044 (+8.8%) | −0.016 (−12.7%) | +0.017 (+3.5%) | −0.014 (−11.0%) |
-| B3 | DPR-RAG | 0.458 | 0.148 | +0.086 (+18.8%) | −0.041 (−27.7%) | +0.059 (+13.0%) | −0.039 (−26.4%) |
-| B4 | CoT + DPR-RAG | 0.464 | 0.142 | +0.080 (+17.2%) | −0.035 (−24.6%) | +0.053 (+11.5%) | −0.033 (−23.2%) |
-| B5 | five-shot CoT | 0.405 | 0.136 | +0.139 (+34.2%) | −0.029 (−21.4%) | +0.112 (+27.6%) | −0.027 (−19.9%) |
-| B6 | vanilla fine-tune (C5) | 0.490 | 0.127 | +0.054 (+11.0%) | −0.020 (−15.9%) | +0.027 (+5.6%) | −0.018 (−14.3%) |
-| B7 | FLARE | 0.525 | 0.173 | +0.019 (+3.5%) | −0.066 (−38.0%) | −0.008 (−1.5%) | −0.064 (−36.8%) |
-| B8 | semantic entropy | 0.505 | 0.120 | +0.039 (+7.8%) | −0.013 (−10.5%) | +0.013 (+2.5%) | −0.011 (−8.9%) |
-
-**Wins-against count** (CAEM beats baseline on ΔEM and ΔCHM jointly): **CAEM C2 beats 8/8 baselines; CAEM C5 beats 7/8 baselines** (FLARE leads CAEM C5 on pooled EM by 0.008).
-
-The paired McNemar exact-match receipts and paired Wilcoxon composite-hallucination receipts of `tab:sig-test` clear the joint significance-and-effect-size licensing rule of Chapter 5 §5.3.5 on **9 of 40 per-benchmark contrasts on the exact-match axis** and **21 of 35 contrasts on the composite-hallucination axis** (the five vanilla-fine-tune CHM cells are n/a) at the cycle-five anchor, and on **14 of 40 and 20 of 35 contrasts respectively** at the best-cycle anchor of `tab:sig-test-c2`. The significant defeats number three on the exact-match axis at both anchors, and three (C5) and four (C2) on the composite-hallucination axis; all are confined to TruthfulQA against the zero-shot, chain-of-thought, FLARE and semantic-entropy baselines (the surface where the architecture's abstention behaviour interacts with the Haiku-judged correctness rule and the false-refusal subtype of the composite hallucination metric).
-
-The Holm-corrected family-wise significance panel, the paired percentile-bootstrap 95% confidence intervals (1,000 replicates) on every per-benchmark ΔEM, and the per-benchmark sig-test verdicts are reported in `tab:sig-test`, `tab:sig-test-c2`, and Chapter 5 §5.3 and §5.4.1.
-
-### Retrieval-utility classifier on/off ablation (canonical reading from `tab:ruc-ablation`, Ch5 §5.4.2)
-
-Head-to-head ablation at the cycle-three close under the matched-protocol contract. Both arms share the same five-benchmark panel, the same Qwen-2.5-3B-Instruct backbone, and the same composite calibration pinned at the cycle-three anchor. The classifier-on arm also ships pipeline corrections from the same iteration, so the contrast measures the classifier and those corrections jointly; an arm-isolating re-run is registered as future work (Ch6 §6.2.7). The classifier-off arm routes safety-override and score-formula fall-throughs unconditionally to the retrieval-augmented tier; the classifier-on arm routes through the retrieval-utility classifier with τ_RUC = 0.375.
-
-| Benchmark | EM off | EM on | ΔEM (pp) | CHM off | CHM on | ΔCHM (% rel) | T3 share off | T3 share on |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|
-| FEVER | 0.503 | 0.503 | 0.0 | 0.117 | 0.120 | +2.5% | 92.3% | 70.7% |
-| TriviaQA | 0.437 | 0.463 | +2.7 | 0.123 | 0.121 | −2.0% | 95.7% | 68.0% |
-| **CommonsenseQA** | 0.603 | **0.743** | **+14.0** | 0.131 | **0.086** | **−34.4%** | 57.7% | 20.3% |
-| StrategyQA (transfer) | 0.617 | 0.640 | +2.3 | 0.119 | 0.128 | +8.1% | 100.0% | 76.7% |
-| **TruthfulQA (transfer)** | 0.210 | **0.310** | **+10.0** | 0.116 | 0.119 | +2.9% | 99.0% | 40.0% |
-| **Pooled (all five)** | **0.474** | **0.532** | **+5.8** | **0.121** | **0.115** | **−5.2%** | **88.9%** | **55.1%** |
-
-The asymmetric-rescue pattern is read off the bold cells: the largest exact-match gains land on CommonsenseQA and TruthfulQA, the two benchmarks where retrieval was actively hurting in the classifier-off arm. FEVER exact match is flat, the empirical receipt that the classifier correctly preserves the retrieval-helpful regime on the textbook fact-verification benchmark. The pooled retrieval-augmented tier share collapses by 33.8 percentage points, with the largest individual collapse on TruthfulQA at 59 percentage points, the empirical receipt that the classifier engages the misconception-amplification mechanism it was registered against.
-
-### Per-cycle tier-share trajectory (canonical reading from `tab:tier-trajectory`, Ch5 §5.1.4)
-
-| Cycle | Tier 1 (memory) share / EM | Tier 2 (zero-shot) share / EM | Tier 3 (RAG) share / EM | Pooled EM |
-|---|---:|---:|---:|---:|
-| C0 | 0.0% / n/a | 48.7% / 0.602 | 51.3% / 0.482 | 0.541 |
-| C1 | 0.0% / n/a | 49.8% / 0.585 | 50.2% / 0.502 | 0.543 |
-| C2 ⭐ | 0.1% / 1.000 | **55.2%** / 0.568 | 44.7% / 0.514 | **0.544** |
-| C3 | 0.1% / 1.000 | 44.7% / 0.566 | 55.1% / 0.503 | 0.532 |
-| C4 | 0.1% / 1.000 | 45.6% / 0.564 | 54.3% / 0.504 | 0.532 |
-| C5 | 0.1% / 1.000 | 50.2% / 0.537 | 49.7% / 0.497 | 0.517 |
-
-The cycle-zero baseline routes 51.3% of queries to the retrieval-augmented tier (Tier 3, base T3 EM 0.482); by cycle two the SIL-fine-tuned zero-shot tier (Tier 2, T2 EM 0.568) is **outperforming the cycle-zero RAG tier by +8.6 percentage points** of EM at a 55.2% Tier 2 share; this is the **SIL-as-distillation receipt**: the self-improvement loop folds verified retrieval-augmented reasoning into the generator's parametric capacity, so the next cycle's zero-shot tier serves a measurable share of previously retrieval-dependent queries without paying the retrieval cost. Tier 1 (memory-direct) fires on a vanishing fraction (0.1%) of held-out queries by design under the content-hash-disjoint evaluation contract, returning the correct stored answer on every observed firing.
-
-### Per-tier EM decomposition at the cycle-five close (canonical reading from `tab:per-tier-em`, Ch5 §5.1.4)
-
-| Benchmark | T1 share / EM | T2 share / EM | T3 share / EM | Pooled EM |
-|---|---:|---:|---:|---:|
-| FEVER | 0.0% / n/a | 43.3% / 0.500 | 56.7% / 0.459 | 0.477 |
-| TriviaQA | 0.3% / 1.000 | 37.0% / 0.423 | 62.7% / 0.468 | 0.453 |
-| CommonsenseQA | 0.0% / n/a | 82.3% / 0.745 | 17.7% / 0.585 | 0.717 |
-| TruthfulQA | 0.3% / 1.000 | 64.3% / 0.321 | 35.3% / 0.255 | 0.300 |
-| StrategyQA | 0.0% / n/a | 24.0% / 0.639 | 76.0% / 0.640 | 0.640 |
-
-T2 EM at the headline C2 cycle (51.6 FEVER, 51.0 TQA, 72.4 CSQA, 35.3 TruthfulQA, 66.4 StrategyQA) compared against the C0 base T3 EM (43.5 FEVER, 46.4 TQA, 52.0 CSQA, 29.1 TruthfulQA, 59.9 StrategyQA) on the same five-benchmark panel supplies the **SIL-as-distillation receipt**: the zero-shot tier under the SIL-fine-tuned adapter outperforms the retrieval-augmented tier under the cycle-zero pristine generator on every benchmark by margins of 4.6–20.4 percentage points (TriviaQA 4.6, TruthfulQA 6.2, StrategyQA 6.5, FEVER 8.1, CommonsenseQA 20.4). The Tier 1 (memory-direct) tier fires on a vanishing fraction of held-out queries by design under the content-hash-disjoint evaluation contract (7 firings across 9000 queries in the realised horizon, all returning the correct stored answer), so the Tier 1 trajectory is a capability bound rather than a trajectory prediction; the framing is the Tier-1 floor heuristic `cor:tier1-floor` in Chapter 4 §4.3.3 and the receipt is in Chapter 5 §5.1.6.
-
----
-
-## Cycle-boundary dynamics
-
-The five passes that run at every committed cycle boundary (retroverify, deferred reconsider, consolidate, fine-tune, retention probe) leave four per-cycle traces that the empirical chapter reports as separate receipts.
-
-### Per-cycle SIL training trajectory (canonical reading from `tab:sil-training-trajectory`, Ch5 §5.1.5)
-
-The SIL training pool grows monotonically from 107 episodes at the first fine-tune to 5006 at the trajectory-end cycle as the storage gate admits stream-chunk entries above τ_train = 0.70. Final-cycle losses decline monotonically across the four uninterrupted cycles (the empirical receipt that the SIL loop makes coherent gradient progress on the verified pool); the cycle-five uptick is the post-rollback recovery reading after the cycle-four retention abort re-anchored the adapter at the cycle-three checkpoint.
-
-| Cycle | n episodes used | Final loss | MMLU ratio | TQA-test ratio | CSQA-test ratio | Outcome |
-|---|---:|---:|---:|---:|---:|---|
-| C1 | 107 | 0.258 | 1.041 | 1.013 | 1.006 | COMMIT |
-| C2 | 1 474 | 0.171 | 0.975 | 0.949 | 0.982 | COMMIT |
-| C3 | 2 966 | 0.109 | 0.992 | 0.987 | 0.976 | COMMIT |
-| C4 | 3 624 | 0.070 | 1.018 | **0.886** ✕ | 0.982 | **ABORT** (TriviaQA-test ratio < ρ_min = 0.93) |
-| C5 | 5 006 | 0.091 | 0.999 | 1.013 | 0.958 | COMMIT (post-rollback recovery) |
-
-MMLU sits comfortably above the registered floor at every cycle (band [0.975, 1.041]), so the retention contract is governed in practice by the two open-text and commonsense probes rather than by general-knowledge retention. The cycle-four TriviaQA-test ratio of 0.886 is the first in-flight breach of ρ_min = 0.93 in the realised trajectory and the event that triggers the asymmetric rollback registered in Chapter 4 §4.2.10.
-
-### Per-cycle memory store + deferred buffer growth (canonical reading from `tab:memory-store-trajectory`)
-
-| Cycle | Memory pool size | Deferred buffer size | Δ memory |
-|---|---:|---:|---:|
-| C0 (cold-start) | 431 | 0 | n/a |
-| C1 | 2 818 | 1 123 | +2 387 |
-| C2 | 5 151 | 2 399 | +2 333 |
-| C3 | 7 477 | 2 692 | +2 326 |
-| **C4 ✕ (ABORT)** | **9 961** | **4 068** | **+2 484** |
-| C5 | 12 175 | 4 284 | +2 214 |
-
-The memory pool grows **monotonically across all six cycles including the cycle-four retention abort** because the stream-chunk generate-and-store path executes independently of the retention guard under the asymmetric-rollback contract; the cycle-wise architecture therefore decouples deployment-time cost amortisation (memory tier growth) from training-time parametric progression (adapter commits). This is the empirical receipt for `cor:stochastic-equilibrium` sub-claim (iii).
-
-### Stochastic-equilibrium probe pattern (canonical reading from `tab:stochastic-equilibrium`)
-
-The heuristic's sub-claim (i) prediction that the commit fraction sits strictly in (0, 1] is verified directly by the realised commit-indicator sequence:
-
-| Cycle | Worst-probe ratio | Commit indicator | Status |
-|---|---:|:---:|---|
-| C1 | 1.006 | 1 | COMMIT |
-| C2 | 0.949 | 1 | COMMIT |
-| C3 | 0.976 | 1 | COMMIT |
-| C4 | **0.886** | **0** | **ABORT** (< ρ_min = 0.93) |
-| C5 | 0.958 | 1 | COMMIT |
-
-Realised commit fraction: **π̂_commit = 4/5 = 0.80**, strictly in the open interval (0, 1) as `cor:stochastic-equilibrium` sub-claim (i) predicts. The worst-probe ratios on cycles two through five all sit within 0.07 of the floor, qualitatively consistent with the predicted near-floor equilibrium-location band of sub-claim (iv) (reported as heuristic at the realised horizon; the 15-committed-cycle stationarity probe that would adjudicate this sharply is registered as future work in Chapter 6 §6.2).
-
-### Per-cycle four-outcome decision distribution (canonical reading from `tab:decision-distribution`, Ch5 §5.1.3)
-
-Distribution on the training-panel calibration fold under the locked storage-gate cut-points:
-
-| Cycle | Store share / within-EM | Defer share / within-EM | Discard share / within-EM | Abstain share / within-EM |
-|---|---:|---:|---:|---:|
-| C1 | 42.1% / 0.74 | 12.0% / 0.60 | 25.0% / 0.58 | 20.9% / 0.38 |
-| C2 ⭐ | **67.2%** / 0.74 | 18.7% / 0.44 | 5.4% / 0.38 | 8.7% / 0.25 |
-| C3 | 60.4% / 0.75 | 26.0% / 0.47 | 5.5% / 0.41 | 8.1% / 0.22 |
-| C5 | 58.6% / 0.73 | 28.5% / 0.49 | 3.4% / 0.46 | 9.5% / 0.17 |
-
-The **EM ordering store > defer > discard > abstain is preserved at every reported cycle**, the structural receipt that the fixed-threshold gate sorts the candidate pool by correctness as the signal distribution drifts. The within-outcome EM on the store class stays in the band [0.73, 0.75] across the trajectory, clearing the registered NFR2 precision floor at the locked threshold by a substantial margin. Cycle zero and the aborted cycle four are absent by design.
-
----
-
-## Cycle-zero validation gate verdict (canonical reading from `tab:validation-gate`, Ch5 §5.2.7)
-
-A pre-specified conjunction of four checks gates the calibration phase against the main run:
-
-| Check | Registered floor | Realised reading | Verdict |
-|---|---:|---:|---|
-| Pooled-ID composite Cohen's d on the held-out training-panel evaluation fold | ≥ 0.20 | **+0.635** | PASS (3× margin) |
-| Per-benchmark store-vs-discard mean-composite gap | ≥ 0.05 each | FEVER 0.282; TQA 0.320; CSQA 0.258 | PASS (every gap clears 5×) |
-| Per-benchmark memory-poisoning rate (share of stored entries whose stored answer is wrong) | < 0.50 | FEVER 0.206; TQA 0.179; CSQA 0.247 | PASS (every rate clears 2×) |
-| No strong-direction signal inversion against the registered direction | none observed | no inversion observed | PASS |
-
-The out-of-distribution transfer diagnostic reads pooled-transfer composite Cohen's d = +0.173 on the transfer panel; this is a **diagnostic** rather than a gate (the registered scope of the gate audits the cal-fold-versus-eval-fold relationship on the training panel). The four-check verdict is PASS; the locked configuration enters the main run.
-
-The first calibration iteration failed the gate (a signal-dump-bug that wrote only a subset of the nine per-signal values per sample produced a degenerate composite); the bug was identified by the validation-gate diagnostic, fixed in a worktree patch, and the calibration re-run on the corrected pipeline. The iteration is reported transparently in Chapter 5 §5.2.8 because it is empirical evidence that the validation-gate discipline catches what it was registered to catch.
-
----
-
-## Pre-specified hypothesis verdicts (canonical reading from `tab:hypothesis-verdicts`, Ch5 §5.5.2)
-
-The thesis registers five falsifiable hypotheses ahead of the empirical chapters; the realised cycle-five verdicts are:
-
-| ID | Hypothesis | Verdict | Deciding statistic |
-|---|---|---|---|
-| H1 | Verifier balanced accuracy clears one-half precondition every cycle (`thm:bayes-purity` precondition) | **supported** | Pooled-ID composite Cohen's d on the cycle-zero eval fold reads +0.635 (≈ 0.673 balanced accuracy), clearing the 0.20 floor 3×; cal-fold pooled π_store at τ_store = 0.60 stays in the band [0.732, 0.746] across every committed cycle |
-| H2 | Pool purity non-decreasing under the precondition (`thm:purity`) | **supported** (band reading) | Cal-fold pooled π_store traces 0.746 → 0.740 → 0.736 → 0.746 → 0.732 across the committed-cycle subsequence (C0, C1, C2, C3, C5); realised band width 0.014, comparable to per-cycle binomial sampling noise |
-| H3 | Late-cycle pool-purity increments enter a bounded stationary band on the committed-cycle subsequence (`thm:convergence`) | **supported** within horizon | The cal-fold trajectory occupies the band [0.732, 0.746] of width 0.014 across C0–C5, comparable to per-cycle binomial sampling noise. The sharper geometric-rate test is registered as deferred future work pending a horizon of at least fifteen committed cycles |
-| H4 | Composite hallucination at the realised horizon approaches a parameter-bounded asymptote (`thm:asymptotic-elim`) | *scope-limited* | Pooled C5 CHM reads 0.109; Tier 1 CHM reads 0 on 7/7 realised firings against the max(1−π_store, 1−π_retro) ≈ 0.36 ceiling of `cor:tier1-floor`. The decomposition is degenerate at τ_1(C5) = 0.0013 under the content-hash-disjoint evaluation contract |
-| H5 | Per-cycle Tier 1 hit rate grows monotonically as memory accumulates (operational claim) | *scope-limited* | The evaluation fold is held content-hash disjoint from the training stream by construction, so the memory-direct tier fires on 7 of 9000 queries at within-tier EM = 1.0 on the realised horizon. Per-cycle pooled latency stays in the band [13.6, 14.7] seconds; per-query cost reduction is not measurable within the realised horizon |
-
-The full hypothesis adjudication, including the per-row deciding-statistic prose and the cross-reference back to the theory-receipt section, is `tab:hypothesis-verdicts` in Chapter 5 §5.5.2.
-
----
-
-## Theory closeout: proven results and design heuristics (canonical reading from Ch4 §4.3 + Ch5 §5.1.6, `tab:theorem-receipts-summary`)
-
-Chapter 4 §4.3 separates two results the thesis claims as proven from five design heuristics. The heuristics rest on idealising assumptions (Gaussian score classes, stationarity across cycles, verifier errors independent across passes) that the realised system does not fully satisfy and that a six-cycle horizon cannot test, so they carry argument sketches rather than proofs, and their receipts are directional consistency checks rather than tests of a proven claim. Four further identities (`thm:monotone-purification`, `thm:bayes-convergence`, `thm:asymptotic-elim`, `cor:corpus-floor`) are recorded as remarks (mathematical scaffolding) with no empirical receipt.
-
-| Statement | What it claims | Proof status | Empirical receipt | Verdict |
-|---|---|---|---|---|
-| **`thm:purity`** (Theorem: pool purity invariant) | π_{t+1} ≥ min(π_store, π_retro) on the pooled training-panel cal fold, under exchangeability of the cal fold with the candidate pool | Proven (proof sketch) | Pooled cal-fold π_t ∈ [0.732, 0.746] at every reported cycle, clearing the 0.64 floor by 9–11 pp; the per-benchmark FEVER eval-fold reading dips to [0.614, 0.634] at C1–C4, outside the pooled-axis scope | **PASS** (pooled cal fold) |
-| **`thm:bayes-purity`** (Proposition: Bayes identity and purification condition) | Stored-pool purity exceeds the base correctness rate if and only if TPR > FPR, i.e. the gate's balanced accuracy exceeds ½ | Proven (complete proof) | Precondition audited at cycle zero: composite Cohen's d = +0.635 (balanced accuracy ≈ 0.673) | **precondition audited** |
-| **`thm:monotone`** (Heuristic: monotonicity under generator improvement) | Sign of ∂σ/∂d equals sign of (p+·φ+ − p−·φ−) under a within-class Gaussian model | Heuristic (argument sketch) | Three cal-fold transitions are observable (C4 skipped): C1→C2 sign-aligns at large amplitude; C2→C3 is sub-noise in Cohen's d; C3→C5 shows a small reverse-sign storage-rate movement | **consistent within horizon**; sharp test (fixed-composite ablation) deferred |
-| **`thm:convergence`** (Heuristic: bounded-band stationarity on the committed subsequence) | E[G_t] ≤ (1 − r)^t G_0 for the gap G_t = \|π_t − π_∞\| under stationarity | Heuristic (argument sketch; the rigorous supermartingale construction is future work) | Pooled cal-fold π_t confined to a band of width 0.014 (0.746 − 0.732) across the six-cycle horizon, comparable to binomial noise; the rate form r = O(σ·Φ(d/√2)) is not measured | **bounded band**; geometric-rate test deferred to a ≥15-committed-cycle horizon |
-| **`cor:tier1-floor`** (Heuristic: Tier-1 hallucination floor) | limsup CHM_1(t) ≤ max(1−π_store, 1−π_retro) | Heuristic (argument sketch) | CHM_1 = 0 on each of the 7 Tier-1 firings (7 of 9,000 evaluation queries); the ceiling 1 − π_store ≈ 0.36 holds with slack; seven firings are too few to estimate a rate | **capability bound**, not a trajectory test |
-| **`cor:self-correction`** (Heuristic: self-correction under repeated re-verification) | P(correct \| survives k passes) → 1 and finite expected prune time, **provided the verifier's errors on an entry are independent across passes**; systematic errors are not removed by repetition and cap purity below one | Heuristic (argument sketch) | Per-cycle prune rate declines 13% → 9% → 7% → 4% across the four committed retroverify passes; survivor-side histogram deferred | **partial** (directional) |
-| **`cor:stochastic-equilibrium`** (Heuristic: stochastic equilibrium under retention rollback) | (i) commit fraction ∈ (0, 1]; (ii) calendar-time envelope (1 − π_commit·r)^t; (iii) memory grows monotonically across aborts; (iv) trajectory settles in a near-floor band | Heuristic (argument sketch) | Commit pattern (1,1,1,0,1) → π_commit = 0.80 ∈ (0,1); memory grows 431 → 12,175 across the C4 abort; worst-probe ratios within 0.07 of the floor at C2–C5 | (i), (iii) **PASS**; (ii) inherits the bounded-band reading of `thm:convergence`; (iv) heuristic, 15-cycle probe deferred |
-
-The statements, proofs, argument sketches and their idealising assumptions are in Chapter 4 §4.3; the empirical receipts are in Chapter 5 §5.1.6.
-
----
-
-## Locked configuration (canonical reading from Appendix A §A.3)
-
-Every constant that governs runtime behaviour lives in `caem/config.py` (and `caem/ruc/v2/feature_spec.json` for the classifier). The registry below pulls the headline values from Appendix A.
-
-| Component | Field | Value | Role |
-|---|---|---:|---|
-| Storage gate | `tau_store` | **0.60** | calibrated-probability cut for STORE |
-| Storage gate | `tau_defer` | **0.45** | calibrated-probability cut for DEFER |
-| Storage gate | `tau_retro` | 0.50 | retroactive prune floor |
-| Storage gate | abstain `p_ground_max` ceiling | 0.20 | splits ABSTAIN from DISCARD when `u_stored < tau_defer` |
-| SIL admission | `tau_train` | **0.70** | strict training-pool floor (above `tau_store`) |
-| Retrieval-utility classifier | `tau_RUC` | **0.375** | classifier-side cut on `p_RAG` |
-| Retention guard | `rho_min` | **0.93** | worst-probe-ratio floor against pristine baseline |
-| Retention guard | `retention_probes` | MMLU, TriviaQA-test, CommonsenseQA-test | multi-modal probe panel |
-| Retention guard | `retention_probe_n` | 200 | samples per probe |
-| Router | `routing_lambda` | 0.70 | combined-score weight on similarity vs `u_stored` |
-| Router | `tier1_combined_threshold` | 0.90 | Tier 1 dispatch floor |
-| Router | `tier2_similarity_threshold` | 0.75 | Tier 2 dispatch floor |
-| Router | `safety_u_pre_min` | 0.38 | safety-override floor on `u_pre`; re-tuned at cycle one from the registered 0.60; the per-benchmark refit raised CommonsenseQA's floor to 0.491 (C3, C4) and 0.569 (C5), and the override fired on 63 of 9,000 evaluation queries (Ch5 §5.1.4) |
-| Composite | shrinkage prior `alpha` | 0.6 | per-benchmark shrinkage toward pooled fit |
-| Composite | boost `C` | 0.01 | L2 regulariser on the logistic boost layer |
-| Composite | active signals | 9 | `u_token, u_dropout, u_internal, s_avg, p_entail, p_ground_max, p_ground_mean, p_ground_atomic, q_a_rel` |
-| Composite | retired signals | 2 | `h_norm` (registered then retired at C0; boost weight within 5e-4 of zero); `p_contra` (structurally zero under MiniCheck) |
-| Confabulation early-exit | trigger | `u_internal ≥ 0.70 ∧ p_ground_max ≤ 0.20` | precedence over composite at query time; disabled at retroverify time |
-| Memory consolidation | `tau_cons` | 0.92 | cosine-similarity floor for near-duplicate-meaning clusters |
-| Deferred buffer | TTL | 2 cycles | promote/drop/keep three-way branch |
-| Generator | backbone | Qwen-2.5-3B-Instruct | three billion parameters, frozen across cycle |
-| Generator | LoRA | r = 32, α = 64, dropout = 0.05 | seven linear projections, lr = 2e-4, three epochs, effective batch 16 |
-| Trajectory | registered cap | 10 cycles | upper bound on the SIL loop |
-| Trajectory | realised closure | **6 cycles (C0 through C5)** | equilibrium-saturation gate fired at the cycle-five close after the post-rollback subsequence stabilised |
-
----
-
-## Repository layout
-
-```
-caem/                         core package (pipeline, memory, routing, verification, training)
-  config.py                   central CAEMConfig dataclass; every threshold and structural toggle
-  pipeline.py                 serial per-query driver (production and demo paths)
-  pipeline_batch.py           batched per-cycle driver (experiment runner)
-  memory/                     storage gate, deferred buffer, SBERT encoder
-  routing/                    three-tier router and the retrieval-utility classifier head
-  verification/               nine-signal verifier ensemble; adaptive NLI dispatch; cal-prob composite
-  training/                   SIL trainer; retention probe; pool reweighting; loop filter
-  retrieval/                  FAISS-backed passage index reader for Tier 3 grounded generation
-scripts/                      cycle runner, calibration scripts, baseline drivers, aggregators
-eval/                         shared per-benchmark harness (EM, em_llm_judged, CHM, CES)
-tests/                        pytest suite (storage gate, deferred buffer, retention, SIL, verifier)
-docs/                         production runbook, demo quickstart, panel-demo script
-thesis_report/                LaTeX thesis source (Ch1-Ch6 + 7 appendices + auto-generated tables)
-  chapters/                   chapter_1 through chapter_6
-  appendix/                   appendix_a through appendix_g
-  figures/auto/               auto-generated empirical tables and figures
-  main.pdf                    compiled thesis (324 pages)
-archive/                      historical design diaries and earlier-phase runners
-data/                         passage index, calibration pairs, alias dictionary (gitignored)
-hf_cache/                     Hugging Face cache (gitignored)
-outputs/                      per-cycle artefacts and logs (gitignored; mirrored on Google Drive)
-```
-
-A detailed module map with the role of each file is in Appendix A §A.2 (`thesis_report/appendix/appendix_a.tex`).
-
----
-
-## Reproducibility
-
-Every reported number is regenerable from the realised seed plus the published artefact bundle. The full step-by-step recipe is Appendix E; the headline sequence is:
-
-1. **Clone this repository** and check out the branch `branch/ruc-classifier`, which is the final thesis version. The commits `c5b8066` (pre-Step-7 anchor) and `700b9e3` (retrieval-utility-classifier-era anchor) are historical anchors that match the pre-main snapshot bundles described in Appendix E; they are not the thesis version.
-2. **Pull the realised artefacts** from the Google Drive folder at <https://drive.google.com/drive/folders/1xErhsRDYe_qO0ZgUBn0WXK81eHc5jZCa> into `outputs/`. The realised six-cycle trajectory sits under `2_results_phase1e/`; the per-commit pre-main snapshot bundles sit under `9_archive/pre_main_snapshot/`. The folder's own `README.md` gives the reading order.
-3. **Pull the Wikipedia FAISS passage index** from the Hugging Face dataset host `aksaN000/caem-passage-index-21m` (private; access on request) into `data/`. The index is 64 GB on disk and requires approximately 90 GB of resident page cache to mmap.
-4. **Run the verification checklist** in Appendix E §E.4 against the per-sample evaluation files, the composite calibration record, and the per-cycle artefact catalogue. Headline tolerances: per-benchmark EM ±0.5 pp from the cuDNN attention path's non-determinism floor; pooled EM ±0.3 pp; CHM and π_store ±1.0 pp; integer quantities (commit fraction, win-and-loss tallies) exact.
-5. **The four artefacts that must be regenerated rather than pulled from snapshot** are the Qwen-2.5-3B-Instruct base weights (recovered from the Hugging Face model hub at deployment time), the per-cycle LoRA adapters at cycles one through five, the per-cycle self-improvement training artefacts, and the post-cycle-zero composite refits.
-
-### Data map
-
-The gitignored local `outputs/` folders map to the Drive folder `CAEM_thesis/2_results_phase1e/` as follows:
-
-| Local path | Drive path (under `CAEM_thesis/2_results_phase1e/`) | Notes |
+**Supervisor:** Dr. Md. Golam Rabiul Alam · **Co-supervisor:** Md. Tanzim Reza
+
+CAEM answers knowledge questions with a three-tier router (memory, zero-shot generation, retrieval-augmented
+generation) built on Qwen2.5-3B-Instruct. A multi-signal verifier scores every answer; verified answers are
+stored in an episodic memory and used, once per cycle, to fine-tune the generator.
+
+## Current status (2026-10-17)
+The first full run (cycles 0–5) and the baselines are complete, and the thesis has been drafted from them.
+An audit of that run found faults in the system, the baselines and the scoring. The plan is to fix them,
+re-run the experiment once, and rewrite the results. **The single source for the plan and every known issue
+is [`defense/thesis_report/ref_check/MASTER_ISSUES.md`](defense/thesis_report/ref_check/MASTER_ISSUES.md).**
+No result numbers are quoted in this README; they live in the thesis and will change after the re-run.
+
+## Repository map
+| Path | What it is | In git? |
 |---|---|---|
-| `outputs/full_run` | `full_run` | The Drive copy also holds the per-cycle snapshots `cycle_1/` … `cycle_5/` and `global/`, which exist only on Drive. |
-| `outputs/baselines_phase1e` | `phase1e_baselines` | The B6 files (`vanilla_ft/eval/*_cycle5.json`) and B8 files (`semantic_entropy/*_cycle0.json`) from the 13 June 2026 fix are the canonical ones; earlier copies do not reproduce the thesis tables. |
-| `outputs/cycle_0` | `cycle_0_cold_start` | |
-| `outputs/tier1_routing_probe` | `tier1_routing_probe` | |
+| `caem/` | The system: routing, memory, verifier, retrieval, self-improvement training, retrieval-utility classifier (`caem/ruc/`, with its own README), production server code | yes |
+| `eval/` | Benchmarks, evaluation harness, metrics (EM, the composite hallucination metric), baselines B1–B8 | yes |
+| `scripts/` | Command-line entry points: the experiment runner, cold start, calibration, baselines, re-scoring, and the analysis scripts that build thesis tables (see below) | yes |
+| `tests/` | Unit and smoke tests | yes |
+| `defense/thesis_report/` | **The live thesis** (LaTeX). `ref_check/` holds the drafting handoff, the clean-up tracker and the master plan | yes |
+| `docs/` | Production runbook and end-to-end deployment description; `findings/` (diagnoses that feed the plan); architecture figure | yes |
+| `archive/` | Superseded material, kept for provenance; see [`archive/README.md`](archive/README.md) | yes |
+| `outputs/` | Run outputs (about 26 GB). Ignored by git except `outputs/analysis/`, the evidence files cited by the thesis | partly |
+| `data/` | Passage index (61 GB FAISS + 7 GB passages), calibration and retention data, alias dictionary | no |
+| `hf_cache/` | Local Hugging Face dataset cache | no |
+| `caem book/` | Local build of the CAEM teaching book; its sources live on branch `book/caem-teaching-book` | no |
 
-### Checking the tables against the data
+## Scripts: what to run and what not to
+- **Pipeline entry points:** `run_experiment.py` (cycles), `seed_cold_start.py`, `run_calibration.py`,
+  `fit_composite_calibration.py`, `build_passage_index.py`, `run_baseline.py` / `launch_baselines.sh` /
+  `launch_baselines_v2.sh`, `run_simple_ft.py`, `rescore_baselines_through_verifier.py`, `rescore_truthfulqa.py`.
+- **Analysis for the current thesis (2026-10 drafting pass):** `build_ch5_evidence_tables.py`,
+  `recompute_validation_gate.py`, `recompute_chm_judged.py`, `patch_chm_judged_tables.py`,
+  `paired_baseline_tests.py`, `audit_signals_baselines.py`, `replay_early_stop_gate.py`, `rerun_cycle0_sweep.py`,
+  `score_response_relevance.py`, `judge_off_topic.py`.
+- **Caution:** the older `aggregate_*` scripts write to the old `thesis_report/` path (not the live thesis), and five
+  `aggregate_section_5_*` scripts (plus `replay_early_stop_gate.py`) do their work as soon as they are imported.
+  Do not import or run them; they are replaced by one results command in Phase 1a of the master plan.
 
-`thesis_report/ref_check/local_regen_check.py` (run from the repository root) copies the repository to a temporary folder, reruns every table generator there, and diffs the regenerated tables against the committed ones; it does not modify the repository or `outputs/`. Several committed tables in `thesis_report/figures/auto/` were finished by hand and carry the line `% Hand-corrected 2026-10-15`, and some generators still differ from the committed tables in layout, so compare the numbers, not the formatting. The audit reports, including the full change log `fixes_applied.md`, are in `thesis_report/ref_check/`.
+## Data and artefacts outside the repository
+- Run artefacts: Google Drive folder `CAEM_thesis/` (numbered layout `1_thesis` … `9_archive`).
+- Passage index and pre-main snapshots: Hugging Face repository `aksaN000/caem-passage-index-21m` (private).
 
-**Do not regenerate these committed tables by overwriting them**; run the generators into a temporary copy (as `local_regen_check.py` does) and compare numbers instead:
-
-| Committed table | Generator | Why the committed copy wins |
-|---|---|---|
-| `tab_survival_distribution` | `scripts/aggregate_survival_distribution.py` | the generator reconstructs promotions from buffer snapshots and disagrees with the run log (650 promotions: 131 / 220 / 299 at C2 / C3 / C5) |
-| `tab_decision_distribution` | `scripts/aggregate_section_5_3.py` | the generator emits only panel (a); panel (b) is computed the same way from the cycle-3 per-benchmark calibration files (`outputs/full_run/cycle_3/calibration/<bench>_cycle3.json`) |
-| `tab_tier_trajectory` | `scripts/aggregate_section_5_4.py` | panel (b) is hand-built from `tab_per_tier_em` |
-| `tab_validation_gate` | `scripts/aggregate_section_5_7.py` | hand-built per-benchmark layout (same numbers) |
-| `tab_theorem_receipts_summary` | `scripts/aggregate_section_5_6.py` | only the T1/T5 band values are computed; the remaining receipt text is copied from the committed table |
-| `tab_em_conditional_breakdown`, `tab_calibration_trajectory`, `tab_safety_override` (panel b) | none / older scripts | hand-built or partly hand-built from the run artefacts |
-
-### Hardware envelope
-
-| Phase | Wall-clock | Cost |
-|---|---|---|
-| Cycle-zero calibration phase | tens of GPU-hours | dominated by the verifier-signal sweep over the calibration fold |
-| Realised six-cycle main run | several GPU-days | dominated by verifier-side scoring (stream-chunk admission, evaluation and retroactive re-verification); the per-cycle fine-tune takes about 35–45 minutes |
-| External baseline panel | scales with sample count and decode-pass count | CoT and retrieval-augmented variants are the bulk |
-| Retrieval-utility classifier on/off ablation | single contrast at C3 close | matched-protocol panel |
-| **Realised total** | **~960 GPU-hours over ~40 calendar days (40 × 24)** | **~672 USD on a Vast.ai RTX 5090 at ~0.70 USD/on-demand GPU-hour** (Vast.ai billing records) |
-
-The verifier-side scoring path (nine-signal extraction across every served answer, the per-cycle composite refit, the cycle-boundary retroactive re-verification pass, and the matched-protocol Haiku-judged TruthfulQA rescore across the baseline panel) is the **dominant wall-clock consumer over the run, exceeding the per-cycle low-rank-adapter fine-tune itself**, because every entry on every cycle and every baseline-arm answer passes through the full verifier ensemble while the adapter touches only the strict training-pool subset.
-
-A downgraded sixteen-gigabyte-GPU reproduction envelope with five parameter changes (SIL batch 4 → 2, gradient accumulation 4 → 16, bfloat16 → float16 with dynamic loss scaling, generation cap 512 → 192, activation checkpointing enabled) reproduces the trajectory at approximately 2.2–2.6× the wall-clock penalty. The full envelope, the framework version pins, and the downgraded reproduction profile are in Appendix E §E.5.
-
----
-
-## Threats to validity (canonical reading from Ch5 §5.6 and Ch6 §6.2)
-
-The thesis discloses every threat to validity transparently rather than smoothing it into the narrative. The headline disclosures are:
-
-1. **Calibration-to-evaluation transfer cost**: a split-conformal alternative dropped 15–50 percentage points below its registered coverage target on the training-panel benchmarks at cycle zero; the fixed-threshold replacement makes no marginal-coverage claim that the shift can silently void, but the shift can still lower the realised precision (the transfer-panel TruthfulQA store precision is 0.522 at cycle zero), and the per-cycle drift of the evaluation-fold precision anchor at the locked cut-point is empirically measurable rather than theoretically characterised. Discussed in Ch5 §5.2.5 (`sec:adj-cal-eval-gap`) and Ch6 §6.1.3.
-2. **Five of the seven formal statements are heuristics, not proven results** (`thm:monotone`, `thm:convergence`, `cor:tier1-floor`, `cor:self-correction`, `cor:stochastic-equilibrium`): they carry argument sketches under idealising assumptions (Gaussian score classes, stationarity across cycles, independent verifier errors), and their receipts are directional consistency checks. The rigorous supermartingale construction for `thm:convergence` is registered as future work; the fixed-composite ablation that would convert the `thm:monotone` receipt from a consistency check into a sharp test is registered in Ch6 §6.2.10; the 15-committed-cycle stochastic-equilibrium probe that would adjudicate `cor:stochastic-equilibrium` sub-claim (iv) is registered in Ch6 §6.2.11. Systematic verifier errors (for example a misconception shared by the model and the verifier) are not removed by repeated re-verification.
-3. **Long-hypothesis judge ablation**: the registered long-hypothesis Qwen judge failed the pre-specified Pearson correlation floor at the v5 calibration overlap fold and is ablated in the deployed configuration; the architecture's coverage on long-form benchmarks is narrowed and the disagreement reading is reported in Ch5 §5.2.6 as a future-work caveat.
-4. **Single-seed scope**: the random-state surface is capped at one recorded seed; the cuDNN attention path is non-bitwise-deterministic, so determinism is enforced at the metric level rather than the bit level. The ±0.5 pp per-benchmark EM stochastic floor in the reproducibility recipe absorbs this.
-5. **Six-cycle horizon**: the realised horizon is shorter than the at-least-fifteen-committed-cycle precondition under which the geometric-rate test of `thm:convergence` would be statistically separable from binomial sampling noise; the bounded-band reading is the within-horizon receipt and the sharper test is deferred to future work.
-6. **TruthfulQA strict-EM stricture**: the strict exact-match column penalises CAEM's calibrated abstention as a failure on misconception-bait probes where the matched-protocol baseline B1 (which is not licensed to abstain under a zero-shot prompt) gets credit for a confidently-stated wrong answer; the retrieval-utility classifier on/off ablation reported in §5.4.2 narrows the gap, lifting TruthfulQA exact match from 0.210 to 0.310 (+10.0 pp) by re-routing misconception-bait queries away from the retrieval-augmented tier, still below B1's 0.433; the lift is the joint effect of the classifier and the pipeline corrections shipped with it.
-7. **Single-backbone scope**: every empirical reading is on Qwen-2.5-3B-Instruct. The architectural-claim transfer to larger backbones is registered as a future-work item in Ch6 §6.2.
-
----
-
-## Future work (canonical reading from Ch6 §6.2)
-
-Chapter 6 §6.2 registers eleven future-work items; the six below tie most directly to the theory and the headline (items 3 and 4 are registered in Ch4 §4.3 and Ch5 §5.1.6 respectively):
-
-1. **Fixed-composite ablation** for the `thm:monotone` heuristic (freeze the composite refit across two adjacent cycles; vary only the generator).
-2. **15-committed-cycle stochastic-equilibrium probe** for `cor:stochastic-equilibrium` sub-claim (iv) with a Wald-Wolfowitz runs test + Bernoulli rate fit + rolling-mean stability check.
-3. **Rigorous supermartingale construction** for the `thm:convergence` heuristic, adapted from Robbins-Monro, Robbins-Siegmund and Polyak-Juditsky.
-4. **Paraphrase-eval probe** for `cor:tier1-floor` that lifts the Tier 1 firing rate (τ_1(C5) = 0.0013) enough to make the CHM_1(t) trajectory observable.
-5. **Larger-backbone scaling study** (7B and 13B in the same open-weight family) to test architectural transfer.
-6. **Long-hypothesis judge re-licence** under a task-specific fine-tune on a synthetic claim-support corpus.
-
----
-
-## Citation
-
-If you reference CAEM or build on this work, please cite:
-
-```bibtex
-@misc{alif2026caem,
-  author = {Md. Aksan Gony Alif and Maliha Binte Shamim and Md. Mahmudur Rahman},
-  title  = {Confidence-Aware Episodic Memory with Self-Improvement for Progressive Hallucination Reduction in Large Language Models},
-  year   = {2026},
-  note   = {CSE400 Undergraduate Thesis, Department of Computer Science \& Engineering, BRAC University. Supervisor: Dr. Md. Golam Rabiul Alam. Co-supervisor: Md. Tanzim Reza.},
-  url    = {https://github.com/aksaN000/caem-thesis}
-}
+## Building the thesis
 ```
-
----
+cd defense/thesis_report
+latexmk -pdf -interaction=nonstopmode -halt-on-error main.tex
+```
 
 ## Licence
-
-Released under the [MIT licence](LICENSE).
+See [`LICENSE`](LICENSE).

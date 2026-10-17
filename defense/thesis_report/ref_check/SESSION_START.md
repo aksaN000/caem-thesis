@@ -2,11 +2,11 @@
 
 The author runs one Claude conversation per chapter to keep context fresh. This file is the complete handoff.
 Read it fully, then `REVIEW_HANDOFF.md` (earlier audit), then `drafting_review_progress.md` (live status + decisions),
-then the chapter-specific pre-found reports if they exist (`review_ch5_part1.md`, `review_ch5_part2_ch6.md`).
+then the chapter-specific pre-found reports if they exist (`archive/audits/thesis_audit_2026-10-15/review_ch5_part1.md` (chapter 5, done), `review_ch5_part2_ch6.md`).
 
 ## Where things are
 - **Working copy (the ONLY thing you edit):** `defense/thesis_report/` (LaTeX, `main.tex`). The original
-  `thesis_report/` is the frozen pre-pass version; do not edit it.
+  the frozen pre-pass version now lives in `archive/thesis_report_2026-10-15/`; do not edit it.
 - **Data (source of truth):** local `outputs/` in `/workspace/caem` (Drive `CAEM_thesis/2_results_phase1e/` is an
   in-sync backup). **Code/text:** GitHub `aksaN000/caem-thesis`, default branch `branch/ruc-classifier`.
 - **Change log:** `defense/thesis_report/ref_check/fixes_applied.md`, section "Final drafting pass (2026-10)", one
@@ -37,7 +37,7 @@ then the chapter-specific pre-found reports if they exist (`review_ch5_part1.md`
 - Drive: `rclone` remote `gdrive:` (full scope; read-only commands unless asked).
 - The system `grep` is ugrep and rejects complex `-i`/unicode regexes ("exceeds complexity limits"); use Python `re`.
 - Never import `scripts/aggregate_section_5_*` modules in the real repo: several run on import and overwrite
-  committed tables. Regenerate only via `thesis_report/ref_check/local_regen_check.py` (works in a temp copy).
+  committed tables. Regenerate only via `archive/audits/thesis_audit_2026-10-15/local_regen_check.py` (works in a temp copy; superseded by the Phase 1a results pipeline in MASTER_ISSUES.md).
 
 ## The author's brief (verbatim rules)
 GROUND RULES
