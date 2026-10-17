@@ -55,7 +55,12 @@ scorer also credits the last letter of two-letter answers, 2 CAEM C0 cases). Poo
 (TriviaQA lenient = upper bound): CAEM C0 0.541->0.545, C2 0.544->0.550, C5 0.517->0.523; B1 0.507->0.565,
 B2 0.500->0.561, B7 0.525->0.562, B6 0.490->0.523, B8 0.505->0.526. Seven-type CHM with uniform labels:
 CAEM C2 0.125, C5 0.132; B1 0.141, B2 0.144, B6 0.134, B7 0.211. The matched-prompt re-run (M-A) gives the
-definitive strict-format numbers.
+definitive strict-format numbers. CHM breakdown under uniform labels: the remaining edge comes from fewer
+factual/logical fabrications (C5 0.315/0.237 vs B1 0.341/0.285; partly by construction, since Tier 3 answers are
+written from the same passages the verifier checks), not from confident confabulation (C5 0.301 vs B1 0.277;
+C0 0.089 but false refusal 0.303). Selective view under uniform labels: wrong among answered C0 0.378 (66 %
+answered), C2 0.418 (88 %), C5 0.444 (83 %) vs B1 0.435 (100 %): the architecture's selectivity advantage at
+C0–C2 is lost by C5.
 
 ---
 
