@@ -71,6 +71,11 @@ Local runs stopped and local environments/caches removed at the author's request
       TriviaQA, 260 TruthfulQA in run 1) and is penalised the same way. Proposal: keep EM/CHM on the raw answer
       (generator view) and add a delivered view for every system (answered, wrong among answered, CHM among
       answered, refusal rate), with ABSTAIN, DISCARD and "<abstain>" as withheld.
+- [ ] DISCLOSE (Ch5 + Ch6 limitations): verifier quality differs by benchmark (audit_caem_scoring.json "verifier").
+      AUROC of the composite for correctness: TriviaQA 0.86 / 0.79 / 0.75 (C0 / C2 / C5); FEVER 0.64–0.67; CSQA,
+      StrategyQA, TruthfulQA 0.51–0.62 (near chance: Wikipedia passages cannot confirm commonsense, multi-step yes/no
+      or misconception answers). At C0 no TriviaQA answer reached the store threshold, so 124 correct TriviaQA answers
+      fell to DISCARD (thresholds, not ranking; after the C1 refit DISCARD is mostly wrong answers: C2 6 right / 31 wrong).
 ### M-C. Text that does not match the code (must fix)
 - [ ] Describe as it behaved, briefly (author 2026-10-17: no fault sections): token score = generator's average
       token probability for its full response given the question (+1 limitation sentence); atomic signal reduces

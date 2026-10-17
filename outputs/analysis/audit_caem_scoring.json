@@ -54,6 +54,103 @@
    "chm_as_scored": 0.15542857142857142,
    "chm_withheld_as_refusal": 0.07457142857142857,
    "withheld_wrong_flagged": 517
+  },
+  "verifier": {
+   "fever": {
+    "auroc": 0.6357409713574097,
+    "STORE_right_wrong": [
+     37,
+     19
+    ],
+    "DEFERRED_right_wrong": [
+     26,
+     15
+    ],
+    "ABSTAIN_right_wrong": [
+     78,
+     115
+    ],
+    "DISCARD_right_wrong": [
+     5,
+     5
+    ]
+   },
+   "triviaqa": {
+    "auroc": 0.8568300638991913,
+    "STORE_right_wrong": [
+     0,
+     0
+    ],
+    "DEFERRED_right_wrong": [
+     0,
+     0
+    ],
+    "ABSTAIN_right_wrong": [
+     15,
+     72
+    ],
+    "DISCARD_right_wrong": [
+     124,
+     89
+    ]
+   },
+   "commonsense_qa": {
+    "auroc": 0.5510832176694225,
+    "STORE_right_wrong": [
+     217,
+     63
+    ],
+    "DEFERRED_right_wrong": [
+     10,
+     10
+    ],
+    "ABSTAIN_right_wrong": [
+     0,
+     0
+    ],
+    "DISCARD_right_wrong": [
+     0,
+     0
+    ]
+   },
+   "truthfulqa": {
+    "auroc": 0.577569197812729,
+    "STORE_right_wrong": [
+     1,
+     1
+    ],
+    "DEFERRED_right_wrong": [
+     1,
+     0
+    ],
+    "ABSTAIN_right_wrong": [
+     23,
+     77
+    ],
+    "DISCARD_right_wrong": [
+     56,
+     141
+    ]
+   },
+   "strategyqa": {
+    "auroc": 0.5461211526785297,
+    "STORE_right_wrong": [
+     24,
+     12
+    ],
+    "DEFERRED_right_wrong": [
+     46,
+     31
+    ],
+    "ABSTAIN_right_wrong": [
+     70,
+     59
+    ],
+    "DISCARD_right_wrong": [
+     43,
+     15
+    ]
+   }
   }
  },
  "C2": {
@@ -111,6 +208,103 @@
    "chm_as_scored": 0.12714285714285714,
    "chm_withheld_as_refusal": 0.09390476190476191,
    "withheld_wrong_flagged": 215
+  },
+  "verifier": {
+   "fever": {
+    "auroc": 0.6385267857142857,
+    "STORE_right_wrong": [
+     85,
+     50
+    ],
+    "DEFERRED_right_wrong": [
+     62,
+     65
+    ],
+    "ABSTAIN_right_wrong": [
+     5,
+     12
+    ],
+    "DISCARD_right_wrong": [
+     8,
+     13
+    ]
+   },
+   "triviaqa": {
+    "auroc": 0.7947190611664295,
+    "STORE_right_wrong": [
+     96,
+     35
+    ],
+    "DEFERRED_right_wrong": [
+     37,
+     43
+    ],
+    "ABSTAIN_right_wrong": [
+     9,
+     43
+    ],
+    "DISCARD_right_wrong": [
+     6,
+     31
+    ]
+   },
+   "commonsense_qa": {
+    "auroc": 0.5126128590971272,
+    "STORE_right_wrong": [
+     189,
+     79
+    ],
+    "DEFERRED_right_wrong": [
+     22,
+     6
+    ],
+    "ABSTAIN_right_wrong": [
+     3,
+     0
+    ],
+    "DISCARD_right_wrong": [
+     1,
+     0
+    ]
+   },
+   "truthfulqa": {
+    "auroc": 0.6059630225973016,
+    "STORE_right_wrong": [
+     33,
+     58
+    ],
+    "DEFERRED_right_wrong": [
+     22,
+     49
+    ],
+    "ABSTAIN_right_wrong": [
+     19,
+     69
+    ],
+    "DISCARD_right_wrong": [
+     8,
+     41
+    ]
+   },
+   "strategyqa": {
+    "auroc": 0.6071673861852434,
+    "STORE_right_wrong": [
+     57,
+     20
+    ],
+    "DEFERRED_right_wrong": [
+     125,
+     73
+    ],
+    "ABSTAIN_right_wrong": [
+     13,
+     11
+    ],
+    "DISCARD_right_wrong": [
+     1,
+     0
+    ]
+   }
   }
  },
  "C5": {
@@ -168,6 +362,103 @@
    "chm_as_scored": 0.1341904761904762,
    "chm_withheld_as_refusal": 0.10533333333333333,
    "withheld_wrong_flagged": 194
+  },
+  "verifier": {
+   "fever": {
+    "auroc": 0.6676762727718142,
+    "STORE_right_wrong": [
+     87,
+     47
+    ],
+    "DEFERRED_right_wrong": [
+     51,
+     98
+    ],
+    "ABSTAIN_right_wrong": [
+     5,
+     11
+    ],
+    "DISCARD_right_wrong": [
+     0,
+     1
+    ]
+   },
+   "triviaqa": {
+    "auroc": 0.75112087517934,
+    "STORE_right_wrong": [
+     76,
+     32
+    ],
+    "DEFERRED_right_wrong": [
+     43,
+     66
+    ],
+    "ABSTAIN_right_wrong": [
+     15,
+     63
+    ],
+    "DISCARD_right_wrong": [
+     1,
+     3
+    ]
+   },
+   "commonsense_qa": {
+    "auroc": 0.5607113543091655,
+    "STORE_right_wrong": [
+     190,
+     72
+    ],
+    "DEFERRED_right_wrong": [
+     24,
+     12
+    ],
+    "ABSTAIN_right_wrong": [
+     0,
+     1
+    ],
+    "DISCARD_right_wrong": [
+     1,
+     0
+    ]
+   },
+   "truthfulqa": {
+    "auroc": 0.591811560150376,
+    "STORE_right_wrong": [
+     25,
+     50
+    ],
+    "DEFERRED_right_wrong": [
+     36,
+     103
+    ],
+    "ABSTAIN_right_wrong": [
+     11,
+     58
+    ],
+    "DISCARD_right_wrong": [
+     3,
+     13
+    ]
+   },
+   "strategyqa": {
+    "auroc": 0.6236979166666666,
+    "STORE_right_wrong": [
+     45,
+     10
+    ],
+    "DEFERRED_right_wrong": [
+     100,
+     53
+    ],
+    "ABSTAIN_right_wrong": [
+     47,
+     44
+    ],
+    "DISCARD_right_wrong": [
+     0,
+     1
+    ]
+   }
   }
  }
 }

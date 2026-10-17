@@ -7,6 +7,8 @@ Needs em_final in the CAEM evaluation files (scripts/rescore_truthfulqa.py + scr
      "I do not know.", DISCARD shows nothing). Reports, per cycle: correct answers withheld; the selective view
      with ABSTAIN-only vs ABSTAIN+DISCARD counted as not answered; CHM as scored vs with withheld answers counted
      only as refusals (the user never sees them).
+  4. Verifier quality per benchmark: AUROC of the stored composite score for correctness, and right/wrong per
+     decision (STORE >= store threshold, DEFERRED >= defer threshold, else ABSTAIN if grounding is low, else DISCARD).
 Writes outputs/analysis/audit_caem_scoring.json.
 """
 import json
@@ -92,8 +94,22 @@ def withheld(c):
     return res
 
 
+def verifier_quality(c):
+    out = {}
+    for b in BENCHES:
+        S = rows(b, c)
+        pos = [s["u_stored"] for s in S if s["em_final"] == 1 and s.get("u_stored") is not None]
+        neg = [s["u_stored"] for s in S if s["em_final"] == 0 and s.get("u_stored") is not None]
+        auroc = sum((p > q) + 0.5 * (p == q) for p in pos for q in neg) / (len(pos) * len(neg)) if pos and neg else None
+        d = Counter((s.get("decision"), int(s["em_final"])) for s in S)
+        out[b] = {"auroc": auroc, **{f"{k}_right_wrong": [d[(k, 1)], d[(k, 0)]]
+                                     for k in ("STORE", "DEFERRED", "ABSTAIN", "DISCARD")}}
+    return out
+
+
 def main():
-    out = {f"C{c}": {"wrong_causes": wrong_causes(c), "truthfulqa_judge": judge_change(c), "withheld": withheld(c)}
+    out = {f"C{c}": {"wrong_causes": wrong_causes(c), "truthfulqa_judge": judge_change(c), "withheld": withheld(c),
+                  "verifier": verifier_quality(c)}
            for c in (0, 2, 5)}
     (ROOT / "outputs/analysis/audit_caem_scoring.json").write_text(json.dumps(out, indent=1))
     for c, r in out.items():
