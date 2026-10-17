@@ -20,6 +20,9 @@ cd "$(dirname "$(readlink -f "$0")")/../.."
 export PYTHONPATH="$PWD"
 export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"
 export CAEM_FORCE_GPU_CLEANUP=1
+# Pooled token-score/dropout forwards, as in CAEM's main run (outputs/full_run/run.log: pool(u_tok_drop) non-zero in
+# all 8,204 batches). Run 1's baseline verifier pass left this unset and used the per-sample path.
+export CAEM_BATCH_U_TOK_DROP=1
 OUT=outputs/rerun_v2/baselines
 LOG=outputs/rerun_v2/logs
 INDEX=data/passage_index
