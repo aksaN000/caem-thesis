@@ -41,7 +41,16 @@ preflight() {
     disk_gb=$(df -BG --output=avail . | tail -1 | tr -dc 0-9)
     log "RAM ${ram_gb} GB, free disk ${disk_gb} GB"
     [ "$ram_gb" -ge 88 ] || die "need >= 96 GB RAM (61 GB index + 7 GB passages + models)"
-    [ "$disk_gb" -ge 120 ] || die "need >= 120 GB free disk"
+    # The 68 GB index may live on a RAM disk (data/passage_index -> /dev/shm/passage_index, set up before the
+    # data stage on machines with a small disk); then the disk only needs the models, env, weights and outputs.
+    if [ -L "$INDEX" ] && [[ "$(readlink -f "$INDEX")" == /dev/shm/* ]]; then
+        local shm_gb; shm_gb=$(df -BG --output=avail /dev/shm | tail -1 | tr -dc 0-9)
+        log "index on RAM disk $(readlink -f "$INDEX"), /dev/shm free ${shm_gb} GB"
+        [ "$shm_gb" -ge 75 ] || [ -f "$INDEX/passages.pkl" ] || die "need >= 75 GB free in /dev/shm for the index"
+        [ "$disk_gb" -ge 45 ] || die "need >= 45 GB free disk (index on RAM disk)"
+    else
+        [ "$disk_gb" -ge 120 ] || die "need >= 120 GB free disk"
+    fi
     [ -n "${HF_TOKEN:-}" ] || die "export HF_TOKEN (private index repo)"
     for f in outputs/full_run/eval/fever_cycle0.json outputs/full_run/cycle_3/composite_calibration.json \
              outputs/full_run/cycle_3/adapter/adapter_config.json outputs/full_run/dataset_splits.json; do
