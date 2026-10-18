@@ -1,0 +1,66 @@
+{
+ "C0": {
+  "fever": {
+   "n": 300,
+   "auroc_answer_mean_logprob": 0.46095000889521437,
+   "auroc_answer_first_token": 0.5089396904465397,
+   "auroc_stored_full_response_token": 0.5977139299057107
+  },
+  "triviaqa": {
+   "n": 300,
+   "auroc_answer_mean_logprob": 0.6315295589615264,
+   "auroc_answer_first_token": 0.5396353724473837,
+   "auroc_stored_full_response_token": 0.4789311408016444
+  },
+  "commonsense_qa": {
+   "n": 300,
+   "auroc_answer_mean_logprob": 0.6957938567376742,
+   "auroc_answer_first_token": 0.667793132581015,
+   "auroc_stored_full_response_token": 0.5127934343129563
+  },
+  "truthfulqa": {
+   "n": 299,
+   "auroc_answer_mean_logprob": 0.4576112810057764,
+   "auroc_answer_first_token": 0.467918224034432,
+   "auroc_stored_full_response_token": 0.5186884131838261
+  },
+  "strategyqa": {
+   "n": 300,
+   "auroc_answer_mean_logprob": 0.5845826911400682,
+   "auroc_answer_first_token": 0.5845826911400682,
+   "auroc_stored_full_response_token": 0.530825276726916
+  }
+ },
+ "C3": {
+  "fever": {
+   "n": 300,
+   "auroc_answer_mean_logprob": 0.6742521889861771,
+   "auroc_answer_first_token": 0.6550068891950753,
+   "auroc_stored_full_response_token": 0.5849593315258456
+  },
+  "triviaqa": {
+   "n": 299,
+   "auroc_answer_mean_logprob": 0.7023134395535152,
+   "auroc_answer_first_token": 0.7151633810423981,
+   "auroc_stored_full_response_token": 0.5005626068953101
+  },
+  "commonsense_qa": {
+   "n": 300,
+   "auroc_answer_mean_logprob": 0.7395026498165511,
+   "auroc_answer_first_token": 0.7395026498165511,
+   "auroc_stored_full_response_token": 0.5003785452215945
+  },
+  "truthfulqa": {
+   "n": 299,
+   "auroc_answer_mean_logprob": 0.5630888719124013,
+   "auroc_answer_first_token": 0.5741341991341992,
+   "auroc_stored_full_response_token": 0.5621976063152534
+  },
+  "strategyqa": {
+   "n": 300,
+   "auroc_answer_mean_logprob": 0.6332947530864198,
+   "auroc_answer_first_token": 0.6332947530864198,
+   "auroc_stored_full_response_token": 0.5397617669753086
+  }
+ }
+}

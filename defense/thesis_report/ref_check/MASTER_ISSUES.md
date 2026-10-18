@@ -76,6 +76,17 @@ Local runs stopped and local environments/caches removed at the author's request
       StrategyQA, TruthfulQA 0.51–0.62 (near chance: Wikipedia passages cannot confirm commonsense, multi-step yes/no
       or misconception answers). At C0 no TriviaQA answer reached the store threshold, so 124 correct TriviaQA answers
       fell to DISCARD (thresholds, not ranking; after the C1 refit DISCARD is mostly wrong answers: C2 6 right / 31 wrong).
+- [x] Probe 2026-10-18 (scripts/probe_answer_confidence.py, outputs/analysis/probe_answer_confidence.json): confidence
+      in the final-answer tokens only, AUROC vs correctness, C0 / C3 (stored full-response token signal in brackets):
+      CSQA 0.70 / 0.74 (0.51 / 0.50), StrategyQA 0.59 / 0.63 (0.53 / 0.54), TriviaQA 0.63 / 0.70 (0.48 / 0.50),
+      FEVER 0.46 / 0.67 (0.60 / 0.59), TruthfulQA 0.46 / 0.56 (0.52 / 0.56).
+- [ ] Thesis wording (approved by author 2026-10-18): CAEM is "label-efficient, not label-free": about 1,500 labelled
+      calibration answers fit the verifier and thresholds once; B6 needs a gold answer for every training example.
+- Future work (after defense; author accepts if it helps without making CAEM much more expensive): answer-only
+  confidence; semantic entropy on extracted answers (current code clusters full reasoning responses); retry-when-unsure
+  then choose the higher-scored answer (CAEM never escalates now); signal clean-up + per-benchmark weights; a learned
+  verifier on the same calibration labels; display thresholds by target error rate per benchmark; SIL purer pool and
+  no phantom context; a contradiction signal beside MiniCheck.
 ### M-C. Text that does not match the code (must fix)
 - [ ] Describe as it behaved, briefly (author 2026-10-17: no fault sections): token score = generator's average
       token probability for its full response given the question (+1 limitation sentence); atomic signal reduces
