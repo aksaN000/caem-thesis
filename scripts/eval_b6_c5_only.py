@@ -249,8 +249,8 @@ def main() -> None:
     logger.info("  Output:     %s", OUTPUT_DIR)
     logger.info("  max_new_tokens=%d, max_input_tokens=%d", MAX_NEW_TOKENS, MAX_INPUT_TOKENS)
     logger.info("=" * 60)
-    pooled_em = sum(r["meta"]["em"] for r in results.values()) / len(results)
-    pooled_f1 = sum(r["meta"]["f1"] for r in results.values()) / len(results)
+    pooled_em = sum(r["em"] for r in results.values()) / len(results)
+    pooled_f1 = sum(r["f1"] for r in results.values()) / len(results)
     for bench, res in results.items():
         logger.info("  %-20s EM=%.4f  F1=%.4f", bench, res["em"], res["f1"])
     logger.info("  %-20s EM=%.4f  F1=%.4f", "POOLED (5-bench)", pooled_em, pooled_f1)
