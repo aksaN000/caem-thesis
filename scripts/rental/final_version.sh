@@ -95,12 +95,14 @@ search() {
     local R=outputs/rerun_v2/retrieval
     [ -f "$R/eval_fold_ids.npy" ] || py scripts/precompute_passages.py search --name eval_fold --k 100 --engine faiss 2>&1 | tee -a "$LOG/search.log"
     [ -f "$R/eval_fold_passages.json" ] || py scripts/precompute_passages.py texts --name eval_fold 2>&1 | tee -a "$LOG/search.log"
-    [ -f "$R/eval_fold_check_vs_run1.json" ] || py scripts/precompute_passages.py check --name eval_fold 2>&1 | tee -a "$LOG/search.log"
-    py - <<'EOF' || die "search check below 0.95: inspect outputs/rerun_v2/retrieval/eval_fold_check_vs_run1.json"
+    [ -f "$R/eval_fold_check.json" ] || py scripts/precompute_passages.py check --name eval_fold 2>&1 | tee -a "$LOG/search.log"
+    py - <<'EOF' || die "search check failed: inspect outputs/rerun_v2/retrieval/eval_fold_check.json"
 import json, sys
-r = json.load(open("outputs/rerun_v2/retrieval/eval_fold_check_vs_run1.json"))
-print({k: v for k, v in r.items() if k != "first_mismatches"})
-sys.exit(0 if r["share"] >= 0.95 else 1)
+r = json.load(open("outputs/rerun_v2/retrieval/eval_fold_check.json"))
+live_ok = r["live_vs_cache_identical_top20"][0] == r["live_vs_cache_identical_top20"][1]
+g = r["run1_signal_agreement"]["p_ground_max"]["within_0.01"]
+print({"live_vs_cache": r["live_vs_cache_identical_top20"], "p_ground_max_within_0.01": g})
+sys.exit(0 if live_ok and g >= 0.90 else 1)
 EOF
 }
 

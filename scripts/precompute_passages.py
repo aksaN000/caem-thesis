@@ -133,35 +133,64 @@ def cmd_texts(name):
     log(t0, f"saved {name}_passages.json")
 
 
-def cmd_check(name):
-    """Re-rank the cached top 20 exactly as the verifier does and compare with the first run's stored top 3."""
-    import torch
-    from sentence_transformers import CrossEncoder
+def cmd_check(name, n_live=50, n_per_bench=30):
+    """Two checks of the cache (run 1 stored no passage texts, so passages cannot be compared directly).
+
+    live:   for a sample of questions, the pipeline's own single-question search (PassageStore.search on the
+            in-RAM flat index, as in deployment) must return exactly the cached top 20.
+    run1:   for a sample of run-1 C0 answers (not Tier 1), the verifier recomputes the passage-based signals
+            with the cached passages; they must match the values run 1 stored (same passages -> same scores).
+    """
+    import random
+    import sys
+    sys.path.insert(0, str(ROOT))
+    import numpy as np
     t0 = time.time()
-    cached = json.load(open(OUT / f"{name}_passages.json"))
-    # Loaded as the run loaded it (scripts/run_experiment.py: bf16 on GPU).
-    rr = CrossEncoder("BAAI/bge-reranker-v2-m3", device="cuda", automodel_args={"torch_dtype": torch.bfloat16})
-    n = same = 0
-    mismatches = []
+    from scripts.rescore_baselines_through_verifier import _build_verifier
+    verifier, encoder = _build_verifier(
+        composite_calibration=ROOT / "outputs/full_run/cycle_3/composite_calibration.json", checkpoint=None,
+        passage_index=INDEX, device="cuda", passage_cache=OUT, passage_cache_name=name)
+    store = verifier.passage_retriever.store
+    log(t0, "verifier built")
+    # live
+    qs = json.load(open(OUT / f"{name}_questions.json"))
+    rng = random.Random(42)
+    sample = rng.sample(qs, min(n_live, len(qs)))
+    live_same = 0
+    for q in sample:
+        emb = encoder.encode(q).astype(np.float32)
+        emb /= max(float(np.linalg.norm(emb)), 1e-12)
+        live = [p for p, _ in store.search(emb, k=20)]
+        cached = [p for p, _ in store.search_query(q, emb, k=20)]
+        live_same += live == cached
+    log(t0, f"live vs cache: {live_same}/{len(sample)} identical top 20")
+    # run1
+    rows = []
     for b in BENCHES:
-        for s in json.load(open(ROOT / f"outputs/full_run/eval/{b}_cycle0.json"))["samples"]:
-            stored = s.get("top_passages") or []
-            ans = s.get("prediction") or ""
-            if not stored or not ans or s.get("tier") == 1:
-                continue
-            cands = cached[s["question"]][:20]
-            scores = rr.predict([(f"{s['question']} {ans}", p) for p in cands], show_progress_bar=False)
-            top3 = [cands[int(i)] for i in np.argsort(scores)[::-1][:3]]  # same ordering call as the verifier
-            n += 1
-            if top3 == stored[:3]:
-                same += 1
-            elif len(mismatches) < 20:
-                mismatches.append({"benchmark": b, "id": s["id"], "same_set": set(top3) == set(stored[:3])})
-    same_set = sum(1 for m in mismatches if m["same_set"])
-    res = {"checked": n, "identical_top3": same, "share": same / max(n, 1),
-           "mismatch_same_set_in_first_20": same_set, "first_mismatches": mismatches}
-    json.dump(res, open(OUT / f"{name}_check_vs_run1.json", "w"), indent=1)
-    log(t0, json.dumps({k: v for k, v in res.items() if k != "first_mismatches"}))
+        S = [s for s in json.load(open(ROOT / f"outputs/full_run/eval/{b}_cycle0.json"))["samples"]
+             if s.get("tier") != 1 and (s.get("prediction") or "").strip()]
+        rows += rng.sample(S, min(n_per_bench, len(S)))
+    keys = ("p_ground_max", "p_ground_mean", "p_entail", "q_a_relevance")
+    diffs = {k: [] for k in keys}
+    per_bench = {}
+    for i in range(0, len(rows), 16):
+        chunk = rows[i:i + 16]
+        outs = verifier.verify_batch([(s["question"], s["prediction"]) for s in chunk])
+        for s, o in zip(chunk, outs):
+            for k in keys:
+                if s.get(k) is not None and getattr(o, k, None) is not None:
+                    d = abs(float(getattr(o, k)) - float(s[k]))
+                    diffs[k].append(d)
+                    per_bench.setdefault(s["benchmark"], {}).setdefault(k, []).append(d)
+    summ = {k: {"n": len(v), "within_0.01": sum(d <= 0.01 for d in v) / max(len(v), 1),
+                "within_0.05": sum(d <= 0.05 for d in v) / max(len(v), 1),
+                "median_abs_diff": float(np.median(v)) if v else None} for k, v in diffs.items()}
+    res = {"live_vs_cache_identical_top20": [live_same, len(sample)], "run1_signal_agreement": summ,
+           "run1_within_0.01_by_benchmark": {b: {k: sum(d <= 0.01 for d in v) / len(v) for k, v in kv.items()}
+                                              for b, kv in per_bench.items()},
+           "cache_stats": getattr(store, "cache_stats", None)}
+    json.dump(res, open(OUT / f"{name}_check.json", "w"), indent=1)
+    log(t0, json.dumps(res))
 
 
 if __name__ == "__main__":
