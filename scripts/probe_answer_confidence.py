@@ -38,11 +38,13 @@ def auroc(pos, neg):
 
 def answer_logprobs(model, tok, prompt, prediction):
     """Mean and first-token log-probability of the text after the last 'Answer:' in the prediction."""
-    m = list(re.finditer(r"Answer:\s*", prediction))
+    m = list(re.finditer(r"Answer:", prediction))
     if not m:
         return None
-    head, ans = prediction[:m[-1].end()], prediction[m[-1].end():].split("\n")[0].rstrip()
-    if not ans:
+    # Split right after "Answer:" so the space stays with the answer (" C", " yes" are single tokens).
+    head = prediction[:m[-1].end()]
+    ans = " " + prediction[m[-1].end():].split("\n")[0].strip()
+    if not ans.strip():
         return None
     ctx = tok(prompt + head, return_tensors="pt", add_special_tokens=False).input_ids
     full = tok(prompt + head + ans, return_tensors="pt", add_special_tokens=False).input_ids
