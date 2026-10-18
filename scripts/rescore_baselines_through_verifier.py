@@ -212,7 +212,9 @@ def _build_verifier(
             automodel_args={"torch_dtype": torch.bfloat16} if device != "cpu" else {},
         )
 
-    passage_store = PassageStore.load(str(passage_index))
+    use_cache = bool(passage_cache) and (Path(passage_cache) / f"{passage_cache_name}_ids.npy").exists()
+    # With the cache, the evaluation questions never need the 61 GB index; it is read only on a live search.
+    passage_store = PassageStore.load(str(passage_index), lazy=use_cache)
     if passage_cache and (Path(passage_cache) / f"{passage_cache_name}_ids.npy").exists():
         passage_store.load_query_cache(str(passage_cache), passage_cache_name)
     elif passage_cache:

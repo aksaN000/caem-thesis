@@ -312,7 +312,9 @@ def _build_baseline(ns: argparse.Namespace):
         )
         sys.exit(2)
     logger.info("Loading passage index from %s ...", index_path)
-    passage_store = PassageStore.load(str(index_path))
+    use_cache = bool(ns.passage_cache) and (Path(ns.passage_cache) / f"{ns.passage_cache_name}_ids.npy").exists()
+    # With the cache, the index is read only on the first live search (FLARE's later steps); B3/B4 never need it.
+    passage_store = PassageStore.load(str(index_path), lazy=use_cache)
     if ns.passage_cache and (Path(ns.passage_cache) / f"{ns.passage_cache_name}_ids.npy").exists():
         passage_store.load_query_cache(ns.passage_cache, ns.passage_cache_name)
     elif ns.passage_cache:

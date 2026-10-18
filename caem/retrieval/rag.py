@@ -267,6 +267,7 @@ class PassageStore:
         list of (passage_str, score) sorted by score descending.
         Empty list if the store is empty.
         """
+        self._ensure_loaded()
         if self._index.ntotal == 0:
             return []
 
@@ -323,6 +324,9 @@ class PassageStore:
         with open(d / f"{name}_questions.json") as f:
             questions = json.load(f)
         self._query_cache = {q: (row_i, row_s) for q, row_i, row_s in zip(questions, ids, scores)}
+        # Passage texts for the cached ids ({question: [text, ...]}), so cache hits never need the 21M-passage store.
+        texts = d / f"{name}_passages.json"
+        self._query_texts = json.load(open(texts)) if texts.exists() else {}
         self.cache_stats = {"hit": 0, "live": 0}
         logger.info("PassageStore: exact-search cache %s/%s attached (%d questions, top-%d).",
                     cache_dir, name, len(questions), ids.shape[1])
@@ -334,6 +338,10 @@ class PassageStore:
         hit = getattr(self, "_query_cache", {}).get(query)
         if hit is not None and k <= len(hit[0]):
             self.cache_stats["hit"] = self.cache_stats.get("hit", 0) + 1
+            texts = getattr(self, "_query_texts", {}).get(query)
+            if texts is not None and len(texts) >= k:
+                return [(t, float(sc)) for t, sc in zip(texts[:k], hit[1][:k])]
+            self._ensure_loaded()
             return [(self.passages[int(i)], float(sc)) for i, sc in zip(hit[0][:k], hit[1][:k]) if i >= 0]
         if getattr(self, "_query_cache", None):
             self.cache_stats["live"] = self.cache_stats.get("live", 0) + 1
@@ -352,10 +360,28 @@ class PassageStore:
             pickle.dump(self.passages, f)
         logger.info("PassageStore saved to %s (%d passages).", path, len(self.passages))
 
+    def _ensure_loaded(self) -> None:
+        """Load the index and passage texts on first use when the store was opened with ``lazy=True``."""
+        if getattr(self, "_index", None) is None and getattr(self, "_lazy_path", None):
+            full = PassageStore.load(self._lazy_path)
+            self._index, self.passages, self._dim = full._index, full.passages, full._dim
+            logger.info("PassageStore: lazy load done (first live search).")
+
     @classmethod
-    def load(cls, path: str) -> "PassageStore":
-        """Load PassageStore from disk (bypasses embedding recomputation)."""
+    def load(cls, path: str, lazy: bool = False) -> "PassageStore":
+        """Load PassageStore from disk (bypasses embedding recomputation).
+
+        ``lazy=True`` (final-version, 2026-10-17) defers reading the index and passage texts until the first live
+        search, so a process whose questions all hit the exact-search cache never holds the 61 GB index in memory.
+        """
         p = Path(path)
+        if lazy:
+            store = cls.__new__(cls)
+            store.config = CAEMConfig()
+            store.passages, store._index, store._dim = None, None, store.config.embedding_dim
+            store._lazy_path = str(p)
+            logger.info("PassageStore at %s opened lazily (loaded on the first live search).", path)
+            return store
         # mmap the FAISS index so the 64 GB body stays on disk and only the
         # active IVF cells are paged in. Without this, a 90 GB cgroup limit
         # gets exhausted before any model loads.
@@ -380,6 +406,7 @@ class PassageStore:
 
     @property
     def size(self) -> int:
+        self._ensure_loaded()
         return self._index.ntotal
 
 

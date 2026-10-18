@@ -152,18 +152,7 @@ def cmd_check(name, n_live=50, n_per_bench=30):
         passage_index=INDEX, device="cuda", passage_cache=OUT, passage_cache_name=name)
     store = verifier.passage_retriever.store
     log(t0, "verifier built")
-    # live
-    qs = json.load(open(OUT / f"{name}_questions.json"))
     rng = random.Random(42)
-    sample = rng.sample(qs, min(n_live, len(qs)))
-    live_same = 0
-    for q in sample:
-        emb = encoder.encode(q).astype(np.float32)
-        emb /= max(float(np.linalg.norm(emb)), 1e-12)
-        live = [p for p, _ in store.search(emb, k=20)]
-        cached = [p for p, _ in store.search_query(q, emb, k=20)]
-        live_same += live == cached
-    log(t0, f"live vs cache: {live_same}/{len(sample)} identical top 20")
     # run1
     rows = []
     for b in BENCHES:
@@ -185,6 +174,24 @@ def cmd_check(name, n_live=50, n_per_bench=30):
     summ = {k: {"n": len(v), "within_0.01": sum(d <= 0.01 for d in v) / max(len(v), 1),
                 "within_0.05": sum(d <= 0.05 for d in v) / max(len(v), 1),
                 "median_abs_diff": float(np.median(v)) if v else None} for k, v in diffs.items()}
+    # live (after the run-1 part, so only this step holds the index; ids compared, no passage texts needed)
+    del verifier
+    import gc
+    import faiss
+    import torch
+    gc.collect(); torch.cuda.empty_cache()
+    qs = json.load(open(OUT / f"{name}_questions.json"))
+    ids = np.load(OUT / f"{name}_ids.npy")
+    pos = {q: i for i, q in enumerate(qs)}
+    sample = random.Random(7).sample(qs, min(n_live, len(qs)))
+    index = faiss.read_index(str(INDEX / "passages.faiss"))
+    live_same = 0
+    for q in sample:
+        emb = encoder.encode(q).astype(np.float32)
+        emb /= max(float(np.linalg.norm(emb)), 1e-12)
+        _, live_ids = index.search(emb.reshape(1, -1), 20)  # one question at a time, as in deployment
+        live_same += list(live_ids[0]) == list(ids[pos[q], :20])
+    log(t0, f"live vs cache: {live_same}/{len(sample)} identical top 20")
     res = {"live_vs_cache_identical_top20": [live_same, len(sample)], "run1_signal_agreement": summ,
            "run1_within_0.01_by_benchmark": {b: {k: sum(d <= 0.01 for d in v) / len(v) for k, v in kv.items()}
                                               for b, kv in per_bench.items()},
