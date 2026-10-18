@@ -84,6 +84,11 @@ Local runs stopped and local environments/caches removed at the author's request
       These signals were active (cycle-zero weights: token 0.126 and half of internal 0.334; atomic 0.184), so
       they are not removed from the thesis. (Wording ACCEPTED by the author, 2026-10-17.)
 - [ ] Matched-protocol claim (true after M-A), chapter 6, appendices, abstract; tables regenerated.
+- [ ] B6 description (approved 2026-10-18): "full fine-tune on gold answers to training questions, with model-written
+      reasoning before each answer (rationale generated forward, or back-rationalised from the gold answer); unlike
+      CAEM it sees the correct answer for every training example". Ch5 currently says "raw question-answer pairs".
+      B6 trained on CAEM's Tier 2 prompt (QADataset -> build_tier2_prompt); run 1 evaluated it with the bare-question
+      prompt; the re-run evaluates it with the training prompt.
 ### M-D. Disclosed as limitations + future work
 System faults (token score scope, early exit reachability, question-match signal, atomic duplicate,
 temperature cap, FEVER prefix); self-improvement erosion after C1 with its diagnosis (phantom context
