@@ -319,7 +319,8 @@ def _build_baseline(ns: argparse.Namespace):
         passage_store.load_query_cache(ns.passage_cache, ns.passage_cache_name)
     elif ns.passage_cache:
         logger.warning("No exact-search cache at %s; every search runs live.", ns.passage_cache)
-    logger.info("Passage store loaded: %d passages.", len(passage_store.passages))
+    if passage_store.passages is not None:
+        logger.info("Passage store loaded: %d passages.", len(passage_store.passages))
 
     if name == "rag":
         return RAGBaseline(
