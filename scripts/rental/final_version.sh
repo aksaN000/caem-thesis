@@ -19,7 +19,9 @@ set -euo pipefail
 cd "$(dirname "$(readlink -f "$0")")/../.."
 export PYTHONPATH="$PWD"
 export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"
-export CAEM_FORCE_GPU_CLEANUP=1
+# Off: with it on, every model load force-kills any other process holding GPU memory (caem/model_loader.py), which
+# killed parallel stages on 2026-10-18. Stale processes are cleared by hand instead.
+export CAEM_FORCE_GPU_CLEANUP=0
 # Pooled token-score/dropout forwards, as in CAEM's main run (outputs/full_run/run.log: pool(u_tok_drop) non-zero in
 # all 8,204 batches). Run 1's baseline verifier pass left this unset and used the per-sample path.
 export CAEM_BATCH_U_TOK_DROP=1
