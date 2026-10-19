@@ -240,7 +240,7 @@ The verifier turns a generated answer into nine signals in four families (\Cref{
 \toprule
 \textbf{Signal} & \textbf{Family} & \textbf{What it measures} & \textbf{Failure it catches} \\
 \midrule
-$u_{\text{token}}$ & Internal & Geometric mean probability of the answer's tokens under the generator & Low-confidence generation \\
+$u_{\text{token}}$ & Internal & Geometric mean probability of the full response (reasoning and answer line) under the generator, given the question & Low-confidence generation \\
 $u_{\text{dropout}}$ & Internal & Share of $5$ dropout-active samples whose answer differs from the most common one & Unstable answers \\
 $u_{\text{internal}}$ & Internal & $0.5\,u_{\text{token}} + 0.5\,(1-u_{\text{dropout}})$ & Summary of internal confidence \\
 $s_{\text{avg}}$ & Sample-set & Mean pairwise cosine similarity of $3$ sampled chains (temperature $0.7$) & Disagreement across chains \\
@@ -261,7 +261,7 @@ $q_{\text{match}}$ & Question match & Cross-encoder match score between the ques
 \begin{algorithmic}[1]
 \Require question $q$, answer $a$, generator $G$, entailment judge $J$, cross-encoder $X$
 \Statex \textbf{Internal calibration}
-\State $u_{\text{token}} \gets$ geometric mean probability of the tokens of $a$ under $G$ (teacher-forced)
+\State $u_{\text{token}} \gets$ geometric mean probability of the tokens of the full response under $G$, given $q$ alone (teacher-forced)
 \State draw $5$ answers from $G$ with dropout active; $u_{\text{dropout}} \gets 1 - (\text{count of the most common answer})/5$
 \State $u_{\text{internal}} \gets 0.5\,u_{\text{token}} + 0.5\,(1-u_{\text{dropout}})$
 \Statex \textbf{Sample-set agreement}
@@ -286,7 +286,7 @@ $q_{\text{match}}$ & Question match & Cross-encoder match score between the ques
 \subsubsection{Internal calibration signals}
 \label{sec:verifier-internal}
 
-These signals read the generator's own state. The token signal is the most local form of self-doubt. The dropout signal follows the Bayesian reading of dropout of Gal and Ghahramani~\cite{pmlr-v48-gal16}: with dropout switched on, the generator draws five answers, and $u_{\text{dropout}}$ is the share that disagree with the most common one, so $0$ means all five agree. The summary $u_{\text{internal}}$ is the input to the confabulation early-exit rule (\Cref{sec:decision}), because it isolates internal confidence from external evidence. This family is the one most affected by fine-tuning, which is one reason stored entries are re-verified at every cycle boundary. A hidden-state eigenvalue score \cite{chen2024inside} was considered as a replacement for the dropout signal but not adopted, for cost.
+These signals read the generator's own state. The token signal is the most local form of self-doubt: the generator re-reads its full response, reasoning and answer line together, given the question alone (without the tier's instructions or passages), and the signal is the geometric mean of the token probabilities. Because the reasoning tokens far outnumber the answer tokens, the signal measures how fluent the response is more than how sure the generator is of the answer; on the evaluation fold at C0 it separated correct from incorrect answers barely above chance (area under the ROC curve $0.48$ to $0.60$ across the five benchmarks), and scoring the answer line alone is left as future work (\Cref{ch:conclusion}). The dropout signal follows the Bayesian reading of dropout of Gal and Ghahramani~\cite{pmlr-v48-gal16}: with dropout switched on, the generator draws five answers, and $u_{\text{dropout}}$ is the share that disagree with the most common one, so $0$ means all five agree. The summary $u_{\text{internal}}$ is the input to the confabulation early-exit rule (\Cref{sec:decision}), because it isolates internal confidence from external evidence. This family is the one most affected by fine-tuning, which is one reason stored entries are re-verified at every cycle boundary. A hidden-state eigenvalue score \cite{chen2024inside} was considered as a replacement for the dropout signal but not adopted, for cost.
 
 \subsubsection{Sample-set agreement signals}
 \label{sec:verifier-sample-set}
@@ -395,9 +395,9 @@ The decision rule maps $\ustored$ and two guard signals to one of four outcomes 
 \;\Rightarrow\; \textsc{Discard}.
 \label{eq:early-exit-rule}
 \end{equation}
-This catches the most damaging case, a confident answer with no evidence, which the composite alone might score as merely borderline.
+This catches the most damaging case, a confident answer with no evidence, which the composite alone might score as merely borderline. In the main run the rule fired on none of the $1{,}500$ evaluation answers at C0 and on $3$ to $23$ per cycle afterwards.
 
-\textbf{Thresholds:} otherwise the answer is stored if $\ustored \ge 0.60$ and deferred if $\ustored \ge 0.45$. Below $0.45$, the system abstains when the best passage barely supports the answer ($p_{\text{ground,max}} < 0.20$) and discards otherwise. A discarded answer is not stored; it is still shown to the user, with its probability and a warning that the evidence conflicts. An abstention replaces the answer with an insufficient-evidence message.
+\textbf{Thresholds:} otherwise the answer is stored if $\ustored \ge 0.60$ and deferred if $\ustored \ge 0.45$. Below $0.45$, the system abstains when the best passage barely supports the answer ($p_{\text{ground,max}} < 0.20$) and discards otherwise. A discarded answer is neither stored nor shown: the user receives no answer. An abstention is not stored either and replaces the answer with the message ``I do not know.''
 
 \begin{algorithm}[!htbp]
 \caption[Four-outcome storage decision (Stage~6).]{Four-outcome storage decision (Stage~6).}
