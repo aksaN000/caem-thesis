@@ -397,7 +397,7 @@ The decision rule maps $\ustored$ and two guard signals to one of four outcomes 
 \end{equation}
 This catches the most damaging case, a confident answer with no evidence, which the composite alone might score as merely borderline. In the main run the rule fired on none of the $1{,}500$ evaluation answers at C0 and on $3$ to $23$ per cycle afterwards.
 
-\textbf{Thresholds:} otherwise the answer is stored if $\ustored \ge 0.60$ and deferred if $\ustored \ge 0.45$. Below $0.45$, the system abstains when the best passage barely supports the answer ($p_{\text{ground,max}} < 0.20$) and discards otherwise. A discarded answer is neither stored nor shown: the user receives no answer. An abstention is not stored either and replaces the answer with the message ``I do not know.''
+\textbf{Thresholds:} otherwise the answer is stored if $\ustored \ge 0.60$ and deferred if $\ustored \ge 0.45$. Below $0.45$, the system abstains when the best passage barely supports the answer ($p_{\text{ground,max}} < 0.20$) and discards otherwise. Every answer reaches the user with its probability $\ustored$ and a status: a stored answer is marked \emph{verified}; a deferred one \emph{provisional}, with a note that it will be reconsidered at the next cycle; a discarded one \emph{conflicting}, with a warning that the evidence disagrees and independent checking is recommended. Neither a discarded nor an abstained answer is stored, and an abstention replaces the answer with an insufficient-evidence message.
 
 \begin{algorithm}[!htbp]
 \caption[Four-outcome storage decision (Stage~6).]{Four-outcome storage decision (Stage~6).}
