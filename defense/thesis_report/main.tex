@@ -65,6 +65,7 @@
 % --- Bibliography -----------------------------------------------------------
 \usepackage[backend=biber,style=ieee,sorting=ynt]{biblatex}  % BRAC template
 \addbibresource{bibliography/references.bib}
+\setcounter{biburlnumpenalty}{100}\setcounter{biburlucpenalty}{100}\setcounter{biburllcpenalty}{100}  % let long URLs break
 % Render-time backstop: suppress any field that might still leak thesis-internal
 % commentary or non-bibliographic clutter into the rendered bibliography.
 \AtEveryBibitem{%

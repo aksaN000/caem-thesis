@@ -93,7 +93,7 @@ Every constant that governs runtime behaviour lives in the \verb|CAEMConfig| dat
 {\footnotesize
 \setlength{\tabcolsep}{4pt}
 \renewcommand{\arraystretch}{1.1}
-\begin{longtable}{@{}p{4.2cm}p{2.2cm}p{2.0cm}p{6.4cm}@{}}
+\begin{longtable}{@{}p{4.6cm}p{2.0cm}p{1.8cm}p{5.8cm}@{}}
 \caption[Configuration registry]{Configuration registry. Provenance tags: \emph{literature} (cited paper), \emph{design} (architectural choice documented before any run), \emph{calibrated} (chosen empirically at cycle zero or refit at a cycle boundary), \emph{pre-specified} (registered horizon before any data is observed).}
 \label{tab:app-config-registry}\\
 \toprule
@@ -277,7 +277,7 @@ The end-to-end execution sequence partitions into a pre-run setup block, a six-s
 \item \textbf{Prompt smoke test} (\verb|step_5_9_prompt_smoke|). Renders $5$ samples per benchmark against the registered prompt templates and asserts the answer-line contract. Gate: every sample renders with a non-empty answer line.
 \item \textbf{Alias dictionary build} (\verb|step_5_9_5_alias_dict|). Builds \verb|data/alias_dict.json| from the benchmarks' gold aliases. The alias signal is not part of the deployed composite; the dictionary is kept for ablation only.
 \item \textbf{Cold-start seeding} (\verb|step_6_reseed| and \verb|step_6_5_em_prune|). Answers questions from each training benchmark's seed pool under a cold-start storage threshold of $0.50$ until about $200$ per benchmark are stored ($603$ answers), then removes the stored answers that are wrong against the gold labels, leaving $431$ entries (\Cref{sec:memory-store}).
-\item \textbf{Cycle-zero baseline evaluation and cal-fold scoring} (\verb|step_7_0_cycle0|). Runs the pristine generator against the held-out evaluation fold and the calibration fold ($500$ samples per training benchmark, $1{,}500$ pooled). Writes per-sample nine-signal vectors and ground-truth labels. Gate: every JSON has the expected sample count and no NaN signals.
+\item \textbf{Cycle-zero evaluation and calibration-fold scoring} (\verb|step_7_0_cycle0|). Runs the pristine generator against the held-out evaluation fold and the calibration fold ($500$ samples per training benchmark, $1{,}500$ pooled). Writes per-sample nine-signal vectors and ground-truth labels. Gate: every JSON has the expected sample count and no NaN signals.
 \item \textbf{Composite calibration and validation gate} (\codepath{step\_7\_0\_calibrate}, \codepath{step\_7\_0\_2\_5\_rescore\_eval}, \codepath{step\_7\_0\_3\_validate\_weights}). Fits the per-signal isotonic curves, the per-benchmark shrinkage-blended children, the boost-layer logistic regression, the per-benchmark temperature scalars, and the per-benchmark safety floors. Runs the cycle-zero validation gate (\Cref{app:gate-reference}). Gate: cycle-zero canonical composite locked at \verb|outputs/cycle_0/composite_calibration.json|; never overwritten by later cycles.
 \item \textbf{Retention baseline freeze and snapshot upload} (\verb|step_19_2_slice| and \verb|step_gdrive_upload_pre_main|). Records the pristine-model probe accuracies on MMLU, TriviaQA-test, and CommonsenseQA-test as the cycle-zero anchor for the $0.93$ retention floor. Uploads the pre-main snapshot so that a lost machine can be recovered from it (\Cref{app:repro-snapshot}).
 \end{enumerate}

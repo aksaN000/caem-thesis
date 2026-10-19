@@ -1642,3 +1642,19 @@ Xiong et al. and Ovadia et al. named; "one-sided lower bound under exchangeabili
 ### Author decisions (2026-10-19, same session)
 - Appendix B: the four earlier-panel / earlier-composite sections deleted (prompt compliance, atomic coverage, precision cliff, prompt-design ablation); their files moved with the rest.
 - 32 never-included generated tables (+ precision_cliff.pdf) moved from figures/auto/ to archive/figures_unused_2026-10/ with a README.
+
+## Whole-document pass (2026-10-19)
+Checks run on abstract, chapters 1–6, appendices, front lists and bibliography: clean build (0 errors, 0 undefined references or citations, 0 multiply-defined labels, 0 biber warnings); stale-number scan (old headline values) with context: no stale value left; style scan (em dashes, section symbol, lead-ins ending in a full stop, citation as noun, American spelling, numbers in words, code names in chapter prose): no hit outside frozen ch2, TikZ keys and table abbreviations; verdict words; "proven" only for thm:purity and thm:bayes-purity; early stop never presented as saturation; bibliography: 96 printed references, no duplicate titles.
+| Location | Change | Reason |
+|---|---|---|
+| ch3 risk table | first two columns narrowed (2.9/3.9 → 2.6/3.6 cm) | 22 pt overfull |
+| ch4 L709 | "partly supported" → "partially supported" | registered verdict words |
+| appendix A L280 | "cal-fold scoring" → "calibration-fold scoring" | jargon |
+| appendix A registry | column widths 4.2/2.2/2.0/6.4 → 4.6/2.0/1.8/5.8 cm | 18 pt overfull |
+| appendix C memory table, appendix D tables | footnotesize, tighter column spacing | 13–47 pt overfull |
+| appendix E | broken replacements "$300$ and eighty-seven", "$1{,}000$ $500$" fixed (387; 1,500); scipy role (equilibrium fit removed) → Wilcoxon, temperature fit; long command split | introduced by the number-style pass; stale |
+| appendix G L111 | "thousand-$500$-sample" → "$1{,}500$-sample" | same |
+| List of Symbols | bootstrap replicates 1,000 → 2,000 (NBOOT); u_dropout "variance" → disagreement share (code); h_norm marked dropped; note on retired symbols: α_ema is still used for the temperature, and the fold is re-scored, not fresh; label columns widened, ragged right, two long labels broken | wrong facts; visible label overlaps |
+| List of Acronyms | label columns widened, ragged right | visible label overlaps (TruthfulQA, OpenBookQA, StrategyQA) |
+| main.tex | biblatex URL break penalties | 60 pt overfull URL in the references |
+Remaining overfull > 10 pt: 3 (Qwen arXiv identifier in the references, two long identifiers in the appendix A registry), not visible.

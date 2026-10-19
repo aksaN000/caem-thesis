@@ -8,15 +8,15 @@
 {\footnotesize
 \setlength{\tabcolsep}{3pt}
 \renewcommand{\arraystretch}{1.05}
-\begin{longtable}{@{}p{0.12\textwidth}p{0.34\textwidth}@{\hspace{0.5em}}p{0.12\textwidth}p{0.34\textwidth}@{}}
+\begin{longtable}{@{}>{\raggedright\arraybackslash}p{0.17\textwidth}>{\raggedright\arraybackslash}p{0.30\textwidth}@{\hspace{0.5em}}>{\raggedright\arraybackslash}p{0.17\textwidth}>{\raggedright\arraybackslash}p{0.30\textwidth}@{}}
 \multicolumn{4}{@{}l@{}}{\textbf{\normalsize Confidence, verifier signals, thresholds}}\\
 $\upre$ & Pre-routing confidence & $\ustored$ & Calibrated post-generation composite \\
-$u_{\text{token}}$ & Mean token log-probability & $u_{\text{dropout}}$ & MC-Dropout variance, $K{=}5$ \\
+$u_{\text{token}}$ & Mean token log-probability & $u_{\text{dropout}}$ & Dropout disagreement share, $K{=}5$ \\
 $u_{\text{internal}}$ & $0.5u_{\text{tok}}{+}0.5(1{-}u_{\text{drop}})$ & $s_{\text{avg}}$ & Mean pairwise cosine, $M{=}3$ \\
-$p_{\text{entail}}$ & Chain-to-answer NLI entailment & $h_{\text{norm}}$ & Normalised semantic entropy, $K{=}10$ \\
+$p_{\text{entail}}$ & Chain-to-answer NLI entailment & $h_{\text{norm}}$ & Normalised semantic entropy (dropped), $K{=}10$ \\
 $p_{\text{ground,max}}$ & Top-$1$ passage entailment & $p_{\text{ground,mean}}$ & Mean entailment over top-$3$ \\
 $p_{\text{ground,atomic}}$ & Length-gated atomic-fact entailment & $q_{\text{match}}$ & Question-answer match score \\
-\multicolumn{4}{@{}p{\textwidth}@{}}{\footnotesize $h_{\text{norm}}$ (normalised semantic entropy, $K{=}10$) was registered then retired post Cycle-0 audit (boost weight $\approx -5\times10^{-4}$); deployed verifier consumes nine signals.} \\
+\multicolumn{4}{@{}p{\textwidth}@{}}{\footnotesize $h_{\text{norm}}$ (normalised semantic entropy, $K{=}10$) was dropped at cycle zero (learned weight $\approx -5\times10^{-4}$, largest verifier cost); the deployed verifier uses the other nine signals.} \\
 $\taustore,\taudefer$ & Fixed store / defer cut-points on $\ustored$ ($0.60$ / $0.45$) & $\tautrain$ & Strict training-pool threshold ($0.70$) \\
 $\tau_{\text{retro}}$ & Retroactive prune threshold ($0.50$) & $\tau_{\text{ttl}}$ & Deferred-buffer time-to-live ($2$ passes) \\
 $\tau_{\text{cons}}$ & Memory consolidation cosine ($0.92$) & $\phi_{\text{pg}}$ & Abstention floor on top-passage entailment ($0.20$) \\
@@ -24,7 +24,7 @@ $\phi_{\text{safe}}$ & Pre-routing safety floor on $\upre$ ($0.38$; per-benchmar
 $\eta_u,\eta_g$ & Early-exit thresholds & $\tau_{\text{RUC}}$ & Retrieval-utility classifier threshold ($0.375$) \\
 \\[-0.5em]
 \multicolumn{4}{@{}l@{}}{\textbf{\normalsize Calibrated probability composite}}\\
-\multicolumn{4}{@{}p{\textwidth}@{}}{\footnotesize $\alphastore,\alphadefer$ (split-CP miscoverage targets) and $\alpha_{\text{ema}}$ (EMA refit factor) were registered in the conformal storage gate then retired when the gate was replaced by the fixed-threshold rule above; the calibration-versus-evaluation distribution shift broke the marginal-coverage premise of split-CP on the five-benchmark panel. The composite refit absorbs distribution drift through the per-signal isotonic curves and the per-benchmark boost coefficients on a fresh per-cycle fold.} \\
+\multicolumn{4}{@{}p{\textwidth}@{}}{\footnotesize $\alphastore,\alphadefer$ (split-CP miscoverage targets) belonged to the conformal storage gate and were retired when the gate was replaced by the fixed cut-points above (\Cref{sec:conformal-gate}). The composite refit follows the drift of the signals by re-scoring the same calibration fold at every cycle; $\alpha_{\text{ema}} = 0.7$ smooths only the pre-routing temperature.} \\
 $n_{\min}$ & Minimum top-$k$ for fit ($20$) & $n_{\text{cal}},n_{\text{eval}}$ & Calibration / evaluation fold sizes \\
 $\pi_{\text{store}},\pi_{\text{defer}}$ & Calibration-fold empirical precision & $\pi_{\text{retro}}$ & Retroactive-survivor precision \\
 $\pi_t,\pi_\infty$ & Pool purity at cycle $t$, asymptote & $P_c,P_c^{\text{theory}}$ & Empirical / Bayes pool purity \\
@@ -41,7 +41,7 @@ $\mathcal{T}$ & Training pool above $\tautrain$ & $\mathcal{M},\mathcal{M}_t$ & 
 $\mathcal{M}_t^{\text{kept}},\mathcal{N}_{t+1}$ & Survivors; new admissions & $\mathcal{B},K_{\text{def}}$ & Deferred buffer; capacity \\
 $\lambda$ & Routing similarity weight ($0.70$) & $s,\mathcal{S}$ & Cosine; dispatch score $\lambda s{+}(1{-}\lambda)\ustored$ \\
 $\tau_1(t)$ & Tier-$1$ share of queries & $H_{1}(t)$ & Tier-$1$ error rate \\
-$H_{\text{mem}}(t),H_{\text{gen}}(t),H_t$ & Memory / generated / overall error rate & $M,K$ & Chain count ($3$); answer count ($10$) \\
+$H_{\text{mem}}(t),H_{\text{gen}}(t)$,\newline $H_t$ & Memory / generated / overall error rate & $M,K$ & Chain count ($3$); answer count ($10$) \\
 $p_{\text{RAG}}$ & RUC retrieval-helpfulness score & $p_{\text{IK}}$ & Self-knowledge probe (Kadavath-style) \\
 \\[-0.5em]
 \multicolumn{4}{@{}l@{}}{\textbf{\normalsize Theorem trajectory and statistics}}\\
@@ -50,9 +50,9 @@ $\mu_+,\mu_-,\varsigma$ & Within-class means; shared std & $p_+,p_-$ & Correct /
 $\Phi(\cdot),\phi(\cdot)$ & Std-normal CDF; density & $\sigma_t$ & Empirical storage rate at cycle $t$ \\
 $r$ & Geometric contraction rate & $G_t$ & Cycle-$t$ gap $|\pi_t{-}\pi_\infty|$ \\
 $A,k,c^{*}(\varepsilon)$ & Decay fit; time-to-equilibrium & $p_c,\alpha_c$ & Base correctness; verifier balanced acc. \\
-$\mathrm{TPR}_c,\mathrm{FPR}_c,\mathrm{TNR}_c$ & Storage-gate rates at cycle $c$ & $f(p)$ & Recurrence $p\alpha/(p\alpha{+}(1{-}p)(1{-}\alpha))$ \\
+$\mathrm{TPR}_c,\mathrm{FPR}_c$,\newline $\mathrm{TNR}_c$ & Storage-gate rates at cycle $c$ & $f(p)$ & Recurrence $p\alpha/(p\alpha{+}(1{-}p)(1{-}\alpha))$ \\
 $K(C)$ & Questions supportable by corpus $C$ & $\chi^{2}_{\text{McN}},b,c$ & McNemar; discordant pair counts \\
-$B$ & Bootstrap replicates ($1\,000$) & $\alpha$ & Significance level (overloaded) \\
+$B$ & Bootstrap replicates ($2{,}000$) & $\alpha$ & Significance level (overloaded) \\
 $\mathrm{EM},\mathrm{F}_1$ & Per-task correctness & $\mathrm{CHM},\mathrm{CES},\mathrm{ECE}$ & Composite hallucination / eval / cal. error \\
 $N,T_{\text{cycles}}$ & Cycle index; registered cap ($10$); realised closure at $6$ & $\lvert\theta\rvert$ & Backbone parameters ($3.086{\times}10^{9}$) \\
 \end{longtable}

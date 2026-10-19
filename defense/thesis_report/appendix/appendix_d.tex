@@ -28,8 +28,8 @@ For exact match, each contrast forms the paired two-by-two table of correct and 
 with $p = 1$ when $b + c = 0$. \Cref{tab:app-sig-tables} shows four contrasts at C5: a tie with the zero-shot baseline, CAEM's largest win and its largest defeat, both against vanilla fine-tuning, and a defeat by five-shot chain of thought.
 
 \begin{table}[H]
-\centering\small
-\setlength{\tabcolsep}{4pt}
+\centering\footnotesize
+\setlength{\tabcolsep}{3pt}
 \begin{tabular}{@{}lrrrrrrr@{}}
 \toprule
 \textbf{Contrast at C5} & \textbf{EM CAEM} & \textbf{EM base} & $\boldsymbol{\Delta_{\text{EM}}}$ & $\boldsymbol{b}$ & $\boldsymbol{c}$ & $\boldsymbol{\chi^{2}}$ & $\boldsymbol{p_{\text{raw}}}$ \\
@@ -75,8 +75,8 @@ B6 vanilla fine-tune $\cdot$ TriviaQA & $+0.163$ & $[+0.100,\, +0.220]$ & $<0.00
 The Holm--Bonferroni correction~\cite{holm1979simple} is applied within each benchmark, separately on each axis, over the $m = 8$ baselines. The raw $p$-values are sorted in ascending order, the $k$-th smallest is multiplied by $m - k + 1$, a running maximum keeps the adjusted values in order, and values above one are set to one. The family-wise error rate is held at $0.05$ within each benchmark. \Cref{tab:app-sig-holm-tqa,tab:app-sig-holm-fever} give the exact-match sequences at C5 for TriviaQA, where CAEM's two wins lie, and for CommonsenseQA, the one benchmark with both wins and defeats.
 
 \begin{table}[H]
-\centering\small
-\setlength{\tabcolsep}{6pt}
+\centering\footnotesize
+\setlength{\tabcolsep}{4pt}
 \begin{tabular}{@{}llrrrrl@{}}
 \toprule
 \textbf{Rank} & \textbf{Baseline} & $\boldsymbol{\Delta_{\text{EM}}}$ & \textbf{Raw $p$} & $\boldsymbol{m-k+1}$ & \textbf{Holm $p$} & \textbf{Verdict} \\
@@ -96,8 +96,8 @@ The Holm--Bonferroni correction~\cite{holm1979simple} is applied within each ben
 \end{table}
 
 \begin{table}[H]
-\centering\small
-\setlength{\tabcolsep}{6pt}
+\centering\footnotesize
+\setlength{\tabcolsep}{4pt}
 \begin{tabular}{@{}llrrrrl@{}}
 \toprule
 \textbf{Rank} & \textbf{Baseline} & $\boldsymbol{\Delta_{\text{EM}}}$ & \textbf{Raw $p$} & $\boldsymbol{m-k+1}$ & \textbf{Holm $p$} & \textbf{Verdict} \\

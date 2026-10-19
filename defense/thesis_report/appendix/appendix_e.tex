@@ -14,11 +14,11 @@
 
 The five benchmark loaders that feed the realised evaluation panel are registered in \verb|eval/benchmarks.py| against the Hugging Face dataset hub identifiers. FEVER reads through \verb|lucadiliello/fever| under the development and training splits; TriviaQA reads through \verb|trivia_qa| under the reading-comprehension-no-context configuration; CommonsenseQA reads through \verb|commonsense_qa|; TruthfulQA reads through \verb|truthful_qa| under the generation configuration; StrategyQA reads through \verb|ChilleD/StrategyQA| with documented fallbacks to \verb|wics/strategy-qa| and the Eladsegal train-JSON mirror. Earlier loader registrations for Natural Questions and HotpotQA are preserved in the module for reproducibility of the cycle-zero diagnostics but do not feed the realised five-benchmark panel.
 
-The six-way disjoint partition is constructed once at pool-builder time by \codepath{caem/benchmark\_splits.py::build\_all\_benchmark\_pools}, which is invoked by the experiment runner and writes the per-benchmark identifier manifest to \verb|outputs/full_run/dataset_splits.json|. Each benchmark contributes a $1{,}000$-sample seed pool for cold-start memory population, a $500$-sample calibration fold, a $500$-sample purity-validation slice, ten per-cycle stream-chunk slices (FEVER and TriviaQA at $2{,}000$ samples per cycle, CommonsenseQA at $700$ samples per cycle to fit the smaller available train pool of about $10{,}000$ samples after deduplication), a three-hundred-sample evaluation fold, and a test fold of up to $500$ samples (clamped to the available remainder where the source split admits fewer than the registered budget). The shuffle is seeded at forty-two on the training side and forty-three on the evaluation side, so the partitions are stable across re-invocations on the same source dataset.
+The six-way disjoint partition is constructed once at pool-builder time by \codepath{caem/benchmark\_splits.py::build\_all\_benchmark\_pools}, which is invoked by the experiment runner and writes the per-benchmark identifier manifest to \verb|outputs/full_run/dataset_splits.json|. Each benchmark contributes a $1{,}000$-sample seed pool for cold-start memory population, a $500$-sample calibration fold, a $500$-sample purity-validation slice, ten per-cycle stream-chunk slices (FEVER and TriviaQA at $2{,}000$ samples per cycle, CommonsenseQA at $700$ samples per cycle to fit the smaller available train pool of about $10{,}000$ samples after deduplication), a $300$-sample evaluation fold, and a test fold of up to $500$ samples (clamped to the available remainder where the source split admits fewer than the registered budget). The shuffle is seeded at forty-two on the training side and forty-three on the evaluation side, so the partitions are stable across re-invocations on the same source dataset.
 
 Within-benchmark deduplication runs through the \verb|_dedupe_by_content_id| helper, which keys on the first $500$ characters of the question text under a sixteen-character SHA-256 hash. Cross-benchmark disjointness is verified by the \codepath{assert\_cross\_benchmark\_disjoint} assertion. Both checks run at pool-builder time; the runner re-stamps the same checks at every successful cycle boundary through \codepath{\_dedup\_inplace} and \codepath{assert\_disjoint\_calibration}, so any drift in the partition would be caught at the cycle close rather than at the metric-computation step.
 
-The realised evaluation fold reads $300$ samples per benchmark across the five-benchmark panel, for a total of $1{,}000$ $500$ evaluation contrasts per cycle. The StrategyQA test fold reads $300$ and eighty-seven samples rather than the registered $500$ because the source split the loader reads (the ChilleD StrategyQA test split) admits only $687$ labelled samples, of which $300$ feed the evaluation fold and the remaining $300$ and eighty-seven feed the test fold under the auto-clamp branch in the pool builder.
+The realised evaluation fold reads $300$ samples per benchmark across the five-benchmark panel, for a total of $1{,}500$ evaluation questions per cycle. The StrategyQA test fold has $387$ samples rather than the registered $500$ because the source split (the ChilleD StrategyQA test split) has only $687$ labelled samples, of which $300$ form the evaluation fold.
 
 \section{Snapshot recovery}
 \label{app:repro-snapshot}
@@ -46,7 +46,8 @@ The commands below reproduce the run from a fresh clone. What each stage does, a
 
 \paragraph{Pre-run setup:}
 \begin{verbatim}
-python scripts/prompt_smoke_test.py --benchmarks fever triviaqa commonsense_qa
+python scripts/prompt_smoke_test.py \
+    --benchmarks fever triviaqa commonsense_qa
 python scripts/build_alias_dict_from_benchmarks.py
 python -m scripts.seed_cold_start
 python -m scripts.run_experiment --output_dir outputs/cycle_0 \
@@ -113,7 +114,7 @@ datasets              & $3.0+$                   & benchmark loaders and retenti
 faiss-cpu             & $1.8+$                   & passage index and episodic memory store \\
 sentence-transformers & $4.1.0$                  & SBERT memory encoder and cross-encoder reranker \\
 \midrule
-scipy                 & $1.11+$                  & saturating-exponential equilibrium fit, Wilcoxon test \\
+scipy                 & $1.11+$                  & Wilcoxon test, temperature fit (L-BFGS) \\
 scikit-learn          & $1.4+$                   & per-signal isotonic regression and boost-layer logistic \\
 \midrule
 bitsandbytes          & $0.43+$                  & eight-bit AdamW optimiser path \\

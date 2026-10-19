@@ -108,7 +108,7 @@ The architecture makes several non-obvious design choices in how the calibration
 \section[Same calibration fold across cycles]{Why use the same calibration fold across all cycles of the registered horizon rather than rotating folds?}
 \label{app:qa-same-fold}
 
-The calibration fold is a fixed thousand-$500$-sample partition ($500$ samples drawn from each of the three training benchmarks) constructed once at pool-builder time and reused at every cycle boundary. The natural alternative would be to rotate the fold across cycles, drawing a fresh $1{,}500$-sample slice each cycle from a larger reservoir. The same-fold protocol is preferred for four reasons.
+The calibration fold is a fixed $1{,}500$-sample partition ($500$ samples drawn from each of the three training benchmarks) constructed once at pool-builder time and reused at every cycle boundary. The natural alternative would be to rotate the fold across cycles, drawing a fresh $1{,}500$-sample slice each cycle from a larger reservoir. The same-fold protocol is preferred for four reasons.
 
 First, the cycle-boundary recalibration is itself a measurement. The labelled fold is the reference distribution against which the verifier's calibration is read; if the reference distribution varies between cycles, then a cycle-to-cycle change in the fitted curves entangles two sources of variation (the verifier improving under self-improvement, and the reference set drifting) and the trajectory analysis cannot decompose them. A fixed reference fold is the variance-isolation lever that lets the per-cycle isotonic and composite-calibration readings be attributed cleanly to verifier change.
 
