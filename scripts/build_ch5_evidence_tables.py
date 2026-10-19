@@ -273,7 +273,7 @@ def figures():
 \begin{tikzpicture}
 \begin{axis}[name=em, width=0.47\textwidth, height=5.2cm, xlabel={cycle}, ylabel={pooled EM}, xtick={0,...,5},
   ymin=""" + f"{e_lo:.2f}, ymax={e_hi:.2f}" + r""", font=\small, tick label style={font=\scriptsize}, grid=major, grid style={black!8},
-  legend style={font=\scriptsize, at={(0.98,0.03)}, anchor=south east}]
+  legend style={font=\scriptsize, at={(0.98,0.97)}, anchor=north east}]
   \addplot[blue!65!black, mark=*, thick] coordinates {""" + em + r"""};
   \addlegendentry{CAEM}
   \addplot[black!60, dashed, thick, domain=0:5] {""" + str(B1["em"]) + r"""};
