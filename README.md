@@ -36,10 +36,14 @@ No result numbers are quoted in this README; they live in the thesis and will ch
 - **Pipeline entry points:** `run_experiment.py` (cycles), `seed_cold_start.py`, `run_calibration.py`,
   `fit_composite_calibration.py`, `build_passage_index.py`, `run_baseline.py` / `launch_baselines.sh` /
   `launch_baselines_v2.sh`, `run_simple_ft.py`, `rescore_baselines_through_verifier.py`, `rescore_truthfulqa.py`.
-- **Analysis for the current thesis (2026-10 drafting pass):** `build_ch5_evidence_tables.py`,
-  `recompute_validation_gate.py`, `recompute_chm_judged.py`, `patch_chm_judged_tables.py`,
-  `paired_baseline_tests.py`, `audit_signals_baselines.py`, `replay_early_stop_gate.py`, `rerun_cycle0_sweep.py`,
-  `score_response_relevance.py`, `judge_off_topic.py`.
+- **Final results (one command):** `bash scripts/make_final_results.sh` rebuilds every final number, table and figure
+  of chapter 5 from the run outputs, in order: `rescore_truthfulqa.py` (only with `--judge`; Anthropic API),
+  `rescore_uniform.py`, `recompute_chm_judged.py`, `paired_baseline_tests.py`, `build_ch5_evidence_tables.py`,
+  `build_final_tables.py`. `scripts/final_sources.py` names the one answer file per system and benchmark.
+  Baseline re-run on a rented GPU: `scripts/rental/final_version.sh` (provenance: `docs/rerun_v2_provenance.md`).
+- **Other analysis for the current thesis:** `recompute_validation_gate.py`, `audit_signals_baselines.py`,
+  `audit_caem_scoring.py`, `replay_early_stop_gate.py`, `rerun_cycle0_sweep.py`, `score_response_relevance.py`,
+  `judge_off_topic.py`; post-defense explorations `probe_answer_confidence.py`, `probe_verifier_v2.py`.
 - **Caution:** the older `aggregate_*` scripts write to the old `thesis_report/` path (not the live thesis), and the five
   `aggregate_section_5_*` scripts build tables when loaded (they now refuse to be imported).
   Do not run them; they are replaced by one results command in Phase 1a of the master plan.

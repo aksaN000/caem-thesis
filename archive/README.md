@@ -15,9 +15,9 @@ Reorganised on 2026-10-17 (branch `cleanup/repo-layout`); file history is preser
 | `run_logs/` | Vast.ai session log, deployment guide, Phase 2 execution log, the agent runbook used on the rented GPU | Records of past runs | A new runbook (Phase 1a, R6, in MASTER_ISSUES.md) |
 | `audits/` | Earlier code, script, metric and chapter audits; `thesis_audit_2026-10-15/` holds the October number/table/reference audit working files and helper scripts | Findings carried into the tracker and the thesis | `defense/thesis_report/ref_check/` (REPO_CLEANUP_TRACKER.md, MASTER_ISSUES.md, reference checks) |
 | `docs_superseded/` | Demo quickstart and panel demo script (the live demo was removed from the thesis); the previous root README | Out of date | The root `README.md` |
-| `scripts_superseded/` | Old runners; one-off watchdog/restart shell scripts from the Vast sessions; one-off diagnostics and smoke tests; the approximate significance script `baseline_sig_tests_v2.py` | Not imported by any code or test; superseded or single-use | `scripts/` (see the root README) and `scripts/paired_baseline_tests.py` |
+| `scripts_superseded/` | (2026-10-19 additions: `patch_chm_judged_tables.py` and `aggregate_baseline_pooled.py`, replaced by `scripts/build_final_tables.py`, which writes whole tables from one source; `compare_b6_old_vs_new.py` and `postprocess_b6_c5_eval.py`, run-1 B6 evaluation helpers, replaced by the re-run.) Old runners; one-off watchdog/restart shell scripts from the Vast sessions; one-off diagnostics and smoke tests; the approximate significance script `baseline_sig_tests_v2.py` | Not imported by any code or test; superseded or single-use | `scripts/` (see the root README) and `scripts/paired_baseline_tests.py` |
 
 Files that were checked and deliberately **kept** in place:
 - `scripts/launch_baselines_v2.sh`: the command that generated the current baseline runs (provenance, per `caem/ruc/README.md`).
-- `scripts/compare_b6_old_vs_new.py`, `eval_b6_c5_only.py`, `postprocess_b6_c5_eval.py`: produced the current B6 data; archive after B6 is re-run (MASTER_ISSUES Phase 6).
+- `scripts/eval_b6_c5_only.py`: evaluates B6 from its saved cycle-5 weights (used by the 2026-10-19 baseline re-run).
 - `scripts/archive_v1_to_gdrive.sh`, smoke and diagnostic scripts used by `tests/`.
