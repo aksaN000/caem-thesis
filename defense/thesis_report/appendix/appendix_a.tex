@@ -288,15 +288,12 @@ The end-to-end execution sequence partitions into a pre-run setup block, a six-s
 \item \textbf{Checkpoint and halt-trigger evaluation:} Writes the cycle's coverage diagnostic, the per-tier hit-rate roll-up, and the per-cycle composite calibration snapshot. Evaluates the halt trigger (storage saturation, retention floor failures, or the equilibrium-saturation gate).
 \end{enumerate}
 
-\paragraph{Post-run analysis (Steps P-1 through P-7):}
+\paragraph{Post-run analysis:}
 \begin{enumerate}
-\item Run the eight-baseline panel (\verb|step_baselines_all|) under the matched-protocol contract.
-\item Rescore the baseline outputs through the locked cycle-three composite (\codepath{step\_rescore\_baselines\_through\_verifier}).
-\item Run the TruthfulQA Haiku rescore (\verb|scripts/rescore_truthfulqa.py|) on every baseline plus CAEM so that the TruthfulQA exact-match cells are scored under a uniform rule.
-\item Run the significance panel (\verb|step_15_5_sig|): paired McNemar on exact match, paired Wilcoxon on the composite hallucination metric, bootstrap confidence intervals, and the Holm correction within each benchmark family.
-\item Aggregate the six decomposition tables (three-headline contrast, per-tier exact match, composite evaluation score, memory-store trajectory, survival distribution, decision diagnostics).
-\item Run the theorem-receipt aggregators that populate the convergence-check, monotonicity-check, asymptotic-elimination, and self-correction tables of \Cref{ch:evaluation}.
-\item Push the post-trajectory artefact bundle to the Hugging Face snapshot under the post-main commit tag.
+\item Re-run the baseline panel under the comparison protocol of \Cref{sec:setup-protocol} (\codepath{scripts/rental/final\_version.sh}): exact-search retrieval of the evaluation passages, the baselines, the evaluation of the vanilla fine-tune, and the verifier pass over every baseline answer with the cycle-three adapter and composite.
+\item Judge every TruthfulQA answer, CAEM's and every baseline's, with the language-model judge on the final answer line (\codepath{scripts/rescore\_truthfulqa.py}).
+\item Rebuild every reported number with one command (\codepath{scripts/make\_final\_results.sh}): the final correctness label, CHM in the model and delivered views, the status-tag accuracy, the paired tests (McNemar on exact match, Wilcoxon on CHM, bootstrap intervals, Holm within each benchmark), and every table and figure of \Cref{ch:evaluation}.
+\item Push the post-trajectory artefact bundle to the shared Drive folder (\Cref{app:code-data-availability}).
 \end{enumerate}
 
 \paragraph{Asymmetric-rollback contract:} Triggered when any retention probe drops below $0.93$ of its cycle-zero baseline during Step 1 of the main cycle loop. The adapter reverts to the previous successful cycle's checkpoint, but the memory state does not revert; storage admissions from the failed cycle's stream-chunk pass are preserved. Steps 2.1--2.5 are skipped on the aborted cycle (the cycle-boundary recalibration, retroactive re-verification, and deferred-buffer reconsider all become provable no-ops under unchanged weights). The retroverify log records \verb|"skipped": "aborted_cycle"| so downstream readers distinguish the skip from a genuine zero-delta reverify. Steps 3--6 of the main cycle loop continue to run on aborted cycles: the stream-chunk grows memory unconditionally, the held-out evaluation runs under the rolled-back model so the empirical chapter can compare the aborted cycle's exact match to the previous successful cycle's, and the checkpoint and halt-trigger step records the abort cleanly. The empirical receipt for the contract is the cycle-four firing on the realised trajectory: the TriviaQA-test probe ratio of $0.886$ crossed below the floor and triggered the rollback, the cycle-five reconsider pass recovered the C4-pushed deferred entries that the skipped cycle-four pass had preserved, and the realised commit fraction closed at $\pi_{\mathrm{commit}} = 4/5$.

@@ -44,7 +44,7 @@ The glossary collects every concept word that recurs in body prose and whose mea
 
 \item[Four-outcome decision tree.] The per-query post-verification routing rule that maps each generated output to one of the four outcomes \textsc{store}, \textsc{defer}, \textsc{abstain}, or \textsc{discard} on the basis of the calibrated probability composite and the grounding signal. See \Cref{sec:decision}.
 
-\item[Matched-protocol contract.] The pairing rule that every per-benchmark contrast between the architecture and an external baseline is computed sample-by-sample on the identical evaluation-fold sample identifiers under the identical prompt template family and the identical scoring rule. See \Cref{sec:sig-pairing}.
+\item[Matched-protocol contract.] The pairing rule that every per-benchmark contrast between the architecture and an external baseline is computed question by question on the same evaluation-fold questions, with CAEM's question message, the same scoring rule and the same hallucination instrument for every system, and with no baseline charged for a decision it did not take. See \Cref{sec:setup-protocol}.
 
 \item[Memory-direct tier (Tier 1).] The serving tier that returns the nearest stored entry's answer directly when the combined dispatch score clears the registered Tier 1 threshold. The cheapest of the three tiers per query because it neither runs the generator nor retrieves passages. See \Cref{sec:router}.
 
@@ -104,11 +104,11 @@ The glossary collects every concept word that recurs in body prose and whose mea
 
 \item[Cohen's $d$.] An effect-size measure for the standardised mean difference between two distributions. The cycle-zero validation gate reads the composite Cohen's $d$ between exact-match-correct and exact-match-incorrect outputs against the registered precondition floor of $0.20$. See \Cref{sec:adj-gate}.
 
-\item[EM.] Exact match. The registered correctness metric. On TruthfulQA the exact-match rule is the Haiku-judged correctness rule throughout the empirical chapter; on every other benchmark the rule is the standard span match. See \Cref{sec:setup-metrics}.
+\item[EM.] Exact match. The correctness metric, read from the final answer line of each response by one rule for every system: the leading label on FEVER and StrategyQA, the single option letter on CommonsenseQA, an alias match on TriviaQA, and the Haiku-judged rule on TruthfulQA. See \Cref{sec:setup-metrics}.
 
 \item[FAISS.] The dense vector similarity-search index used to host the memory store, the Wikipedia passage substrate, and the cross-encoder pair index. See \Cref{sec:memory-store}.
 
-\item[Haiku-judged.]\nopagebreak[4] The Claude Haiku 4.5 large-language-model judge used as the truthfulness adjudicator on the TruthfulQA evaluation fold. The judge reads the question, the model's answer, the correct reference answers, and the incorrect reference answers, and returns a binary truthful-or-not verdict. The uniform Haiku-judged rule is applied to every TruthfulQA exact-match cell in the empirical chapter, including every baseline. See \Cref{sec:setup-metrics}.
+\item[Haiku-judged.]\nopagebreak[4] The Claude Haiku 4.5 large-language-model judge used as the truthfulness adjudicator on the TruthfulQA evaluation fold. The judge reads the question, the model's answer, the correct reference answers, and the incorrect reference answers, and returns a binary truthful-or-not verdict. The uniform Haiku-judged rule is applied to every TruthfulQA exact-match cell in the empirical chapter, including every baseline, and reads the final answer line only. See \Cref{sec:setup-metrics}.
 
 \item[Holm-Bonferroni.] The step-down multiple-comparison correction applied within each benchmark family of size $m = 8$ on each metric axis. Sorts the raw $p$-values ascending and multiplies the $k$-th smallest by $m - k + 1$ under a running-maximum monotonicity constraint, clipping at one. See \Cref{sec:sig-holm}.
 

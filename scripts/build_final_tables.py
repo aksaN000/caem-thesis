@@ -13,6 +13,11 @@ v2) and the CHM cells always come from the same source.
   tab_tier_chm_trajectory.tex    EM and CHM per tier and pooled, C0..C5 (appendix C)
   tab_per_tier_em.tex            EM and n per tier and benchmark at C0, C2, C5 (appendix C)
   tab_ces_caem_trajectory.tex    composite evaluation score; ACC and EPI recomputed, RET/CAL/VER kept from the table
+  tab_tier_trajectory.tex        tier shares and per-tier EM, C0..C5 pooled and per benchmark at C5
+  tab_storage_pool_quality.tex   stored training-panel answers, precision, training-threshold pool (eval fold, stream chunks)
+  tab_u_stored_distribution.tex  stored answers and EM by score band (eval fold, stream chunks)
+  tab_decision_matrix_trajectory.tex  correct / wrong per decision at C2 and C5
+Stream-chunk answers (training panel) are scored on the fly with the same uniform rule (eval.metrics.score_uniform).
 """
 import json
 import math
@@ -291,6 +296,149 @@ def ces():
     p.write_text(s.replace("\\begin{table}", tag + "\\begin{table}", 1))
 
 
+RUN = ROOT / "outputs/full_run"
+TAU_TRAIN = 0.70
+BANDS = ((0.60, 0.65), (0.65, 0.70), (0.70, 0.80), (0.80, 0.90), (0.90, 1.01))
+
+
+def caem_eval(c, b):
+    """CAEM answers on the evaluation fold with `ok` = em_final."""
+    em = FS.id_to_em(f"caem_c{c}", b)
+    S = eval_rows(FS.answer_path(f"caem_c{c}", b))
+    for s in S:
+        s["ok"] = em[str(s["id"])]
+    return S
+
+
+def stream(c, b):
+    """CAEM answers on the cycle's stream chunk (training panel), scored with the same uniform rule."""
+    from eval.metrics import score_uniform
+    from scripts.rescore_uniform import gold_list
+    S = eval_rows(RUN / f"eval/{b}_cycle{c}_streamchunk.json")
+    for s in S:
+        s["ok"] = score_uniform(b, s.get("prediction") or "", gold_list(s), s.get("gold_label"))[0]
+    return S
+
+
+def n(x):
+    return f"{x:,}".replace(",", "\\,")
+
+
+def tier_shares():
+    def row(lab, S):
+        cells = []
+        for t in (1, 2, 3):
+            v = [s["ok"] for s in S if s.get("tier") == t]
+            cells.append(f"{pct(len(v) / len(S))} & " + (f3(sum(v) / len(v)) if v else "--"))
+        return f"{lab} & " + " & ".join(cells) + f" & {f3(sum(s['ok'] for s in S) / len(S))} \\\\"
+    rows = ["\\multicolumn{8}{@{}l}{\\textit{(a) Pooled over the five benchmarks}} \\\\"]
+    rows += [row(f"C{c}", [s for b in B for s in caem_eval(c, b)]) for c in range(6)]
+    rows += ["\\midrule", "\\multicolumn{8}{@{}l}{\\textit{(b) By benchmark at C5 ($300$ each)}} \\\\"]
+    rows += [row(LONG[b], caem_eval(5, b)) for b in B]
+    write("tab_tier_trajectory.tex", r"""\begin{table}[!htbp]
+\centering\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{@{}lccccccc@{}}
+\toprule
+  & \multicolumn{2}{c}{\twoline{Tier 1\\(memory)}} & \multicolumn{2}{c}{\twoline{Tier 2\\(zero-shot)}} & \multicolumn{2}{c}{\twoline{Tier 3\\(RAG)}} & \\
+ & share & EM & share & EM & share & EM & \twoline{Pooled\\EM} \\
+\midrule
+""" + "\n".join(rows) + r"""
+\bottomrule
+\end{tabular}
+\caption[Tier shares and per-tier EM by cycle.]{Share of evaluation queries sent to each tier and the EM within it: (a) pooled by cycle; (b) per benchmark at C5.}
+\label{tab:tier-trajectory}
+\end{table}
+""")
+
+
+def storage_pool():
+    def row(lab, S, used):
+        st = [s for s in S if s.get("decision") == "STORE"]
+        ok = sum(s["ok"] for s in st)
+        hi = [s for s in st if (s.get("u_stored") or 0) >= TAU_TRAIN]
+        return (f"{lab} & ${n(len(st))}$ & ${n(int(ok))}$ & ${n(len(st) - int(ok))}$ & ${f3(ok / len(st))}$ & "
+                f"${n(len(hi))}$ & ${pct(len(hi) / len(st))}$ & ${f3(sum(s['ok'] for s in hi) / len(hi))}$ & {used} \\\\")
+    used = {c: json.load(open(RUN / f"retroverify_cycle{c}.json"))["fine_tune"]["n_episodes_used"] for c in range(1, 6)}
+    lab = lambda c: f"C{c}" + ("$^{\\ast}$" if c == 4 else "")
+    rows = ["\\multicolumn{9}{@{}l}{\\textit{(a) Evaluation fold}} \\\\"]
+    rows += [row(lab(c), [s for b in FS.TRAIN for s in caem_eval(c, b)], "---") for c in range(6)]
+    rows += ["\\midrule", "\\multicolumn{9}{@{}l}{\\textit{(b) Stream chunks}} \\\\"]
+    rows += [row(lab(c), [s for b in FS.TRAIN for s in stream(c, b)], "---" if c == 4 else f"${n(used[c])}$")
+             for c in range(1, 6)]
+    write("tab_storage_pool_quality.tex", r"""\begin{table}[!htbp]
+\centering\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{@{}lrrrrrrrr@{}}
+\toprule
+\textbf{Cycle} & $\boldsymbol{n_{\text{stored}}}$ & \textbf{Correct} & \textbf{Wrong} & $\boldsymbol{\pi_{\text{store}}}$ & \twoline{Above\\$\boldsymbol{\tau_{\text{train}}}$} & \twoline{Share\\above} & $\boldsymbol{\pi_{\text{SIL}}}$ & \twoline{Used in\\training} \\
+\midrule
+""" + "\n".join(rows) + r"""
+\bottomrule
+\end{tabular}
+\par\vspace{2pt}{\footnotesize\parbox{\linewidth}{$^{\ast}$Cycle four was rolled back, so its training pool is not reported.}\par}
+\caption[Stored answers and the training pool by cycle.]{Stored answers on the training panel, their precision, the share passing the training threshold ($\ustored \ge 0.70$) and the precision of that training pool, on (a) the evaluation fold and (b) the stream chunks.}
+\label{tab:storage-pool-quality}
+\end{table}
+""")
+    rows = ["\\multicolumn{11}{@{}l}{\\textit{(a) Evaluation fold}} \\\\"]
+    for part, cycles, get in (("a", range(6), caem_eval), ("b", range(1, 6), stream)):
+        if part == "b":
+            rows += ["\\midrule", "\\multicolumn{11}{@{}l}{\\textit{(b) SIL stream chunks}} \\\\"]
+        for c in cycles:
+            st = [s for b in FS.TRAIN for s in get(c, b) if s.get("decision") == "STORE"]
+            cells = []
+            for lo, hi in BANDS:
+                v = [s["ok"] for s in st if lo <= (s.get("u_stored") or 0) < hi]
+                cells.append(f"${n(len(v))}$ & " + (f"${f3(sum(v) / len(v))}$" if v else "--"))
+            rows.append(f"C{c} & " + " & ".join(cells) + " \\\\")
+    write("tab_u_stored_distribution.tex", r"""\begin{table}[H]
+\centering\scriptsize
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{@{}l|cc|cc|cc|cc|cc@{}}
+\toprule
+ & \multicolumn{2}{c|}{$[0.60, 0.65)$} & \multicolumn{2}{c|}{$[0.65, 0.70)$} & \multicolumn{2}{c|}{$[0.70, 0.80)$} & \multicolumn{2}{c|}{$[0.80, 0.90)$} & \multicolumn{2}{c}{$[0.90, 1.00]$} \\
+\textbf{Cycle} & $n$ & EM & $n$ & EM & $n$ & EM & $n$ & EM & $n$ & EM \\
+\midrule
+""" + "\n".join(rows) + r"""
+\bottomrule
+\end{tabular}
+\caption[Stored scores and accuracy by score band.]{Stored training-panel answers by score band and the EM within each band, on (a) the evaluation fold and (b) the stream chunks.}
+\label{tab:u-stored-distribution}
+\end{table}
+""")
+
+
+def decision_matrix():
+    rows = []
+    for c, title in ((2, "Cycle two (the within-trajectory best cycle)"), (5, "Cycle five (trajectory-end close)")):
+        rows.append(f"\\multicolumn{{9}}{{@{{}}l}}{{\\textit{{{title}}}}} \\\\")
+        for b in B:
+            S = stream(c, b) if b in FS.TRAIN else caem_eval(c, b)
+            k = lambda d, v: sum(1 for s in S if s.get("decision") == d and s["ok"] == v)
+            sc, sw = k("STORE", 1.0), k("STORE", 0.0)
+            rows.append(f"C{c} & {LONG[b]} & ${n(sc)}$ & ${n(sw)}$ & ${f3(sc / (sc + sw))}$ & ${n(k('DEFERRED', 1.0))}$ & "
+                        f"${n(k('DEFERRED', 0.0))}$ & ${n(k('DISCARD', 1.0))}$ & ${n(k('DISCARD', 0.0))}$ \\\\")
+        rows.append("\\midrule")
+    rows.pop()
+    write("tab_decision_matrix_trajectory.tex", r"""\begin{table}[H]
+\centering\footnotesize
+\setlength{\tabcolsep}{4pt}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{@{}llrrcrrrr@{}}
+\toprule
+\textbf{Cycle} & \textbf{Benchmark} & \textbf{Store $\checkmark$} & \textbf{Store $\times$} & \textbf{Store $\pi$} & \textbf{Defer $\checkmark$} & \textbf{Defer $\times$} & \textbf{Discard $\checkmark$} & \textbf{Discard $\times$} \\
+\midrule
+""" + "\n".join(rows) + r"""
+\bottomrule
+\end{tabular}%
+}
+\caption[Correct and wrong answers per decision at C2 and C5.]{Correct and wrong answers in each decision at C2 and C5, with the precision of the stored class. Training-panel rows come from the stream chunks, transfer-panel rows from the evaluation fold.}
+\label{tab:decision-matrix-trajectory}
+\end{table}
+""")
+
+
 if __name__ == "__main__":
     per_bench()
     subtypes()
@@ -299,4 +447,7 @@ if __name__ == "__main__":
     ruc()
     tiers()
     ces()
+    tier_shares()
+    storage_pool()
+    decision_matrix()
     print("ok")

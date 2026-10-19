@@ -92,26 +92,16 @@ python -m scripts.run_experiment \
 \end{verbatim}
 The runner internally sequences the self-improvement fine-tune, the cycle-boundary recalibration, the retroactive re-verification pass, the deferred-buffer reconsider pass, the stream-chunk admission pass, the held-out evaluation pass, and the cycle-checkpoint plus halt-trigger evaluation. Per-cycle wall-time on the production GPU grows with the cumulative memory size, from roughly six hours at cycle one to more than twenty-two hours at cycle five (see the per-cycle wall-clock budget below). Cycle close writes the per-cycle memory and deferred-buffer snapshots, the per-cycle composite calibration record, the per-cycle calibrated configuration, the per-cycle evaluation JSON, and the per-cycle coverage diagnostic. The retention guard licenses advancement to the next cycle; failure triggers the asymmetric rollback contract documented at \Cref{app:runbook}.
 
-\paragraph{Post-run analysis:} The realised post-trajectory commands run as a sequence rather than a single driver:
+\paragraph{Post-run analysis:} The baselines and every reported number are produced by two commands.
 \begin{description}[style=nextline,leftmargin=0pt]
-\item[Baselines.] Baseline-panel runs (B1 through B8) at approximately eight to ten GPU-hours total.
+\item[Baseline panel under the comparison protocol.] The baseline re-run of \Cref{sec:setup-protocol} on one rented $32$-gigabyte graphics processor: retrieval of the evaluation passages by exact search, B1, B2, B5 and B8 on all five benchmarks, B3 and B4 on TruthfulQA, FLARE, the evaluation of the vanilla fine-tune, and the verifier pass over every baseline answer with the cycle-three adapter and composite. Each stage can be run on its own.
 \begin{verbatim}
-bash scripts/launch_baselines.sh
+bash scripts/rental/final_version.sh all
 \end{verbatim}
-\item[TruthfulQA Haiku rescore.] Rescore over every baseline and over CAEM at approximately two minutes per file; requires the \texttt{ANTHROPIC\_API\_KEY} environment variable.
+\item[Final numbers, tables and figures.] On CPU in about two minutes: writes the final correctness label into every answer file, recomputes CHM in the model and delivered views and the status-tag accuracy, runs the paired tests, and writes every chapter-five table and figure and the result tables of the appendices. The option \texttt{--judge} first re-judges every TruthfulQA answer with the language-model judge (requires \texttt{ANTHROPIC\_API\_KEY}); the option \texttt{--check} fails if any committed output changes.
 \begin{verbatim}
-python -m scripts.rescore_truthfulqa \
-    --files outputs/baselines_phase1e/*/truthfulqa_cycle0.json \
-            outputs/full_run/eval/truthfulqa_cycle*.json
+bash scripts/make_final_results.sh --check
 \end{verbatim}
-\item[Significance tests.] Significance test runner at approximately three minutes on CPU.
-\begin{verbatim}
-python -m scripts.baseline_sig_tests \
-    --caem_dir outputs/full_run \
-    --baselines_dir outputs/baselines_phase1e
-\end{verbatim}
-\item[Aggregators.] Aggregator chain over per-cycle artefacts at approximately ten minutes on CPU: \codepath{aggregate\_pi\_store\_trajectory}, \codepath{aggregate\_tier\_chm}, \codepath{aggregate\_stochastic\_equilibrium}, \codepath{aggregate\_ces\_per\_system}, \codepath{aggregate\_per\_tier\_em}, plus \codepath{scripts/run\_purity\_validation.py} and \codepath{scripts/theorem\_receipts.py}.
-\item[Tables and figures.] Thesis-table and figure makers: \texttt{python -m scripts.make\_tables outputs/full\_run} and \texttt{python -m scripts.make\_figures outputs/full\_run}.
 \end{description}
 
 \section{Version pinning}
@@ -144,7 +134,7 @@ scipy                 & $1.11+$                  & saturating-exponential equili
 scikit-learn          & $1.4+$                   & per-signal isotonic regression and boost-layer logistic \\
 \midrule
 bitsandbytes          & $0.43+$                  & eight-bit AdamW optimiser path \\
-anthropic             & $0.108+$                 & Haiku TruthfulQA rescore client \\
+anthropic             & $<1$                     & TruthfulQA judge client \\
 numpy, pandas, tqdm   & latest stable            & arithmetic, table aggregation, progress bars \\
 \midrule
 biber + biblatex      & TeX Live 2024+           & thesis bibliography compile \\
@@ -161,36 +151,36 @@ The two required environment variables are \verb|ANTHROPIC_API_KEY| for the Haik
 \section{Hardware envelope}
 \label{app:repro-hardware}
 
-\paragraph{Production envelope:} The realised trajectory runs on a Vast.ai-rented RTX 5090 with thirty-two gigabytes of video memory (approximately thirty-one gigabytes usable after framework overhead), one hundred and fifty gigabytes of NVMe disk, and approximately ninety gigabytes of host random-access memory at approximately seventy cents per on-demand GPU-hour. The trajectory closes across approximately forty calendar days of elapsed time over the cold-start seeding, the cycle-zero calibration and validation gate, the six-cycle main run, the eight-baseline panel, and the post-run analysis, for approximately nine hundred and sixty GPU-hours at a total billed cost of approximately six hundred and seventy-two United States dollars (from the Vast.ai billing records; forty days at twenty-four hours per day at the on-demand rate). The verifier-side scoring path (nine-signal extraction across every served answer, the per-cycle composite refit, the cycle-boundary retroactive re-verification pass, and the matched-protocol Haiku-judged TruthfulQA rescore across the baseline panel) is the dominant wall-clock consumer over the run, exceeding the per-cycle low-rank-adapter fine-tune itself, because every entry on every cycle and every baseline-arm answer passes through the full verifier ensemble while the adapter touches only the strict training-pool subset.
+\paragraph{Production envelope:} The realised trajectory runs on a Vast.ai-rented RTX 5090 with thirty-two gigabytes of video memory (approximately thirty-one gigabytes usable after framework overhead), one hundred and fifty gigabytes of NVMe disk, and approximately ninety gigabytes of host random-access memory at approximately seventy cents per on-demand GPU-hour. The trajectory closes across approximately forty calendar days of elapsed time over the cold-start seeding, the cycle-zero calibration and validation gate, the six-cycle main run, the eight-baseline panel, and the post-run analysis, for approximately nine hundred and sixty GPU-hours at a total billed cost of approximately six hundred and seventy-two United States dollars (from the Vast.ai billing records; forty days at twenty-four hours per day at the on-demand rate). The verifier-side scoring path (nine-signal extraction across every served answer, the per-cycle composite refit, the cycle-boundary retroactive re-verification pass, and the matched-protocol Haiku-judged TruthfulQA rescore across the baseline panel) is the dominant wall-clock consumer over the run, exceeding the per-cycle low-rank-adapter fine-tune itself, because every entry on every cycle and every baseline-arm answer passes through the full verifier ensemble while the adapter touches only the strict training-pool subset. The baseline re-run of \Cref{sec:setup-protocol} ran later on a second rented machine of the same class and is not included in these totals.
 
 \paragraph{Per-cycle wall-clock budget:} The self-improvement fine-tune step consumes approximately thirty-five to forty-five minutes per cycle under the bounded LoRA envelope. The cycle-boundary recalibration step consumes approximately fifteen to twenty minutes including the per-signal isotonic fit, the per-benchmark shrinkage blend, and the boost-layer refit. The retroactive re-verification pass consumes approximately twenty to thirty minutes depending on the cumulative memory size. The stream-chunk admission pass consumes approximately three and a half to four and a half hours at four thousand seven hundred candidate samples per cycle through the full per-query pipeline including the retrieval-augmented tier. The run log does not time the held-out evaluation pass on its own; the measured window from the end of the fine-tune to the end of the retroactive re-verification pass, which holds the calibration-fold scoring, the held-out evaluation pass, and the re-verification pass, is five hours forty-five minutes at cycle one, nine hours forty-four minutes at cycle two, thirteen hours fifty-four minutes at cycle three, and twenty-one hours fifty minutes at cycle five. A full cycle therefore takes at least these measured windows plus the fine-tune and stream-chunk admission steps, so the end-to-end cycle time grows from roughly six hours at cycle one to more than twenty-two hours at cycle five.
 
 \paragraph{Downgraded reproduction envelope:} A consumer sixteen-gigabyte video-memory GPU reproduces the trajectory under five parameter changes registered in the runner: the SIL batch size drops from four to two, the gradient accumulation step count rises from four to sixteen (an effective batch size of thirty-two, twice the production value of sixteen), the precision drops from bfloat16 to float16 with dynamic loss scaling (consumer-tier Ampere bfloat16 paths are slower than the equivalent float16 path), the generation new-token cap drops from five hundred and twelve to one hundred and ninety-two to fit the smaller key-value cache, and activation checkpointing is enabled. The LoRA rank and alpha stay unchanged. The expected per-cycle wall-clock penalty is approximately two-point-two to two-point-six times the production envelope, so the full trajectory on a downgraded GPU takes correspondingly longer than on the production envelope, by the same factor.
 
-\paragraph{Writeup envelope:} The thesis is written on a Windows Subsystem for Linux 2 environment with an RTX 3060 (twelve gigabytes of video memory) and sixteen gigabytes of host random-access memory. The sixty-four-gigabyte Wikipedia FAISS passage index exceeds the host random-access memory by a factor of four and cannot be loaded on the writeup envelope; all retrieval-side numbers in the thesis are read from cached evaluation JSON files under \verb|outputs/full_run/| rather than recomputed locally. The local writeup envelope hosts the thesis source, the table and figure compilation, and the signal-level audits over saved verifier traces, but does not host the live retrieval substrate. The semantic-entropy composite-hallucination-metric rescore registered as a deferred receipt in \Cref{sec:future-se-chm} is deferred for the same reason.
+\paragraph{Writeup envelope:} The thesis is written on a Windows Subsystem for Linux 2 environment with an RTX 3060 (twelve gigabytes of video memory) and sixteen gigabytes of host random-access memory. The sixty-four-gigabyte Wikipedia FAISS passage index exceeds the host random-access memory by a factor of four and cannot be loaded on the writeup envelope; all retrieval-side numbers in the thesis are read from cached evaluation JSON files under \verb|outputs/full_run/| rather than recomputed locally. The local writeup envelope hosts the thesis source, the table and figure compilation, and the signal-level audits over saved verifier traces, but does not host the live retrieval substrate.
 
 \section{Verification of reproduced numbers}
 \label{app:repro-verify}
 
-A reproducer who has executed the full trajectory uses the ten-item checklist below to confirm the headline numbers match the thesis within the stated tolerance. The per-benchmark exact match at three-hundred-sample fold size carries a stochastic floor of approximately $\pm 0.5$ percentage points from the non-deterministic cuDNN attention path; the pooled exact match across the five-benchmark panel tightens to approximately $\pm 0.3$ percentage points; the composite-hallucination metric and the storage-precision ratio tolerate approximately $\pm 1.0$ percentage point; the integer-count quantities (commit fraction, win-and-loss tallies) must match exactly.
+A reproducer who has executed the full trajectory uses the ten-item checklist below to confirm that the headline numbers match the thesis within the stated tolerance. The per-benchmark exact match on $300$ questions carries a stochastic floor of about $\pm 0.5$ percentage points from the non-deterministic attention path; the pooled exact match over the five benchmarks tightens to about $\pm 0.3$ points; the composite hallucination metric and the storage precision tolerate about $\pm 1.0$ point; integer counts (commit pattern, win and defeat tallies) must match exactly when the results command is run on the same answer files. Items one to three, eight and ten are rebuilt from the saved answer files by the results command above, which reproduces them exactly.
 
 \begin{description}[style=nextline,leftmargin=0pt]
-\item[Pooled CAEM exact match at C2 and C5.]
+\item[Pooled CAEM exact match.]
 \begin{itemize}
-\item Receipt: per-sample evaluation files at \codepath{outputs/full\_run/eval/} (cycle indices $2$ and $5$), computed mean of the \texttt{em} field (or \texttt{em\_llm\_judged} on TruthfulQA) across the per-cycle five-benchmark panel. The rendered table is the pooled-trajectory table under \codepath{figures/auto/}.
-\item Expected: $0.544$ at C2, $0.517$ at C5.
+\item Receipt: the final correctness label of every answer in \codepath{outputs/full\_run/eval/}, pooled over the five benchmarks (\Cref{tab:per-bench-trajectory}).
+\item Expected: $0.517$ at C0, $0.535$ at C2, $0.508$ at C5; B1 $0.511$.
 \item Tolerance: $\pm 0.3$ percentage points.
 \end{itemize}
-\item[Pooled composite hallucination metric at the same cycles.]
+\item[Pooled composite hallucination metric.]
 \begin{itemize}
-\item Receipt: the same per-sample evaluation files plus the canonical composite-hallucination-metric implementation at \texttt{eval/metrics.py}, with the \texttt{em\_llm\_judged} field as the correctness label on TruthfulQA (the re-scoring script \texttt{scripts/recompute\_chm\_judged.py} does this).
-\item Expected: $0.126$ at C2, $0.133$ at C5 (mean of the seven active failure flags).
+\item Receipt: \codepath{outputs/analysis/chm\_judged.json}, model view (mean of the seven active failure flags).
+\item Expected: $0.155$ at C0, $0.127$ at C2, $0.134$ at C5; B1 $0.132$.
 \item Tolerance: $\pm 1.0$ percentage point.
 \end{itemize}
-\item[Per-benchmark exact match at cycle five.]
+\item[Per-benchmark exact match and CHM by cycle.]
 \begin{itemize}
-\item Receipt: \codepath{outputs/full\_run/eval/<bench>\_cycle5.json}, computed mean of the per-sample \texttt{em} field (or \texttt{em\_llm\_judged} on TruthfulQA).
-\item Expected: each per-benchmark cell must match \Cref{tab:per-bench-trajectory}.
+\item Receipt: the same record, per benchmark.
+\item Expected: each cell of \Cref{tab:per-bench-trajectory}.
 \item Tolerance: $\pm 0.5$ percentage points.
 \end{itemize}
 \item[Calibration-fold pooled storage precision band.]
@@ -201,40 +191,40 @@ A reproducer who has executed the full trajectory uses the ten-item checklist be
 \end{itemize}
 \item[Cycle-zero validation-gate composite Cohen's $d$.]
 \begin{itemize}
-\item Receipt: \codepath{outputs/analysis/weight\_validation\_v2\_1.json}, field \texttt{composite\_cohen\_d\_id.value} (the canonical v2.1-panel validation gate; the legacy \texttt{outputs/cycle\_0/weight\_validation.json} from the pre-v2.1 panel is preserved for audit but superseded).
+\item Receipt: \codepath{outputs/analysis/weight\_validation\_v2\_1.json}, field \texttt{composite\_cohen\_d\_id.value}.
 \item Expected: $+0.635$.
 \item Tolerance: $\pm 0.02$.
 \end{itemize}
 \item[Memory pool size at cycle five close.]
 \begin{itemize}
-\item Receipt: \codepath{outputs/full\_run/memory\_store\_cycle\_5.meta}, computed entry count or \texttt{len(json.load(...))} if persisted as JSON.
+\item Receipt: \codepath{outputs/full\_run/memory\_store\_cycle\_5.meta}, entry count.
 \item Expected: $12\,175$ entries.
 \item Tolerance: $\pm 5$ for content-hash collision drift.
 \end{itemize}
-\item[Realised commit fraction and abort cycle.]
+\item[Realised commit pattern and abort cycle.]
 \begin{itemize}
 \item Receipt: \codepath{outputs/full\_run/stochastic\_equilibrium\_trajectory.csv}, columns \texttt{verdict} and \texttt{committed}.
-\item Expected: commit pattern $(1, 1, 1, 0, 1)$ across C1 through C5; the cycle-four ABORT under the TriviaQA-test retention probe; realised commit fraction $\pi_{\mathrm{commit}} = 4/5$.
+\item Expected: commit pattern $(1, 1, 1, 0, 1)$ across C1 to C5, with cycle four aborted by the TriviaQA-test retention probe.
 \item Tolerance: exact match required.
 \end{itemize}
-\item[Retrieval-utility classifier ablation pooled exact-match lift.]
+\item[Retrieval-utility classifier ablation.]
 \begin{itemize}
-\item Receipt: \codepath{outputs/analysis/phase1d\_vs\_phase1e\_ruc.json}, computed pooled exact-match difference between the two arms.
-\item Expected: $+5.8$ percentage points.
+\item Receipt: the classifier-off answers at cycle three in \codepath{outputs/phase1d\_eval/} against the main run at cycle three (\Cref{tab:ruc-ablation}).
+\item Expected: pooled exact match $0.467$ off and $0.516$ on, a lift of $4.9$ percentage points.
 \item Tolerance: $\pm 0.5$ percentage points.
 \end{itemize}
-\item[Architectural-contribution slice (training panel vs.\ B1 at C2 and C5).]
+\item[Status-tag accuracy.]
 \begin{itemize}
-\item Receipt: per-sample evaluation files at \codepath{outputs/full\_run/eval/} (cycle indices $2$ and $5$) against matched zero-shot baselines under \codepath{outputs/baselines\_phase1e/zero\_shot/}, restricted to the three training benchmarks of the realised panel.
-\item Expected: $+20.3\%$ relative exact-match gain at C2 and $+13.7\%$ at C5; $-29.3\%$ relative composite-hallucination reduction at C2 and $-20.6\%$ at C5 against the same zero-shot floor.
-\item Tolerance: $\pm 1.0$ percentage point relative.
+\item Receipt: \codepath{outputs/analysis/chm\_judged.json}, field \texttt{tags} of each CAEM cycle (\Cref{tab:status-tags}).
+\item Expected: verified answers correct $0.746$, $0.655$ and $0.667$ of the time at C0, C2 and C5.
+\item Tolerance: $\pm 1.0$ percentage point.
 \end{itemize}
-\item[Significance-panel win/loss tallies at C2 and C5 (post-Haiku).]
+\item[Significance win and defeat tallies.]
 \begin{itemize}
-\item Receipt: the significance-test CSV records under \codepath{outputs/full\_run/} (C5 anchor) and \codepath{outputs/} (C2 post-Haiku anchor), computed counts of licensed rows with positive exact-match delta (wins) versus negative delta (defeats), and analogous on the composite-hallucination axis.
-\item Expected: nine exact-match wins and three defeats at C5; nineteen composite-hallucination wins and one defeat at C5; fourteen exact-match wins and three defeats at C2; twenty-three composite-hallucination wins and one defeat at C2.
+\item Receipt: \codepath{outputs/analysis/paired\_baseline\_tests\_final.json} (\Cref{tab:sig-summary}).
+\item Expected: exact match $9$ wins and $2$ defeats at C0, $9$ and $3$ at C2, $5$ and $3$ at C5; CHM $6$ and $17$ at C0, $13$ and $5$ at C2, $10$ and $4$ at C5, each out of $40$ contrasts.
 \item Tolerance: exact match required.
 \end{itemize}
 \end{description}
 
-A reproducer whose readings clear every item of the checklist within the stated tolerance has matched the thesis to within the determinism floor of the underlying compute envelope. Any item that fails by a margin larger than the registered tolerance indicates either a determinism gap that the runner did not absorb (the runner's seed-everything helper is the first place to inspect), a version pin mismatch against \Cref{tab:app-repro-versions}, a hardware-envelope downgrade not registered in the runner's parameter overrides, or a genuine correction that the empirical chapter should adopt.
+A reproducer whose readings clear every item within the stated tolerance has matched the thesis to within the determinism floor of the compute envelope. An item that fails by a larger margin points to a determinism gap the runner did not absorb (the seed-everything helper is the first place to inspect), a version mismatch against \Cref{tab:app-repro-versions}, a hardware change not registered in the runner's overrides, or a genuine correction that the empirical chapter should adopt.
