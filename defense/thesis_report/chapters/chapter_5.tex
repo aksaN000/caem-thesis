@@ -47,7 +47,7 @@ StrategyQA        & transfer & $0$    & $0$   & $0$   & $0$             & $300$ 
 \subsubsection{Metrics}
 \label{sec:setup-metrics}
 
-\textbf{Exact match (EM):} the main accuracy measure. FEVER, CommonsenseQA and StrategyQA are scored by exact label match, TriviaQA by match against any gold alias, and TruthfulQA by a language-model judge (Claude Haiku) that compares the answer with the benchmark's reference answers, following the judge-based evaluation introduced with the benchmark \cite{lin-etal-2022-truthfulqa}; the same judge scores every system.
+\textbf{Exact match (EM):} the main accuracy measure, read from the final answer line of each response by one rule for every system. FEVER and StrategyQA are scored by the label the answer starts with; CommonsenseQA by the single option letter given, where the option text may follow the letter but two letters count as wrong; TriviaQA by exact match against any gold alias after normalisation. TruthfulQA is scored by a language-model judge (Claude Haiku) that compares the final answer with the benchmark's correct and incorrect reference answers, following the judge-based evaluation introduced with the benchmark \cite{lin-etal-2022-truthfulqa}; a refusal counts as correct only when the reference answers include one. The same judge, reading the same part of the response, scores every system.
 
 \textbf{Composite hallucination metric (CHM):} the equal-weighted mean of seven failure rates, each computed over all evaluation questions.
 \begin{itemize}
@@ -65,7 +65,7 @@ Two of these, confident confabulation and false refusal, are defined through the
     \item \textbf{Off-topic:} planned as a wrong answer whose question-match score is below $0.50$. That score cannot detect off-topic answers on this panel, and its stored values never fall below $0.50$ (\Cref{sec:verifier-qa-rel}). An attempt after the run to measure off-topic answers directly, with a language-model judge, was checked against $200$ hand-labelled answers and agreed too weakly to give a reliable rate (Cohen's kappa about $0.35$), so measuring them is left to future work.
 \end{itemize}
 
-\textbf{Selective-prediction view:} because CAEM can abstain, it is also scored as a selective predictor, following Kamath et al.~\cite{kamath2020selective} and Geifman and El-Yaniv~\cite{geifman2017selective}: the share of questions it answers (every decision except abstain) and the share of those answers that are wrong. Unlike the two verifier-defined rates, this view does not depend on the verifier's scores.
+\textbf{Model view and delivered view:} every system is reported in two views. The \emph{model view} scores EM and CHM on every raw answer the generator wrote, including answers that CAEM then withheld; it measures what the model knows. The \emph{delivered view} scores what the user receives. CAEM shows every answer with its probability and a status tag (verified, provisional or conflicting, \Cref{sec:decision}) except abstentions, which hide the answer behind an insufficient-evidence message; semantic-entropy abstention (B8) withholds the answers it abstains on; every other baseline answers every question. Following the selective-prediction setting of Kamath et al.~\cite{kamath2020selective} and Geifman and El-Yaniv~\cite{geifman2017selective}, the delivered view reports the share of questions answered, the share of those answers that are wrong, and CHM over the answered questions; for CAEM it also reports the accuracy of each status tag, because the tag is part of what the user sees. Unlike the two verifier-defined rates, the answered share and the error among answered do not depend on the verifier's scores.
 
 \textbf{Composite evaluation score (CES):} a single summary of five axes, each in $[0,1]$ with one best: accuracy (pooled EM), epistemic quality ($1 - \mathrm{CHM}$), retention (worst probe ratio, capped at one), calibration ($1 - 2\,\mathrm{ECE}$) and verifier reliability ($\max(2\,\mathrm{BA} - 1, 0)$, with the balanced accuracy approximated as $\Phi(d/\sqrt{2})$ from the calibration-fold Cohen's $d$). The score is the geometric mean, so a collapse on one axis is not averaged away:
 \begin{equation}
@@ -84,7 +84,8 @@ Two of these, confident confabulation and false refusal, are defined through the
 \midrule
 Exact match (EM) & all five benchmarks & label or alias match; TruthfulQA judged by Claude Haiku against the reference answers \\
 Composite hallucination metric (CHM) & all five benchmarks & mean of seven failure rates \\
-Answered, wrong among answered & pooled & share not abstained; share of those that are wrong \\
+Answered, wrong among answered & pooled & delivered view: share not withheld; share of those that are wrong \\
+Status-tag accuracy & pooled, CAEM & share of questions and EM per tag shown to the user \\
 Storage precision $\pi_{\text{store}}$ & per cycle & share of stored answers that are correct \\
 Gate balanced accuracy, Cohen's $d$ & calibration fold & $(\mathrm{TPR} + 1 - \mathrm{FPR})/2$ at $\tau_{\text{store}}$; separation of correct and incorrect scores \\
 Composite evaluation score (CES) & pooled & geometric mean of five axes (\Cref{eq:ces}) \\
@@ -95,10 +96,22 @@ Retention ratio & probe panel & worst probe accuracy over its pre-fine-tuning va
 \label{tab:metrics}
 \end{table}
 
+\subsubsection{Comparison protocol}
+\label{sec:setup-protocol}
+
+The external baselines (\Cref{sec:external-baselines}) are compared with CAEM under one protocol, so that a difference in the results reflects the method rather than the prompt or the scoring.
+\begin{itemize}
+    \item \textbf{Matched prompts:} every baseline that answers from the question alone receives CAEM's zero-shot question message: the same system instruction, worked example, task line, answer format and forced reasoning prefix. Chain of thought (B2) and five-shot chain of thought (B5) add the step-by-step cue to that message; B5's five demonstrations per benchmark are drawn from the benchmark's training split (for TruthfulQA, which has a single split, from the questions not evaluated), with every evaluated question removed. The two retrieval baselines (B3, B4) use CAEM's retrieval prompt with the same top five passages, vanilla fine-tuning (B6) is evaluated with the prompt it was trained on, which is CAEM's zero-shot message, and FLARE (B7) uses the zero-shot message for its draft and its final answer.
+    \item \textbf{One scoring rule:} every system is scored by the rules of \Cref{sec:setup-metrics}, applied to its final answer line, and every TruthfulQA answer by the same judge.
+    \item \textbf{One hallucination instrument:} CHM needs verifier signals, so each baseline answer is passed through CAEM's verifier with the adapter and composite of cycle three, the same instrument for every baseline. The decision the verifier would take on a baseline answer is only a measurement: the baseline never acted on it. A baseline is therefore never charged with a false refusal or a withheld answer from CAEM's decision rule; its withheld answers are only those it withheld itself (B8).
+    \item \textbf{Same questions:} every system answers the same $1{,}500$ evaluation questions, in the same order, checked question by question before scoring.
+\end{itemize}
+CAEM's outputs come from the main run. An earlier comparison had given the baselines a shorter prompt than CAEM's and scored some answer formats differently, so after the main run the baselines were re-run under this protocol (B3 and B4 only on TruthfulQA, where a graphics-memory error had left the first batch of $32$ questions unanswered; their prompts were already CAEM's). CAEM's own prompts are identical, character for character, in the code of the main run and of the re-run.
+
 \subsubsection{Hardware, seed, reproducibility}
 \label{sec:setup-reproducibility}
 
-All phases ran on one rented graphics processor of the $32$-gigabyte class, under a single recorded random seed. The main run took cycles zero to five and stopped after cycle five as planned after the cycle-four rollback (\Cref{sec:env-cycles}). The code, the configuration files and the per-cycle artefacts are listed in \Cref{app:reproducibility}.
+All phases ran on one rented graphics processor of the $32$-gigabyte class, under a single recorded random seed. The main run took cycles zero to five and stopped after cycle five as planned after the cycle-four rollback (\Cref{sec:env-cycles}). The baseline re-run of \Cref{sec:setup-protocol} used a second machine of the same class. For that re-run, the passages for the evaluation questions were retrieved once by exact search over the same index and reused; on a check sample, live search returned the same passages for $50$ of $50$ questions, and the verifier's passage scores from the main run were reproduced within $0.01$ on $98$ percent of answers. Signals computed from sampled text (dropout agreement, chain similarity and chain entailment) are random draws by design and differ slightly between runs. The code, the configuration files and the per-cycle artefacts are listed in \Cref{app:reproducibility}.
 
 \subsection{Trajectory of headline metrics}
 \label{sec:headline-trajectory}
