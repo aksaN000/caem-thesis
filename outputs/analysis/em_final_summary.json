@@ -1,4 +1,220 @@
 {
+ "outputs/baselines_phase1e/cot/commonsense_qa_cycle0.json": {
+  "n": 300,
+  "em_stored": 0.71,
+  "em_final": 0.7333333333333333
+ },
+ "outputs/baselines_phase1e/cot/fever_cycle0.json": {
+  "n": 300,
+  "em_stored": 0.42,
+  "em_final": 0.42
+ },
+ "outputs/baselines_phase1e/cot/strategyqa_cycle0.json": {
+  "n": 300,
+  "em_stored": 0.6633333333333333,
+  "em_final": 0.6633333333333333
+ },
+ "outputs/baselines_phase1e/cot/triviaqa_cycle0.json": {
+  "n": 300,
+  "em_stored": 0.27,
+  "em_final": 0.27,
+  "em_lenient": 0.5533333333333333
+ },
+ "outputs/baselines_phase1e/cot/truthfulqa_cycle0.json": {
+  "n": 300,
+  "em_stored": 0.8266666666666667,
+  "em_final": 0.0,
+  "tqa_unjudged": 300
+ },
+ "outputs/baselines_phase1e/cot_rag/commonsense_qa_cycle0.json": {
+  "n": 300,
+  "em_stored": 0.63,
+  "em_final": 0.63
+ },
+ "outputs/baselines_phase1e/cot_rag/fever_cycle0.json": {
+  "n": 300,
+  "em_stored": 0.43666666666666665,
+  "em_final": 0.43666666666666665
+ },
+ "outputs/baselines_phase1e/cot_rag/strategyqa_cycle0.json": {
+  "n": 300,
+  "em_stored": 0.6033333333333334,
+  "em_final": 0.6033333333333334
+ },
+ "outputs/baselines_phase1e/cot_rag/triviaqa_cycle0.json": {
+  "n": 300,
+  "em_stored": 0.39666666666666667,
+  "em_final": 0.39666666666666667,
+  "em_lenient": 0.43
+ },
+ "outputs/baselines_phase1e/cot_rag/truthfulqa_cycle0.json": {
+  "n": 300,
+  "em_stored": 0.33666666666666667,
+  "em_final": 0.0,
+  "tqa_unjudged": 300
+ },
+ "outputs/baselines_phase1e/fiveshot_cot/commonsense_qa_cycle0.json": {
+  "n": 300,
+  "em_stored": 0.7466666666666667,
+  "em_final": 0.7466666666666667
+ },
+ "outputs/baselines_phase1e/fiveshot_cot/fever_cycle0.json": {
+  "n": 300,
+  "em_stored": 0.49,
+  "em_final": 0.49
+ },
+ "outputs/baselines_phase1e/fiveshot_cot/strategyqa_cycle0.json": {
+  "n": 300,
+  "em_stored": 0.49666666666666665,
+  "em_final": 0.49666666666666665
+ },
+ "outputs/baselines_phase1e/fiveshot_cot/triviaqa_cycle0.json": {
+  "n": 300,
+  "em_stored": 0.13666666666666666,
+  "em_final": 0.13666666666666666,
+  "em_lenient": 0.16333333333333333
+ },
+ "outputs/baselines_phase1e/fiveshot_cot/truthfulqa_cycle0.json": {
+  "n": 300,
+  "em_stored": 0.11666666666666667,
+  "em_final": 0.0,
+  "tqa_unjudged": 300
+ },
+ "outputs/baselines_phase1e/flare/commonsense_qa_cycle0.json": {
+  "n": 300,
+  "em_stored": 0.7233333333333334,
+  "em_final": 0.7533333333333333
+ },
+ "outputs/baselines_phase1e/flare/fever_cycle0.json": {
+  "n": 300,
+  "em_stored": 0.43666666666666665,
+  "em_final": 0.43666666666666665
+ },
+ "outputs/baselines_phase1e/flare/strategyqa_cycle0.json": {
+  "n": 300,
+  "em_stored": 0.6,
+  "em_final": 0.6
+ },
+ "outputs/baselines_phase1e/flare/triviaqa_cycle0.json": {
+  "n": 300,
+  "em_stored": 0.4166666666666667,
+  "em_final": 0.4166666666666667,
+  "em_lenient": 0.57
+ },
+ "outputs/baselines_phase1e/flare/truthfulqa_cycle0.json": {
+  "n": 300,
+  "em_stored": 0.7666666666666667,
+  "em_final": 0.0,
+  "tqa_unjudged": 300
+ },
+ "outputs/baselines_phase1e/rag/commonsense_qa_cycle0.json": {
+  "n": 300,
+  "em_stored": 0.6,
+  "em_final": 0.6
+ },
+ "outputs/baselines_phase1e/rag/fever_cycle0.json": {
+  "n": 300,
+  "em_stored": 0.43666666666666665,
+  "em_final": 0.43666666666666665
+ },
+ "outputs/baselines_phase1e/rag/strategyqa_cycle0.json": {
+  "n": 300,
+  "em_stored": 0.61,
+  "em_final": 0.61
+ },
+ "outputs/baselines_phase1e/rag/triviaqa_cycle0.json": {
+  "n": 300,
+  "em_stored": 0.4,
+  "em_final": 0.4,
+  "em_lenient": 0.43666666666666665
+ },
+ "outputs/baselines_phase1e/rag/truthfulqa_cycle0.json": {
+  "n": 300,
+  "em_stored": 0.31,
+  "em_final": 0.0,
+  "tqa_unjudged": 300
+ },
+ "outputs/baselines_phase1e/semantic_entropy/commonsense_qa_cycle0.json": {
+  "n": 300,
+  "em_stored": 0.76,
+  "em_final": 0.7666666666666667
+ },
+ "outputs/baselines_phase1e/semantic_entropy/fever_cycle0.json": {
+  "n": 300,
+  "em_stored": 0.4766666666666667,
+  "em_final": 0.4766666666666667
+ },
+ "outputs/baselines_phase1e/semantic_entropy/strategyqa_cycle0.json": {
+  "n": 300,
+  "em_stored": 0.6766666666666666,
+  "em_final": 0.6766666666666666
+ },
+ "outputs/baselines_phase1e/semantic_entropy/triviaqa_cycle0.json": {
+  "n": 300,
+  "em_stored": 0.30333333333333334,
+  "em_final": 0.30333333333333334,
+  "em_lenient": 0.4033333333333333
+ },
+ "outputs/baselines_phase1e/semantic_entropy/truthfulqa_cycle0.json": {
+  "n": 300,
+  "em_stored": 0.10666666666666667,
+  "em_final": 0.0,
+  "tqa_unjudged": 300
+ },
+ "outputs/baselines_phase1e/vanilla_ft/eval_fixed/commonsense_qa_cycle5.json": {
+  "n": 300,
+  "em_stored": 0.78,
+  "em_final": 0.78
+ },
+ "outputs/baselines_phase1e/vanilla_ft/eval_fixed/fever_cycle5.json": {
+  "n": 300,
+  "em_stored": 0.5433333333333333,
+  "em_final": 0.5433333333333333
+ },
+ "outputs/baselines_phase1e/vanilla_ft/eval_fixed/strategyqa_cycle5.json": {
+  "n": 300,
+  "em_stored": 0.6266666666666667,
+  "em_final": 0.6266666666666667
+ },
+ "outputs/baselines_phase1e/vanilla_ft/eval_fixed/triviaqa_cycle5.json": {
+  "n": 300,
+  "em_stored": 0.22666666666666666,
+  "em_final": 0.22666666666666666,
+  "em_lenient": 0.39
+ },
+ "outputs/baselines_phase1e/vanilla_ft/eval_fixed/truthfulqa_cycle5.json": {
+  "n": 300,
+  "em_stored": 0.023333333333333334,
+  "em_final": 0.0,
+  "tqa_unjudged": 300
+ },
+ "outputs/baselines_phase1e/zero_shot/commonsense_qa_cycle0.json": {
+  "n": 300,
+  "em_stored": 0.7033333333333334,
+  "em_final": 0.7333333333333333
+ },
+ "outputs/baselines_phase1e/zero_shot/fever_cycle0.json": {
+  "n": 300,
+  "em_stored": 0.4533333333333333,
+  "em_final": 0.4533333333333333
+ },
+ "outputs/baselines_phase1e/zero_shot/strategyqa_cycle0.json": {
+  "n": 300,
+  "em_stored": 0.65,
+  "em_final": 0.65
+ },
+ "outputs/baselines_phase1e/zero_shot/triviaqa_cycle0.json": {
+  "n": 300,
+  "em_stored": 0.29333333333333333,
+  "em_final": 0.29333333333333333,
+  "em_lenient": 0.5533333333333333
+ },
+ "outputs/baselines_phase1e/zero_shot/truthfulqa_cycle0.json": {
+  "n": 300,
+  "em_stored": 0.8033333333333333,
+  "em_final": 0.0,
+  "tqa_unjudged": 300
+ },
  "outputs/full_run/eval/commonsense_qa_cycle0.json": {
   "n": 300,
   "em_stored": 0.7633333333333333,
@@ -161,20 +377,118 @@
   "em_final": 0.25333333333333335,
   "tqa_unjudged": 0
  },
+ "outputs/phase1d_eval/commonsense_qa_cycle0.json": {
+  "n": 300,
+  "em_stored": 0.6066666666666667,
+  "em_final": 0.6066666666666667
+ },
+ "outputs/phase1d_eval/commonsense_qa_cycle1.json": {
+  "n": 300,
+  "em_stored": 0.63,
+  "em_final": 0.63
+ },
+ "outputs/phase1d_eval/commonsense_qa_cycle2.json": {
+  "n": 300,
+  "em_stored": 0.6333333333333333,
+  "em_final": 0.6333333333333333
+ },
  "outputs/phase1d_eval/commonsense_qa_cycle3.json": {
   "n": 300,
   "em_stored": 0.6033333333333334,
   "em_final": 0.6033333333333334
+ },
+ "outputs/phase1d_eval/commonsense_qa_cycle4.json": {
+  "n": 300,
+  "em_stored": 0.5966666666666667,
+  "em_final": 0.5966666666666667
+ },
+ "outputs/phase1d_eval/commonsense_qa_cycle5.json": {
+  "n": 300,
+  "em_stored": 0.6,
+  "em_final": 0.6
+ },
+ "outputs/phase1d_eval/fever_cycle0.json": {
+  "n": 300,
+  "em_stored": 0.45,
+  "em_final": 0.45
+ },
+ "outputs/phase1d_eval/fever_cycle1.json": {
+  "n": 300,
+  "em_stored": 0.5433333333333333,
+  "em_final": 0.5433333333333333
+ },
+ "outputs/phase1d_eval/fever_cycle2.json": {
+  "n": 300,
+  "em_stored": 0.52,
+  "em_final": 0.52
  },
  "outputs/phase1d_eval/fever_cycle3.json": {
   "n": 300,
   "em_stored": 0.5033333333333333,
   "em_final": 0.5033333333333333
  },
+ "outputs/phase1d_eval/fever_cycle4.json": {
+  "n": 300,
+  "em_stored": 0.5066666666666667,
+  "em_final": 0.5066666666666667
+ },
+ "outputs/phase1d_eval/fever_cycle5.json": {
+  "n": 300,
+  "em_stored": 0.5066666666666667,
+  "em_final": 0.5066666666666667
+ },
+ "outputs/phase1d_eval/fever_cycle6.json": {
+  "n": 2000,
+  "em_stored": 0.6045,
+  "em_final": 0.6045
+ },
+ "outputs/phase1d_eval/strategyqa_cycle0.json": {
+  "n": 300,
+  "em_stored": 0.6066666666666667,
+  "em_final": 0.6066666666666667
+ },
+ "outputs/phase1d_eval/strategyqa_cycle1.json": {
+  "n": 300,
+  "em_stored": 0.63,
+  "em_final": 0.63
+ },
+ "outputs/phase1d_eval/strategyqa_cycle2.json": {
+  "n": 300,
+  "em_stored": 0.6133333333333333,
+  "em_final": 0.6133333333333333
+ },
  "outputs/phase1d_eval/strategyqa_cycle3.json": {
   "n": 300,
   "em_stored": 0.6166666666666667,
   "em_final": 0.6166666666666667
+ },
+ "outputs/phase1d_eval/strategyqa_cycle4.json": {
+  "n": 300,
+  "em_stored": 0.6166666666666667,
+  "em_final": 0.6166666666666667
+ },
+ "outputs/phase1d_eval/strategyqa_cycle5.json": {
+  "n": 300,
+  "em_stored": 0.6166666666666667,
+  "em_final": 0.6166666666666667
+ },
+ "outputs/phase1d_eval/triviaqa_cycle0.json": {
+  "n": 300,
+  "em_stored": 0.4066666666666667,
+  "em_final": 0.4066666666666667,
+  "em_lenient": 0.44333333333333336
+ },
+ "outputs/phase1d_eval/triviaqa_cycle1.json": {
+  "n": 300,
+  "em_stored": 0.4633333333333333,
+  "em_final": 0.4633333333333333,
+  "em_lenient": 0.49333333333333335
+ },
+ "outputs/phase1d_eval/triviaqa_cycle2.json": {
+  "n": 300,
+  "em_stored": 0.44333333333333336,
+  "em_final": 0.44333333333333336,
+  "em_lenient": 0.49
  },
  "outputs/phase1d_eval/triviaqa_cycle3.json": {
   "n": 300,
@@ -182,10 +496,226 @@
   "em_final": 0.43666666666666665,
   "em_lenient": 0.48
  },
+ "outputs/phase1d_eval/triviaqa_cycle4.json": {
+  "n": 300,
+  "em_stored": 0.43666666666666665,
+  "em_final": 0.43666666666666665,
+  "em_lenient": 0.48
+ },
+ "outputs/phase1d_eval/triviaqa_cycle5.json": {
+  "n": 300,
+  "em_stored": 0.43666666666666665,
+  "em_final": 0.43666666666666665,
+  "em_lenient": 0.48
+ },
+ "outputs/phase1d_eval/truthfulqa_cycle0.json": {
+  "n": 300,
+  "em_stored": 0.33,
+  "em_final": 0.0,
+  "tqa_unjudged": 300
+ },
+ "outputs/phase1d_eval/truthfulqa_cycle1.json": {
+  "n": 300,
+  "em_stored": 0.31,
+  "em_final": 0.0,
+  "tqa_unjudged": 300
+ },
+ "outputs/phase1d_eval/truthfulqa_cycle2.json": {
+  "n": 300,
+  "em_stored": 0.39,
+  "em_final": 0.0,
+  "tqa_unjudged": 300
+ },
  "outputs/phase1d_eval/truthfulqa_cycle3.json": {
   "n": 300,
   "em_stored": 0.38666666666666666,
   "em_final": 0.17666666666666667,
+  "tqa_unjudged": 0
+ },
+ "outputs/phase1d_eval/truthfulqa_cycle4.json": {
+  "n": 300,
+  "em_stored": 0.38666666666666666,
+  "em_final": 0.0,
+  "tqa_unjudged": 300
+ },
+ "outputs/phase1d_eval/truthfulqa_cycle5.json": {
+  "n": 300,
+  "em_stored": 0.38666666666666666,
+  "em_final": 0.0,
+  "tqa_unjudged": 300
+ },
+ "outputs/rerun_v2/baselines/cot/commonsense_qa_cycle0.json": {
+  "n": 300,
+  "em_stored": 0.76,
+  "em_final": 0.76
+ },
+ "outputs/rerun_v2/baselines/cot/fever_cycle0.json": {
+  "n": 300,
+  "em_stored": 0.5133333333333333,
+  "em_final": 0.5133333333333333
+ },
+ "outputs/rerun_v2/baselines/cot/strategyqa_cycle0.json": {
+  "n": 300,
+  "em_stored": 0.58,
+  "em_final": 0.58
+ },
+ "outputs/rerun_v2/baselines/cot/triviaqa_cycle0.json": {
+  "n": 300,
+  "em_stored": 0.42,
+  "em_final": 0.42,
+  "em_lenient": 0.4666666666666667
+ },
+ "outputs/rerun_v2/baselines/cot/truthfulqa_cycle0.json": {
+  "n": 300,
+  "em_stored": 0.4266666666666667,
+  "em_final": 0.28,
+  "tqa_unjudged": 0
+ },
+ "outputs/rerun_v2/baselines/cot_rag/truthfulqa_cycle0.json": {
+  "n": 300,
+  "em_stored": 0.36666666666666664,
+  "em_final": 0.19333333333333333,
+  "tqa_unjudged": 0
+ },
+ "outputs/rerun_v2/baselines/fiveshot_cot/commonsense_qa_cycle0.json": {
+  "n": 300,
+  "em_stored": 0.7933333333333333,
+  "em_final": 0.7933333333333333
+ },
+ "outputs/rerun_v2/baselines/fiveshot_cot/fever_cycle0.json": {
+  "n": 300,
+  "em_stored": 0.4666666666666667,
+  "em_final": 0.4666666666666667
+ },
+ "outputs/rerun_v2/baselines/fiveshot_cot/strategyqa_cycle0.json": {
+  "n": 300,
+  "em_stored": 0.56,
+  "em_final": 0.56
+ },
+ "outputs/rerun_v2/baselines/fiveshot_cot/triviaqa_cycle0.json": {
+  "n": 300,
+  "em_stored": 0.44,
+  "em_final": 0.44,
+  "em_lenient": 0.47333333333333333
+ },
+ "outputs/rerun_v2/baselines/fiveshot_cot/truthfulqa_cycle0.json": {
+  "n": 300,
+  "em_stored": 0.4666666666666667,
+  "em_final": 0.3466666666666667,
+  "tqa_unjudged": 0
+ },
+ "outputs/rerun_v2/baselines/flare/commonsense_qa_cycle0.json": {
+  "n": 300,
+  "em_stored": 0.71,
+  "em_final": 0.71
+ },
+ "outputs/rerun_v2/baselines/flare/fever_cycle0.json": {
+  "n": 300,
+  "em_stored": 0.4166666666666667,
+  "em_final": 0.4166666666666667
+ },
+ "outputs/rerun_v2/baselines/flare/strategyqa_cycle0.json": {
+  "n": 300,
+  "em_stored": 0.6,
+  "em_final": 0.6
+ },
+ "outputs/rerun_v2/baselines/flare/triviaqa_cycle0.json": {
+  "n": 300,
+  "em_stored": 0.37,
+  "em_final": 0.37,
+  "em_lenient": 0.4166666666666667
+ },
+ "outputs/rerun_v2/baselines/flare/truthfulqa_cycle0.json": {
+  "n": 300,
+  "em_stored": 0.38,
+  "em_final": 0.23333333333333334,
+  "tqa_unjudged": 0
+ },
+ "outputs/rerun_v2/baselines/rag/truthfulqa_cycle0.json": {
+  "n": 300,
+  "em_stored": 0.3333333333333333,
+  "em_final": 0.18,
+  "tqa_unjudged": 0
+ },
+ "outputs/rerun_v2/baselines/semantic_entropy/commonsense_qa_cycle0.json": {
+  "n": 300,
+  "em_stored": 0.7666666666666667,
+  "em_final": 0.7666666666666667
+ },
+ "outputs/rerun_v2/baselines/semantic_entropy/fever_cycle0.json": {
+  "n": 300,
+  "em_stored": 0.5133333333333333,
+  "em_final": 0.5133333333333333
+ },
+ "outputs/rerun_v2/baselines/semantic_entropy/strategyqa_cycle0.json": {
+  "n": 300,
+  "em_stored": 0.64,
+  "em_final": 0.64
+ },
+ "outputs/rerun_v2/baselines/semantic_entropy/triviaqa_cycle0.json": {
+  "n": 300,
+  "em_stored": 0.43333333333333335,
+  "em_final": 0.43333333333333335,
+  "em_lenient": 0.45666666666666667
+ },
+ "outputs/rerun_v2/baselines/semantic_entropy/truthfulqa_cycle0.json": {
+  "n": 300,
+  "em_stored": 0.32,
+  "em_final": 0.24333333333333335,
+  "tqa_unjudged": 0
+ },
+ "outputs/rerun_v2/baselines/vanilla_ft/eval/commonsense_qa_cycle5.json": {
+  "n": 300,
+  "em_stored": 0.8066666666666666,
+  "em_final": 0.8066666666666666
+ },
+ "outputs/rerun_v2/baselines/vanilla_ft/eval/fever_cycle5.json": {
+  "n": 300,
+  "em_stored": 0.64,
+  "em_final": 0.64
+ },
+ "outputs/rerun_v2/baselines/vanilla_ft/eval/strategyqa_cycle5.json": {
+  "n": 300,
+  "em_stored": 0.66,
+  "em_final": 0.66
+ },
+ "outputs/rerun_v2/baselines/vanilla_ft/eval/triviaqa_cycle5.json": {
+  "n": 300,
+  "em_stored": 0.29,
+  "em_final": 0.29,
+  "em_lenient": 0.37
+ },
+ "outputs/rerun_v2/baselines/vanilla_ft/eval/truthfulqa_cycle5.json": {
+  "n": 300,
+  "em_stored": 0.13666666666666666,
+  "em_final": 0.16333333333333333,
+  "tqa_unjudged": 0
+ },
+ "outputs/rerun_v2/baselines/zero_shot/commonsense_qa_cycle0.json": {
+  "n": 300,
+  "em_stored": 0.7266666666666667,
+  "em_final": 0.7266666666666667
+ },
+ "outputs/rerun_v2/baselines/zero_shot/fever_cycle0.json": {
+  "n": 300,
+  "em_stored": 0.5066666666666667,
+  "em_final": 0.5066666666666667
+ },
+ "outputs/rerun_v2/baselines/zero_shot/strategyqa_cycle0.json": {
+  "n": 300,
+  "em_stored": 0.6433333333333333,
+  "em_final": 0.6433333333333333
+ },
+ "outputs/rerun_v2/baselines/zero_shot/triviaqa_cycle0.json": {
+  "n": 300,
+  "em_stored": 0.43,
+  "em_final": 0.43,
+  "em_lenient": 0.47333333333333333
+ },
+ "outputs/rerun_v2/baselines/zero_shot/truthfulqa_cycle0.json": {
+  "n": 300,
+  "em_stored": 0.4066666666666667,
+  "em_final": 0.25,
   "tqa_unjudged": 0
  }
 }

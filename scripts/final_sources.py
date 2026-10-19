@@ -66,11 +66,22 @@ def id_to_em(system: str, bench: str) -> Dict[str, float]:
     return out
 
 
+def acts_on_decision(system: str) -> bool:
+    """Only CAEM withholds answers by its verifier's decision. A baseline's verifier pass only measures its answers:
+    the decision written there is what CAEM would have done, not what the baseline showed the user."""
+    return system.startswith("caem_c") or system == "phase1d_c3"
+
+
 def load(system: str, bench: str) -> List[dict]:
-    """Verifier rows with `em` set to the final label (stored value kept as `em_stored`)."""
+    """Verifier rows with `em` set to the final label (stored value kept as `em_stored`). For baselines the verifier's
+    decision moves to `verifier_decision`, so no decision-based measure (false refusal, withheld) is charged to them."""
     em = id_to_em(system, bench)
     rows = _rows(verifier_path(system, bench))
     missing = [s["id"] for s in rows if str(s["id"]) not in em]
     if missing:
         raise ValueError(f"{verifier_path(system, bench)}: {len(missing)} rows without a label")
-    return [dict(s, em_stored=s.get("em"), em=em[str(s["id"])]) for s in rows]
+    out = [dict(s, em_stored=s.get("em"), em=em[str(s["id"])]) for s in rows]
+    if not acts_on_decision(system):
+        for s in out:
+            s["verifier_decision"] = s.pop("decision", None)
+    return out

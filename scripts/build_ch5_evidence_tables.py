@@ -331,7 +331,7 @@ def figures():
 \label{fig:selective}
 \end{figure}
 """)
-    anch = {"B1": "south west", "B2": "east", "B3": "south", "B4": "west", "B5": "south", "B6": "south", "B7": "south"}
+    anch = {"B1": "south west", "B2": "east", "B3": "south", "B4": "west", "B5": "south", "B6": "south", "B7": "south", "B8": "north"}
     lab = {}
     bl = "\n".join(f"  \\addplot[black!70, only marks, mark=o, mark size=2.2pt] coordinates {{({e},{c})}};"
                    + (f"\n  \\node[font=\\scriptsize, anchor={anch[n]}] at (axis cs:{e},{c}) {{{lab.get(n, n)}}};" if anch[n] else "")
