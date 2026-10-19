@@ -1,0 +1,44 @@
+{
+ "fever": {
+  "n_eval": 300,
+  "trained_on": "own calibration fold",
+  "a_stored_composite": 0.6280279123516601,
+  "answer_confidence_alone": 0.6742521889861772,
+  "b_signals_plus_answer_conf": 0.626161162718343,
+  "c_plus_hidden_state_probe": 0.6958087026090048
+ },
+ "triviaqa": {
+  "n_eval": 299,
+  "trained_on": "own calibration fold",
+  "a_stored_composite": 0.7979116032046087,
+  "answer_confidence_alone": 0.7023134395535152,
+  "b_signals_plus_answer_conf": 0.8248267170762444,
+  "c_plus_hidden_state_probe": 0.7612746421820146,
+  "d_semantic_entropy_answers": 0.8396120262849941
+ },
+ "commonsense_qa": {
+  "n_eval": 300,
+  "trained_on": "own calibration fold",
+  "a_stored_composite": 0.5564614757439869,
+  "answer_confidence_alone": 0.7395026498165512,
+  "b_signals_plus_answer_conf": 0.6484770834546619,
+  "c_plus_hidden_state_probe": 0.6819055384077806
+ },
+ "truthfulqa": {
+  "n_eval": 299,
+  "trained_on": "pooled calibration folds",
+  "a_stored_composite": 0.6426661573720397,
+  "answer_confidence_alone": 0.5630888719124014,
+  "b_signals_plus_answer_conf": 0.661955691367456,
+  "c_plus_hidden_state_probe": 0.5579322638146168,
+  "d_semantic_entropy_answers": 0.6443213649096002
+ },
+ "strategyqa": {
+  "n_eval": 300,
+  "trained_on": "pooled calibration folds",
+  "a_stored_composite": 0.5561342592592593,
+  "answer_confidence_alone": 0.6332947530864198,
+  "b_signals_plus_answer_conf": 0.5939429012345678,
+  "c_plus_hidden_state_probe": 0.576147762345679
+ }
+}
