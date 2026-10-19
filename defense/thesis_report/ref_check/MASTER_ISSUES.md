@@ -88,14 +88,14 @@ Local runs stopped and local environments/caches removed at the author's request
   verifier on the same calibration labels; display thresholds by target error rate per benchmark; SIL purer pool and
   no phantom context; a contradiction signal beside MiniCheck.
 ### M-C. Text that does not match the code (must fix)
-- [ ] Describe as it behaved, briefly (author 2026-10-17: no fault sections): token score = generator's average
+- [x] (DONE 2026-10-19, commit 2b57298; plus discard display fixed: code shows nothing on DISCARD) Describe as it behaved, briefly (author 2026-10-17: no fault sections): token score = generator's average
       token probability for its full response given the question (+1 limitation sentence); atomic signal reduces
       to mean grounding on short answers (existing sentence); early exit: rule + "fired on no evaluation answers
       at C0 and 3–23 per cycle afterwards"; temperature cap / safety override: honest reporting (already in ch5).
       These signals were active (cycle-zero weights: token 0.126 and half of internal 0.334; atomic 0.184), so
       they are not removed from the thesis. (Wording ACCEPTED by the author, 2026-10-17.)
 - [ ] Matched-protocol claim (true after M-A), chapter 6, appendices, abstract; tables regenerated.
-- [ ] B6 description (approved 2026-10-18): "full fine-tune on gold answers to training questions, with model-written
+- [x] (DONE 2026-10-19, CORRECTED: rationalisation was OFF in the run; B6 = gold answer as target, same per-cycle questions as CAEM 2,000/2,000/700 x 5 cycles x 3 epochs = 23,500 gold pairs; the wording below was wrong) B6 description (approved 2026-10-18): "full fine-tune on gold answers to training questions, with model-written
       reasoning before each answer (rationale generated forward, or back-rationalised from the gold answer); unlike
       CAEM it sees the correct answer for every training example". Ch5 currently says "raw question-answer pairs".
       B6 trained on CAEM's Tier 2 prompt (QADataset -> build_tier2_prompt); run 1 evaluated it with the bare-question
