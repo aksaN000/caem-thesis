@@ -26,7 +26,6 @@ DEFAULT_GLOBS = [
     "outputs/full_run/eval/{b}_cycle[0-9].json",
     "outputs/phase1d_eval/{b}_cycle[0-9].json",
     "outputs/baselines_phase1e/*/{b}_cycle0.json",
-    "outputs/baselines_phase1e/vanilla_ft/eval_fixed/{b}_cycle*.json",
     "outputs/rerun_v2/baselines/*/{b}_cycle0.json",
     "outputs/rerun_v2/baselines/vanilla_ft/eval/{b}_cycle*.json",
 ]

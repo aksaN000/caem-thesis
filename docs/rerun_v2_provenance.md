@@ -37,3 +37,15 @@ retrieval results or scoring, so all re-run outputs share one protocol.
 ## Known run-to-run variation
 Signals computed from sampled text (entailment over sampled chains, dropout agreement, chain similarity) are random
 draws by design and differ between runs; greedy generation can also differ slightly across GPUs and library builds.
+
+## From outputs to thesis numbers (local, 2026-10-19)
+`bash scripts/make_final_results.sh` (add `--judge` to re-run the TruthfulQA judge, `--check` to verify): uniform scorer
+(`em_final`), CHM in the model and delivered views with status-tag accuracy (`outputs/analysis/chm_judged.json`), paired
+tests (`outputs/analysis/paired_baseline_tests_final.json`), chapter 5 tables and figures (`build_ch5_evidence_tables.py`,
+`build_final_tables.py`). Verified 2026-10-19: the command reproduces every committed output exactly.
+- TruthfulQA judge on the re-run baselines: 2026-10-19 08:30 BDT, Claude Haiku 4.5, anthropic 0.125, protocol
+  final_answer_v2 (`outputs/rerun_v2/tqa_judge_v2_baselines.log`; inputs backed up in
+  `outputs/rerun_v2/backup_before_tqa_judge_baselines/`). CAEM C0–C5 and Phase 1d C3 were judged on 2026-10-17.
+- A baseline's verifier decision is a measurement only and is never charged to it (`final_sources.load`).
+- Delivered view follows the production envelope (`caem/production/confidence.py`): only abstentions are withheld.
+- Replaced run-1 baseline files: `outputs/superseded_2026-10/run1_baselines/` (README there).
