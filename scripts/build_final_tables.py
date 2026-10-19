@@ -286,7 +286,9 @@ def ces():
         keep = lambda x, v: x.replace(re.search(r"[0-9.]+", x).group(0), f"{v:.3f}")
         new = [keep(cells[0], acc), keep(cells[1], epi), cells[2], cells[3], cells[4], keep(cells[5], val)]
         s = s[:m.start(5)] + " & ".join(new) + " " + s[m.end(5):]
-    p.write_text(s if HEAD in s else s.replace("\\begin{table}", HEAD.replace("do not edit", "ACC/EPI/CES columns") + "\\begin{table}", 1))
+    tag = HEAD.replace("do not edit", "ACC/EPI/CES columns")
+    s = s.replace(tag, "")
+    p.write_text(s.replace("\\begin{table}", tag + "\\begin{table}", 1))
 
 
 if __name__ == "__main__":
