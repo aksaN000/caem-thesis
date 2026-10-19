@@ -1,4 +1,5 @@
 - [START HERE: thesis drafting session handoff (2026-10-16)](caem_drafting_session_start.md) — one conversation per chapter; read `defense/thesis_report/ref_check/SESSION_START.md` + `drafting_review_progress.md` FIRST in any thesis-review session.
+- [NEXT: CAEM v3 new codebase (2026-10-19)](caem_v3_new_codebase_plan.md) — plan of record: /workspace/caem-research/docs/PLAN.md; final-version frozen for defense (GitHub default branch); new organised codebase, real cross-benchmark verifier, full re-run in ~2 months; verifier feasibility first.
 - [ACTIVE PLAN — final-version (2026-10-17)](caem_final_version_plan.md) — minimum defensible thesis: fair baselines + scoring + descriptions + optional S1/S2 trial on ONE rented GPU; read MASTER_ISSUES.md top first.
 - [User profile — Aksan Gony Alif](user_profile.md) — 4th-year CSE undergrad at BRAC (Bangladesh), CSE400 thesis on CAEM; personally motivated by 2024 Claude hallucinations; treat as peer researcher.
 - [CAEM Book complete (2026-06-14)](caem_book_complete.md) — teaching book fully drafted: 16 chapters + 2 appendices, 151pp, clean TinyTeX build; build/figure-tag/honesty conventions + the latexmk stale-log gotcha.
