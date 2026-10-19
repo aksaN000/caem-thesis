@@ -17,7 +17,7 @@ Baseline build (latexmk, 2026-10-16): 324 pages, 0 errors, 0 undefined refs/cita
 | Chapter 4 | Claude pass done (full rewrite + 6 figures); PR open; awaiting author's read | branch `review/ch4`; ~21 000 → ~9 700 words |
 | Chapter 5 | pending | pre-found issues: `archive/audits/thesis_audit_2026-10-15/review_ch5_part1.md` |
 | Chapter 6 | rewritten on final numbers (7286a15) + checklist pass 2026-10-19; awaiting author's read | branch final-version |
-| Appendices A–G | checklist pass 2026-10-19 (fixes_applied.md); appendix B earlier-panel decision pending; awaiting author's read | branch final-version |
+| Appendices A–E | checklist pass + restructure 2026-10-19 (F glossary and G FAQ removed); awaiting author's read | branch final-version |
 | Bibliography | checked 2026-10-19: 96 references, no duplicates, 0 biber warnings | |
 | Whole-document pass | done 2026-10-19 (fixes_applied.md); PDF 210 pages uploaded to Drive 1_thesis/ | branch final-version |
 

@@ -325,7 +325,7 @@ At cycle zero the gap is large per benchmark (\Cref{tab:validation-gate}). On th
 \subsection{The long-hypothesis judge ablation}
 \label{sec:adj-judge-ablation}
 
-A second entailment judge, built on the frozen generator, was meant to handle answers longer than MiniCheck's $512$-token input. It was required to agree with MiniCheck with a Pearson correlation of at least $0.70$ in logit space on a $500$-sample overlap set; it reached $0.584$ and was dropped (\Cref{app:judge-ablation}, where only the correlation and the floor were kept). Every answer is therefore judged by MiniCheck, with inputs over $512$ tokens truncated; the short-answer prompts of this panel rarely reach that length.
+A second entailment judge, built on the frozen generator, was meant to handle answers longer than MiniCheck's $512$-token input. It was required to agree with MiniCheck with a Pearson correlation of at least $0.70$ in logit space on a $500$-sample overlap set; it reached $0.584$ and was dropped. Every answer is therefore judged by MiniCheck, with inputs over $512$ tokens truncated; the short-answer prompts of this panel rarely reach that length.
 
 \subsection{The validation gate verdict}
 \label{sec:adj-gate}
@@ -527,7 +527,6 @@ From the re-run sweep (\Cref{tab:sweep-variants}): moving the cut-point from $0.
 
 \textbf{Retrieval and misconceptions:} on questions written to invite a familiar wrong answer, retrieved passages tend to share the question's framing rather than refute it, so the retrieval tier amplifies the misconception and the storage gate cannot recover what retrieval has already corrupted. This is why retrieval-tier answers on TruthfulQA are the least accurate of the panel (\Cref{sec:disc-headline}), and the case the classifier was built for.
 
-\Cref{app:positioning-qa} compares each architectural component with plain fine-tuning at the same labelling budget.
 
 \subsection{Limitations}
 \label{sec:disc-limitations}

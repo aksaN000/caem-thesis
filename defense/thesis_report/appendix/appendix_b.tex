@@ -1,13 +1,10 @@
 % ============================================================================
-% Appendix B — Cycle-zero evidence catalogue (final drafting pass 2026-10-19).
+% Appendix B — Cycle-zero configuration and example answers (final drafting pass 2026-10-19).
 % ============================================================================
 
-\chapter{Cycle-zero evidence catalogue}
+\chapter{Cycle-zero configuration and example answers}
 \label{app:cycle0-catalog}
 
-% Purpose: a complete listing of every Cycle 0 measurement that
-% influenced a design decision. Body prose in Chapter 5 reports the
-% headline numbers; this appendix is the full archive.
 
 \section{The $100$-variant composite parameter sweep}
 \label{app:sweep-full}
@@ -15,21 +12,6 @@
 The locked configuration selected from the sweep, with the rationale for each parameter, is given in \Cref{tab:sweep-top}; the locked variant and its neighbours are compared in \Cref{tab:sweep-variants}. The full sweep over the pre-specified $\tau_{\text{store}} \times C \times \alpha_{\text{shrink}}$ grid ($4 \times 5 \times 5 = 100$ variants) is recorded in the cycle-zero sweep archive with one record per variant; no per-variant comparison table is reproduced in the thesis. Per-benchmark sweep diagnostics for any variant in the grid are recoverable by reading the corresponding JSON entry.
 
 \input{figures/auto/sweep_top.tex}
-
-\section{The calibration-to-evaluation gap analysis}
-\label{app:cal-eval-gap}
-
-The gap between calibration-fold and evaluation-fold precision is discussed in \Cref{sec:adj-cal-eval-gap}, and the per-benchmark validation-fold readings are in \Cref{tab:validation-gate}.
-
-\section{The first-iteration failure trace}
-\label{app:first-iteration-trace}
-
-The first iteration of the cycle-zero calibration failed the pre-specified validation gate due to a JSONL signal-dump bug; the narrative is recorded in \Cref{sec:adj-failed-iterations}. The diagnostic record is preserved in the first-iteration archival snapshot dated to the failure, together with the degenerate composite calibration record whose conformal-threshold collapse triggered the corrective patch.
-
-\section{The long-hypothesis judge ablation diagnostic}
-\label{app:judge-ablation}
-
-The Platt fit diagnostic that licensed the ablation of the long-hypothesis judge is recorded in the long-hypothesis-judge Platt-ablation calibration record. The two persisted headline statistics are the observed Pearson $\rho = 0.5843$ in logit space and the pre-specified floor of $\rho_{\min} = 0.70$ against which the observed correlation is audited. The judge therefore failed the floor and was dropped, so every hypothesis is judged by MiniCheck with inputs truncated at $512$ tokens (\Cref{sec:adj-judge-ablation}); revisiting it is future work (\Cref{sec:future-judge}). The per-sample trace is kept in the judge's diagnostic log.
 
 \section{Composite weight table}
 \label{app:composite-weights}

@@ -64,7 +64,7 @@ The limitations are discussed with their evidence in \Cref{sec:disc-threats,sec:
     \item \textbf{The hallucination instrument:} two of the seven CHM subtypes use CAEM's own verifier; exact match and the delivered view's error among answered do not depend on it.
     \item \textbf{No repeated questions:} the evaluation used fresh questions to measure learning, so the memory-direct tier and its cost saving were tested only by the router probe (\Cref{tab:tier1-probe}).
     \item \textbf{Bundled ablation:} the classifier ablation also carries pipeline corrections, so it measures the classifier together with them.
-    \item \textbf{Labels:} CAEM is label-efficient, not label-free; it used about $2{,}100$ gold labels, and a deployment needs a labelled batch at every cycle (\Cref{app:qa-production-fold}).
+    \item \textbf{Labels:} CAEM is label-efficient, not label-free; it used about $2{,}100$ gold labels, and a deployment needs a labelled batch at every cycle (\Cref{sec:conformal-cycle-recalib}).
 \end{itemize}
 
 \subsection{Closing remark}
@@ -127,7 +127,7 @@ The monotonicity heuristic and hypothesis H2 assume a fixed verifier, while the 
 \subsection{A longer horizon}
 \label{sec:future-equilibrium-horizon}
 
-A convergence rate, the long-run limit of CHM, and the equilibrium behaviour under rollbacks all need at least fifteen kept cycles under a fixed composite (\Cref{sec:theory}). A longer run would also show whether the deferred buffer, which ran only three reconsideration passes, recovers more answers over time, and whether a rotating calibration fold behaves better than a fixed one over many cycles (\Cref{app:qa-same-fold}).
+A convergence rate, the long-run limit of CHM, and the equilibrium behaviour under rollbacks all need at least fifteen kept cycles under a fixed composite (\Cref{sec:theory}). A longer run would also show whether the deferred buffer, which ran only three reconsideration passes, recovers more answers over time, and whether a rotating calibration fold behaves better than a fixed one over many cycles (\Cref{sec:conformal-cycle-recalib}).
 
 \subsection{Measurements this study did not take}
 \label{sec:future-latency}
@@ -147,4 +147,4 @@ All results come from one three-billion-parameter generator on English factual q
 \subsection{Deployment study}
 \label{sec:future-deployment}
 
-The memory-direct tier and the production design (\Cref{app:qa-production-fold}) were built for traffic in which users repeat questions, which this study did not have. A deployment with live users would measure the share of repeated questions, the cost saving of the memory-direct tier, how users read the status tag, and the labelling effort a cycle needs in practice. It would also test the memory at a realistic size: the run's memory reached $12{,}175$ entries, so the approximate search and the value-based pruning built for millions of entries were never used.
+The memory-direct tier and the production design (\Cref{sec:conformal-cycle-recalib}) were built for traffic in which users repeat questions, which this study did not have. A deployment with live users would measure the share of repeated questions, the cost saving of the memory-direct tier, how users read the status tag, and the labelling effort a cycle needs in practice. It would also test the memory at a realistic size: the run's memory reached $12{,}175$ entries, so the approximate search and the value-based pruning built for millions of entries were never used.

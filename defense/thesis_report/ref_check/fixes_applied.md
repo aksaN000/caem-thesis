@@ -1658,3 +1658,15 @@ Checks run on abstract, chapters 1–6, appendices, front lists and bibliography
 | List of Acronyms | label columns widened, ragged right | visible label overlaps (TruthfulQA, OpenBookQA, StrategyQA) |
 | main.tex | biblatex URL break penalties | 60 pt overfull URL in the references |
 Remaining overfull > 10 pt: 3 (Qwen arXiv identifier in the references, two long identifiers in the appendix A registry), not visible.
+
+## Appendix restructure (2026-10-19, author: remove FAQ, glossary if not needed, duplicates and extras)
+| Removed | Why | Unique content kept where |
+|---|---|---|
+| Appendix G (FAQ), whole | Part I repeated ch5/ch6 (label efficiency, status tags, memory tier, B6 comparison); Part II repeated ch4 (same fold, cycle order, stricter training threshold); FAQ form is not a thesis appendix | deployed calibration fold (size, stratified, trade-off) → ch4 sec:conformal-cycle-recalib; early exit off during re-verification → ch4 sec:retroverify; refs in ch1/ch6 repointed; ch5 pointer sentence deleted |
+| Appendix F (glossary), whole | cited nowhere; acronyms are in the List of Acronyms, symbols in the List of Symbols, concepts defined where introduced | — |
+| Appendix A: hyperparameter table | same values as the configuration registry | one sentence naming the four refitted groups (pointer to tab:calibration-trajectory) |
+| Appendix A: hardware, calibration-script, validation-gate sections | repeat appendix E, ch4 and ch5 sec:adj-gate | pointers in the registry paragraph |
+| Appendix B: calibration-to-evaluation gap, first-iteration trace, judge ablation | one-line pointers or repeats of ch5 | ch5 judge pointer removed; title → "Cycle-zero configuration and example answers" |
+| Appendix C: calibration snapshot, threshold history, outcome/retention, fine-tuning tables | subsets of ch5 tab:calibration-trajectory and tab:sil-training-trajectory | memory table kept (cited by ch3/ch4); intro points to the ch5 tables |
+| Appendix E: fold sizes | repeat ch5 tab:benchmark-pools | partition builder, record path and seeds kept |
+Files moved to archive/thesis_appendices_removed_2026-10-19/. Build 0 errors, 0 undefined, 0 biber warnings; 210 → 182 pages.

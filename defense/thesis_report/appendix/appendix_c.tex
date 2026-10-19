@@ -8,59 +8,7 @@
 \chapter{Per-cycle records}
 \label{app:per-cycle}
 
-The first five sections give the per-cycle records behind \Cref{ch:evaluation}: calibration snapshots in \Cref{tab:app-per-cycle-cal}, the threshold history in \Cref{tab:app-per-cycle-tau}, the memory-store trajectory in \Cref{tab:app-per-cycle-memory}, the per-cycle outcomes in \Cref{tab:app-per-cycle-equilibrium}, and the fine-tuning diagnostics in \Cref{tab:app-per-cycle-ft}. Cycle zero is the cold-start calibration cycle and cycles one to five are the main-run cycles. Cycle four was rolled back by the retention guard, which skips the calibration refit and the retroactive re-verification on that cycle, so four of the five fine-tunes were kept; the run ended after cycle five as planned.
-
-\section{Per-cycle calibration snapshots}
-\label{app:per-cycle-cal}
-
-\Cref{tab:app-per-cycle-cal} reports the per-cycle pooled temperature scalar, the expected calibration error before and after the per-cycle refit, and the boost-layer intercept. The cycle-zero temperature sits at the upper bound of the fit ($T = e^{3} \approx 20.09$), which flattens the pre-routing confidence (\Cref{sec:disc-limitations}); after the first fine-tune it falls to about $1$ and stays between $0.74$ and $0.87$ from cycle two. The refit lowers the expected calibration error from $0.276$ to $0.066$ at cycle zero, and the error after each later refit stays between $0.041$ and $0.049$.
-
-\begin{table}[!htbp]
-\centering\footnotesize
-\setlength{\tabcolsep}{6pt}
-\renewcommand{\arraystretch}{1.1}
-\begin{tabular}{@{}lrrrr@{}}
-\toprule
-\textbf{Cycle} & $\boldsymbol{T}$ \textbf{(post-refit)} & \textbf{ECE before} & \textbf{ECE after} & \textbf{Boost intercept} \\
-\midrule
-C0 & $20.086$ & $0.2761$ & $0.0662$ & $\phantom{-}0.2649$ \\
-C1 & $1.089$  & $0.0508$ & $0.0440$ & $-0.6130$ \\
-C2 & $0.836$  & $0.0509$ & $0.0494$ & $-0.6338$ \\
-C3 & $0.740$  & $0.0451$ & $0.0407$ & $-0.5655$ \\
-C4$^{\ast}$ & --- & --- & --- & --- \\
-C5 & $0.869$  & $0.0551$ & $0.0427$ & $-0.5204$ \\
-\bottomrule
-\end{tabular}
-\caption[Per-cycle calibration snapshot summary]{Per-cycle calibration snapshot summary. The calibration fold has $n_{\text{cal}} = 1\,500$ and the boost-layer L2 regularisation is pinned at $C = 0.01$ across cycles by the per-cycle refit invocation. The asterisk marks cycle four, which was aborted under the retention guard; the calibration refit was skipped under the asymmetric-rollback contract. Sources: the cycle-zero calibrated-configuration JSON for the cold-start values and the per-cycle calibrated-configuration JSONs for cycles one, two, three, and five; the boost-layer intercept is read from the pooled-fit field of each cycle's composite-calibration record.}
-\label{tab:app-per-cycle-cal}
-\end{table}
-
-\section{Per-cycle threshold history}
-\label{app:per-cycle-tau}
-
-The four-way storage decision tree of \Cref{sec:decision} reads against the architecturally frozen cut-points $\tau_{\text{store}} = 0.60$ and $\tau_{\text{defer}} = 0.45$, which do not move across the trajectory; the threshold history table below records the per-cycle quantities that do move under the cycle-boundary refit. \Cref{tab:app-per-cycle-tau} reports the three per-benchmark temperature scalars on the training panel, and the three per-benchmark safety floors at each successful cycle. The FEVER and TriviaQA temperatures sit an order of magnitude above the CommonsenseQA temperature at every cycle (both at the upper bound at cycle zero), so the pre-routing confidence is flattened most on those two benchmarks. The CommonsenseQA per-benchmark safety floor ratchets up from the registered default $\phi_{\text{safe}} = 0.380$ to $0.491$ at cycle three and to $0.569$ at cycle five; the FEVER and TriviaQA floors stay at the architectural minimum throughout.
-
-\begin{table}[!htbp]
-\centering\scriptsize
-\setlength{\tabcolsep}{4pt}
-\renewcommand{\arraystretch}{1.1}
-\resizebox{\linewidth}{!}{%
-\begin{tabular}{@{}lrrrrrr@{}}
-\toprule
-\textbf{Cycle} & $\boldsymbol{T_{\text{FEVER}}}$ & $\boldsymbol{T_{\text{TQA}}}$ & $\boldsymbol{T_{\text{CSQA}}}$ & $\boldsymbol{\phi_{\text{safe},\text{FEVER}}}$ & $\boldsymbol{\phi_{\text{safe},\text{TQA}}}$ & $\boldsymbol{\phi_{\text{safe},\text{CSQA}}}$ \\
-\midrule
-C0 & $20.086$ & $20.086$ & $1.427$ & $0.380$ & $0.380$ & $0.380$ \\
-C1 & $14.092$ & $14.123$ & $1.342$ & $0.380$ & $0.380$ & $0.380$ \\
-C2 & $9.899$  & $10.007$ & $1.209$ & $0.380$ & $0.380$ & $0.380$ \\
-C3 & $6.986$  & $7.163$  & $1.083$ & $0.380$ & $0.380$ & $0.491$ \\
-C4$^{\ast}$ & --- & --- & --- & --- & --- & --- \\
-C5 & $4.972$  & $11.040$ & $1.028$ & $0.380$ & $0.380$ & $0.569$ \\
-\bottomrule
-\end{tabular}%
-}
-\caption[Per-cycle threshold history]{Per-cycle threshold history. The architecturally frozen storage and deferral cut-points do not move; what moves under the cycle-boundary refit is the per-benchmark temperature vector and the per-benchmark safety floor. The CommonsenseQA per-benchmark safety floor ratchets up from $0.380$ to $0.491$ at cycle three and to $0.569$ at cycle five. The asterisk marks cycle four, where the calibration refit was skipped under the asymmetric-rollback contract. Sources: the per-cycle calibrated-configuration JSONs under the experiment-run calibration directory.}
-\label{tab:app-per-cycle-tau}
-\end{table}
+This appendix holds the per-cycle tables that \Cref{ch:evaluation} refers to but does not print: the memory trajectory with the four mechanisms that change it, and the further evaluation tables. The calibration refit by cycle is in \Cref{tab:calibration-trajectory}, and the fine-tuning and retention record in \Cref{tab:sil-training-trajectory}.
 
 \section{Per-cycle memory size and storage rate}
 \label{app:per-cycle-memory}
@@ -86,56 +34,6 @@ C5 & $12\,175$ & $2\,343$ & $382$ & $299$ & $44$ & $+2\,214$ \\
 \end{tabular}
 \caption[Per-cycle memory store trajectory]{Per-cycle memory store trajectory. The pool grows from the $431$ cold-start entries to $12{,}175$ at the cycle-five close. The four columns do not add up exactly to the net change, by at most two entries per cycle. The cycle-zero admissions row records the cold-start seed rather than a stream-chunk pass. The asterisk marks cycle four, which was aborted under the retention guard; the retroverify, deferred-reconsider, and consolidation passes are skipped under the asymmetric-rollback contract and shown as dashes. The per-cycle stream-chunk admission count stays in the band $[2\,343, 2\,484]$ across cycles one through five against a stream-chunk candidate budget of $4\,700$ samples per cycle ($2{,}000$ FEVER, $2{,}000$ TriviaQA, $700$ CommonsenseQA), so the storage gate admits approximately half of every candidate stream chunk. The admissions count the entries actually added to the store; they sit slightly below the gate-pass counts $n_{\text{stored}}$ of \Cref{tab:storage-pool-quality} because the memory store's novelty filter rejects near-duplicates of existing entries between the gate and the insert. The cycle-five admission count is the cycle-close pool minus the post-re-verification pool ($12\,175 - 9\,832$). The consolidation-removal column is the episodes-removed count of \Cref{tab:memory-store-trajectory}. Admissions minus prunes plus promotions minus consolidation removals reproduces the net change at every cycle except a residual of one entry at cycle two and two entries at cycle five; the residual is promoted entries dropped as duplicates of entries already in the store (the cycle-two consolidation pass sees $2\,948$ entries against $2\,818 + 131 = 2\,949$). Sources: the per-cycle memory-store metadata side-files supply the cycle-close pool sizes (the length of the metadata list inside the pickled snapshot); the per-cycle retroverification records supply the per-cycle prune counts; per-cycle deferred-buffer promotion counts are read from the deferred-reconsideration log emissions in the experiment run log.}
 \label{tab:app-per-cycle-memory}
-\end{table}
-
-\section{Per-cycle outcome and retention probes}
-\label{app:per-cycle-equilibrium}
-
-\Cref{tab:app-per-cycle-equilibrium} reports the outcome of each cycle together with the worst-probe retention ratio and the post-training MMLU probe accuracy. Cycles one to three were committed; cycle four was rolled back by the retention guard (TriviaQA-test ratio $0.886$ below the registered floor of $0.93$); cycle five was committed, and the run ended there as planned.
-
-\begin{table}[!htbp]
-\centering\footnotesize
-\setlength{\tabcolsep}{4pt}
-\renewcommand{\arraystretch}{1.1}
-\begin{tabular}{@{}lcccc@{}}
-\toprule
-\textbf{Cycle} & \textbf{Outcome} & \textbf{Worst probe} & \textbf{Worst ratio} & \textbf{MMLU acc.} \\
-\midrule
-C1 & committed & CommonsenseQA-test & $1.006$ & $0.635$ \\
-C2 & committed & TriviaQA-test       & $0.949$ & $0.595$ \\
-C3 & committed & CommonsenseQA-test & $0.976$ & $0.605$ \\
-C4 & \textbf{rolled back} & TriviaQA-test  & $\mathbf{0.886}$ & $0.621$ \\
-C5 & committed (last) & CommonsenseQA-test & $0.958$ & $0.609$ \\
-\bottomrule
-\end{tabular}
-\caption[Per-cycle outcome and retention probes]{Per-cycle outcome and retention probes. At cycle four the TriviaQA-test ratio of $0.886$ fell below the floor $\rho_{\min} = 0.93$, so the weights were rolled back to the cycle-three checkpoint with memory kept. The MMLU column is the post-training MMLU probe accuracy against the pristine anchor of $0.610$.}
-\label{tab:app-per-cycle-equilibrium}
-\end{table}
-
-Per-cycle coverage diagnostics (admission rates, candidate counts, pool entropy and the singular values of the adapter) are kept in the cycle-five coverage record.
-
-\section{Per-cycle fine-tuning diagnostics}
-\label{app:per-cycle-ft}
-
-\Cref{tab:app-per-cycle-ft} reports the per-cycle self-improvement training trajectory: the size of the training pool drawn from cumulative memory above $\tau_{\text{train}} = 0.70$, the per-epoch final loss, the worst-probe retention ratio at the cycle close, and whether the cycle committed or rolled back. The training-pool size grows monotonically across the trajectory from $107$ entries at the first fine-tune to $5{,}006$ at the cycle-five fine-tune, consistent with the cumulative memory growth reported in \Cref{tab:app-per-cycle-memory}. The final epoch-three loss declines almost monotonically across the successful cycle subsequence ($0.258 \to 0.171 \to 0.109$) and reaches its lowest in-flight value at cycle four ($0.070$); the cycle-five restart resumes at the slightly higher value $0.091$ because the cycle re-initialises from the cycle-three adapter and trains over a larger and more diverse pool. The retention guard fires exactly once on the realised trajectory, at cycle four, on the TriviaQA-test probe: post-training accuracy $0.350$ against the pristine baseline of $0.395$ yields the worst-probe ratio of $0.886$, below the registered floor of $0.93$. The adapter is restored to the cycle-three checkpoint before evaluation runs under the rolled-back weights.
-
-\begin{table}[!htbp]
-\centering\footnotesize
-\setlength{\tabcolsep}{5pt}
-\renewcommand{\arraystretch}{1.1}
-\begin{tabular}{@{}lrrrrc@{}}
-\toprule
-\textbf{Cycle} & $\boldsymbol{n_{\text{used}}}$ & \textbf{Loss epoch 1} & \textbf{Loss epoch 2} & \textbf{Loss epoch 3} & \textbf{Rollback} \\
-\midrule
-C1 & $107$    & $1.387$ & $0.595$ & $0.258$ & --- \\
-C2 & $1\,474$ & $0.728$ & $0.367$ & $0.171$ & --- \\
-C3 & $2\,966$ & $0.535$ & $0.230$ & $0.109$ & --- \\
-C4 & $3\,624$ & $0.424$ & $0.147$ & $0.070$ & \textbf{yes} \\
-C5 & $5\,006$ & $0.482$ & $0.194$ & $0.091$ & --- \\
-\bottomrule
-\end{tabular}
-\caption[Per-cycle fine-tuning diagnostics]{Per-cycle fine-tuning diagnostics. The retention guard binds on the TriviaQA-test probe across the realised trajectory: the worst non-abort ratio occurs at cycle two ($0.949$ on TriviaQA-test) and the cycle-four abort fires on the same probe at ratio $0.886$ against the registered floor $\rho_{\min} = 0.93$. The MMLU probe ratio stays in the band $[0.975, 1.041]$ across the trajectory, confirming that TriviaQA-test is the binding retention constraint for the realised self-improvement trajectory and that the cycle-four rollback is a probe-specific regression rather than a pool-wide one. Pristine retention anchors held fixed across cycles: MMLU $0.610$, TriviaQA-test $0.395$, CommonsenseQA-test $0.825$. Sources: the per-cycle retroverification JSONs supply the training-batch size and the final-loss fields; the per-cycle post-training probe lines in the experiment-run log supply the per-probe retention ratios; the pristine probe-baseline record supplies the cycle-zero anchors.}
-\label{tab:app-per-cycle-ft}
 \end{table}
 
 \section{Additional per-cycle tables from the evaluation}
