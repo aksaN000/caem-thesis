@@ -63,6 +63,7 @@ Local runs stopped and local environments/caches removed at the author's request
       "A | B | C | D | E" format line). TruthfulQA judge v2 (CAEM written, em_final): C0 0.380 -> 0.270,
       C2 0.323 -> 0.277, C5 0.300 -> 0.253; the losses are mostly refusals ("I do not know"), which TruthfulQA's own
       convention counts as truthful but not informative; v2 measures truthful and informative.
+- [x] REVISED (author, 2026-10-19): delivered view follows the production response envelope (caem/production/confidence.py): only ABSTAIN (and B8 "<abstain>") is withheld; DISCARD is shown with a 'conflicting' warning; every answer carries u_stored + status tag; add a per-tag accuracy table (verified 0.75/0.66/0.67 at C0/C2/C5, provisional 0.60/0.53/0.43, conflicting 0.48/0.22/0.22, insufficient 0.37/0.27/0.31). Delivered: C0 66.1%/0.405, C2 87.7%/0.428, C5 83.0%/0.451 vs B8 89.5%/0.427, B1 100%/0.489. Baselines' verifier decisions are not charged to them (final_sources.load). CHM false-refusal (registered: abstained or discarded) unchanged.
 - [x] DECIDED (author, 2026-10-17: "do what is ideal" -> both views, implemented in recompute_chm_judged.summarise and the selective table): withheld answers. EM and CHM read CAEM's raw answer even when it was withheld (ABSTAIN shows
       "I do not know.", DISCARD shows nothing). C0 withholds 335 correct answers; 517 withheld wrong answers are
       counted as hallucinations; CHM with withheld answers counted only as refusals: C0 0.155 -> 0.075,

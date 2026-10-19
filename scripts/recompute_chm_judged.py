@@ -40,8 +40,23 @@ def flags(s):
 
 
 def withheld(s):
-    """The user is shown no answer: CAEM ABSTAIN ("I do not know.") or DISCARD (empty), B8 "<abstain>"."""
-    return s.get("decision") in ("ABSTAIN", "DISCARD") or "<abstain>" in (s.get("prediction") or "")
+    """The user is shown no answer: CAEM ABSTAIN (the production envelope hides the answer behind an
+    insufficient-evidence message) or B8 "<abstain>". A DISCARD answer is shown with a 'conflicting' warning
+    (author decision 2026-10-19: delivered view follows the production envelope, caem/production/confidence.py)."""
+    return s.get("decision") == "ABSTAIN" or "<abstain>" in (s.get("prediction") or "")
+
+
+TAGS = {"STORE": "verified", "DEFERRED": "provisional", "DISCARD": "conflicting", "ABSTAIN": "insufficient"}
+
+
+def tag_accuracy(samples):
+    """Share of questions and accuracy per status tag the user sees (CAEM only)."""
+    n = len(samples)
+    out = {}
+    for d, tag in TAGS.items():
+        rows = [s for s in samples if s.get("decision") == d]
+        out[tag] = {"share": len(rows) / n, "accuracy": sum((s.get("em") or 0) for s in rows) / len(rows) if rows else None}
+    return out
 
 
 def summarise(samples):
@@ -80,6 +95,7 @@ def main():
             allS = [s for b in BENCHES for s in per[b]]
             tiers[name.replace("caem_", "")] = {t: summarise([s for s in allS if s.get("tier") == t])
                                                 for t in (1, 2, 3) if any(s.get("tier") == t for s in allS)}
+            res[name]["tags"] = tag_accuracy(allS)
     res["_tiers"] = tiers
     out = ROOT / "outputs/analysis/chm_judged.json"
     json.dump(res, open(out, "w"), indent=1)

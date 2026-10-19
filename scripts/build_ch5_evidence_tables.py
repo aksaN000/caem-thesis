@@ -159,7 +159,7 @@ def eval_view(c):
     for b in PANEL:
         for s in json.load(open(ROOT / f"outputs/full_run/eval/{b}_cycle{c}.json"))["samples"]:
             n += 1
-            if s.get("decision") not in ("ABSTAIN", "DISCARD"):  # delivered view: DISCARD shows the user nothing
+            if s.get("decision") != "ABSTAIN":  # delivered view: the production envelope hides only abstentions
                 ans += 1
                 wrong_ans += em_of(s, b) < 1
     return ans / n, wrong_ans / ans
