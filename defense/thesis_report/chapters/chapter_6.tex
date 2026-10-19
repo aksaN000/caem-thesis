@@ -19,7 +19,7 @@ The thesis set out to reduce confident hallucination in factual question answeri
 \begin{itemize}
     \item \textbf{An architecture:} CAEM routes each question to a verified episodic memory, to zero-shot generation or to retrieval-augmented generation, with a retrieval-utility classifier that decides when retrieval is likely to help (\Cref{ch:methodology}). A verifier of nine signals produces a calibrated probability of correctness; a four-outcome decision stores, defers, abstains on or discards each answer; stored answers are re-checked at every cycle boundary and used to fine-tune a low-rank adapter under a retention guard that rolls the adapter back while keeping the memory.
     \item \textbf{A per-answer reliability signal:} every answer reaches the user with its probability and a status tag (verified, provisional, conflicting or insufficient evidence), and the answer is withheld only when the evidence is insufficient (\Cref{sec:decision}).
-    \item \textbf{A formal analysis of the stored pool:} two proven results, that storage makes the pool purer than the generator's raw output exactly when the verifier's balanced accuracy exceeds one half (\Cref{thm:bayes-purity}) and that the pool's precision is bounded below by the calibration precision when new questions resemble the calibration data (\Cref{thm:purity}), together with design heuristics whose idealising assumptions are stated and checked against the run (\Cref{sec:theory}).
+    \item \textbf{A formal analysis of the stored pool:} two short proven results, a testable precondition and a design target: that storage makes the pool purer than the generator's raw output exactly when the verifier's balanced accuracy exceeds one half (\Cref{thm:bayes-purity}) and that the pool's precision is bounded below by the calibration precision when new questions resemble the calibration data (\Cref{thm:purity}), together with design heuristics whose idealising assumptions are stated and checked against the run (\Cref{sec:theory}).
     \item \textbf{A matched evaluation:} a six-cycle run on five benchmarks against eight baselines under one comparison protocol (the same questions, prompt, scoring rule and hallucination instrument for every system), reported in a model view and a delivered view, with paired tests corrected for multiple comparisons and every reported number rebuilt from the saved answers by one command (\Cref{sec:setup}, \Cref{app:reproducibility}).
     \item \textbf{A diagnosed limit:} a measured account of where verifier-gated self-improvement helps, where it stops helping and why (\Cref{sec:discussion}).
 \end{itemize}
@@ -64,7 +64,7 @@ The limitations are discussed with their evidence in \Cref{sec:disc-threats,sec:
     \item \textbf{The hallucination instrument:} two of the seven CHM subtypes use CAEM's own verifier; exact match and the delivered view's error among answered do not depend on it.
     \item \textbf{No repeated questions:} the evaluation used fresh questions to measure learning, so the memory-direct tier and its cost saving were tested only by the router probe (\Cref{tab:tier1-probe}).
     \item \textbf{Bundled ablation:} the classifier ablation also carries pipeline corrections, so it measures the classifier together with them.
-    \item \textbf{Labels:} CAEM is label-efficient, not label-free; it used about $2{,}100$ gold labels, and a deployment needs a labelled batch at every cycle (\Cref{app:runbook}).
+    \item \textbf{Labels:} CAEM is label-efficient, not label-free; it used about $2{,}100$ gold labels, and a deployment needs a labelled batch at every cycle (\Cref{app:qa-production-fold}).
 \end{itemize}
 
 \subsection{Closing remark}
@@ -83,7 +83,7 @@ The items below follow from the limitations above and from the points that \Cref
 The verifier is close to chance on commonsense, multi-step and misconception questions because its informative signals compare the answer with passages or with the question (\Cref{sec:disc-verifier-scope}). Four changes follow.
 \begin{itemize}
     \item \textbf{Answer-level internal signals:} the token signal scores the whole response, so it measures fluency more than confidence in the answer (\Cref{sec:verifier-internal}); scoring the answer line alone, and computing semantic entropy over the final answers of sampled responses, the setting in which Farquhar et al.~\cite{farquhar2024semantic} found it effective, would give internal signals that track correctness.
-    \item \textbf{Checking the reasoning:} every signal scores the final answer, so a chain with a wrong step and a correct conclusion passes. Applying the atomic-fact check to the reasoning chain, where several facts are asserted, would catch such chains (\Cref{sec:verifier-grounding}).
+    \item \textbf{Checking the reasoning:} every signal scores the final answer, so a chain with a wrong step and a correct conclusion passes. The atomic-fact check gave the same value as the passage-mean signal on every answer of the run, because the answers were too short to decompose (\Cref{sec:verifier-grounding}); applying it to the reasoning chain, where several facts are asserted, would give it something to check and would catch such chains.
     \item \textbf{A learned verifier:} the composite combines fixed signals; a verifier trained on the calibration fold to judge answer and reasoning together, as V-STaR~\cite{hosseini2024vstar} trains its verifier on correct and incorrect self-generated solutions, could learn cues the fixed signals miss. The long-answer judge that was dropped at cycle zero (\Cref{sec:adj-judge-ablation}) could be revisited in the same way.
     \item \textbf{Off-topic answers:} the question-match signal acts as a correctness cue on short answers and does not detect off-topic ones (\Cref{sec:verifier-qa-rel}); a check on the full response, or a judge asked directly whether the answer addresses the question, would let the off-topic subtype of CHM be measured.
 \end{itemize}
@@ -100,6 +100,7 @@ The loop's gains faded after two cycles while confident confabulation rose. Four
 \begin{itemize}
     \item \textbf{Remove context references from training chains:} rewriting or removing references to a context in retrieval-written chains before fine-tuning would have prevented the phantom-context citations (\Cref{sec:disc-phantom}).
     \item \textbf{Weight training answers by confidence:} about one stored answer in four is wrong, and the wrong ones carry lower scores; weighting each training answer by its calibrated probability, or raising the training threshold as the pool grows, would reduce the noise the generator learns from.
+    \item \textbf{Test the cause directly:} retraining from the same starting point on a pool with the wrong answers removed would show whether the erosion after C2 comes from the wrong answers in the pool, as the account above suggests, or from repeated fine-tuning itself.
     \item \textbf{Retry when unsure:} answers the verifier is unsure about are now deferred or withheld; regenerating them, with retrieval or with more samples, before deciding would turn some of those into verified answers.
     \item \textbf{Adapter capacity:} Biderman et al.~\cite{biderman2024lora} find that low-rank adaptation forgets less but learns less than full fine-tuning; comparing ranks, or full fine-tuning on the verified pool, would show whether the plateau is set by the adapter or by the pool.
 \end{itemize}
@@ -134,6 +135,7 @@ A convergence rate, the long-run limit of CHM, and the equilibrium behaviour und
 \begin{itemize}
     \item \textbf{Time per tier:} the batched evaluation log could not separate the time spent in each tier; timing each tier at a batch size of one would fill in the deployment-cost model (\Cref{sec:tier-cost}).
     \item \textbf{The corpus ceiling:} checking, for every evaluation question, whether any retrieved passage contains the gold answer would bound what retrieval can achieve (\Cref{cor:corpus-floor}).
+    \item \textbf{Calibration on more data:} the per-benchmark calibration curves are fitted on $500$ answers, below the size at which Niculescu-Mizil and Caruana~\cite{niculescu2005predicting} find isotonic regression reliable; a larger calibration fold, or a comparison with a parametric fit per benchmark, would show how much the shrinkage toward the pooled fit leaves to chance.
     \item \textbf{Retention of the fine-tuned baseline:} the retention probes were run only on CAEM; running them on B6 would show whether the retention guard protects anything that plain fine-tuning loses.
 \end{itemize}
 
@@ -145,4 +147,4 @@ All results come from one three-billion-parameter generator on English factual q
 \subsection{Deployment study}
 \label{sec:future-deployment}
 
-The memory-direct tier and the production design (\Cref{app:runbook}) were built for traffic in which users repeat questions, which this study did not have. A deployment with live users would measure the share of repeated questions, the cost saving of the memory-direct tier, how users read the status tag, and the labelling effort a cycle needs in practice.
+The memory-direct tier and the production design (\Cref{app:qa-production-fold}) were built for traffic in which users repeat questions, which this study did not have. A deployment with live users would measure the share of repeated questions, the cost saving of the memory-direct tier, how users read the status tag, and the labelling effort a cycle needs in practice. It would also test the memory at a realistic size: the run's memory reached $12{,}175$ entries, so the approximate search and the value-based pruning built for millions of entries were never used.

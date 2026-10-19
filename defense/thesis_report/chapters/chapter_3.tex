@@ -295,7 +295,7 @@ Calibration iteration failure & Cycle-zero composite fails the validation gate &
 \subsection{Compute budget}
 \label{sec:econ-budget}
 
-The compute budget is measured in graphics-processor hours on the rented $32$-gigabyte machine used throughout. The main run took about $193$ hours (\Cref{sec:env-experiment}). The cost of the external baseline panel scales with the number of samples and the number of decode passes per sample, with the chain-of-thought and retrieval-augmented baselines the most expensive. The retrieval-utility-classifier ablation added no run: it compares the main run with the earlier trajectory without the classifier at the cycle-three close, the last cycle that both trajectories committed (the earlier one aborted its cycles four and five under the retention guard). \Cref{app:repro-hardware} also gives a reduced configuration that reproduces the trajectory on a $16$-gigabyte device, so that the cost on smaller hardware can be estimated without re-running the experiment.
+The compute budget is measured in graphics-processor hours on the rented $32$-gigabyte machine used throughout. The main run took about $193$ hours (\Cref{sec:env-experiment}). The cost of the external baseline panel scales with the number of samples and the number of decode passes per sample, with the chain-of-thought and retrieval-augmented baselines the most expensive. The retrieval-utility-classifier ablation added no run: it compares the main run with the earlier trajectory without the classifier at the cycle-three close, the last cycle that both trajectories committed (the earlier one aborted its cycles four and five under the retention guard).
 
 \subsection{Cost-benefit on the storage gate}
 \label{sec:econ-cost-benefit}

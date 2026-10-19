@@ -1567,3 +1567,74 @@ Build: 216 pages, 0 errors, 0 undefined, 0 multiply-defined, 0 biber warnings, 7
 - Summary paragraph rewritten; H4 numbers updated (verdict unchanged: partially supported; H1–H3 use the calibration fold, unchanged).
 - Discussion: matched-comparison paragraph; selectivity as the remaining gain; label efficiency vs B6 (approved wording); TruthfulQA paragraph; NEW sec:disc-verifier-scope (AUROC TriviaQA 0.86/0.79/0.75, FEVER 0.64–0.67, others 0.51–0.62; outputs/analysis/audit_caem_scoring.json). Threats: verifier-free CHM 0.083 vs B6 0.084, B1 0.103; 28/2 (C2), 31/3 (C5) of 40, with the built-in caveat. Limitations: B8 item removed (measured now); verifier-scope and confident-confabulation items added.
 - Build: 0 errors, 0 undefined, 222 pages; figures checked visually.
+
+## Chapter 6 and appendices: final drafting pass (2026-10-19, branch final-version)
+
+Checklist: SESSION_START "for every section" list + standing decisions (early stop not presented as saturation, only thm:purity / thm:bayes-purity proven, digits for quantities, bold lead-ins end in a colon, British spelling, no code names in chapter prose, name the study when relying on it).
+
+### Chapter 6 (rewritten earlier the same day, 7286a15; pass fixes)
+| Location | Change | Reason |
+|---|---|---|
+| sec:concl-contributions | "two proven results" → "two short proven results, a testable precondition and a design target" | theory framing decision (simple but necessary) |
+| sec:future-judge, Checking the reasoning | added: atomic check equalled passage-mean on every run answer (answers too short) | carried Q1 (limitation + future work) |
+| sec:future-lora | added "Test the cause directly" (retrain on a pool with wrong answers removed) | ch5 promise (cleaned-pool retraining not run) |
+| sec:future-latency | added "Calibration on more data" (500-point isotonic, Niculescu-Mizil and Caruana) | ch5 limitation had no future-work item |
+| sec:future-deployment | added memory scale (12,175 entries; approximate search and pruning never used) | ch5 limitation (memory scale) |
+| limitations, deployment refs | \Cref{app:runbook} → \Cref{app:qa-production-fold} | production design is described in appendix G, not the runbook |
+
+### Appendix A
+| Location | Change | Reason |
+|---|---|---|
+| Code and data availability | old Drive subfolders (v2_1_phase1e_main/, pre_main_snapshot/) → numbered layout (1_thesis, 2_results_phase1e/{caem,baselines,analysis}, 3_ruc_ablation_phase1d, 9_archive) | Drive reorganised 2026-10-15/19 |
+| Repository layout | removed "root at the top of the Vast workspace"; outputs row lists full_run, cycle_0, rerun_v2, baselines_phase1e, analysis; thesis path defense/thesis_report; equilibrium.py "SE metric" → equilibrium + early-stop check; added final_sources.py and make_final_results.sh | stale |
+| Registry | safety floor "re-tuned at cycle one" → lowered before the main run after an earlier run (config comment 2026-04-30); "Encoder-convergence" → layer-convergence; lora_r "per Biderman et al. audit on Qwen-class backbones" → design (Biderman used Llama-2); lora alpha/dropout/lr "literature" → design; pool temperature "Du et al. 2022" (not in bibliography) → design; batch size / tau_train provenance wording; h_norm reason → learned weight near zero, largest cost; rag_max_context_tokens "cap on retrieved context" → input-length limit 8×384+512 (rag.py:507); memory_index_type note (exact search below 20,000); pruning "never reached"; num_cycles "closed at cycle five under the equilibrium-saturation gate" → stopped after cycle five as planned | code (config.py, rag.py); standing early-stop rule |
+| Hyperparameters | T "20.09 → 0.74 band" → 20.09 at C0, 0.74 to 1.09 later | calibrated_config_cycle*.json |
+| Runbook | driver path → archive/scripts_superseded/old_runners/run_phase1a.sh; alias dict .pkl from Wikidata → .json from benchmark aliases; cold start "~3,000 candidates, EM prune < 10%" → 603 stored, wrong ones removed, 431 kept (ch4); "Steps 2.1–2.5" → step 2; halt trigger → early-stop check; rollback paragraph rewritten (no "provable no-ops"); post-run steps → pointer to appendix E | code, ch4 |
+| Snapshot reference | section removed (duplicate of appendix E repro-snapshot); refs repointed | redundancy |
+| Hardware and software profile | four paragraphs duplicated in appendix E → one pointer + backbone sentence (digits) | redundancy, number style |
+| Calibration scripts | temperature fit "ECE objective" → NLL with L-BFGS (run_calibration.py:142,199); split path; runtime sentence removed | code |
+| Validation gate reference | legacy bootstrap-composite values (d 0.635; gaps 0.282/0.320/0.258; poisoning 0.206/0.179/0.247; check 4) → locked-composite values matching ch5 sec:adj-gate (d 0.717; FEVER 0.268; FEVER 0.280 / CSQA 0.243; two checks not computable) | outputs/analysis/validation_gate_locked.json; contradicted ch5 |
+
+### Appendix B
+| Location | Change | Reason |
+|---|---|---|
+| title | "Cycle 0 evidence catalog" → "Cycle-zero evidence catalogue" | British spelling, style |
+| cal-eval gap | removed pointer to an archive "narrative note" | undeliverable pointer |
+| judge ablation | shortened; future work → \Cref{sec:future-judge} (ch5 has no future-work item) | wrong pointer, redundancy with ch5 |
+| composite weights | paragraph trimmed ("lock-cycle-zero patch", "cal-fold" jargon) | style |
+| production envelope | PLACEHOLDER tcolorbox ("pending the final main run") → generated table of real C5 TriviaQA answers per status tag (build_final_tables.envelope_examples) | placeholder in the thesis |
+
+### Appendix C
+| Location | Change | Reason |
+|---|---|---|
+| title | "Per-cycle artifact dictionary" → "Per-cycle records" | spelling, content |
+| calibration snapshots | "principled cap", "empirical receipt ... absorbed into the mapping" → plain statement; T at upper bound flattens u_pre | overclaim, jargon |
+| threshold history | duplicated pooled-T column removed; causal claim on CSQA floor removed | redundancy, unsupported |
+| memory table caption | numbers in words → digits; note that the four columns do not add exactly to the net change (≤ 2 per cycle) | number style, arithmetic check |
+| equilibrium section | renamed "Per-cycle outcome and retention probes"; gate description, superseded string-match pooled-EM column and the saturating-exponential fit (R² 0.207, used nowhere) removed | standing early-stop rule; third EM series |
+| fine-tuning section | numbers in words → digits | style |
+
+### Appendix D
+Rewritten earlier the same day (1e7ace7) on the final paired tests; pass: labels end in colons.
+
+### Appendix E
+| Location | Change | Reason |
+|---|---|---|
+| snapshot | Drive subtree names; integrity/manifest prose shortened | Drive layout |
+| run sequence | duplicated stage descriptions → commands only, pointer to appendix A stage graph; non-existent run_retention_baseline.py / upload_pre_main_snapshot.sh → stages of the archived driver | redundancy, non-existent scripts |
+| version pinning | "project does not ship a requirements.txt" → requirements.txt + lock file; datasets 3.0+; anthropic 0.108 to below 1 | repo state |
+| determinism | "seed-everything helper ... cudnn.deterministic true" → seed fixes partitions and fine-tune order, greedy generation, sampled signals random, deterministic mode off, TF32 on | code (no such helper in the runner; model_loader.py) |
+| hardware | per-cycle times "6 h to 22 h", retro "20–30 min" → run-log times 6.0–54.6 h, retro 38 min to 16 h (as ch3); billing-record cost claim removed; judge rescore (API, local) no longer counted as GPU time | contradicted ch3; unverifiable |
+| downgraded 16 GB envelope | paragraph deleted (no such profile in the runner); matching ch3 L298 sentence deleted | undeliverable claim |
+| checklist | Cohen's d receipt +0.635 (legacy) → 0.717 (validation_gate_locked.json) | consistency with ch5 |
+
+### Appendix F (glossary)
+Asymmetric rollback (no "provable no-ops"); CES = epistemic quality (1 − CHM), not "episodic", peak claim removed; CHM "headline hallucination-reduction axis" removed; Cycle (no "distils"); Empirical-precision anchor plain; "Equilibrium-saturation gate ... closes at cycle five under storage-saturation and MMLU-floor signals" → "Early-stop check" (neutral, sec:env-cycles); memory-direct tier answers only repeats; poisoning rate digits; pool purity readings; Production envelope tags (were store-and-serve / retrieve-and-serve) → verified / provisional / conflicting / insufficient; purity slice and test fold "not used in the reported results" (ch5); RUC "closes the regression" → pointer to its ablation (gate 2 failed); stochastic equilibrium plain; FAISS (no cross-encoder index); numbers in words → digits; labels end in colons; alphabetical order fixed.
+
+### Appendix G
+Xiong et al. and Ovadia et al. named; "one-sided lower bound under exchangeability" → plain; earlier-run evidence sentence; "theorem-licensing receipt" → plain; early exit "routes to retrieval-augmented regeneration" → discards, shown as conflicting (verifier.py:1008, pipeline.py:694); storage entry "serves at most a single Tier-1 retrieval" → affects answers served from memory; Natarajan claim → learnability condition (reference_check_2_claims [60]); unverifiable dedup counts removed; numbers to digits.
+
+### Not changed, for the author
+- Appendix B earlier-panel material (prompt_compliance, atomic_scope, tab_prompt_design_ablation with NQ/ARC-C rows, precision_cliff figure + table from an earlier composite): decision requested.
+- 28 generated tables in figures/auto/ are never \input (list in drafting_review_progress.md).
+- docs/PRODUCTION_RUNBOOK.md §5 still mentions "the L2 anchor" (λ = 0 on the LoRA path): repo tracker.

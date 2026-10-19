@@ -17,6 +17,7 @@ v2) and the CHM cells always come from the same source.
   tab_storage_pool_quality.tex   stored training-panel answers, precision, training-threshold pool (eval fold, stream chunks)
   tab_u_stored_distribution.tex  stored answers and EM by score band (eval fold, stream chunks)
   tab_decision_matrix_trajectory.tex  correct / wrong per decision at C2 and C5
+  tab_production_envelope_examples.tex  TriviaQA answers at C5 as the user sees them, two per status tag
 Stream-chunk answers (training panel) are scored on the fly with the same uniform rule (eval.metrics.score_uniform).
 """
 import json
@@ -439,6 +440,43 @@ def decision_matrix():
 """)
 
 
+def tex(x):
+    for a, b in (("\\", r"\textbackslash{}"), ("&", r"\&"), ("%", r"\%"), ("$", r"\$"), ("#", r"\#"), ("_", r"\_"),
+                 ("{", r"\{"), ("}", r"\}"), ("~", r"\textasciitilde{}"), ("^", r"\textasciicircum{}")):
+        x = x.replace(a, b)
+    return x
+
+
+def envelope_examples():
+    """Two TriviaQA answers per status tag at C5 (first correct and first wrong by question id), as the user sees them."""
+    from eval.metrics import final_answer_line
+    S = sorted(caem_eval(5, "triviaqa"), key=lambda s: str(s["id"]))
+    rows = []
+    for tag, shown in (("verified", "answer"), ("provisional", "answer, with a reconsider caveat"),
+                       ("conflicting", "answer, with a warning"), ("insufficient", "insufficient-evidence message")):
+        xs = [s for s in S if (s.get("production_response") or {}).get("tag") == tag]
+        pick = [x for x in (next((s for s in xs if s["ok"] == 1.0), None), next((s for s in xs if s["ok"] == 0.0), None)) if x]
+        for s in pick:
+            q = s["question"] if len(s["question"]) <= 70 else s["question"][:67].rstrip() + "..."
+            a = "(withheld)" if tag == "insufficient" else (lambda t: t if len(t) <= 40 else t[:37].rstrip() + "...")(final_answer_line(s.get("prediction") or ""))
+            rows.append(f"{tag} & {tex(q)} & {tex(a)} & ${100 * s['production_response']['confidence']:.0f}\\%$ & "
+                        f"{'yes' if s['ok'] == 1.0 else 'no'} \\\\")
+    write("tab_production_envelope_examples.tex", r"""\begin{table}[!htbp]
+\centering\footnotesize
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{@{}l>{\raggedright\arraybackslash}p{6.4cm}>{\raggedright\arraybackslash}p{2.6cm}rc@{}}
+\toprule
+\textbf{Tag} & \textbf{Question} & \textbf{Answer shown} & \textbf{Conf.} & \textbf{Correct} \\
+\midrule
+""" + "\n".join(rows) + r"""
+\bottomrule
+\end{tabular}
+\caption[What the user sees for each status tag.]{TriviaQA answers at C5 as the user sees them, one right and one wrong per status tag where both occur. Verified answers are shown plainly, provisional ones with a caveat that the system will reconsider them, conflicting ones with a warning, and insufficient-evidence answers are replaced by a message; every answer carries its calibrated probability (Conf.).}
+\label{tab:production-envelope-examples}
+\end{table}
+""")
+
+
 if __name__ == "__main__":
     per_bench()
     subtypes()
@@ -450,4 +488,5 @@ if __name__ == "__main__":
     tier_shares()
     storage_pool()
     decision_matrix()
+    envelope_examples()
     print("ok")

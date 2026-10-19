@@ -16,8 +16,8 @@ Baseline build (latexmk, 2026-10-16): 324 pages, 0 errors, 0 undefined refs/cita
 | Chapter 3 | done; author read-through closed 2026-10-16; merged (PR #8) | branch `review/ch3`; 6 437 → 4 861 words |
 | Chapter 4 | Claude pass done (full rewrite + 6 figures); PR open; awaiting author's read | branch `review/ch4`; ~21 000 → ~9 700 words |
 | Chapter 5 | pending | pre-found issues: `archive/audits/thesis_audit_2026-10-15/review_ch5_part1.md` |
-| Chapter 6 | pending | pre-found issues: `review_ch5_part2_ch6.md` |
-| Appendices A–G | pending | |
+| Chapter 6 | rewritten on final numbers (7286a15) + checklist pass 2026-10-19; awaiting author's read | branch final-version |
+| Appendices A–G | checklist pass 2026-10-19 (fixes_applied.md); appendix B earlier-panel decision pending; awaiting author's read | branch final-version |
 | Bibliography | pending | |
 | Whole-document pass | pending | |
 
@@ -274,3 +274,8 @@ ch5 decision is made (locked configuration is not the criterion-3 maximum; justi
   "clean StrategyQA win", "parity with fine-tuned baselines", "deployed cost envelope / without scaling".
 - **B8 decided (author's group, 2026-10-16, no budget):** B8 CHM reported as unavailable in ch5 (tables n/a, figure omits B8, limitation + future work). CHM counts without B8: C5 19 wins / 2 defeats of 30; C2 18 / 3. ch6 must add 'rescore the corrected B8 run' to future work; abstract/ch6 'every baseline' → 'every baseline whose CHM was measured'.
 - **Paired CHM test (next session):** replace the approximate CHM test with a paired Wilcoxon + Holm from `eval/metrics.py::per_sample_chm` (validated for CAEM C2/C5 and B1–B7; B6 at c5); then fix appendix D (L63 Wilcoxon claim, L96 Holm 'each axis', CHM floor 0.01 not 0.02).
+
+## Chapter 6 and appendices pass (2026-10-19)
+- Done: see fixes_applied.md "Chapter 6 and appendices". Build 0 errors, 0 undefined, 0 multiply defined.
+- **Decision pending (author):** appendix B tables from an earlier panel or composite: prompt_compliance, atomic_scope, tab_prompt_design_ablation (rows NQ, ARC-C; no CommonsenseQA), precision_cliff figure + table (transfer n=2000, earlier composite; contradicts the locked configuration). No chapter cites them.
+- **Unused generated tables (never \input):** cross_benchmark_summary fig_ustored_calibration tab_ablation_results tab_audit_summary tab_ces_per_system tab_claim_evidence_map tab_consolidation_trajectory tab_continual tab_continual_retention tab_cycle_progression tab_deferred_buffer_ttl tab_grounding tab_grounding_success_distribution tab_headline_decomposition tab_headline_decomposition_capability tab_memory_store_trajectory tab_per_tier_em_capability tab_phase1d_vs_phase1e_ruc tab_pooled_trajectory tab_purity tab_safety_override tab_sig_test tab_sig_test_c2 tab_signal_fingerprint tab_stochastic_equilibrium tab_survival_distribution tab_tier_baseline_cost tab_tier_latency. Many carry superseded numbers; propose moving them to archive/.
