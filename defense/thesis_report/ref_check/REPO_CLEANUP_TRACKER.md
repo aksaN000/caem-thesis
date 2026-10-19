@@ -2,7 +2,7 @@
 
 Every code, script, data or table problem found during the final drafting pass (chapters 1 to 6, appendices, from the first session onward) is listed here, so the
 clean-up phase after the chapter pass can work through it as a checklist. Add a row whenever a new one is
-found. Status: OPEN, FIXED (in code), DOCUMENTED (left as is, explained), or WORKAROUND (thesis uses a
+found. Status (re-checked 2026-10-19): OPEN, FIXED (in code), DOCUMENTED (left as is, explained), or WORKAROUND (thesis uses a
 corrected copy; generator still stale).
 
 ## Goal of the clean-up phase
@@ -33,15 +33,15 @@ corrected copy; generator still stale).
 ## Data and provenance problems
 | # | Where | Problem | Status |
 |---|---|---|---|
-| D1 | `outputs/baselines_phase1e/chm_comparison.json` (semantic_entropy) | B8 CHM comes from the OLD broken SE run (`baselines_phase1e_pre_se_rerun_backup`, rescored 2026-05-29); corrected run (2026-06-06) never rescored (u_stored None). | DOCUMENTED 2026-10-16 (no budget): B8 CHM reported as unavailable; sig/pooled tables set to n/a by hand; rescore = future work |
+| D1 | `outputs/baselines_phase1e/chm_comparison.json` (semantic_entropy) | B8 CHM comes from the OLD broken SE run (`baselines_phase1e_pre_se_rerun_backup`, rescored 2026-05-29); corrected run (2026-06-06) never rescored (u_stored None). | FIXED 2026-10-19: B8 re-run with verifier pass (rerun_v2); old file in `outputs/superseded_2026-10/` |
 | D2 | `outputs/cycle_0/eval/*_cycle0.json` | `u_stored` from the legacy weighted-sum bootstrap composite, not the locked composite (sweep README finding 1). | WORKAROUND (`scripts/recompute_validation_gate.py`) |
 | D3 | `outputs/full_run/pi_store_trajectory.csv` row C0 | "weight_validation" reading (validation fold, five benchmarks, legacy composite) mixed into a calibration-fold series. | WORKAROUND (table hand-corrected) |
-| D4 | `outputs/baselines_phase1e/vanilla_ft/eval/*_cycle3_with_chm.json` | Same CHM as cycle 5 (e.g. FEVER 0.1308 both): c3 file appears to be a copy of c5. | OPEN (check) |
+| D4 | `outputs/baselines_phase1e/vanilla_ft/eval/*_cycle3_with_chm.json` | Same CHM as cycle 5 (e.g. FEVER 0.1308 both): c3 file appears to be a copy of c5. | FIXED 2026-10-19: B6 evaluated at C5 only in the re-run; run-1 eval files in `outputs/superseded_2026-10/` |
 | D5 | Cycle-zero sweep numbers "306/478", "70/105" | Not produced by any variant; no source. | DOCUMENTED (removed from thesis) |
 | D6 | `SIL_POISON_DRIFT_FINDINGS.md` | Static diagnosis; the causal ablation it proposes was never run. | DOCUMENTED |
 | D8 | Dropped benchmarks (HotpotQA, NQ) | Receipts only on Drive `9_archive/` (`hotpotqa_cycle0.json`, `natural_questions_cycle0.json`); not in the repo outputs. (ch1 session) | DOCUMENTED |
 | D9 | Cold-start memory | 603 verified seed answers, 172 wrong ones removed with gold labels (`em_pruning_report.json`); HotpotQA entries stripped (`memory_store_pre_v21_strip.meta`). Pipeline step not a single script. (ch4 session) | OPEN (document as one stage) |
-| D7 | Drive layout | Appendix A names old subfolders (`v2_1_phase1e_main/`, `pre_main_snapshot/`) that predate the numbered layout. | OPEN (appendix session) |
+| D7 | Drive layout | Appendix A names old subfolders (`v2_1_phase1e_main/`, `pre_main_snapshot/`) that predate the numbered layout. | FIXED 2026-10-19: appendix A/E use the numbered Drive layout |
 
 ## Stale or hand-edited generated tables (generator does not reproduce the committed file)
 | # | Table | Generator | Hand edit | Status |
@@ -50,17 +50,17 @@ corrected copy; generator still stale).
 | T2 | `tab_pi_store_trajectory.tex` | aggregate_section_5_* | C0 cal cell + caption | WORKAROUND |
 | T3 | `cohen_d.tex` | aggregate_section_5_7 | u_stored row + caption | WORKAROUND |
 | T4 | `sweep_top.tex` | aggregate_section_5_* | rationale cells + caption | WORKAROUND |
-| T5 | `tab_validation_gate.tex`, `cross_benchmark_summary.tex` | aggregate_section_5_7 | superseded by `*_locked.tex` from `scripts/recompute_validation_gate.py` | WORKAROUND (old files no longer input); 2026-10-17 cross-bench merged into tab_validation_gate_locked, file removed |
-| T6 | `tab_tier_baseline_cost.tex` | placeholder stub | never input | OPEN (delete) |
+| T5 | `tab_validation_gate.tex`, `cross_benchmark_summary.tex` | aggregate_section_5_7 | superseded by `*_locked.tex` from `scripts/recompute_validation_gate.py` | FIXED 2026-10-19: old files moved to `archive/figures_unused_2026-10/`; thesis uses `tab_validation_gate_locked` |
+| T6 | `tab_tier_baseline_cost.tex` | placeholder stub | never input | FIXED 2026-10-19: moved to `archive/figures_unused_2026-10/` |
 | T7 | Ch5 table captions (about 20 files) | various | shortened by hand in the ch5 caption pass | WORKAROUND |
-| T8 | Uninput auto tables (tab_headline, tab_purity, tab_calibration, tab_continual, ... see review_ch5_part2_ch6.md §17) | various | -- | OPEN (archive or delete) |
+| T8 | Uninput auto tables (tab_headline, tab_purity, tab_calibration, tab_continual, ... see review_ch5_part2_ch6.md §17) | various | -- | FIXED 2026-10-19: 32 never-input tables moved to `archive/figures_unused_2026-10/` (README) |
 
 ## Scripts that are dangerous or misleading to run
 | # | Script | Problem | Status |
 |---|---|---|---|
 | S1 | `scripts/aggregate_section_5_*` | Run on import and overwrite committed tables. | OPEN (guard with `if __name__ == "__main__"`) |
-| S2 | No `requirements.txt` / `pyproject.toml` | Versions only reconstructed in appendix E. | OPEN |
-| S4 | Repository tags/branches | Only two Git tags; no tag per cycle as chapter 3 once claimed. (ch3 session) | DOCUMENTED |
+| S2 | No `requirements.txt` / `pyproject.toml` | Versions only reconstructed in appendix E. | FIXED 2026-10-17: `requirements.txt` + `requirements-lock-rental-2026-10-18.txt` |
+| S4 | Repository tags/branches | Only two Git tags; no tag per cycle as chapter 3 once claimed. (ch3 session) | DOCUMENTED; 2026-10-19: merged review branches deleted, `final-version` is the default branch |
 | S5 | `outputs/` is git-ignored | Evidence JSONs needed by the thesis are force-added one by one (`git add -f`). | OPEN (decide what evidence lives in the repo vs Drive) |
 | S3 | `scripts/baseline_sig_tests.py` docstring | Talks about "CAEM cycle 10" and B7 `ewc_only_ft`; real run pins C5/C2 and B7 is FLARE. | OPEN |
 
@@ -83,10 +83,10 @@ corrected copy; generator still stale).
 | D11 | CHM correctness label on TruthfulQA (`eval/metrics.py` reads `em`; baseline `*_with_chm.json` files) | CHM uses the harness `em` field, which for TruthfulQA is ROUGE-L > 0.15, while EM uses the Haiku judge. Judged label changes pooled CHM: B1 0.120→0.137, C0 0.135→0.134, C2 0.107→0.110, C5 0.109→0.117; TQA CHM defeats vs B1/B2 vanish. FLARE `_with_chm` file lacks the judged field (it is in the raw file). | FIXED in thesis 2026-10-17 (author: "truthfulqa always works with haiku, any other thing used is stale method"): `scripts/recompute_chm_judged.py` → `outputs/analysis/chm_judged.json`; `scripts/patch_chm_judged_tables.py` patches the hand-laid tables; builder + paired tests read it. Clean-up: make `eval/metrics.py` take the judged label for TruthfulQA so every generator agrees |
 | T10 | `tab_memory_dynamics.tex` | Hand-merged from tab_memory_store_trajectory + tab_survival_distribution + tab_consolidation_trajectory (values unchanged) | WORKAROUND |
 | T11 | ch5 body tables (per_bench, halluc_subtypes, decision_distribution, tier_trajectory, sil_training, storage_pool_quality, gate_quality, pi_store, theorem_receipts, cohen_d, baseline_pooled, ruc_ablation) | Layout hand-edited: \small, no \resizebox, notes moved below tabular, shorter headers, relative-% cells dropped | WORKAROUND (generators still emit old layout) |
-| S6 | `scripts/baseline_sig_tests_v2.py`, `tab_sig_test*.tex` | Superseded by `paired_baseline_tests.py` (`tab_sig_summary`, `tab_sig_full_c5/c2`) | OPEN (archive) |
+| S6 | `scripts/baseline_sig_tests_v2.py`, `tab_sig_test*.tex` | Superseded by `paired_baseline_tests.py` (`tab_sig_summary`, `tab_sig_full_c5/c2`) | FIXED 2026-10-19: script in `archive/scripts_superseded/`, tables in `archive/figures_unused_2026-10/` |
 | D12 | `tab_baseline_pooled` B4 pooled EM | Committed 0.464 dropped 16 empty TruthfulQA answers (judge could not parse) from the denominator; counting them wrong (as the per-benchmark EM 0.240 does) gives 0.461 | FIXED 2026-10-17 |
 | D13 | ch5 H4 verdict reading | Cited R² 0.207 of the saturating fit, which is fitted on the EM history (appendix C), not CHM | FIXED 2026-10-17 (clause replaced; verdict unchanged) |
-| D14 | ch6 L27 and other ch6 numbers | Still carry ROUGE-era CHM values (e.g. B1 0.120) | OPEN (ch6 pass) |
+| D14 | ch6 L27 and other ch6 numbers | Still carry ROUGE-era CHM values (e.g. B1 0.120) | FIXED 2026-10-19: ch6 rewritten on `outputs/analysis/chm_judged.json` |
 | D15 | B5 five-shot CoT baseline (`scripts/run_baseline.py`, FEVER demonstrations) | B5 answers with a FEVER label ("supports"/"refutes"/"not enough info") on 235/300 TriviaQA and 289/300 TruthfulQA questions: the FEVER-only demonstrations taught the label format. Explains B5's lowest EM (0.405); CAEM wins against B5 partly reflect this baseline flaw. | OPEN (disclose in ch5 B5 bullet; future: benchmark-matched demonstrations) |
 | C15 | Off-topic detection (follow-up to C14) | Post-hoc reranker on the full response (`scripts/score_response_relevance.py` → `outputs/analysis/response_relevance.json`) fails validation against 200 labels (`outputs/analysis/off_topic_validation_sample.json`, 15 off-topic): precision 0.12, recall 0.40. Bare-answer run signal separates correct/wrong as well or better (AUROC C0 TriviaQA 0.798 vs 0.745), so the verifier was not harmed. LLM judge script ready (`scripts/judge_off_topic.py`, Haiku) but blocked: API key on this machine rejected (rotated). | DOCUMENTED 2026-10-17: Haiku judge (new key) vs 200 labels: agreement 0.78, kappa 0.35 held-out → not reliable; off-topic excluded from CHM (mean of 7), detection = future work |
 
