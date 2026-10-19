@@ -31,20 +31,6 @@ The first iteration of the cycle-zero calibration failed the pre-specified valid
 
 The Platt fit diagnostic that licensed the ablation of the long-hypothesis judge is recorded in the long-hypothesis-judge Platt-ablation calibration record. The two persisted headline statistics are the observed Pearson $\rho = 0.5843$ in logit space and the pre-specified floor of $\rho_{\min} = 0.70$ against which the observed correlation is audited. The judge therefore failed the floor and was dropped, so every hypothesis is judged by MiniCheck with inputs truncated at $512$ tokens (\Cref{sec:adj-judge-ablation}); revisiting it is future work (\Cref{sec:future-judge}). The per-sample trace is kept in the judge's diagnostic log.
 
-\section{Pre and post prompt-fix compliance}
-\label{app:prompt-compliance}
-
-The per-benchmark empty-answer and abstention rates before and after the registered prompt-design fixes are auto-generated from the cycle-zero evaluation outputs.
-
-\input{figures/auto/prompt_compliance.tex}
-
-\section{Atomic decomposition coverage}
-\label{app:atomic-coverage}
-
-The per-benchmark coverage of the atomic-fact decomposition signal $p_{\text{ground,atomic}}$, conditioned on the registered length gate of $12$ tokens, is auto-generated below.
-
-\input{figures/auto/atomic_scope.tex}
-
 \section{Composite weight table}
 \label{app:composite-weights}
 
@@ -52,30 +38,9 @@ The per-benchmark coverage of the atomic-fact decomposition signal $p_{\text{gro
 
 \input{figures/auto/composite_weights.tex}
 
-\section{Per-benchmark precision-cliff curves}
-\label{app:precision-cliff}
-
-The threshold-versus-precision tradeoff at the locked storage cut-point $\tau_{\text{store}}=0.60$, which licenses the rate-precision frontier discussed in \Cref{sec:disc-sensitivity}, is auto-generated below: \Cref{fig:precision-cliff} renders the curve and \Cref{tab:precision-cliff} reports the underlying threshold and precision values.
-
-\begin{figure}[!htbp]
-\centering
-\includegraphics[width=0.85\textwidth]{figures/auto/precision_cliff.pdf}
-\caption[Per-benchmark precision-cliff curves at the locked configuration]{Per-benchmark precision-cliff curves at the locked configuration. Auto-generated from the precision-cliff diagnostic; the underlying threshold-versus-precision data are in \Cref{tab:precision-cliff}.}
-\label{fig:precision-cliff}
-\end{figure}
-
-\input{figures/auto/precision_cliff.tex}
-
 \section{Example answers under each status tag}
 \label{app:production-envelope}
 
 \Cref{tab:production-envelope-examples} shows real answers from the evaluation fold at C5 as the user would see them under each status tag (\Cref{sec:decision}), with whether each answer was right. A verified answer can still be wrong, and a withheld answer can be right; the tag is a probability, not a guarantee (\Cref{tab:status-tags}).
 
 \input{figures/auto/tab_production_envelope_examples.tex}
-
-\section{Prompt-design ablation}
-\label{app:prompt-design-ablation}
-
-The pre-specified prompt-design ablation isolates the contribution of two prompt fixes (the empty-answer compliance fix and the open-QA over-abstention fix) by re-running the cycle-zero evaluation under the pre-fix prompt template family and comparing against the post-fix template family on the identical evaluation fold.
-
-\input{figures/auto/tab_prompt_design_ablation.tex}

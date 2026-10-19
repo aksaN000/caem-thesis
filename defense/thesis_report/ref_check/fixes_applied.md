@@ -1638,3 +1638,7 @@ Xiong et al. and Ovadia et al. named; "one-sided lower bound under exchangeabili
 - Appendix B earlier-panel material (prompt_compliance, atomic_scope, tab_prompt_design_ablation with NQ/ARC-C rows, precision_cliff figure + table from an earlier composite): decision requested.
 - 28 generated tables in figures/auto/ are never \input (list in drafting_review_progress.md).
 - docs/PRODUCTION_RUNBOOK.md §5 still mentions "the L2 anchor" (λ = 0 on the LoRA path): repo tracker.
+
+### Author decisions (2026-10-19, same session)
+- Appendix B: the four earlier-panel / earlier-composite sections deleted (prompt compliance, atomic coverage, precision cliff, prompt-design ablation); their files moved with the rest.
+- 32 never-included generated tables (+ precision_cliff.pdf) moved from figures/auto/ to archive/figures_unused_2026-10/ with a README.
